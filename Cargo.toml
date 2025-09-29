@@ -1,0 +1,169 @@
+[package]
+name = "rust-libmagic"
+version = "0.1.0"
+edition = "2021"
+authors = [
+    "UncleSp1d3r <unclespid3r@evilbitlabs.io>",
+    "KryptoKat <kryptokat@evilbitlabs.io>",
+]
+description = "A pure-Rust implementation of libmagic for file type identification"
+license = "Apache-2.0"
+repository = "https://github.com/EvilBit-Labs/libmagic-rs"
+keywords = ["file", "magic", "libmagic", "file-type", "identification"]
+categories = ["command-line-utilities", "parsing"]
+rust-version = "1.85"
+readme = "README.md"
+exclude = [
+    "/spec",
+    "/docs",
+    "/.kiro",
+    "/.cursor",
+    "/.vscode",
+    "/.github",
+    "/.git",
+    "/.env.*",
+    "*.orig",
+]
+
+[[bin]]
+name = "rmagic"
+path = "src/main.rs"
+
+[dependencies]
+# Core serialization and error handling
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0.17"
+
+# Memory-mapped file I/O
+memmap2 = "0.9"
+
+# Endianness handling
+byteorder = "1.5"
+
+# Parser combinators
+nom = "8.0.0"
+
+# CLI argument parsing
+clap = { version = "4.4", features = ["derive"] }
+
+[dev-dependencies]
+# Testing utilities
+criterion = "0.7.0"
+proptest = "1.4"
+
+# Workspace lint configuration
+[workspace.lints.rust]
+# Security: Forbid unsafe code globally
+unsafe_code = "forbid"
+# Zero warnings policy
+warnings = "deny"
+
+[workspace.lints.clippy]
+# Pedantic clippy configuration with proper priorities
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+
+# Security-focused linting
+as_conversions = "warn"
+as_ptr_cast_mut = "warn"
+cast_ptr_alignment = "warn"
+float_cmp = "warn"
+indexing_slicing = "warn"
+arithmetic_side_effects = "warn"
+integer_division = "warn"
+modulo_arithmetic = "warn"
+expect_used = "warn"
+
+# Security anti-patterns
+# allow_attributes = "warn" # I think we need them for test and benchmarks
+dbg_macro = "warn"
+# print_stdout = "warn" # TODO: Revisit this
+# print_stderr = "warn"
+todo = "warn"
+unimplemented = "warn"
+unreachable = "warn"
+panic = "deny"          # DON'T PANIC IN PRODUCTION (it would be forbidden, but it breaks clap for some reason, so just don't do it)
+unwrap_used = "deny"      # DON'T UNWRAP IN PRODUCTION
+exhaustive_enums = "warn"
+
+# Performance and correctness
+perf = { level = "warn", priority = -1 }
+await_holding_lock = "deny"
+clone_on_ref_ptr = "warn"
+create_dir = "warn"
+exit = "warn"
+filetype_is_file = "warn"
+float_equality_without_abs = "warn"
+if_then_some_else_none = "warn"
+# invalid_from_utf8_unchecked = "warn"  # Not available in clippy
+large_stack_arrays = "warn"
+let_underscore_must_use = "warn"
+lossy_float_literal = "warn"
+map_err_ignore = "warn"
+match_same_arms = "warn"
+missing_assert_message = "warn"
+missing_docs_in_private_items = "allow"
+mixed_read_write_in_expression = "warn"
+mutex_atomic = "warn"
+mutex_integer = "warn"
+non_ascii_literal = "warn"
+non_send_fields_in_send_ty = "warn"
+partial_pub_fields = "warn"
+pattern_type_mismatch = "warn"
+rc_buffer = "warn"
+rc_mutex = "warn"
+redundant_type_annotations = "warn"
+ref_binding_to_reference = "warn"
+same_name_method = "warn"
+self_named_module_files = "warn"
+semicolon_inside_block = "warn"
+semicolon_outside_block = "warn"
+shadow_reuse = "warn"
+shadow_same = "warn"
+shadow_unrelated = "warn"
+str_to_string = "warn"
+string_add = "warn"
+string_add_assign = "warn"
+string_lit_as_bytes = "warn"
+string_slice = "warn"
+suspicious_operation_groupings = "warn"
+trailing_empty_array = "warn"
+transmute_undefined_repr = "warn"
+trivial_regex = "warn"
+undocumented_unsafe_blocks = "deny" # We should not have unsafe code in this project, but if we do, we should document it
+unnecessary_self_imports = "warn"
+unseparated_literal_suffix = "warn"
+unused_async = "warn"
+unused_peekable = "warn"
+unused_rounding = "warn"
+use_debug = "warn"
+verbose_file_reads = "warn"
+wildcard_enum_match_arm = "warn"
+zero_sized_map_values = "warn"
+
+# Allow specific lints that are too noisy for this project
+missing_errors_doc = "allow"       # TODO: Revisit this
+missing_panics_doc = "allow"       # TODO: Revisit this
+must_use_candidate = "allow"       # TODO: Revisit this
+cast_possible_truncation = "allow" # TODO: Revisit this
+cast_precision_loss = "allow"      # TODO: Revisit this
+cast_sign_loss = "allow"           # TODO: Revisit this
+module_name_repetitions = "allow"  # TODO: Revisit this
+similar_names = "allow"            # TODO: Revisit this
+too_many_lines = "allow"           # TODO: Revisit this
+type_complexity = "allow"          # TODO: Revisit this
+async_yields_async = "allow"       # TODO: Revisit this
+large_futures = "allow"            # TODO: Revisit this
+result_large_err = "allow"         # TODO: Revisit this
+cargo_common_metadata = "allow"    # TODO: Revisit this
+multiple_crate_versions = "allow"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+overflow-checks = true
