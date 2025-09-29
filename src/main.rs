@@ -1,10 +1,10 @@
-//! Command-line interface for rust-libmagic
+//! Command-line interface for libmagic-rs
 //!
 //! This binary provides a CLI tool for file type identification using magic rules,
 //! serving as a drop-in replacement for the GNU `file` command.
 
 use clap::{Arg, Command};
-use rust_libmagic::{LibmagicError, MagicDatabase};
+use libmagic_rs::{LibmagicError, MagicDatabase};
 use std::path::Path;
 use std::process;
 

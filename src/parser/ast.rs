@@ -13,7 +13,7 @@ pub enum OffsetSpec {
     /// # Examples
     ///
     /// ```
-    /// use rust_libmagic::parser::ast::OffsetSpec;
+    /// use libmagic_rs::parser::ast::OffsetSpec;
     ///
     /// let offset = OffsetSpec::Absolute(0x10); // Read at byte 16
     /// let negative = OffsetSpec::Absolute(-4); // 4 bytes before current position
@@ -28,7 +28,7 @@ pub enum OffsetSpec {
     /// # Examples
     ///
     /// ```
-    /// use rust_libmagic::parser::ast::{OffsetSpec, TypeKind, Endianness};
+    /// use libmagic_rs::parser::ast::{OffsetSpec, TypeKind, Endianness};
     ///
     /// let indirect = OffsetSpec::Indirect {
     ///     base_offset: 0x20,
@@ -53,7 +53,7 @@ pub enum OffsetSpec {
     /// # Examples
     ///
     /// ```
-    /// use rust_libmagic::parser::ast::OffsetSpec;
+    /// use libmagic_rs::parser::ast::OffsetSpec;
     ///
     /// let relative = OffsetSpec::Relative(8); // 8 bytes after previous match
     /// ```
@@ -64,7 +64,7 @@ pub enum OffsetSpec {
     /// # Examples
     ///
     /// ```
-    /// use rust_libmagic::parser::ast::OffsetSpec;
+    /// use libmagic_rs::parser::ast::OffsetSpec;
     ///
     /// let from_end = OffsetSpec::FromEnd(-16); // 16 bytes before end of file
     /// ```

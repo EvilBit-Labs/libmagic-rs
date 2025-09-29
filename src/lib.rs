@@ -7,7 +7,7 @@
 //! # Examples
 //!
 //! ```rust,no_run
-//! use rust_libmagic::{MagicDatabase, EvaluationConfig};
+//! use libmagic_rs::{MagicDatabase, EvaluationConfig};
 //!
 //! // Load magic rules from file
 //! let db = MagicDatabase::load_from_file("magic.db")?;
