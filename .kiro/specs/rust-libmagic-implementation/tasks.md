@@ -93,14 +93,14 @@
   - Write unit tests for value parsing with various literal formats
   - _Requirements: 1.1, 1.6_
 
-- [ ] 4. Create basic file buffer structure
+- [x] 4. Create basic file buffer structure
 
   - Create src/io/mod.rs with FileBuffer struct using memmap2
   - Implement new() method for creating memory-mapped file buffers
   - Add as_slice() method for safe buffer access
   - _Requirements: 3.3, 3.4_
 
-- [ ] 4.1 Add file buffer error handling
+- [x] 4.1 Add file buffer error handling
 
   - Create IoError type for file access errors in io/mod.rs
   - Implement proper error handling in FileBuffer::new() with descriptive messages
@@ -108,7 +108,7 @@
   - Write unit tests for file buffer creation with invalid files
   - _Requirements: 3.5, 6.5_
 
-- [ ] 4.2 Add buffer bounds checking helpers
+- [x] 4.2 Add buffer bounds checking helpers
 
   - Create safe_read_bytes function in io/mod.rs for bounds-checked buffer access
   - Implement buffer length validation and overflow prevention
