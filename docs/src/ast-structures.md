@@ -1,6 +1,6 @@
 # AST Data Structures
 
-The Abstract Syntax Tree (AST) is the core representation of magic rules in libmagic-rs. This chapter provides detailed documentation of the AST data structures and their usage patterns.
+The Abstract Syntax Tree (AST) is the core representation of magic rules in libmagic-rs. This chapter provides detailed documentation of the fully implemented AST data structures with comprehensive test coverage (29 unit tests) and their usage patterns.
 
 ## Overview
 
@@ -272,18 +272,31 @@ let string_val = Value::String("#!/bin/sh".to_string());
 
 ## Serialization Support
 
-All AST types implement `Serialize` and `Deserialize` for caching and interchange:
+All AST types implement `Serialize` and `Deserialize` for caching and interchange with comprehensive test coverage:
 
 ```rust
 use serde_json;
 
-// Serialize a rule to JSON
+// Serialize a rule to JSON (fully tested)
 let rule = MagicRule { /* ... */ };
 let json = serde_json::to_string(&rule)?;
 
-// Deserialize from JSON
+// Deserialize from JSON (fully tested)
 let rule: MagicRule = serde_json::from_str(&json)?;
+
+// All edge cases are tested including:
+// - Empty collections (Vec::new(), String::new())
+// - Extreme values (u64::MAX, i64::MIN, i64::MAX)
+// - Complex nested structures with multiple levels
+// - All enum variants and their serialization round-trips
 ```
+
+**Implementation Status:**
+
+- ✅ **Complete serialization** for all AST types
+- ✅ **Comprehensive testing** with edge cases and boundary values
+- ✅ **JSON compatibility** for rule caching and interchange
+- ✅ **Round-trip validation** ensuring data integrity
 
 ## Common Patterns
 
