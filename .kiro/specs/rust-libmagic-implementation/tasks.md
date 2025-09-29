@@ -65,7 +65,7 @@
   - Write unit tests for number parsing with various formats
   - _Requirements: 1.1, 1.6_
 
-- [ ] 3.1 Implement offset parsing
+- [x] 3.1 Implement offset parsing
 
   - Add parse_offset function to grammar.rs for absolute offset parsing
   - Support decimal and hexadecimal offset formats

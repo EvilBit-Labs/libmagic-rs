@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn test_offset_spec_debug() {
         let offset = OffsetSpec::Absolute(100);
-        let debug_str = format!("{:?}", offset);
+        let debug_str = format!("{offset:?}");
         assert!(debug_str.contains("Absolute"));
         assert!(debug_str.contains("100"));
     }
@@ -287,8 +287,7 @@ mod tests {
                 if i != j {
                     assert_ne!(
                         variant, other,
-                        "Variants at indices {} and {} should be different",
-                        i, j
+                        "Variants at indices {i} and {j} should be different"
                     );
                 }
             }
@@ -394,12 +393,12 @@ mod tests {
     #[test]
     fn test_value_debug() {
         let uint_val = Value::Uint(123);
-        let debug_str = format!("{:?}", uint_val);
+        let debug_str = format!("{uint_val:?}");
         assert!(debug_str.contains("Uint"));
         assert!(debug_str.contains("123"));
 
         let string_val = Value::String("test".to_string());
-        let debug_str = format!("{:?}", string_val);
+        let debug_str = format!("{string_val:?}");
         assert!(debug_str.contains("String"));
         assert!(debug_str.contains("test"));
     }
@@ -476,17 +475,17 @@ mod tests {
 
     #[test]
     fn test_type_kind_short() {
-        let short_le = TypeKind::Short {
+        let short_little_endian = TypeKind::Short {
             endian: Endianness::Little,
             signed: false,
         };
-        let short_be = TypeKind::Short {
+        let short_big_endian = TypeKind::Short {
             endian: Endianness::Big,
             signed: true,
         };
 
-        assert_ne!(short_le, short_be);
-        assert_eq!(short_le, short_le.clone());
+        assert_ne!(short_little_endian, short_big_endian);
+        assert_eq!(short_little_endian, short_little_endian.clone());
     }
 
     #[test]
@@ -545,7 +544,7 @@ mod tests {
     // Operator tests
     #[test]
     fn test_operator_variants() {
-        let operators = vec![Operator::Equal, Operator::NotEqual, Operator::BitwiseAnd];
+        let operators = [Operator::Equal, Operator::NotEqual, Operator::BitwiseAnd];
 
         for (i, op) in operators.iter().enumerate() {
             for (j, other) in operators.iter().enumerate() {
