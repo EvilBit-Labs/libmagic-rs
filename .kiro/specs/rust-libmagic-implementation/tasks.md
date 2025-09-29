@@ -79,14 +79,14 @@
   - Write unit tests for type parsing with various endianness options
   - _Requirements: 1.3, 1.6_
 
-- [ ] 3.3 Implement operator parsing
+- [x] 3.3 Implement operator parsing
 
   - Add parse_operator function to grammar.rs for comparison operators (`=`, `!=`, `&`)
   - Support both symbolic and text representations of operators
   - Write unit tests for operator parsing with different formats
   - _Requirements: 1.4, 1.6_
 
-- [ ] 3.4 Implement value parsing
+- [x] 3.4 Implement value parsing
 
   - Add parse_value function to grammar.rs for string and numeric literals
   - Support quoted strings with escape sequences and hex byte sequences
