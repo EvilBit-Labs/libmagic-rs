@@ -1,0 +1,56 @@
+{
+    "config": {
+        "default": true,
+        "heading-increment": true,
+        "heading-style": {
+            "style": "atx"
+        },
+        "line-length": false,
+        "ul-style": {
+            "style": "consistent"
+        },
+        "MD007": {
+            "indent": 2
+        },
+        "MD013": {
+            "line_length": 100,
+            "code_blocks": false,
+            "tables": false,
+            "heading_line_length": 80
+        },
+        "MD024": {
+            "siblings_only": true
+        },
+        "MD029": false,
+        "MD033": {
+            "allowed_elements": [
+                "span"
+            ]
+        },
+        "MD035": {
+            "style": "---"
+        },
+        "MD046": {
+            "style": "fenced"
+        },
+        "MD048": {
+            "style": "backtick"
+        },
+        "first-line-h1": false,
+        "fenced-code-language": true
+    },
+    "gitignore": true,
+    "fix": true,
+    "globs": [
+        "**/*.md"
+    ],
+    "ignores": [
+        "CHANGELOG.md",
+        ".venv/**",
+        "**/node_modules/**",
+        "**/__pycache__/**",
+        "**/*.tpl.md",
+        "**/*.mdc",
+        ".kiro/steering/*.md"
+    ]
+}

@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "name": "Auto CI Checks & Fixes",
+  "description": "Automatically runs CI checks when source files change and fixes any failures including formatting, linting, compilation errors, test failures, security audits, and license compliance issues",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "src/**/*.rs",
+      "Cargo.toml",
+      "Cargo.lock",
+      "tests/**/*.rs",
+      "benches/**/*.rs"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Source files have been modified. Please run a comprehensive CI check and fix any issues found. This should include:\n\n1. **Formatting**: Run `cargo fmt` to ensure consistent code style\n2. **Linting**: Run `cargo clippy -- -D warnings` to catch potential issues and enforce best practices\n3. **Compilation**: Run `cargo check` and `cargo build` to ensure code compiles without errors\n4. **Testing**: Run `cargo test` to ensure all tests pass, and `cargo nextest run` if available\n5. **Security Audit**: Run `cargo audit` to check for known security vulnerabilities in dependencies\n6. **License Compliance**: Verify all dependencies have compatible licenses\n\nFor any failures found:\n- Fix formatting issues automatically with `cargo fmt`\n- Address clippy warnings by modifying the code\n- Fix compilation errors by correcting syntax and type issues\n- Fix failing tests by updating test logic or fixing bugs in the implementation\n- Update dependencies if security vulnerabilities are found\n- Document any license compliance issues that need manual review\n\nProvide a summary of what was checked, what issues were found, and what fixes were applied."
+  }
+}
