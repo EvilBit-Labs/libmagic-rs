@@ -1,6 +1,6 @@
 # Product Overview
 
-## rust-libmagic
+## libmagic-rs
 
 A pure-Rust implementation of libmagic, the library that powers the `file` command for identifying file types.
 
