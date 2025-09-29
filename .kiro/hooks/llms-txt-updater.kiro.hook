@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "name": "LLMs.txt Auto-Updater",
+  "description": "Automatically updates the llms.txt file when documentation, specifications, or repository structure changes to maintain accuracy for LLM consumption. Treats kiro specifications and steering documents as authoritative, but considers actual code as gospel.",
+  "version": "1",
+  "when": {
+    "type": "userTriggered",
+    "patterns": [
+      "concept.md",
+      "README.md",
+      "docs/**/*.md",
+      ".kiro/**/*",
+      "src/**/*.rs",
+      "Cargo.toml",
+      "tech.md",
+      "structure.md",
+      "product.md"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "The repository structure or documentation has changed. Please update the llms.txt file to reflect these changes. Prioritize kiro specifications and steering documents as authoritative sources, but treat the actual code implementation as the ultimate truth. Ensure the llms.txt accurately represents the current state of the project for LLM consumption."
+  }
+}

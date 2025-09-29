@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "name": "Documentation Sync",
+  "description": "Monitors source code and configuration changes to automatically update README.md and mdbook documentation in /docs/src/ to reflect new features, API changes, and usage patterns",
+  "version": "1",
+  "when": {
+    "type": "userTriggered",
+    "patterns": [
+      "src/**/*.rs",
+      "Cargo.toml",
+      "Cargo.lock",
+      "*.md",
+      "docs/src/**/*.md"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Source code or project configuration has been modified. Please review the entire codebase and update the README.md to reflect any new features, API changes, or usage patterns. Also update the mdbook documentation in /docs/src/ to cover architecture changes, new usage patterns, and best practices. Focus on keeping the high-level introduction in README current while ensuring the developer guide accurately reflects the codebase structure and capabilities."
+  }
+}

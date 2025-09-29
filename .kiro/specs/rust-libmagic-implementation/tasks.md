@@ -20,31 +20,31 @@
   - Add clap for CLI argument parsing
   - _Requirements: 3.3, 2.2, 1.1, 5.1_
 
-- [ ] 2. Create basic AST value types
+- [x] 2. Create basic AST value types
   - Create src/parser/ast.rs with Value enum (Uint, Int, Bytes, String)
   - Implement Debug, Clone, PartialEq, Serialize, Deserialize for Value
   - Write unit tests for Value enum serialization and comparison
   - _Requirements: 1.1, 1.2_
 
-- [ ] 2.1 Create offset specification types
+- [x] 2.1 Create offset specification types
   - Add OffsetSpec enum to ast.rs (Absolute, Indirect, Relative, FromEnd)
   - Implement Debug, Clone, Serialize, Deserialize for OffsetSpec
   - Write unit tests for OffsetSpec variants
   - _Requirements: 1.2, 2.1_
 
-- [ ] 2.2 Create type kind definitions
+- [x] 2.2 Create type kind definitions
   - Add TypeKind enum to ast.rs (Byte, Short, Long, String with basic options)
   - Include endianness and signedness fields for numeric types
   - Write unit tests for TypeKind variants and serialization
   - _Requirements: 1.3, 2.2_
 
-- [ ] 2.3 Create operator definitions
+- [x] 2.3 Create operator definitions
   - Add Operator enum to ast.rs (Equal, NotEqual, BitwiseAnd)
   - Implement Debug, Clone, Serialize, Deserialize for Operator
   - Write unit tests for Operator enum functionality
   - _Requirements: 1.4, 2.3_
 
-- [ ] 2.4 Create magic rule structure
+- [x] 2.4 Create magic rule structure
   - Add MagicRule struct to ast.rs with offset, typ, op, value, message, children fields
   - Implement Debug, Clone, Serialize, Deserialize for MagicRule
   - Write unit tests for MagicRule creation and serialization

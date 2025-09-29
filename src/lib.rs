@@ -23,7 +23,6 @@
 #![deny(clippy::all)]
 #![warn(clippy::pedantic)]
 
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 use thiserror::Error;
 
@@ -32,6 +31,9 @@ pub mod evaluator;
 pub mod io;
 pub mod output;
 pub mod parser;
+
+// Re-export core AST types for convenience
+pub use parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, TypeKind, Value};
 
 /// Core error types for the library
 #[derive(Debug, Error)]
@@ -60,108 +62,6 @@ pub enum LibmagicError {
 
 /// Result type for library operations
 pub type Result<T> = std::result::Result<T, LibmagicError>;
-
-/// Magic rule representation in the AST
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MagicRule {
-    /// Offset specification for where to read data
-    pub offset: OffsetSpec,
-    /// Type of data to read and interpret
-    pub typ: TypeKind,
-    /// Comparison operator to apply
-    pub op: Operator,
-    /// Expected value for comparison
-    pub value: Value,
-    /// Human-readable message for this rule
-    pub message: String,
-    /// Child rules that are evaluated if this rule matches
-    pub children: Vec<MagicRule>,
-    /// Indentation level for hierarchical rules
-    pub level: u32,
-}
-
-/// Offset specification for locating data in files
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum OffsetSpec {
-    /// Absolute offset from file start
-    Absolute(i64),
-    /// Indirect offset through pointer dereferencing
-    Indirect {
-        /// Base offset to read pointer from
-        base_offset: i64,
-        /// Type of pointer value
-        pointer_type: TypeKind,
-        /// Adjustment to add to pointer value
-        adjustment: i64,
-        /// Endianness for pointer reading
-        endian: Endianness,
-    },
-    /// Relative offset from previous match
-    Relative(i64),
-    /// Offset from end of file
-    FromEnd(i64),
-}
-
-/// Data type specifications for interpreting bytes
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum TypeKind {
-    /// Single byte
-    Byte,
-    /// 16-bit integer
-    Short {
-        /// Byte order
-        endian: Endianness,
-        /// Whether value is signed
-        signed: bool,
-    },
-    /// 32-bit integer
-    Long {
-        /// Byte order
-        endian: Endianness,
-        /// Whether value is signed
-        signed: bool,
-    },
-    /// String data
-    String {
-        /// Maximum length to read
-        max_length: Option<usize>,
-    },
-}
-
-/// Comparison and bitwise operators
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Operator {
-    /// Equality comparison
-    Equal,
-    /// Inequality comparison
-    NotEqual,
-    /// Bitwise AND operation
-    BitwiseAnd,
-}
-
-/// Value types for rule matching
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Value {
-    /// Unsigned integer value
-    Uint(u64),
-    /// Signed integer value
-    Int(i64),
-    /// Byte sequence
-    Bytes(Vec<u8>),
-    /// String value
-    String(String),
-}
-
-/// Endianness specification
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum Endianness {
-    /// Little-endian byte order
-    Little,
-    /// Big-endian byte order
-    Big,
-    /// Native system byte order
-    Native,
-}
 
 /// Configuration for rule evaluation
 #[derive(Debug, Clone)]

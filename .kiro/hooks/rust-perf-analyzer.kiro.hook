@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "name": "Rust Performance Analyzer",
+  "description": "Analyzes changed Rust and protobuf source files for runtime performance characteristics while preserving correctness, public APIs, and security constraints. Applies only clearly safe micro-optimizations across focus categories including algorithmic complexity, allocation behavior, async patterns, I/O efficiency, data structures, caching, error handling, logging costs, memory footprint, and instrumentation opportunities.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "src/**/*.rs",
+      "**/*.proto",
+      "Cargo.toml",
+      "Cargo.lock"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Analyze the changed Rust and protobuf files for performance optimization opportunities. Focus on:\n\n1. **Algorithmic Complexity**: Identify O(n²) loops, unnecessary iterations, redundant computations\n2. **Allocation Behavior**: Spot excessive heap allocations, string concatenations, vector reallocations\n3. **Async Patterns**: Review async/await usage, blocking calls in async contexts, task spawning efficiency\n4. **I/O Efficiency**: Check for synchronous I/O, unbuffered operations, excessive syscalls\n5. **Data Structures**: Evaluate collection choices (Vec vs HashMap vs BTreeMap), struct layout\n6. **Caching**: Identify repeated expensive computations that could be memoized\n7. **Error Handling**: Review Result/Option chains, error propagation costs\n8. **Logging Costs**: Check for expensive string formatting in hot paths\n9. **Memory Footprint**: Look for unnecessary clones, large stack allocations, memory leaks\n10. **Instrumentation**: Suggest tracing/metrics opportunities for performance monitoring\n\nFor each optimization suggestion:\n- Ensure it preserves correctness and doesn't introduce bugs\n- Maintain public API compatibility\n- Respect security constraints and don't weaken safety guarantees\n- Provide specific code examples showing before/after\n- Estimate performance impact (micro vs significant improvement)\n- Consider maintainability trade-offs\n\nOnly suggest clearly safe micro-optimizations that have measurable benefit without compromising code quality."
+  }
+}

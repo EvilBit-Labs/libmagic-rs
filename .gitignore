@@ -127,3 +127,6 @@ megalinter-reports/
 !bin/
 # Added by goreleaser init:
 .intentionally-empty-file.o
+
+# Files for validating the tooling
+test_files/

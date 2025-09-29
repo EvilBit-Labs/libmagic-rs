@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "name": "Rust Code Quality Monitor",
+  "description": "Monitors Rust source files for changes, then analyzes and improves code quality across 8 focus categories while preserving public APIs. Automatically applies safe edits and provides detailed improvement reports.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "src/**/*.rs",
+      "lib.rs",
+      "main.rs",
+      "**/*.rs"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A Rust source file has been modified. Please analyze the changed file and improve code quality across these 8 categories while preserving all public APIs:\n\n## CODE QUALITY CATEGORIES\n### 1. Code Smells\n- ✅ Remove dead/unreachable code\n- ✅ Split oversized internal functions (keep public APIs unchanged)\n- ✅ Eliminate duplicate code blocks\n- ❌ Flag complex functions for review (Add a `TODO` comment in the problem area for later follow-up)\n\n### 2. Design Patterns\n- ✅ Add private helper traits for internal use\n- ✅ Introduce builder patterns for complex constructors (internal)\n- ✅ Apply newtype patterns for type safety (internal)\n- ❌ Flag major architectural changes for review \n\n### 3. Best Practices\n- ✅ Replace blocking I/O with async equivalents in async contexts\n- ✅ Follow Rust 2024 edition conventions\n- ✅ Apply project-specific conventions\n- ✅ Fix clippy warnings and suggestions\n\n### 4. Readability\n- ✅ Improve variable/function naming (internal only)\n- ✅ Add rustdoc comments to public APIs\n- ✅ Improve code structure and organization\n- ✅ Add code examples to documentation\n\n### 5. Maintainability\n- ✅ Extract internal modules (preserve re-exports)\n- ✅ Improve code clarity and documentation\n- ✅ Add missing error context\n- ❌ Flag major refactoring needs for review (Add a `TODO` comment in the problem area for later follow-up, with a proposed solution)\n\n### 6. Performance\n- ✅ Eliminate unnecessary `.clone()` calls\n- ✅ Add bounds to Vec growth patterns\n- ✅ Replace blocking operations in async code\n- ✅ Optimize memory allocations\n\n### 7. Type Safety\n- ✅ Replace string-based flags with private enums\n- ✅ Strengthen type constraints\n- ✅ Reduce unnecessary Option/Result nesting\n- ✅ Add type aliases for clarity\n\n### 8. Error Handling\n- ✅ Add context with `.with_context()`\n- ✅ Convert generic errors to structured types (internal)\n- ✅ Ensure no silent failures\n- ✅ Use thiserror for library errors, anyhow for applications\n\nIMPORTANT CONSTRAINTS:\n- NEVER modify public function signatures, struct fields, or enum variants\n- NEVER change public APIs or break backward compatibility\n- Only make changes marked with ✅ - flag items marked with ❌ using TODO comments\n- Apply improvements automatically and provide a detailed report of changes made\n- Focus on the specific file that was modified"
+  }
+}
