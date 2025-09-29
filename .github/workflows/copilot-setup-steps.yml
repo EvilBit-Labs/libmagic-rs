@@ -1,0 +1,56 @@
+name: "Copilot Setup Steps"
+
+on:
+    workflow_dispatch:
+    push:
+        paths:
+            - .github/workflows/copilot-setup-steps.yml
+    pull_request:
+        paths:
+            - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+    copilot-setup-steps:
+        runs-on: ubuntu-latest
+
+        permissions:
+            contents: read
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v5
+
+            - uses: dtolnay/rust-toolchain@1.90
+
+            - name: Install just task runner
+              uses: taiki-e/install-action@v2
+              with:
+                  tool: just
+
+            - name: Set up Python for pre-commit
+              uses: actions/setup-python@v6
+              with:
+                  python-version: "3.13"
+
+            - name: Install cargo tools
+              uses: taiki-e/install-action@v2
+              with:
+                  tool: cargo-nextest,cargo-llvm-cov,cargo-audit,cargo-deny,cargo-dist,mdbook
+
+            - name: Install mdbook plugins
+              uses: taiki-e/install-action@v2
+              with:
+                  tool: mdbook-admonish,mdbook-mermaid,mdbook-linkcheck,mdbook-toc,mdbook-open-on-gh,mdbook-tabs,mdbook-i18n-helpers
+
+            - name: Setup summary
+              run: |
+                  echo "✅ DaemonEye development environment setup complete!"
+                  echo ""
+                  echo "Available tools:"
+                  echo "  - Rust toolchain: $(rustc --version)"
+                  echo "  - Cargo: $(cargo --version)"
+                  echo "  - cargo-nextest: $(cargo nextest --version)"
+                  echo "  - cargo-llvm-cov: $(cargo llvm-cov --version)"
+                  echo "  - cargo-audit: $(cargo audit --version)"
+                  echo "  - cargo-deny: $(cargo deny --version)"
+                  echo "  - cargo-dist: $(cargo dist --version)"

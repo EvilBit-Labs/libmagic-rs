@@ -1,7 +1,7 @@
 {
   "enabled": true,
   "name": "Rust Performance Analyzer",
-  "description": "Analyzes changed Rust and protobuf source files for runtime performance characteristics while preserving correctness, public APIs, and security constraints. Applies only clearly safe micro-optimizations across focus categories including algorithmic complexity, allocation behavior, async patterns, I/O efficiency, data structures, caching, error handling, logging costs, memory footprint, and instrumentation opportunities.",
+  "description": "Analyzes changed Rust source files for runtime performance characteristics while preserving correctness, public APIs, and security constraints. Applies only clearly safe micro-optimizations across focus categories including algorithmic complexity, allocation behavior, async patterns, I/O efficiency, data structures, caching, error handling, logging costs, memory footprint, and instrumentation opportunities.",
   "version": "1",
   "when": {
     "type": "fileEdited",

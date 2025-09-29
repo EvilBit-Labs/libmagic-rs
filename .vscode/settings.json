@@ -1,0 +1,24 @@
+{
+    "github.copilot.chat.commitMessageGeneration.instructions": [
+        {
+            "file": ".github/commit-instructions.md"
+        }
+    ],
+    "files.exclude": {
+        "**/target/**": true
+    },
+    "gitlens.ai.generateCommits.customInstructions": "Use conventional commit message format. If the scope is not clear, use 'chore' as the default scope. If the scope is clear, use it.",
+    "chat.todoListTool.enabled": true,
+    "git.alwaysSignOff": true,
+    "git.autoStash": true,
+    "git.enableCommitSigning": true,
+    "git.fetchOnPull": true,
+    "git.followTagsWhenSync": true,
+    "git.promptToSaveFilesBeforeCommit": "staged",
+    "git.promptToSaveFilesBeforeStash": "staged",
+    "git.pruneOnFetch": true,
+    "git.pullBeforeCheckout": true,
+    "git.rebaseWhenSync": true,
+    "git.replaceTagsWhenPull": true,
+    "githubPullRequests.codingAgent.uiIntegration": true
+}
