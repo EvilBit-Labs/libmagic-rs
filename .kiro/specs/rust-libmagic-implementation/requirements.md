@@ -15,7 +15,7 @@ This document outlines the requirements for implementing a pure-Rust replacement
 1. WHEN a magic file is provided THEN the system SHALL parse it into an Abstract Syntax Tree (AST) of rules
 2. WHEN parsing magic file syntax THEN the system SHALL support offset specifications (absolute, relative, indirect)
 3. WHEN parsing magic file syntax THEN the system SHALL support type specifications (byte, short, long, quad, string, regex)
-4. WHEN parsing magic file syntax THEN the system SHALL support comparison operators (=, !=, >, <, &, XOR)
+4. WHEN parsing magic file syntax THEN the system SHALL support comparison operators (=, !=, >, \<, &, XOR)
 5. WHEN parsing magic file syntax THEN the system SHALL support hierarchical rule nesting with indentation or leading markers
 6. IF a magic file contains syntax errors THEN the system SHALL provide clear error messages with line numbers
 

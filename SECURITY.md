@@ -4,13 +4,13 @@
 
 libmagic-rs is currently in active development as a passion project. Security updates are provided on a best-effort basis for the following versions:
 
-| Version | Supported          | Notes |
-| ------- | ------------------ | ----- |
+| Version | Supported          | Notes                                |
+| ------- | ------------------ | ------------------------------------ |
 | 1.0.x   | :white_check_mark: | Production releases (when available) |
-| 0.3.x   | :white_check_mark: | Pre-release with security fixes |
-| 0.2.x   | :white_check_mark: | Pre-release with security fixes |
-| 0.1.x   | :white_check_mark: | MVP releases with security fixes |
-| < 0.1   | :x:                | Development versions |
+| 0.3.x   | :white_check_mark: | Pre-release with security fixes      |
+| 0.2.x   | :white_check_mark: | Pre-release with security fixes      |
+| 0.1.x   | :white_check_mark: | MVP releases with security fixes     |
+| < 0.1   | :x:                | Development versions                 |
 
 ## Security Considerations
 
