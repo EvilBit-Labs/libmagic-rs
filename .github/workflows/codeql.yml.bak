@@ -1,0 +1,33 @@
+name: CodeQL
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+    schedule:
+        - cron: "43 22 * * 1"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    actions: read
+    security-events: write
+
+jobs:
+    analyze:
+        name: CodeQL Analyze
+        runs-on: ubuntu-22.04
+        steps:
+            - uses: actions/checkout@v5
+
+            - name: Setup Rust
+              uses: dtolnay/rust-toolchain@1.90
+
+            - uses: github/codeql-action/init@v3
+              with:
+                  languages: rust
+
+            - uses: github/codeql-action/autobuild@v3
+
+            - uses: github/codeql-action/analyze@v3
