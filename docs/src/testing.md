@@ -28,12 +28,12 @@ All code must pass these quality gates:
 
 ### Test Statistics
 
-**Total Tests**: 79 passing unit tests
+**Total Tests**: 98 passing unit tests
 
 ```bash
 $ cargo test
-running 79 tests
-test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+running 98 tests
+test result: ok. 98 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
 ### Test Distribution
