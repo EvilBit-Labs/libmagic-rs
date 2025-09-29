@@ -63,7 +63,7 @@ pub enum OffsetSpec {
         base_offset: i64,
         pointer_type: TypeKind,
         adjustment: i64,
-        endian: Endianness
+        endian: Endianness,
     },
     Relative(i64), // Relative to previous match
     FromEnd(i64),  // Negative offset from file end
@@ -72,19 +72,38 @@ pub enum OffsetSpec {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TypeKind {
     Byte,
-    Short { endian: Endianness, signed: bool },
-    Long { endian: Endianness, signed: bool },
-    Quad { endian: Endianness, signed: bool },
-    Float { endian: Endianness },
-    Double { endian: Endianness },
+    Short {
+        endian: Endianness,
+        signed: bool,
+    },
+    Long {
+        endian: Endianness,
+        signed: bool,
+    },
+    Quad {
+        endian: Endianness,
+        signed: bool,
+    },
+    Float {
+        endian: Endianness,
+    },
+    Double {
+        endian: Endianness,
+    },
     String {
         encoding: StringEncoding,
         max_length: Option<usize>,
-        flags: StringFlags
+        flags: StringFlags,
     },
-    PString { length_type: TypeKind },
-    Regex { flags: RegexFlags },
-    Date { variant: DateVariant },
+    PString {
+        length_type: TypeKind,
+    },
+    Regex {
+        flags: RegexFlags,
+    },
+    Date {
+        variant: DateVariant,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,7 +148,7 @@ pub enum Operator {
 pub fn resolve_offset(
     spec: &OffsetSpec,
     buffer: &[u8],
-    context: &EvaluationContext
+    context: &EvaluationContext,
 ) -> Result<usize, EvaluationError> {
     match spec {
         OffsetSpec::Absolute(offset) => {
@@ -140,14 +159,18 @@ pub fn resolve_offset(
             } else {
                 Ok(*offset as usize)
             }
-        },
-        OffsetSpec::Indirect { base_offset, pointer_type, adjustment, endian } => {
+        }
+        OffsetSpec::Indirect {
+            base_offset,
+            pointer_type,
+            adjustment,
+            endian,
+        } => {
             // Read pointer value at base_offset
             let ptr_offset = resolve_absolute_offset(*base_offset, buffer)?;
             let ptr_value = read_typed_value(buffer, ptr_offset, pointer_type, *endian)?;
             Ok((ptr_value as i64 + adjustment) as usize)
-        },
-        // ... other offset types
+        } // ... other offset types
     }
 }
 ```
@@ -158,16 +181,16 @@ pub fn resolve_offset(
 pub fn read_typed_value(
     buffer: &[u8],
     offset: usize,
-    typ: &TypeKind
+    typ: &TypeKind,
 ) -> Result<Value, EvaluationError> {
     match typ {
-        TypeKind::Byte => {
-            buffer.get(offset)
-                .map(|&b| Value::Uint(b as u64))
-                .ok_or(EvaluationError::BufferOverrun)
-        },
+        TypeKind::Byte => buffer
+            .get(offset)
+            .map(|&b| Value::Uint(b as u64))
+            .ok_or(EvaluationError::BufferOverrun),
         TypeKind::Short { endian, signed } => {
-            let bytes = buffer.get(offset..offset+2)
+            let bytes = buffer
+                .get(offset..offset + 2)
                 .ok_or(EvaluationError::BufferOverrun)?;
             let value = match endian {
                 Endianness::Little => LittleEndian::read_u16(bytes),
@@ -179,8 +202,7 @@ pub fn read_typed_value(
             } else {
                 Ok(Value::Uint(value as u64))
             }
-        },
-        // ... other types
+        } // ... other types
     }
 }
 ```
@@ -219,7 +241,10 @@ ELF 64-bit LSB executable, x86-64, version 1 (SYSV), dynamically linked
       "text": "ELF 64-bit LSB executable",
       "offset": 0,
       "value": "7f454c46",
-      "tags": ["executable", "elf"],
+      "tags": [
+        "executable",
+        "elf"
+      ],
       "score": 90
     }
   ]
@@ -237,8 +262,15 @@ ELF 64-bit LSB executable, x86-64, version 1 (SYSV), dynamically linked
       "offset": 0,
       "length": 4,
       "value": "7f454c46",
-      "rule_path": ["elf", "elf64", "executable"],
-      "tags": ["executable", "elf"],
+      "rule_path": [
+        "elf",
+        "elf64",
+        "executable"
+      ],
+      "tags": [
+        "executable",
+        "elf"
+      ],
       "score": 90,
       "mime_type": "application/x-executable"
     }
@@ -305,7 +337,7 @@ impl FileBuffer {
         let mmap = unsafe { MmapOptions::new().map(&file)? };
         Ok(FileBuffer {
             mmap,
-            path: path.to_path_buf()
+            path: path.to_path_buf(),
         })
     }
 
@@ -519,8 +551,12 @@ pub trait BinaryRegex {
     fn find_at(&self, haystack: &[u8], start: usize) -> Option<Match>;
 }
 
-impl BinaryRegex for regex::bytes::Regex { /* ... */ }
-impl BinaryRegex for onig::Regex { /* ... */ }
+impl BinaryRegex for regex::bytes::Regex {
+    /* ... */
+}
+impl BinaryRegex for onig::Regex {
+    /* ... */
+}
 ```
 
 ### Endianness Complexity
@@ -534,7 +570,7 @@ impl BinaryRegex for onig::Regex { /* ... */ }
 - **Implementation Strategy**:
 
 ```rust
-use byteorder::{ByteOrder, LittleEndian, BigEndian, NativeEndian};
+use byteorder::{BigEndian, ByteOrder, LittleEndian, NativeEndian};
 
 fn read_with_endianness<T: ByteOrder>(bytes: &[u8]) -> u32 {
     T::read_u32(bytes)

@@ -72,9 +72,13 @@ Settings (`.vscode/settings.json`):
 
 ```json
 {
-    "rust-analyzer.check.command": "clippy",
-    "rust-analyzer.check.extraArgs": ["--", "-D", "warnings"],
-    "rust-analyzer.cargo.features": "all"
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.extraArgs": [
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "rust-analyzer.cargo.features": "all"
 }
 ```
 
@@ -160,7 +164,7 @@ cargo fmt -- --check
 
 All public APIs must have rustdoc comments:
 
-```rust
+````rust
 /// Parses a magic file into an AST
 ///
 /// This function reads a magic file from the given path and parses it into
@@ -193,13 +197,13 @@ All public APIs must have rustdoc comments:
 pub fn parse_magic_file<P: AsRef<Path>>(path: P) -> Result<Vec<MagicRule>> {
     // Implementation
 }
-```
+````
 
 #### Module Documentation
 
 Each module should have comprehensive documentation:
 
-```rust
+````rust
 //! Magic file parser module
 //!
 //! This module handles parsing of magic files into an Abstract Syntax Tree (AST)
@@ -224,7 +228,7 @@ Each module should have comprehensive documentation:
 //! let rules = parse_magic_file("magic.db")?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
-```
+````
 
 ### Testing Standards
 
@@ -367,7 +371,7 @@ git commit -m "test(ast): add comprehensive serialization tests"
 Use the `log` crate for debugging:
 
 ```rust
-use log::{debug, info, warn, error};
+use log::{debug, error, info, warn};
 
 pub fn parse_rule(input: &str) -> Result<MagicRule> {
     debug!("Parsing rule: {}", input);

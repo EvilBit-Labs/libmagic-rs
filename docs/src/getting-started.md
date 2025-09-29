@@ -45,7 +45,8 @@ cargo build
 
 ### CLI Usage
 
-> **Note**: The CLI is currently a placeholder implementation. Full functionality is coming soon.
+> [!NOTE]
+> The CLI is currently a placeholder implementation. Full functionality is coming soon.
 
 ```bash
 # Basic file identification (placeholder output)
@@ -67,7 +68,8 @@ README.md: data
 
 ### Library Usage
 
-> **Note**: The library API is currently a placeholder. Full implementation is in progress.
+> [!NOTE]
+> The library API is currently a placeholder. Full implementation is in progress.
 
 Add libmagic-rs to your `Cargo.toml`:
 
@@ -79,7 +81,7 @@ libmagic-rs = { git = "https://github.com/EvilBit-Labs/libmagic-rs.git" }
 Basic usage example:
 
 ```rust
-use libmagic_rs::{MagicDatabase, EvaluationConfig, LibmagicError};
+use libmagic_rs::{EvaluationConfig, LibmagicError, MagicDatabase};
 
 fn main() -> Result<(), LibmagicError> {
     // Load magic rules (placeholder - returns empty database)

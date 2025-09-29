@@ -88,7 +88,7 @@ cargo test --target aarch64-apple-darwin
 # Cargo.toml
 [package]
 name = "libmagic-rs"
-version = "0.2.0"  # Update version
+version = "0.2.0"    # Update version
 ```
 
 #### 2. Update Documentation
@@ -306,7 +306,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - v*
 
 jobs:
   release:

@@ -1,6 +1,7 @@
 # API Reference
 
-> **Note**: This API reference describes the planned interface. The current implementation has placeholder functionality.
+> [!NOTE]
+> This API reference describes the planned interface. The current implementation has placeholder functionality.
 
 Complete API documentation for libmagic-rs library components.
 
@@ -11,7 +12,7 @@ Complete API documentation for libmagic-rs library components.
 Main interface for loading and using magic rules.
 
 ```rust
-pub struct MagicDatabase { /* ... */ }
+pub struct MagicDatabase {/* ... */}
 
 impl MagicDatabase {
     /// Load magic rules from a file
@@ -58,7 +59,9 @@ pub struct EvaluationConfig {
     pub stop_at_first_match: bool,
 }
 
-impl Default for EvaluationConfig { /* ... */ }
+impl Default for EvaluationConfig {
+    /* ... */
+}
 ```
 
 ## AST Types
@@ -191,14 +194,14 @@ pub fn parse_magic_string(input: &str) -> Result<Vec<MagicRule>>;
 pub fn evaluate_rules(
     rules: &[MagicRule],
     buffer: &[u8],
-    config: &EvaluationConfig
+    config: &EvaluationConfig,
 ) -> Result<Vec<Match>>;
 
 /// Evaluate rules against file
 pub fn evaluate_file<P: AsRef<Path>>(
     rules: &[MagicRule],
     path: P,
-    config: &EvaluationConfig
+    config: &EvaluationConfig,
 ) -> Result<Vec<Match>>;
 ```
 
@@ -221,7 +224,7 @@ pub fn format_json(results: &[Match]) -> Result<String>;
 Memory-mapped file buffer.
 
 ```rust
-pub struct FileBuffer { /* ... */ }
+pub struct FileBuffer {/* ... */}
 
 impl FileBuffer {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self>;

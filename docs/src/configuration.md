@@ -1,6 +1,7 @@
 # Configuration
 
-> **Note**: Configuration options are planned for future releases. This documentation describes the intended configuration system.
+> [!NOTE]
+> Configuration options are planned for future releases. This documentation describes the intended configuration system.
 
 libmagic-rs provides flexible configuration options for customizing behavior, performance, and output formatting.
 
@@ -157,13 +158,13 @@ impl EvaluationConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.max_recursion_depth == 0 {
             return Err(ConfigError::InvalidValue(
-                "max_recursion_depth must be greater than 0".to_string()
+                "max_recursion_depth must be greater than 0".to_string(),
             ));
         }
 
         if self.max_string_length > 1_000_000 {
             return Err(ConfigError::InvalidValue(
-                "max_string_length too large (max 1MB)".to_string()
+                "max_string_length too large (max 1MB)".to_string(),
             ));
         }
 

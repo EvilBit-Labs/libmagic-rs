@@ -1,6 +1,7 @@
 # Library API
 
-> **Note**: The library API is currently in early development with placeholder functionality. This documentation describes the planned interface.
+> [!NOTE]
+> The library API is currently in early development with placeholder functionality. This documentation describes the planned interface.
 
 The libmagic-rs library provides a safe, efficient API for file type identification in Rust applications.
 

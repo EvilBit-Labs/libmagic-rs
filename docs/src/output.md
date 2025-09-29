@@ -1,19 +1,24 @@
 # Output Formatters
 
-> **Note**: Output formatters are currently in development. This documentation describes the planned implementation.
+> [!NOTE]
+> Output formatters are currently in development. This documentation describes the planned implementation.
 
 The output module handles formatting evaluation results into different output formats for various use cases.
 
 ## Supported Formats
 
 ### Text Output
+
 Human-readable format compatible with GNU `file`:
+
 ```text
 example.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 ```
 
 ### JSON Output
+
 Structured format for programmatic use:
+
 ```json
 {
   "filename": "example.bin",

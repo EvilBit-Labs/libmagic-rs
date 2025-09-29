@@ -49,13 +49,13 @@ Use `PascalCase` for types, structs, enums, and traits:
 
 ```rust
 // Good
-pub struct MagicDatabase { }
-pub enum OffsetSpec { }
-pub trait BinaryRegex { }
+pub struct MagicDatabase {}
+pub enum OffsetSpec {}
+pub trait BinaryRegex {}
 
 // Bad
-pub struct magic_database { }
-pub enum offset_spec { }
+pub struct magic_database {}
+pub enum offset_spec {}
 ```
 
 ### Functions and Variables
@@ -93,8 +93,8 @@ Use `snake_case` for module names:
 
 ```rust
 // Good
-mod magic_parser;
 mod file_evaluator;
+mod magic_parser;
 mod output_formatter;
 
 // Bad
@@ -108,7 +108,7 @@ mod fileEvaluator;
 
 All public items must have rustdoc comments with examples:
 
-```rust
+````rust
 /// Parses a magic file into a vector of magic rules
 ///
 /// This function reads a magic file from the specified path and parses it into
@@ -141,13 +141,13 @@ All public items must have rustdoc comments with examples:
 pub fn parse_magic_file<P: AsRef<Path>>(path: P) -> Result<Vec<MagicRule>> {
     // Implementation
 }
-```
+````
 
 ### Module Documentation
 
 Each module should have comprehensive documentation:
 
-```rust
+````rust
 //! Magic file parser module
 //!
 //! This module handles parsing of magic files into an Abstract Syntax Tree (AST)
@@ -168,7 +168,7 @@ Each module should have comprehensive documentation:
 //! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
-```
+````
 
 ### Inline Comments
 
@@ -264,13 +264,13 @@ use std::collections::HashMap;
 use std::path::Path;
 
 // External crates
-use nom::{IResult, bytes::complete::tag};
+use nom::{bytes::complete::tag, IResult};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 // Internal modules
-use crate::parser::ast::{MagicRule, OffsetSpec};
 use crate::evaluator::EvaluationContext;
+use crate::parser::ast::{MagicRule, OffsetSpec};
 ```
 
 ### Function Organization
@@ -280,14 +280,14 @@ Organize functions logically within modules:
 ```rust
 impl MagicRule {
     // Constructors first
-    pub fn new(/* ... */) -> Self { }
+    pub fn new(/* ... */) -> Self {}
 
     // Public methods
-    pub fn evaluate(&self, buffer: &[u8]) -> Result<bool> { }
-    pub fn message(&self) -> &str { }
+    pub fn evaluate(&self, buffer: &[u8]) -> Result<bool> {}
+    pub fn message(&self) -> &str {}
 
     // Private helpers last
-    fn validate_offset(&self) -> bool { }
+    fn validate_offset(&self) -> bool {}
 }
 ```
 
@@ -345,17 +345,17 @@ Use descriptive test names that explain the scenario:
 ```rust
 // Good: Descriptive names
 #[test]
-fn test_parse_absolute_offset_with_hex_value() { }
+fn test_parse_absolute_offset_with_hex_value() {}
 
 #[test]
-fn test_parse_offset_returns_error_for_invalid_syntax() { }
+fn test_parse_offset_returns_error_for_invalid_syntax() {}
 
 // Bad: Generic names
 #[test]
-fn test_parse_offset() { }
+fn test_parse_offset() {}
 
 #[test]
-fn test_error() { }
+fn test_error() {}
 ```
 
 ### Assertion Style
@@ -388,10 +388,10 @@ Use references instead of owned values when possible:
 
 ```rust
 // Good: Borrowing
-pub fn evaluate_rule(rule: &MagicRule, buffer: &[u8]) -> Result<bool> { }
+pub fn evaluate_rule(rule: &MagicRule, buffer: &[u8]) -> Result<bool> {}
 
 // Avoid: Unnecessary ownership
-pub fn evaluate_rule(rule: MagicRule, buffer: Vec<u8>) -> Result<bool> { }
+pub fn evaluate_rule(rule: MagicRule, buffer: Vec<u8>) -> Result<bool> {}
 ```
 
 ### Avoid Unnecessary Allocations

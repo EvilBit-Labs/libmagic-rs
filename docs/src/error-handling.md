@@ -14,10 +14,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum LibmagicError {
     #[error("Parse error at line {line}: {message}")]
-    ParseError {
-        line: usize,
-        message: String,
-    },
+    ParseError { line: usize, message: String },
 
     #[error("Evaluation error: {0}")]
     EvaluationError(String),
@@ -94,10 +91,12 @@ match db.evaluate_file("example.bin") {
 use libmagic_rs::LibmagicError;
 
 fn load_custom_magic(path: &str) -> Result<MagicDatabase> {
-    MagicDatabase::load_from_file(path)
-        .map_err(|e| LibmagicError::InvalidFormat(
-            format!("Failed to load custom magic file '{}': {}", path, e)
+    MagicDatabase::load_from_file(path).map_err(|e| {
+        LibmagicError::InvalidFormat(format!(
+            "Failed to load custom magic file '{}': {}",
+            path, e
         ))
+    })
 }
 ```
 
@@ -108,10 +107,10 @@ use anyhow::{Context, Result};
 use libmagic_rs::MagicDatabase;
 
 fn main() -> Result<()> {
-    let db = MagicDatabase::load_from_file("magic.db")
-        .context("Failed to load magic database")?;
+    let db = MagicDatabase::load_from_file("magic.db").context("Failed to load magic database")?;
 
-    let result = db.evaluate_file("example.bin")
+    let result = db
+        .evaluate_file("example.bin")
         .context("Failed to analyze file")?;
 
     println!("File type: {}", result.description);
@@ -126,12 +125,10 @@ fn main() -> Result<()> {
 ```rust
 fn analyze_with_fallback(path: &str) -> String {
     match MagicDatabase::load_from_file("magic.db") {
-        Ok(db) => {
-            match db.evaluate_file(path) {
-                Ok(result) => result.description,
-                Err(_) => "unknown file type".to_string(),
-            }
-        }
+        Ok(db) => match db.evaluate_file(path) {
+            Ok(result) => result.description,
+            Err(_) => "unknown file type".to_string(),
+        },
         Err(_) => "magic database unavailable".to_string(),
     }
 }
@@ -140,8 +137,8 @@ fn analyze_with_fallback(path: &str) -> String {
 ### Retry Logic
 
 ```rust
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
 
 fn load_with_retry(path: &str, max_attempts: u32) -> Result<MagicDatabase> {
     let mut attempts = 0;
@@ -187,15 +184,17 @@ fn parse_magic_file(path: &Path) -> Result<Vec<MagicRule>> {
 
 // Better: Even more context
 fn parse_magic_file(path: &Path) -> Result<Vec<MagicRule>> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| LibmagicError::InvalidFormat(
-            format!("Cannot read magic file '{}': {}", path.display(), e)
-        ))?;
-
-    parse_magic_string(&content)
-        .map_err(|e| LibmagicError::InvalidFormat(
-            format!("Invalid magic file '{}': {}", path.display(), e)
+    let content = std::fs::read_to_string(path).map_err(|e| {
+        LibmagicError::InvalidFormat(format!(
+            "Cannot read magic file '{}': {}",
+            path.display(),
+            e
         ))
+    })?;
+
+    parse_magic_string(&content).map_err(|e| {
+        LibmagicError::InvalidFormat(format!("Invalid magic file '{}': {}", path.display(), e))
+    })
 }
 ```
 
@@ -221,7 +220,7 @@ fn main() {
 
 ### 4. Document Error Conditions
 
-```rust
+````rust
 /// Evaluate magic rules against a file
 ///
 /// # Errors
@@ -246,7 +245,7 @@ fn main() {
 pub fn evaluate_file<P: AsRef<Path>>(&self, path: P) -> Result<EvaluationResult> {
     // Implementation
 }
-```
+````
 
 ## Testing Error Conditions
 

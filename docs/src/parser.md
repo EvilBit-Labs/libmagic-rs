@@ -1,12 +1,14 @@
 # Parser Implementation
 
-> **Note**: The parser is currently in development. This documentation describes the planned implementation.
+> [!NOTE]
+> The parser is currently in development. This documentation describes the planned implementation.
 
 The parser module is responsible for converting magic files (text-based DSL) into the AST representation used by the evaluator.
 
 ## Overview
 
 The parser uses the `nom` crate for parsing combinators, providing:
+
 - **Robust error handling** with detailed error messages
 - **Incremental parsing** for large magic databases
 - **Memory efficiency** through zero-copy parsing where possible
@@ -37,6 +39,7 @@ Magic File Text → Lexer → Tokens → Parser → AST
 ### Lexer (Planned)
 
 Converts text into tokens:
+
 - **Offsets**: `0`, `>4`, `(0x20.l+4)`
 - **Types**: `byte`, `short`, `long`, `string`
 - **Operators**: `=`, `!=`, `&`
@@ -45,6 +48,7 @@ Converts text into tokens:
 ### Parser (Planned)
 
 Combines tokens into AST nodes:
+
 - **Rule parsing**: Complete magic rule structures
 - **Hierarchy handling**: Indentation-based nesting
 - **Error recovery**: Continue parsing after errors

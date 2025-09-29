@@ -124,7 +124,10 @@ pub struct MagicRule {
       "text": "Zip archive data",
       "offset": 0,
       "value": "PK\u0003\u0004",
-      "tags": ["archive", "zip"],
+      "tags": [
+        "archive",
+        "zip"
+      ],
       "score": 90
     }
   ]
@@ -177,4 +180,5 @@ pub struct MagicRule {
 - Packaged/obfuscated binaries will still report as generic `data` unless unpacked.
 
 ---
+
 **Conclusion:** This spec outlines a practical, safe, and extensible pure-Rust replacement for libmagic. Initial focus should be on correctness and compatibility with common magic rules, with extensibility for modern file types in later versions.

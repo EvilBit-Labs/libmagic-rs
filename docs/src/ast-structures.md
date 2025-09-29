@@ -19,13 +19,13 @@ The `MagicRule` struct is the primary AST node representing a complete magic rul
 
 ```rust
 pub struct MagicRule {
-    pub offset: OffsetSpec,      // Where to read data
-    pub typ: TypeKind,           // How to interpret bytes
-    pub op: Operator,            // Comparison operation
-    pub value: Value,            // Expected value
-    pub message: String,         // Human-readable description
+    pub offset: OffsetSpec,       // Where to read data
+    pub typ: TypeKind,            // How to interpret bytes
+    pub op: Operator,             // Comparison operation
+    pub value: Value,             // Expected value
+    pub message: String,          // Human-readable description
     pub children: Vec<MagicRule>, // Nested rules
-    pub level: u32,              // Indentation level
+    pub level: u32,               // Indentation level
 }
 ```
 
@@ -172,21 +172,13 @@ pub enum TypeKind {
     Byte,
 
     /// 16-bit integer
-    Short {
-        endian: Endianness,
-        signed: bool
-    },
+    Short { endian: Endianness, signed: bool },
 
     /// 32-bit integer
-    Long {
-        endian: Endianness,
-        signed: bool
-    },
+    Long { endian: Endianness, signed: bool },
 
     /// String data
-    String {
-        max_length: Option<usize>
-    },
+    String { max_length: Option<usize> },
 }
 ```
 
@@ -218,9 +210,9 @@ let string_type = TypeKind::String {
 
 ```rust
 pub enum Endianness {
-    Little,  // Little-endian (x86, ARM in little mode)
-    Big,     // Big-endian (network byte order, PowerPC)
-    Native,  // Host system byte order
+    Little, // Little-endian (x86, ARM in little mode)
+    Big,    // Big-endian (network byte order, PowerPC)
+    Native, // Host system byte order
 }
 ```
 
@@ -255,10 +247,10 @@ The `Value` enum represents expected values for comparison:
 
 ```rust
 pub enum Value {
-    Uint(u64),        // Unsigned integer
-    Int(i64),         // Signed integer
-    Bytes(Vec<u8>),   // Byte sequence
-    String(String),   // String value
+    Uint(u64),      // Unsigned integer
+    Int(i64),       // Signed integer
+    Bytes(Vec<u8>), // Byte sequence
+    String(String), // String value
 }
 ```
 

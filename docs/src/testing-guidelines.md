@@ -66,14 +66,15 @@ Located in `tests/` directory:
 
 ```rust
 // tests/integration/basic_workflow.rs
-use libmagic_rs::{MagicDatabase, EvaluationConfig};
+use libmagic_rs::{EvaluationConfig, MagicDatabase};
 
 #[test]
 fn test_complete_file_analysis_workflow() {
     let db = MagicDatabase::load_from_file("tests/fixtures/magic/basic.magic")
         .expect("Failed to load magic database");
 
-    let result = db.evaluate_file("tests/fixtures/samples/elf64")
+    let result = db
+        .evaluate_file("tests/fixtures/samples/elf64")
         .expect("Failed to evaluate file");
 
     assert_eq!(result.description, "ELF 64-bit LSB executable");
@@ -89,20 +90,20 @@ Use descriptive names that explain the scenario being tested:
 ```rust
 // Good: Descriptive test names
 #[test]
-fn test_parse_absolute_offset_with_positive_decimal_value() { }
+fn test_parse_absolute_offset_with_positive_decimal_value() {}
 
 #[test]
-fn test_parse_absolute_offset_with_hexadecimal_value() { }
+fn test_parse_absolute_offset_with_hexadecimal_value() {}
 
 #[test]
-fn test_parse_offset_returns_error_for_invalid_syntax() { }
+fn test_parse_offset_returns_error_for_invalid_syntax() {}
 
 // Bad: Generic test names
 #[test]
-fn test_parse_offset() { }
+fn test_parse_offset() {}
 
 #[test]
-fn test_error_case() { }
+fn test_error_case() {}
 ```
 
 ### Test Structure
@@ -283,7 +284,7 @@ fn create_elf_magic_rule() -> MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Long {
             endian: Endianness::Little,
-            signed: false
+            signed: false,
         },
         op: Operator::Equal,
         value: Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
@@ -355,7 +356,7 @@ Use `criterion` for performance benchmarks:
 ```rust
 // benches/evaluation_bench.rs
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use libmagic_rs::{MagicDatabase, EvaluationConfig};
+use libmagic_rs::{EvaluationConfig, MagicDatabase};
 
 fn bench_file_evaluation(c: &mut Criterion) {
     let db = MagicDatabase::load_from_file("tests/fixtures/magic/standard.magic")
@@ -383,7 +384,9 @@ fn test_evaluation_performance() {
     let db = MagicDatabase::load_from_file("tests/fixtures/magic/standard.magic").unwrap();
 
     let start = Instant::now();
-    let _result = db.evaluate_file("tests/fixtures/samples/large_file.bin").unwrap();
+    let _result = db
+        .evaluate_file("tests/fixtures/samples/large_file.bin")
+        .unwrap();
     let duration = start.elapsed();
 
     // Ensure evaluation completes within reasonable time

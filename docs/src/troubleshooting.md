@@ -243,7 +243,7 @@ RUST_LOG=libmagic_rs=trace cargo test
 ```rust
 // Print debug information
 println!("Evaluating rule: {:?}", rule);
-println!("Buffer slice: {:?}", &buffer[offset..offset+length]);
+println!("Buffer slice: {:?}", &buffer[offset..offset + length]);
 ```
 
 ### Minimal Reproduction

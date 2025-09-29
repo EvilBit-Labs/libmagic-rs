@@ -1,6 +1,7 @@
 # CLI Usage
 
-> **Note**: The CLI is currently in early development with placeholder functionality. This documentation describes the planned interface.
+> [!NOTE]
+> The CLI is currently in early development with placeholder functionality. This documentation describes the planned interface.
 
 The `rmagic` command-line tool provides a drop-in replacement for the GNU `file` command, with additional features for modern workflows.
 

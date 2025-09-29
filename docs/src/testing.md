@@ -239,7 +239,10 @@ fn test_elf_detection() {
     let result = db.evaluate_file("tests/fixtures/samples/hello_world_elf")?;
 
     assert_eq!(result.description, "ELF 64-bit LSB executable");
-    assert_eq!(result.mime_type, Some("application/x-executable".to_string()));
+    assert_eq!(
+        result.mime_type,
+        Some("application/x-executable".to_string())
+    );
 }
 ```
 

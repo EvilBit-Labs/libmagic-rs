@@ -2,7 +2,8 @@
 
 A pure-Rust implementation of libmagic, the library that powers the `file` command for identifying file types. This project provides a memory-safe, efficient alternative to the C-based libmagic library.
 
-> **Note**: This is a clean-room implementation inspired by the original [libmagic](https://www.darwinsys.com/file/) project. We respect and acknowledge the original work by Ian Darwin and the current maintainers led by Christos Zoulas.
+> [!NOTE]
+> This is a clean-room implementation inspired by the original [libmagic](https://www.darwinsys.com/file/) project. We respect and acknowledge the original work by Ian Darwin and the current maintainers led by Christos Zoulas.
 
 ## Project Status
 
@@ -63,7 +64,10 @@ ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
       "text": "ELF 64-bit LSB executable",
       "offset": 0,
       "value": "7f454c46",
-      "tags": ["executable", "elf"],
+      "tags": [
+        "executable",
+        "elf"
+      ],
       "score": 90,
       "mime_type": "application/x-executable"
     }
@@ -128,7 +132,8 @@ let result = db.evaluate_file("example.bin")?;
 println!("File type: {}", result.description);
 ```
 
-> **Note**: The above API is the planned interface. Current implementation returns placeholder data.
+> [!NOTE]
+> The above API is the planned interface. Current implementation returns placeholder data.
 
 ## Architecture
 

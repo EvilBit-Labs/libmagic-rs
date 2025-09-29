@@ -107,9 +107,7 @@ fn bench_magic_evaluation(b: &mut Bencher) {
     let rules = load_magic_rules("tests/fixtures/standard.magic");
     let file_data = include_bytes!("../tests/fixtures/sample.bin");
 
-    b.iter(|| {
-        evaluate_rules(&rules, file_data)
-    });
+    b.iter(|| evaluate_rules(&rules, file_data));
 }
 ```
 
@@ -129,7 +127,11 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
   "mime_type": "application/x-executable",
   "description": "ELF 64-bit LSB executable, x86-64, version 1 (SYSV)",
   "confidence": 1.0,
-  "matched_rules": ["elf", "elf64", "x86_64"]
+  "matched_rules": [
+    "elf",
+    "elf64",
+    "x86_64"
+  ]
 }
 ```
 
@@ -152,7 +154,7 @@ pub enum MagicError {
 // Use Result types consistently
 pub fn evaluate_magic_rules(
     rules: &[MagicRule],
-    data: &[u8]
+    data: &[u8],
 ) -> Result<Option<String>, MagicError> {
     // Implementation
 }

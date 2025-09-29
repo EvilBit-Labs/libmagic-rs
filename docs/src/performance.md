@@ -1,6 +1,7 @@
 # Performance Optimization
 
-> **Note**: Performance optimizations are planned for future releases. This documentation describes the optimization strategies and targets.
+> [!NOTE]
+> Performance optimizations are planned for future releases. This documentation describes the optimization strategies and targets.
 
 libmagic-rs is designed for high performance while maintaining safety and correctness.
 

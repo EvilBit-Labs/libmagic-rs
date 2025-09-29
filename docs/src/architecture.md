@@ -45,13 +45,13 @@ The AST provides a complete representation of magic rules in memory.
 
 ```rust
 pub struct MagicRule {
-    pub offset: OffsetSpec,      // Where to read data
-    pub typ: TypeKind,           // How to interpret bytes
-    pub op: Operator,            // Comparison operation
-    pub value: Value,            // Expected value
-    pub message: String,         // Human-readable description
+    pub offset: OffsetSpec,       // Where to read data
+    pub typ: TypeKind,            // How to interpret bytes
+    pub op: Operator,             // Comparison operation
+    pub value: Value,             // Expected value
+    pub message: String,          // Human-readable description
     pub children: Vec<MagicRule>, // Nested rules
-    pub level: u32,              // Indentation level
+    pub level: u32,               // Indentation level
 }
 ```
 
