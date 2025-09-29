@@ -1,0 +1,60 @@
+[book]
+authors = ["UncleSp1d3r", "KryptoKat", "Libmagic-rs Contributors"]
+language = "en"
+multilingual = false
+src = "src"
+title = "Libmagic-rs Developer Guide"
+description = "A comprehensive guide to the libmagic-rs library for file type identification"
+additional-css = ["whichlang.css"]
+additional-js = ["mermaid-init.js", "whichlang.js", "mermaid.min.js"]
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/EvilBit-Labs/libmagic-rs"
+edit-url-template = "https://github.com/EvilBit-Labs/libmagic-rs/edit/main/docs/{path}"
+
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.playground]
+copyable = true
+copy-js = true
+line-numbers = false
+editable = false
+
+[preprocessor.alerts]
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[preprocessor.toc]
+command = "mdbook-toc"
+marker = "[TOC]"
+renderer = ["html"]
+
+
+[preprocessor.tabs]
+command = "mdbook-tabs"
+
+[preprocessor.yml-header]
+
+
+[preprocessor.links]
+
+
+[output.html.search]
+enable = true
+limit-results = 30
+teaser-word-count = 30
+use-boolean-and = true
+boost-title = 2
+boost-hierarchy = 1
+boost-paragraph = 1
+expand = true
+heading-split-level = 3
+
+[output.html.print]
+enable = true
