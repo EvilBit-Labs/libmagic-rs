@@ -12,19 +12,37 @@ use nom::{
 
 use crate::parser::ast::OffsetSpec;
 
-/// Parse a decimal number
+/// Parse a decimal number with overflow protection
 fn parse_decimal_number(input: &str) -> IResult<&str, i64> {
     let (input, digits) = digit1(input)?;
+
+    // Check for potential overflow before parsing
+    if digits.len() > 19 {
+        // i64::MAX has 19 digits, so anything longer will definitely overflow
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::MapRes,
+        )));
+    }
+
     let number = digits.parse::<i64>().map_err(|_| {
         nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::MapRes))
     })?;
     Ok((input, number))
 }
 
-/// Parse a hexadecimal number (with 0x prefix)
+/// Parse a hexadecimal number (with 0x prefix) with overflow protection
 fn parse_hex_number(input: &str) -> IResult<&str, i64> {
     let (input, _) = tag("0x")(input)?;
     let (input, hex_str) = hex_digit1(input)?;
+
+    // Check for potential overflow - i64 can hold up to 16 hex digits (0x7FFFFFFFFFFFFFFF)
+    if hex_str.len() > 16 {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::MapRes,
+        )));
+    }
 
     let number = i64::from_str_radix(hex_str, 16).map_err(|_| {
         nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::MapRes))
@@ -57,18 +75,25 @@ fn parse_hex_number(input: &str) -> IResult<&str, i64> {
 /// - Input contains invalid characters for the detected number format
 pub fn parse_number(input: &str) -> IResult<&str, i64> {
     let (input, sign) = opt(char('-')).parse(input)?;
+    let is_negative = sign.is_some();
 
     // Check if input starts with "0x" - if so, it must be a valid hex number
-    let remaining_input = input;
-    if remaining_input.starts_with("0x") {
-        let (input, number) = parse_hex_number(input)?;
-        let result = if sign.is_some() { -number } else { number };
-        Ok((input, result))
+    let (input, number) = if input.starts_with("0x") {
+        parse_hex_number(input)?
     } else {
-        let (input, number) = parse_decimal_number(input)?;
-        let result = if sign.is_some() { -number } else { number };
-        Ok((input, result))
-    }
+        parse_decimal_number(input)?
+    };
+
+    // Apply sign with overflow checking
+    let result = if is_negative {
+        number.checked_neg().ok_or_else(|| {
+            nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::MapRes))
+        })?
+    } else {
+        number
+    };
+
+    Ok((input, result))
 }
 
 /// Parse an offset specification for absolute offsets
@@ -105,6 +130,55 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Helper function to test parsing with various whitespace patterns
+    #[allow(dead_code)] // TODO: Use this helper in future whitespace tests
+    fn test_with_whitespace_variants<T, F>(input: &str, expected: &T, parser: F)
+    where
+        T: Clone + PartialEq + std::fmt::Debug,
+        F: Fn(&str) -> IResult<&str, T>,
+    {
+        // Test with various whitespace patterns - pre-allocate Vec with known capacity
+        let mut whitespace_variants = Vec::with_capacity(9);
+        whitespace_variants.extend([
+            format!(" {input}"),    // Leading space
+            format!("  {input}"),   // Leading spaces
+            format!("\t{input}"),   // Leading tab
+            format!("{input} "),    // Trailing space
+            format!("{input}  "),   // Trailing spaces
+            format!("{input}\t"),   // Trailing tab
+            format!(" {input} "),   // Both leading and trailing space
+            format!("  {input}  "), // Both leading and trailing spaces
+            format!("\t{input}\t"), // Both leading and trailing tabs
+        ]);
+
+        for variant in whitespace_variants {
+            assert_eq!(
+                parser(&variant),
+                Ok(("", expected.clone())),
+                "Failed to parse with whitespace: '{variant}'"
+            );
+        }
+    }
+
+    /// Helper function to test number parsing with remaining input
+    fn test_number_with_remaining_input() {
+        // Pre-allocate with known capacity for better performance
+        let test_cases = [
+            ("123abc", 123, "abc"),
+            ("0xFF rest", 255, " rest"),
+            ("-42 more", -42, " more"),
+            ("0x10,next", 16, ",next"),
+        ];
+
+        for (input, expected_num, expected_remaining) in test_cases {
+            assert_eq!(
+                parse_number(input),
+                Ok((expected_remaining, expected_num)),
+                "Failed to parse number with remaining input: '{input}'"
+            );
+        }
+    }
 
     #[test]
     fn test_parse_decimal_number() {
@@ -183,11 +257,8 @@ mod tests {
 
     #[test]
     fn test_parse_number_with_remaining_input() {
-        // Should parse number and leave remaining input
-        assert_eq!(parse_number("123abc"), Ok(("abc", 123)));
-        assert_eq!(parse_number("0xFF rest"), Ok((" rest", 255)));
-        assert_eq!(parse_number("-42 more"), Ok((" more", -42)));
-        assert_eq!(parse_number("0x10,next"), Ok((",next", 16)));
+        // Use helper function to reduce code duplication
+        test_number_with_remaining_input();
     }
 
     #[test]

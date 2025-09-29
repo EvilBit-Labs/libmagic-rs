@@ -72,7 +72,7 @@
   - Write unit tests for offset parsing with positive and negative values
   - _Requirements: 1.2, 1.6_
 
-- [ ] 3.2 Implement type parsing
+- [x] 3.2 Implement type parsing
 
   - Add parse_type function to grammar.rs for basic type parsing (byte, short, long)
   - Support endianness specifiers (le, be) for multi-byte types
@@ -81,7 +81,7 @@
 
 - [ ] 3.3 Implement operator parsing
 
-  - Add parse_operator function to grammar.rs for comparison operators (=, !=, &)
+  - Add parse_operator function to grammar.rs for comparison operators (`=`, `!=`, `&`)
   - Support both symbolic and text representations of operators
   - Write unit tests for operator parsing with different formats
   - _Requirements: 1.4, 1.6_
