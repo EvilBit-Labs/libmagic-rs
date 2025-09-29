@@ -1,8 +1,28 @@
 # libmagic-rs
 
-A pure-Rust clean-room implementation of libmagic, the library that powers the `file` command for identifying file types. This project provides a memory-safe, efficient alternative to the C-based libmagic library.
+A pure-Rust implementation of libmagic, the library that powers the `file` command for identifying file types. This project provides a memory-safe, efficient alternative to the C-based libmagic library.
 
 > **Note**: This is a clean-room implementation inspired by the original [libmagic](https://www.darwinsys.com/file/) project. We respect and acknowledge the original work by Ian Darwin and the current maintainers led by Christos Zoulas.
+
+## Project Status
+
+🚧 **Early Development** - This project is currently in active development. The core AST structures and basic CLI framework are implemented, but the parser and evaluator are still being built.
+
+### Completed Features
+
+- ✅ Core AST data structures (`OffsetSpec`, `TypeKind`, `Operator`, `Value`, `MagicRule`)
+- ✅ Comprehensive serialization support with serde
+- ✅ Basic CLI interface with clap
+- ✅ Project structure and module organization
+- ✅ Extensive unit tests for AST components
+- ✅ Strict linting and code quality enforcement
+
+### In Progress
+
+- 🔄 Magic file parser implementation (nom-based)
+- 🔄 Rule evaluation engine
+- 🔄 Memory-mapped file I/O
+- 🔄 Output formatters (text and JSON)
 
 ## Overview
 
@@ -93,21 +113,22 @@ cargo test
 ```rust
 use libmagic_rs::{MagicDatabase, EvaluationConfig};
 
-// Load magic rules
+// Load magic rules (placeholder - not yet implemented)
 let db = MagicDatabase::load_from_file("magic/standard.magic")?;
 
 // Configure evaluation
 let config = EvaluationConfig {
     max_recursion_depth: 10,
+    max_string_length: 8192,
     stop_at_first_match: true,
-    enable_mime_types: true,
-    ..Default::default()
 };
 
-// Identify file type
-let result = db.evaluate_file("example.bin", &config)?;
-println!("File type: {}", result.primary_match().message);
+// Identify file type (placeholder - not yet implemented)
+let result = db.evaluate_file("example.bin")?;
+println!("File type: {}", result.description);
 ```
+
+> **Note**: The above API is the planned interface. Current implementation returns placeholder data.
 
 ## Architecture
 
@@ -122,9 +143,11 @@ Target File → Memory Mapper → File Buffer
 ### Core Modules
 
 - **Parser** (`src/parser/`): Magic file DSL parsing into Abstract Syntax Tree
-- **Evaluator** (`src/evaluator/`): Rule evaluation engine with offset resolution
-- **Output** (`src/output/`): Text and JSON output formatting
-- **IO** (`src/io/`): Memory-mapped file access and buffer management
+  - `ast.rs`: Core AST data structures (✅ Complete)
+  - `mod.rs`: Parser interface (🔄 In Progress)
+- **Evaluator** (`src/evaluator/`): Rule evaluation engine with offset resolution (🔄 In Progress)
+- **Output** (`src/output/`): Text and JSON output formatting (🔄 In Progress)
+- **IO** (`src/io/`): Memory-mapped file access and buffer management (🔄 In Progress)
 
 ### Key Data Structures
 
@@ -136,11 +159,17 @@ pub struct MagicRule {
     pub value: Value,
     pub message: String,
     pub children: Vec<MagicRule>,
+    pub level: u32,
 }
 
 pub enum OffsetSpec {
     Absolute(i64),
-    Indirect { base_offset: i64, pointer_type: TypeKind, adjustment: i64 },
+    Indirect {
+        base_offset: i64,
+        pointer_type: TypeKind,
+        adjustment: i64,
+        endian: Endianness,
+    },
     Relative(i64),
     FromEnd(i64),
 }
@@ -149,8 +178,14 @@ pub enum TypeKind {
     Byte,
     Short { endian: Endianness, signed: bool },
     Long { endian: Endianness, signed: bool },
-    String { encoding: StringEncoding, max_length: Option<usize> },
-    Regex { flags: RegexFlags },
+    String { max_length: Option<usize> },
+}
+
+pub enum Value {
+    Uint(u64),
+    Int(i64),
+    Bytes(Vec<u8>),
+    String(String),
 }
 ```
 
@@ -309,33 +344,39 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ## Roadmap
 
-### Phase 1: MVP (v0.1)
+### Phase 1: MVP (v0.1) - Current Focus
 
-- Basic magic file parsing and evaluation
-- CLI interface with text/JSON output
-- Memory-mapped file I/O
-- Core data types (byte, short, long, string)
+- [x] Core AST data structures
+- [x] Basic CLI interface framework
+- [x] Project structure and build system
+- [ ] Magic file parser (nom-based)
+- [ ] Basic rule evaluation engine
+- [ ] Memory-mapped file I/O
+- [ ] Text output formatter
 
 ### Phase 2: Enhanced Features (v0.2)
 
-- Indirect offset resolution
-- Regex support with binary-safe matching
-- Compiled rule caching
-- Additional operators and type support
+- [ ] Indirect offset resolution
+- [ ] String type support with encoding
+- [ ] JSON output formatter
+- [ ] Compiled rule caching
+- [ ] Additional operators and type support
 
 ### Phase 3: Performance & Compatibility (v0.3)
 
-- Performance optimizations
-- Full libmagic syntax compatibility
-- Comprehensive test suite
-- MIME type mapping
+- [ ] Regex support with binary-safe matching
+- [ ] Performance optimizations
+- [ ] Full libmagic syntax compatibility
+- [ ] Comprehensive test suite
+- [ ] MIME type mapping
 
 ### Phase 4: Production Ready (v1.0)
 
-- Stable API
-- Complete documentation
-- Migration guide
-- Performance parity validation
+- [ ] Stable API
+- [ ] Complete documentation
+- [ ] Migration guide
+- [ ] Performance parity validation
+- [ ] Fuzzing and security testing
 
 ## Support
 
