@@ -110,6 +110,15 @@ pub enum IoError {
         /// Requested length
         length: BufferLength,
     },
+
+    /// File is not a regular file (e.g., device node, FIFO, symlink to special file)
+    #[error("File '{path}' is not a regular file (file type: {file_type})")]
+    InvalidFileType {
+        /// Path to the file that is not a regular file
+        path: PathBuf,
+        /// Description of the file type
+        file_type: String,
+    },
 }
 
 /// A memory-mapped file buffer for efficient file access
@@ -203,38 +212,130 @@ impl FileBuffer {
     }
 
     /// Validates file metadata and ensures file is suitable for memory mapping
-    fn validate_file_metadata(file: &File, path_buf: &Path) -> Result<(), IoError> {
-        let metadata = file.metadata().map_err(|source| IoError::MetadataError {
-            path: path_buf.to_path_buf(),
-            source,
-        })?;
+    fn validate_file_metadata(_file: &File, path_buf: &Path) -> Result<(), IoError> {
+        // Resolve symlinks to get the actual target file
+        let canonical_path =
+            std::fs::canonicalize(path_buf).map_err(|source| IoError::MetadataError {
+                path: path_buf.to_path_buf(),
+                source,
+            })?;
+
+        // Get metadata for the canonical path to ensure we're checking the actual file
+        let metadata =
+            std::fs::metadata(&canonical_path).map_err(|source| IoError::MetadataError {
+                path: canonical_path.clone(),
+                source,
+            })?;
+
+        // Check if the target is a regular file
+        if !metadata.is_file() {
+            let file_type = if metadata.is_dir() {
+                "directory".to_string()
+            } else if metadata.is_symlink() {
+                "symlink".to_string()
+            } else {
+                // Check for other special file types (cross-platform)
+                Self::detect_special_file_type(&metadata)
+            };
+
+            return Err(IoError::InvalidFileType {
+                path: canonical_path,
+                file_type,
+            });
+        }
 
         let file_size = metadata.len();
 
         // TODO: Add more comprehensive file validation:
-        // - Check if file is a directory and provide specific error
         // - Validate file permissions for reading
         // - Handle sparse files and their actual disk usage
         // - Add warnings for files that might be too small for meaningful analysis
-        // - Consider file type validation (regular file vs special file)
 
         // Check if file is empty
         if file_size == 0 {
             return Err(IoError::EmptyFile {
-                path: path_buf.to_path_buf(),
+                path: canonical_path,
             });
         }
 
         // Check if file is too large
         if file_size > Self::MAX_FILE_SIZE {
             return Err(IoError::FileTooLarge {
-                path: path_buf.to_path_buf(),
+                path: canonical_path,
                 size: file_size,
                 max_size: Self::MAX_FILE_SIZE,
             });
         }
 
         Ok(())
+    }
+
+    /// Detects special file types in a cross-platform manner
+    fn detect_special_file_type(metadata: &std::fs::Metadata) -> String {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileTypeExt;
+            if metadata.file_type().is_block_device() {
+                "block device".to_string()
+            } else if metadata.file_type().is_char_device() {
+                "character device".to_string()
+            } else if metadata.file_type().is_fifo() {
+                "FIFO/pipe".to_string()
+            } else if metadata.file_type().is_socket() {
+                "socket".to_string()
+            } else {
+                "special file".to_string()
+            }
+        }
+        #[cfg(windows)]
+        {
+            if metadata.file_type().is_symlink() {
+                "symlink".to_string()
+            } else {
+                "special file".to_string()
+            }
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            "special file".to_string()
+        }
+    }
+
+    /// Creates a symlink in a cross-platform manner
+    ///
+    /// # Arguments
+    /// * `original` - The path to the original file or directory
+    /// * `link` - The path where the symlink should be created
+    ///
+    /// # Errors
+    /// * Returns `std::io::Error` if symlink creation fails (e.g., insufficient permissions)
+    /// * On Windows, may require admin privileges or developer mode enabled
+    /// * On non-Unix/Windows platforms, returns an "Unsupported" error
+    pub fn create_symlink<P: AsRef<std::path::Path>, Q: AsRef<std::path::Path>>(
+        original: P,
+        link: Q,
+    ) -> Result<(), std::io::Error> {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(original, link)
+        }
+        #[cfg(windows)]
+        {
+            let original_path = original.as_ref();
+
+            if original_path.is_dir() {
+                std::os::windows::fs::symlink_dir(original, link)
+            } else {
+                std::os::windows::fs::symlink_file(original, link)
+            }
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "Symlinks not supported on this platform",
+            ))
+        }
     }
 
     /// Creates memory mapping for the file
@@ -562,7 +663,9 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             IoError::EmptyFile { path } => {
-                assert_eq!(path, temp_path);
+                // The path should be canonicalized, so we need to canonicalize the temp_path for comparison
+                let canonical_temp_path = std::fs::canonicalize(&temp_path).unwrap();
+                assert_eq!(path, canonical_temp_path);
             }
             other => panic!("Expected EmptyFile error, got {other:?}"),
         }
@@ -861,6 +964,250 @@ mod tests {
         assert!(error_string.contains("Invalid buffer access parameters"));
         assert!(error_string.contains("offset 0"));
         assert!(error_string.contains("length 0"));
+    }
+
+    #[test]
+    fn test_invalid_file_type_error_display() {
+        let error = IoError::InvalidFileType {
+            path: std::path::PathBuf::from("/dev/null"),
+            file_type: "character device".to_string(),
+        };
+
+        let error_string = format!("{error}");
+        assert!(error_string.contains("is not a regular file"));
+        assert!(error_string.contains("/dev/null"));
+        assert!(error_string.contains("character device"));
+    }
+
+    #[test]
+    fn test_file_buffer_directory_rejection() {
+        // Create a temporary directory
+        let temp_dir = std::env::temp_dir().join("test_dir_12345");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let result = FileBuffer::new(&temp_dir);
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            IoError::InvalidFileType { path, file_type } => {
+                assert_eq!(file_type, "directory");
+                // The path should be canonicalized
+                let canonical_temp_dir = std::fs::canonicalize(&temp_dir).unwrap();
+                assert_eq!(path, canonical_temp_dir);
+            }
+            IoError::FileOpenError { .. } => {
+                // On Windows, we can't open directories as files, so we get a FileOpenError
+                // This is expected behavior, so we'll consider this test passed
+                println!(
+                    "Directory test skipped on this platform (can't open directories as files)"
+                );
+            }
+            other => panic!("Expected InvalidFileType or FileOpenError, got {other:?}"),
+        }
+
+        // Cleanup
+        std::fs::remove_dir(&temp_dir).unwrap();
+    }
+
+    #[test]
+    fn test_file_buffer_symlink_to_directory_rejection() {
+        // Create a temporary directory and a symlink to it
+        let temp_dir = std::env::temp_dir().join("test_dir_symlink_12345");
+        let symlink_path = std::env::temp_dir().join("test_symlink_12345");
+
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // Create symlink (cross-platform approach)
+        let symlink_result = FileBuffer::create_symlink(&temp_dir, &symlink_path);
+
+        match symlink_result {
+            Ok(_) => {
+                let result = FileBuffer::new(&symlink_path);
+
+                assert!(result.is_err());
+                match result.unwrap_err() {
+                    IoError::InvalidFileType { path, file_type } => {
+                        assert_eq!(file_type, "directory");
+                        // The path should be canonicalized to the target directory
+                        let canonical_temp_dir = std::fs::canonicalize(&temp_dir).unwrap();
+                        assert_eq!(path, canonical_temp_dir);
+                    }
+                    IoError::FileOpenError { .. } => {
+                        // On Windows, we can't open directories as files, so we get a FileOpenError
+                        // This is expected behavior, so we'll consider this test passed
+                        println!(
+                            "Directory symlink test skipped on this platform (can't open directories as files)"
+                        );
+                    }
+                    other => panic!("Expected InvalidFileType or FileOpenError, got {other:?}"),
+                }
+
+                // Cleanup
+                let _ = std::fs::remove_file(&symlink_path);
+            }
+            Err(_) => {
+                // Symlink creation failed (e.g., no admin privileges on Windows)
+                println!(
+                    "Skipping symlink test - unable to create symlink (may need admin privileges)"
+                );
+            }
+        }
+
+        // Cleanup
+        std::fs::remove_dir(&temp_dir).unwrap();
+    }
+
+    #[test]
+    fn test_file_buffer_symlink_to_regular_file_success() {
+        // Create a temporary file and a symlink to it
+        let temp_file = std::env::temp_dir().join("test_file_symlink_12345");
+        let symlink_path = std::env::temp_dir().join("test_symlink_file_12345");
+
+        let content = b"test content";
+        std::fs::write(&temp_file, content).unwrap();
+
+        // Create symlink (cross-platform approach)
+        let symlink_result = FileBuffer::create_symlink(&temp_file, &symlink_path);
+
+        match symlink_result {
+            Ok(_) => {
+                let result = FileBuffer::new(&symlink_path);
+
+                assert!(result.is_ok());
+                let buffer = result.unwrap();
+                assert_eq!(buffer.as_slice(), content);
+
+                // Cleanup
+                let _ = std::fs::remove_file(&symlink_path);
+            }
+            Err(_) => {
+                // Symlink creation failed (e.g., no admin privileges on Windows)
+                println!(
+                    "Skipping symlink test - unable to create symlink (may need admin privileges)"
+                );
+            }
+        }
+
+        // Cleanup
+        std::fs::remove_file(&temp_file).unwrap();
+    }
+
+    #[test]
+    fn test_file_buffer_special_files_rejection() {
+        // Test rejection of special files that exist on Unix systems
+        #[cfg(unix)]
+        {
+            // Test /dev/null (character device)
+            let result = FileBuffer::new(std::path::Path::new("/dev/null"));
+            assert!(result.is_err());
+            match result.unwrap_err() {
+                IoError::InvalidFileType { path, file_type } => {
+                    assert_eq!(file_type, "character device");
+                    assert_eq!(path, std::path::PathBuf::from("/dev/null"));
+                }
+                other => panic!("Expected InvalidFileType error, got {other:?}"),
+            }
+
+            // Test /dev/zero (character device)
+            let result = FileBuffer::new(std::path::Path::new("/dev/zero"));
+            assert!(result.is_err());
+            match result.unwrap_err() {
+                IoError::InvalidFileType { path, file_type } => {
+                    assert_eq!(file_type, "character device");
+                    assert_eq!(path, std::path::PathBuf::from("/dev/zero"));
+                }
+                other => panic!("Expected InvalidFileType error, got {other:?}"),
+            }
+
+            // Test /dev/random (character device)
+            let result = FileBuffer::new(std::path::Path::new("/dev/random"));
+            assert!(result.is_err());
+            match result.unwrap_err() {
+                IoError::InvalidFileType { path, file_type } => {
+                    assert_eq!(file_type, "character device");
+                    assert_eq!(path, std::path::PathBuf::from("/dev/random"));
+                }
+                other => panic!("Expected InvalidFileType error, got {other:?}"),
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            // On non-Unix systems, these special files don't exist
+            println!("Skipping special file tests on non-Unix platform");
+        }
+    }
+
+    #[test]
+    fn test_file_buffer_cross_platform_special_files() {
+        // Test cross-platform special file detection
+        // This test works on all platforms by creating temporary special files
+
+        // Test with a directory (works on all platforms)
+        let temp_dir = std::env::temp_dir().join("test_special_dir_12345");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let result = FileBuffer::new(&temp_dir);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            IoError::InvalidFileType { path, file_type } => {
+                assert_eq!(file_type, "directory");
+                let canonical_temp_dir = std::fs::canonicalize(&temp_dir).unwrap();
+                assert_eq!(path, canonical_temp_dir);
+            }
+            IoError::FileOpenError { .. } => {
+                // On Windows, we can't open directories as files
+                println!(
+                    "Directory test skipped on this platform (can't open directories as files)"
+                );
+            }
+            other => panic!("Expected InvalidFileType or FileOpenError, got {other:?}"),
+        }
+
+        // Cleanup
+        std::fs::remove_dir(&temp_dir).unwrap();
+    }
+
+    #[test]
+    fn test_file_buffer_fifo_rejection() {
+        // Create a FIFO (named pipe) and test rejection
+        #[cfg(unix)]
+        {
+            use nix::sys::stat;
+            use std::os::unix::fs::FileTypeExt;
+
+            let fifo_path = std::env::temp_dir().join("test_fifo_12345");
+
+            // Create a FIFO using nix crate
+            match stat::mkfifo(&fifo_path, stat::Mode::S_IRUSR | stat::Mode::S_IWUSR) {
+                Ok(_) => {
+                    let result = FileBuffer::new(&fifo_path);
+
+                    assert!(result.is_err());
+                    match result.unwrap_err() {
+                        IoError::InvalidFileType { path, file_type } => {
+                            assert_eq!(file_type, "FIFO/pipe");
+                            let canonical_fifo_path = std::fs::canonicalize(&fifo_path).unwrap();
+                            assert_eq!(path, canonical_fifo_path);
+                        }
+                        other => panic!("Expected InvalidFileType error, got {other:?}"),
+                    }
+
+                    // Cleanup
+                    std::fs::remove_file(&fifo_path).unwrap();
+                }
+                Err(_) => {
+                    // If we can't create a FIFO, skip this test
+                    println!("Skipping FIFO test - unable to create FIFO");
+                }
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            // On non-Unix systems, we can't create FIFOs easily, so we'll skip this test
+            println!("Skipping FIFO test on non-Unix platform");
+        }
     }
 }
 

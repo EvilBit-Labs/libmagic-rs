@@ -41,3 +41,5 @@ cargo-cyclonedx = true
 [dist.github-action-commits]
 "actions/checkout" = "v5"
 "actions/download-artifact" = "v5"
+"actions/attest-build-provenance" = "v3"
+"actions/upload-artifact" = "v4"
