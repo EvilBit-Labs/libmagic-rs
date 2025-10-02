@@ -64,7 +64,8 @@ pub enum TypeReadError {
 pub fn read_byte(buffer: &[u8], offset: usize) -> Result<Value, TypeReadError> {
     buffer
         .get(offset)
-        .map(|&byte| Value::Uint(u64::from(byte)))
+        .copied()
+        .map(|byte| Value::Uint(u64::from(byte)))
         .ok_or(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
@@ -240,13 +241,20 @@ pub fn read_typed_value(
     offset: usize,
     type_kind: &TypeKind,
 ) -> Result<Value, TypeReadError> {
+    // TODO: Add comprehensive error handling improvements:
+    // - Validate offset alignment for multi-byte types (shorts should be 2-byte aligned, etc.)
+    // - Add context about which type was being read when errors occur
+    // - Handle endianness conversion errors more gracefully
+    // - Add bounds checking warnings for reads near buffer boundaries
+    // - Consider adding support for partial reads when buffer is truncated
+
     match type_kind {
         TypeKind::Byte => read_byte(buffer, offset),
         TypeKind::Short { endian, signed } => read_short(buffer, offset, *endian, *signed),
         TypeKind::Long { endian, signed } => read_long(buffer, offset, *endian, *signed),
         TypeKind::String { max_length: _ } => {
+            // TODO: Implement string type reading in task 12.2
             // For now, return an error for unsupported string type
-            // This will be implemented in a future task
             Err(TypeReadError::UnsupportedType {
                 type_name: "String".to_string(),
             })

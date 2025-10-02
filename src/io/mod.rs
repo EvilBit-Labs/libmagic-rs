@@ -175,6 +175,11 @@ impl FileBuffer {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn new(path: &Path) -> Result<Self, IoError> {
+        // TODO: Add additional error handling for edge cases:
+        // - Handle symbolic links and their resolution
+        // - Add validation for path length limits on different platforms
+        // - Handle special files (devices, pipes, etc.) gracefully
+        // - Add retry logic for transient I/O errors
         let path_buf = path.to_path_buf();
 
         let file = Self::open_file(path, &path_buf)?;
@@ -203,6 +208,13 @@ impl FileBuffer {
         })?;
 
         let file_size = metadata.len();
+
+        // TODO: Add more comprehensive file validation:
+        // - Check if file is a directory and provide specific error
+        // - Validate file permissions for reading
+        // - Handle sparse files and their actual disk usage
+        // - Add warnings for files that might be too small for meaningful analysis
+        // - Consider file type validation (regular file vs special file)
 
         // Check if file is empty
         if file_size == 0 {
@@ -358,6 +370,10 @@ pub fn safe_read_bytes(
     offset: BufferOffset,
     length: BufferLength,
 ) -> Result<&[u8], IoError> {
+    // TODO: Add performance monitoring and warnings:
+    // - Log warnings for very large read operations that might impact performance
+    // - Add metrics collection for buffer access patterns
+    // - Consider caching frequently accessed buffer regions
     buffer.get_safe_slice(offset, length)
 }
 

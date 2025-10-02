@@ -121,14 +121,14 @@ pub enum Value {
     String(String),
 }
 
-/// Endianness specification
+/// Endianness specification for multi-byte values
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Endianness {
-    /// Little-endian byte order
+    /// Little-endian byte order (least significant byte first)
     Little,
-    /// Big-endian byte order
+    /// Big-endian byte order (most significant byte first)
     Big,
-    /// Native system byte order
+    /// Native system byte order (matches target architecture)
     Native,
 }
 
@@ -150,6 +150,14 @@ pub struct MagicRule {
     /// Indentation level for hierarchical rules
     pub level: u32,
 }
+
+// TODO: Add validation methods for MagicRule:
+// - validate() method to check rule consistency
+// - Ensure message is not empty and contains valid characters
+// - Validate that value type matches the TypeKind
+// - Check that child rule levels are properly nested
+// - Validate offset specifications are reasonable
+// - Add bounds checking for level depth to prevent stack overflow
 
 #[cfg(test)]
 mod tests {

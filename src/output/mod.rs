@@ -2,6 +2,9 @@
 //!
 //! This module provides data structures and functionality for storing and formatting
 //! the results of magic rule evaluation, supporting both text and JSON output formats.
+//!
+//! The module follows a structured approach where evaluation results contain metadata
+//! about the evaluation process and a list of matches found during rule processing.
 
 pub mod text;
 
@@ -265,6 +268,10 @@ impl MatchResult {
     /// assert_eq!(result.confidence, 100);
     /// ```
     pub fn set_confidence(&mut self, confidence: u8) {
+        // TODO: Add logging/warnings for confidence score adjustments:
+        // - Log when confidence scores are clamped from values > 100
+        // - Add validation warnings for suspiciously low confidence scores
+        // - Consider adding confidence score validation based on match type
         self.confidence = confidence.min(100);
     }
 
@@ -424,6 +431,12 @@ impl EvaluationResult {
     /// assert_eq!(result.matches.len(), 1);
     /// ```
     pub fn add_match(&mut self, match_result: MatchResult) {
+        // TODO: Add validation and error handling for match results:
+        // - Validate that match_result.offset is within file bounds
+        // - Check for duplicate matches at the same offset
+        // - Validate confidence scores are in valid range (0-100)
+        // - Add warnings for overlapping matches that might indicate conflicts
+        // - Consider sorting matches by offset or confidence automatically
         self.matches.push(match_result);
     }
 

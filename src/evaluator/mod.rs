@@ -78,7 +78,7 @@ impl EvaluationContext {
     /// # Arguments
     ///
     /// * `offset` - The new offset position
-    pub const fn set_current_offset(&mut self, offset: usize) {
+    pub fn set_current_offset(&mut self, offset: usize) {
         self.current_offset = offset;
     }
 
@@ -181,7 +181,7 @@ impl EvaluationContext {
     ///
     /// This resets the current offset and recursion depth to 0, but keeps
     /// the same configuration settings.
-    pub const fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.current_offset = 0;
         self.recursion_depth = 0;
     }
@@ -347,8 +347,23 @@ pub fn evaluate_rules(
             }
         }
 
+        // TODO: Add error handling for malformed rules
+        // - Validate rule structure before evaluation
+        // - Handle cases where rule.message is empty or contains invalid characters
+        // - Add context about which rule failed during evaluation
+
         // Evaluate the current rule
-        let rule_matches = evaluate_single_rule(rule, buffer)?;
+        // TODO: Add more specific error context for rule evaluation failures
+        // - Include rule message and offset in error messages
+        // - Add rule validation before evaluation
+        // - Handle edge cases like empty rule messages or invalid offsets
+        let rule_matches = evaluate_single_rule(rule, buffer).map_err(|e| match e {
+            LibmagicError::EvaluationError(msg) => LibmagicError::EvaluationError(format!(
+                "Rule '{}' at offset {:?}: {}",
+                rule.message, rule.offset, msg
+            )),
+            other => other,
+        })?;
 
         if rule_matches {
             // Create match result for this rule
