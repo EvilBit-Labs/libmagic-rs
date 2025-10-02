@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Markdown Format & Code Block Fix",
+  "description": "Runs mdformat across all markdown files in the repository to identify and fix formatting issues, with special attention to embedded code blocks. Makes safe, targeted corrections to ensure code blocks are valid without disabling formatters or applying risky blanket commands.",
+  "version": "1",
+  "when": {
+    "type": "fileCreated",
+    "patterns": [
+      "**/*.md"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Please run `git ls-files -z '*.md' | xargs -0 mdformat` on Linux/macOS (so paths with spaces are handled safely) or the Windows equivalent (`Get-ChildItem -Recurse -Filter *.md | ForEach-Object { mdformat $_.FullName }`) across the repository to identify any formatting issues with embedded code blocks. Carefully examine any formatting issues found and fix code blocks to ensure they are valid, without disabling formatters or applying risky blanket commands. Only make safe, targeted corrections - if only some issues can be fixed automatically, fix those and leave the rest for later runs. Focus on:\n\n1. Running mdformat to identify formatting issues\n2. Examining code blocks for syntax errors or formatting problems\n3. Making safe, targeted fixes to code blocks\n4. Ensuring all changes maintain code validity\n5. Avoiding any risky blanket fixes or formatter disabling\n\nBe conservative and only fix issues you can safely resolve."
+  }
+}

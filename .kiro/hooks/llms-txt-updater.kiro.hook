@@ -19,6 +19,6 @@
   },
   "then": {
     "type": "askAgent",
-    "prompt": "The repository structure or documentation has changed. Please update the llms.txt file to reflect these changes. Prioritize kiro specifications and steering documents as authoritative sources, but treat the actual code implementation as the ultimate truth. Ensure the llms.txt accurately represents the current state of the project for LLM consumption."
+    "prompt": "The repository structure or documentation has changed. Please examine the entire codebase and update the llms.txt file to reflect the current state after these changes. Prioritize kiro specifications and steering documents as authoritative sources, but treat the actual code implementation as the ultimate truth. Ensure the llms.txt accurately represents the current state of the project for LLM consumption."
   }
 }

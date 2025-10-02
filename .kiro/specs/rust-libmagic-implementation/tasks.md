@@ -58,7 +58,7 @@
   - Write unit tests for MagicRule creation and serialization
   - _Requirements: 1.1, 1.5_
 
-- [ ] 3. Create basic nom parser setup
+- [x] 3. Create basic nom parser setup
 
   - Create src/parser/grammar.rs with nom imports and basic parser structure
   - Implement parse_number function for parsing decimal and hex numbers
@@ -72,35 +72,35 @@
   - Write unit tests for offset parsing with positive and negative values
   - _Requirements: 1.2, 1.6_
 
-- [ ] 3.2 Implement type parsing
+- [x] 3.2 Implement type parsing
 
   - Add parse_type function to grammar.rs for basic type parsing (byte, short, long)
   - Support endianness specifiers (le, be) for multi-byte types
   - Write unit tests for type parsing with various endianness options
   - _Requirements: 1.3, 1.6_
 
-- [ ] 3.3 Implement operator parsing
+- [x] 3.3 Implement operator parsing
 
-  - Add parse_operator function to grammar.rs for comparison operators (=, !=, &)
+  - Add parse_operator function to grammar.rs for comparison operators (`=`, `!=`, `&`)
   - Support both symbolic and text representations of operators
   - Write unit tests for operator parsing with different formats
   - _Requirements: 1.4, 1.6_
 
-- [ ] 3.4 Implement value parsing
+- [x] 3.4 Implement value parsing
 
   - Add parse_value function to grammar.rs for string and numeric literals
   - Support quoted strings with escape sequences and hex byte sequences
   - Write unit tests for value parsing with various literal formats
   - _Requirements: 1.1, 1.6_
 
-- [ ] 4. Create basic file buffer structure
+- [x] 4. Create basic file buffer structure
 
   - Create src/io/mod.rs with FileBuffer struct using memmap2
   - Implement new() method for creating memory-mapped file buffers
   - Add as_slice() method for safe buffer access
   - _Requirements: 3.3, 3.4_
 
-- [ ] 4.1 Add file buffer error handling
+- [x] 4.1 Add file buffer error handling
 
   - Create IoError type for file access errors in io/mod.rs
   - Implement proper error handling in FileBuffer::new() with descriptive messages
@@ -108,7 +108,7 @@
   - Write unit tests for file buffer creation with invalid files
   - _Requirements: 3.5, 6.5_
 
-- [ ] 4.2 Add buffer bounds checking helpers
+- [x] 4.2 Add buffer bounds checking helpers
 
   - Create safe_read_bytes function in io/mod.rs for bounds-checked buffer access
   - Implement buffer length validation and overflow prevention

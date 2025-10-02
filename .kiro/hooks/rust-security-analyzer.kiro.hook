@@ -4,7 +4,7 @@
   "description": "Monitors all Rust source code changes and analyzes them for security posture, applying clearly safe hardening improvements while preserving all public APIs across essential security categories including privilege separation, input validation, cryptography, and error handling.",
   "version": "1",
   "when": {
-    "type": "fileEdited",
+    "type": "userTriggered",
     "patterns": [
       "src/**/*.rs",
       "Cargo.toml",
@@ -14,6 +14,6 @@
   },
   "then": {
     "type": "askAgent",
-    "prompt": "Analyze the changed Rust code for security vulnerabilities and potential hardening opportunities. Focus on:\n\n1. **Privilege Separation**: Check for unnecessary elevated permissions, unsafe operations, and proper sandboxing\n2. **Input Validation**: Identify missing bounds checks, unsafe string handling, buffer overflows, and injection vulnerabilities\n3. **Cryptography**: Review crypto implementations for weak algorithms, improper key management, and timing attacks\n4. **Error Handling**: Look for information leakage in errors, panic conditions, and unhandled edge cases\n\nFor each issue found:\n- Explain the security risk clearly\n- Provide a safe fix that preserves all public APIs\n- Only suggest changes that are clearly beneficial with no breaking changes\n- Focus on memory safety, bounds checking, and secure defaults\n\nApply automatic fixes only for:\n- Adding missing bounds checks\n- Improving error handling without changing signatures\n- Adding security-focused documentation\n- Replacing unsafe patterns with safe alternatives\n\nPreserve all existing public APIs, function signatures, and behavioral contracts."
+    "prompt": "Rust source files have been modified. Please analyze the changed files (based on the `git --no-pager diff --name-only origin/main` output) for security vulnerabilities and potential hardening opportunities. Focus specifically on:\n\n1. **Privilege Separation**: Check for unnecessary elevated permissions, unsafe operations, and proper sandboxing\n2. **Input Validation**: Identify missing bounds checks, unsafe string handling, buffer overflows, and injection vulnerabilities\n3. **Cryptography**: Review crypto implementations for weak algorithms, improper key management, and timing attacks\n4. **Error Handling**: Look for information leakage in errors, panic conditions, and unhandled edge cases\n\nFor each issue found:\n- Explain the security risk clearly\n- Provide a safe fix that preserves all public APIs\n- Only suggest changes that are clearly beneficial with no breaking changes\n- Focus on memory safety, bounds checking, and secure defaults\n\nApply automatic fixes only for:\n- Adding missing bounds checks\n- Improving error handling without changing signatures\n- Adding security-focused documentation\n- Replacing unsafe patterns with safe alternatives\n\nPreserve all existing public APIs, function signatures, and behavioral contracts."
   }
 }
