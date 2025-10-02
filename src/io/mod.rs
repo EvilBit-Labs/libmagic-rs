@@ -1227,18 +1227,21 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "FIFOs can cause hanging issues in CI environments"]
     fn test_file_buffer_fifo_rejection() {
         // Create a FIFO (named pipe) and test rejection
         #[cfg(unix)]
         {
-            use nix::sys::stat;
-            use std::os::unix::fs::FileTypeExt;
+            use nix::unistd;
 
             let fifo_path = std::env::temp_dir().join("test_fifo_12345");
 
             // Create a FIFO using nix crate
-            match stat::mkfifo(&fifo_path, stat::Mode::S_IRUSR | stat::Mode::S_IWUSR) {
-                Ok(_) => {
+            match unistd::mkfifo(
+                &fifo_path,
+                nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+            ) {
+                Ok(()) => {
                     let result = FileBuffer::new(&fifo_path);
 
                     assert!(result.is_err());

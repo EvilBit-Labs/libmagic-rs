@@ -156,7 +156,7 @@ thiserror = "2.0.17"
 
 [dev-dependencies]
 criterion = "0.7.0"
-nix = "0.28"
+nix = { version = "0.28", features = ["fs"] }
 proptest = "1.8.0"
 
 # The profile that 'dist' will build with
