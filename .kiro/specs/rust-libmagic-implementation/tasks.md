@@ -58,7 +58,7 @@
   - Write unit tests for MagicRule creation and serialization
   - _Requirements: 1.1, 1.5_
 
-- [ ] 3. Create basic nom parser setup
+- [x] 3. Create basic nom parser setup
 
   - Create src/parser/grammar.rs with nom imports and basic parser structure
   - Implement parse_number function for parsing decimal and hex numbers
