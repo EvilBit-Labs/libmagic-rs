@@ -140,7 +140,7 @@
 
 - [ ] 6. Create basic type reading for byte values
 
-- [ ] 6.1 Create basic type reading for byte values
+- [x] 6.1 Create basic type reading for byte values
 
   - Create src/evaluator/types.rs with read_byte function
   - Implement safe byte reading from buffer with bounds checking
