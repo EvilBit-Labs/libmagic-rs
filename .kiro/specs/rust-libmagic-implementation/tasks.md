@@ -115,23 +115,23 @@
   - Write unit tests for bounds checking with various buffer sizes and offsets
   - _Requirements: 3.2, 3.5_
 
-- [ ] 5. Create basic offset resolution
+- [x] 5. Create basic offset resolution
 
-- [ ] 5.1 Create basic offset resolution
+- [x] 5.1 Create basic offset resolution
 
   - Create src/evaluator/offset.rs with resolve_absolute_offset function
   - Implement simple absolute offset calculation with bounds checking
   - Write unit tests for absolute offset resolution with valid offsets
   - _Requirements: 2.1, 3.2_
 
-- [ ] 5.2 Add negative offset support
+- [x] 5.2 Add negative offset support
 
   - Extend resolve_absolute_offset to handle negative offsets from file end
   - Implement safe arithmetic to prevent integer overflow in offset calculations
   - Write unit tests for negative offset resolution with various file sizes
   - _Requirements: 2.1, 3.2_
 
-- [ ] 5.3 Create offset resolution interface
+- [x] 5.3 Create offset resolution interface
 
   - Add resolve_offset function in offset.rs that handles OffsetSpec enum
   - Implement basic absolute offset resolution using existing functions
