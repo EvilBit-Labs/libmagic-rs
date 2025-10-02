@@ -4,4 +4,5 @@
 //! against file buffers to identify file types.
 
 pub mod offset;
+pub mod operators;
 pub mod types;

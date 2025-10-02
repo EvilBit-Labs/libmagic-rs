@@ -163,7 +163,7 @@
 
 - [ ] 7. Create basic equality operator
 
-- [ ] 7.1 Create basic equality operator
+- [x] 7.1 Create basic equality operator
 
   - Create src/evaluator/operators.rs with apply_equal function for value equality comparison
   - Implement Value-to-Value comparison with proper type matching
