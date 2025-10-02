@@ -304,10 +304,23 @@ pub struct MagicDatabase {
 impl MagicDatabase {
     /// Load magic rules from a file
     ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the magic file to load
+    ///
     /// # Errors
     ///
     /// Returns `LibmagicError::IoError` if the file cannot be read.
     /// Returns `LibmagicError::ParseError` if the magic file format is invalid.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use libmagic_rs::MagicDatabase;
+    ///
+    /// let db = MagicDatabase::load_from_file("magic.db")?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn load_from_file<P: AsRef<Path>>(_path: P) -> Result<Self> {
         // TODO: Implement magic file loading
         Ok(Self {
@@ -318,10 +331,25 @@ impl MagicDatabase {
 
     /// Evaluate magic rules against a file
     ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the file to evaluate
+    ///
     /// # Errors
     ///
     /// Returns `LibmagicError::IoError` if the file cannot be accessed.
     /// Returns `LibmagicError::EvaluationError` if rule evaluation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use libmagic_rs::MagicDatabase;
+    ///
+    /// let db = MagicDatabase::load_from_file("magic.db")?;
+    /// let result = db.evaluate_file("sample.bin")?;
+    /// println!("File type: {}", result.description);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn evaluate_file<P: AsRef<Path>>(&self, _path: P) -> Result<EvaluationResult> {
         // TODO: Implement file evaluation
         Ok(EvaluationResult {

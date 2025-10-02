@@ -144,6 +144,8 @@ impl FileBuffer {
     // TODO: Consider implementing adaptive I/O strategy for small files
     // Files smaller than 4KB might benefit from regular read() instead of mmap
     // This would require benchmarking to determine the optimal threshold
+    #[allow(dead_code)]
+    const SMALL_FILE_THRESHOLD: u64 = 4096;
 
     /// Creates a new memory-mapped file buffer
     ///
