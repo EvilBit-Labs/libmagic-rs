@@ -99,7 +99,7 @@ jobs:
                     # Primary Support - Linux
                     - os: ubuntu-latest
                       platform: "Linux"
-                    - os: arm
+                    - os: ubuntu-22.04
                       platform: "Linux"
                     # Primary Support - macOS (using available runners)
                     - os: macos-latest
