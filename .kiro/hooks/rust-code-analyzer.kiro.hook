@@ -4,7 +4,7 @@
   "description": "Monitors Rust source files for changes, then analyzes and improves code quality across 8 focus categories while preserving public APIs. Automatically applies safe edits and provides detailed improvement reports.",
   "version": "1",
   "when": {
-    "type": "fileEdited",
+    "type": "userTriggered",
     "patterns": [
       "**/*.rs",
       "**/Cargo.toml"
