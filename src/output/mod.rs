@@ -3,6 +3,8 @@
 //! This module provides data structures and functionality for storing and formatting
 //! the results of magic rule evaluation, supporting both text and JSON output formats.
 
+pub mod text;
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 

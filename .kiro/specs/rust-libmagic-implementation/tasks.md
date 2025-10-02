@@ -222,7 +222,7 @@
   - Write unit tests for hierarchical evaluation with nested magic rules
   - _Requirements: 2.4, 2.5_
 
-- [ ] 9. Create basic match result structure
+- [x] 9. Create basic match result structure
 
 - [x] 9.1 Create basic match result structure
 
@@ -231,14 +231,14 @@
   - Write unit tests for match result creation and serialization
   - _Requirements: 4.1, 4.2_
 
-- [ ] 9.2 Implement text output formatting
+- [x] 9.2 Implement text output formatting
 
   - Create src/output/text.rs with format_text_result function
   - Implement message formatting for single match results
   - Write unit tests for text formatting with various match results
   - _Requirements: 4.1_
 
-- [ ] 9.3 Add text output concatenation
+- [x] 9.3 Add text output concatenation
 
   - Add format_text_output function to text.rs for multiple match results
   - Implement message concatenation and fallback handling for no matches
