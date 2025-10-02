@@ -1,0 +1,51 @@
+codecov:
+    require_ci_to_pass: true
+    notify:
+        wait_for_ci: true
+
+coverage:
+    precision: 2
+    round: down
+    range: "70...95"
+    status:
+        project:
+            default:
+                target: 80%
+                threshold: 2%
+                if_no_uploads: error
+                if_not_found: success
+                if_ci_failed: error
+        patch:
+            default:
+                target: 85%
+                threshold: 5%
+                if_no_uploads: error
+                if_not_found: success
+                if_ci_failed: error
+
+parsers:
+    gcov:
+        branch_detection:
+            conditional: yes
+            loop: yes
+            method: no
+            macro: no
+
+ignore:
+    - "benches/**/*"
+    - "tests/**/*"
+    - "examples/**/*"
+    - "target/**/*"
+
+comment:
+    layout: "header, diff, flags, files, footer"
+    behavior: default
+    require_changes: false
+    require_base: false
+    require_head: true
+
+flags:
+    rust:
+        paths:
+            - src/
+        carryforward: false

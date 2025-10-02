@@ -1,7 +1,7 @@
 # .pre-commit-config.yaml
 
 repos:
-    # 🧼 Standard code cleanup hooks (language agnostic)
+    # Standard code cleanup hooks (language agnostic)
     - repo: https://github.com/pre-commit/pre-commit-hooks
       rev: v6.0.0
       hooks:
@@ -27,7 +27,7 @@ repos:
           - id: cargo-check
           - id: build
 
-    # 🧪 GitHub Actions validation
+    # GitHub Actions validation
     - repo: https://github.com/rhysd/actionlint
       rev: v1.7.7
       hooks:
@@ -35,27 +35,26 @@ repos:
             files: ".github/workflows/"
             exclude: ^.github/workflows/release.yml$
 
-    # 🐚 Shell script validation
+    # Shell script validation
     - repo: https://github.com/koalaman/shellcheck-precommit
       rev: v0.11.0
       hooks:
           - id: shellcheck
             exclude: ^.github/workflows/release.yml$
 
-    # 📝 Commit message linting (commit-msg only, not blocking push)
+    # Commit message linting (commit-msg only, not blocking push)
     - repo: https://github.com/commitizen-tools/commitizen
       rev: v4.9.1
       hooks:
           - id: commitizen
             stages: [commit-msg]
 
-    # Temporarily disabled due to issues with cargo-machete while we are stubbing out the project
-    # - repo: https://github.com/bnjbvr/cargo-machete
-    #   rev: v0.9.1
-    #   hooks:
-    #       - id: cargo-machete
+    - repo: https://github.com/bnjbvr/cargo-machete
+      rev: v0.9.1
+      hooks:
+          - id: cargo-machete
 
-    # 📝 Markdown formatting and linting (temporarily disabled in CI due to path issues)
+    # Markdown formatting and linting (temporarily disabled in CI due to path issues)
     - repo: https://github.com/hukkin/mdformat
       rev: 0.7.22
       hooks:
@@ -75,7 +74,7 @@ repos:
                 - mdformat-toc
             files: \.(md|mdx)$
 
-    # 🔒 Security audit for Rust dependencies (moved to CI)
+    # Security audit for Rust dependencies (moved to CI)
     - repo: local
       hooks:
           - id: cargo-audit
