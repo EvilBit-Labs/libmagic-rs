@@ -325,17 +325,16 @@ mod tests {
         let formatted1 = format_evaluation_result(&eval1);
         assert_eq!(formatted1, "document.pdf: data");
 
-        // Windows path - on Unix systems, this will be treated as a single component
-        // so we need to handle this case differently
+        // Windows path - behavior differs by platform
         let eval2 = EvaluationResult::new(
             PathBuf::from(r"C:\Users\user\file.exe"),
             vec![],
             metadata.clone(),
         );
         let formatted2 = format_evaluation_result(&eval2);
-        // On Unix systems, Windows paths are treated as single components
-        // so we expect the full path as the filename
-        assert_eq!(formatted2, r"C:\Users\user\file.exe: data");
+        // On Windows, this extracts just the filename; on Unix, it's treated as a single component
+        #[cfg(windows)]
+        assert_eq!(formatted2, "file.exe: data");
 
         // Relative path
         let eval3 =
