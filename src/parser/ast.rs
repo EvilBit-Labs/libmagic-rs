@@ -109,7 +109,7 @@ pub enum Operator {
 }
 
 /// Value types for rule matching
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Value {
     /// Unsigned integer value
     Uint(u64),

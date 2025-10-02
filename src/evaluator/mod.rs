@@ -55,7 +55,7 @@ impl EvaluationContext {
     /// let context = EvaluationContext::new(config);
     /// ```
     #[must_use]
-    pub fn new(config: EvaluationConfig) -> Self {
+    pub const fn new(config: EvaluationConfig) -> Self {
         Self {
             current_offset: 0,
             recursion_depth: 0,
@@ -69,7 +69,7 @@ impl EvaluationContext {
     ///
     /// The current offset position in the file buffer
     #[must_use]
-    pub fn current_offset(&self) -> usize {
+    pub const fn current_offset(&self) -> usize {
         self.current_offset
     }
 
@@ -78,7 +78,7 @@ impl EvaluationContext {
     /// # Arguments
     ///
     /// * `offset` - The new offset position
-    pub fn set_current_offset(&mut self, offset: usize) {
+    pub const fn set_current_offset(&mut self, offset: usize) {
         self.current_offset = offset;
     }
 
@@ -88,7 +88,7 @@ impl EvaluationContext {
     ///
     /// The current recursion depth for nested rule evaluation
     #[must_use]
-    pub fn recursion_depth(&self) -> u32 {
+    pub const fn recursion_depth(&self) -> u32 {
         self.recursion_depth
     }
 
@@ -133,7 +133,7 @@ impl EvaluationContext {
     ///
     /// A reference to the `EvaluationConfig` used by this context
     #[must_use]
-    pub fn config(&self) -> &EvaluationConfig {
+    pub const fn config(&self) -> &EvaluationConfig {
         &self.config
     }
 
@@ -143,7 +143,7 @@ impl EvaluationContext {
     ///
     /// `true` if evaluation should stop at the first match, `false` otherwise
     #[must_use]
-    pub fn should_stop_at_first_match(&self) -> bool {
+    pub const fn should_stop_at_first_match(&self) -> bool {
         self.config.stop_at_first_match
     }
 
@@ -153,7 +153,7 @@ impl EvaluationContext {
     ///
     /// The maximum string length that should be read during evaluation
     #[must_use]
-    pub fn max_string_length(&self) -> usize {
+    pub const fn max_string_length(&self) -> usize {
         self.config.max_string_length
     }
 
@@ -163,7 +163,7 @@ impl EvaluationContext {
     ///
     /// `true` if MIME type mapping should be performed, `false` otherwise
     #[must_use]
-    pub fn enable_mime_types(&self) -> bool {
+    pub const fn enable_mime_types(&self) -> bool {
         self.config.enable_mime_types
     }
 
@@ -173,7 +173,7 @@ impl EvaluationContext {
     ///
     /// The timeout duration in milliseconds, or `None` if no timeout is set
     #[must_use]
-    pub fn timeout_ms(&self) -> Option<u64> {
+    pub const fn timeout_ms(&self) -> Option<u64> {
         self.config.timeout_ms
     }
 
@@ -181,7 +181,7 @@ impl EvaluationContext {
     ///
     /// This resets the current offset and recursion depth to 0, but keeps
     /// the same configuration settings.
-    pub fn reset(&mut self) {
+    pub const fn reset(&mut self) {
         self.current_offset = 0;
         self.recursion_depth = 0;
     }
@@ -1215,7 +1215,7 @@ mod tests {
             timeout_ms: Some(2000),
         };
 
-        let context = EvaluationContext::new(config.clone());
+        let context = EvaluationContext::new(config);
 
         // Test config access
         assert_eq!(context.config().max_recursion_depth, 10);
@@ -1355,7 +1355,7 @@ mod tests {
             enable_mime_types: true,
             timeout_ms: Some(10000),
         };
-        let context = EvaluationContext::new(config.clone());
+        let context = EvaluationContext::new(config);
 
         assert_eq!(context.config().max_recursion_depth, 30);
         assert_eq!(context.config().max_string_length, 16384);

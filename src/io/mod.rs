@@ -181,7 +181,7 @@ impl FileBuffer {
         Self::validate_file_metadata(&file, &path_buf)?;
         let mmap = Self::create_memory_mapping(&file, &path_buf)?;
 
-        Ok(FileBuffer {
+        Ok(Self {
             mmap,
             path: path_buf,
         })
@@ -585,7 +585,7 @@ mod tests {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "File not found");
 
         let error = IoError::FileOpenError {
-            path: path.clone(),
+            path,
             source: io_err,
         };
 
@@ -597,7 +597,7 @@ mod tests {
     #[test]
     fn test_empty_file_error_display() {
         let path = PathBuf::from("/test/empty.bin");
-        let error = IoError::EmptyFile { path: path.clone() };
+        let error = IoError::EmptyFile { path };
 
         let error_string = format!("{error}");
         assert!(error_string.contains("/test/empty.bin"));
@@ -608,7 +608,7 @@ mod tests {
     fn test_file_too_large_error_display() {
         let path = PathBuf::from("/test/large.bin");
         let error = IoError::FileTooLarge {
-            path: path.clone(),
+            path,
             size: 2_000_000_000,
             max_size: 1_000_000_000,
         };

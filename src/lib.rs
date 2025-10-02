@@ -95,7 +95,7 @@ pub type Result<T> = std::result::Result<T, LibmagicError>;
 ///     timeout_ms: Some(5000), // 5 second timeout
 /// };
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EvaluationConfig {
     /// Maximum recursion depth for nested rules
     ///
@@ -183,7 +183,7 @@ impl EvaluationConfig {
     /// assert_eq!(config.timeout_ms, Some(1000));
     /// ```
     #[must_use]
-    pub fn performance() -> Self {
+    pub const fn performance() -> Self {
         Self {
             max_recursion_depth: 10,
             max_string_length: 1024,
@@ -215,7 +215,7 @@ impl EvaluationConfig {
     /// assert_eq!(config.timeout_ms, Some(30000));
     /// ```
     #[must_use]
-    pub fn comprehensive() -> Self {
+    pub const fn comprehensive() -> Self {
         Self {
             max_recursion_depth: 50,
             max_string_length: 32768,
