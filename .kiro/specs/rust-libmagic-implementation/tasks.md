@@ -193,7 +193,7 @@
 
 - [ ] 8. Create basic rule evaluation
 
-- [ ] 8.1 Create basic rule evaluation
+- [x] 8.1 Create basic rule evaluation
 
   - Create src/evaluator/mod.rs with evaluate_single_rule function
   - Implement single rule evaluation using offset resolution, type reading, and operator application

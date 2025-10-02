@@ -83,6 +83,7 @@ repos:
             language: system
             pass_filenames: false
             always_run: true
+
     - repo: https://github.com/DevinR528/cargo-sort
       rev: v2.0.2
       hooks:
