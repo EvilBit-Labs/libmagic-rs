@@ -138,7 +138,7 @@
   - Write unit tests for offset resolution interface with OffsetSpec::Absolute
   - _Requirements: 2.1_
 
-- [ ] 6. Create basic type reading for byte values
+- [x] 6. Create basic type reading for byte values
 
 - [x] 6.1 Create basic type reading for byte values
 
@@ -147,14 +147,14 @@
   - Write unit tests for byte reading at various buffer positions
   - _Requirements: 2.2, 3.2_
 
-- [ ] 6.2 Add multi-byte type reading with endianness
+- [x] 6.2 Add multi-byte type reading with endianness
 
   - Add read_short and read_long functions to types.rs using byteorder crate
   - Implement little-endian and big-endian reading for 16-bit and 32-bit values
   - Write unit tests for multi-byte reading with different endianness
   - _Requirements: 2.2, 3.2_
 
-- [ ] 6.3 Create type interpretation interface
+- [x] 6.3 Create type interpretation interface
 
   - Add read_typed_value function in types.rs that handles TypeKind enum
   - Implement type-specific reading using existing read functions
