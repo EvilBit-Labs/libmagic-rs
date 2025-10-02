@@ -152,6 +152,8 @@ pub fn format_evaluation_result(evaluation: &EvaluationResult) -> String {
 
 #[cfg(test)]
 mod tests {
+    use cfg_if::cfg_if;
+
     use super::*;
     use crate::output::EvaluationMetadata;
     use crate::parser::ast::Value;
@@ -333,9 +335,13 @@ mod tests {
         );
         let formatted2 = format_evaluation_result(&eval2);
         // On Windows, this extracts just the filename; on Unix, it's treated as a single component
-        #[cfg(windows)]
-        assert_eq!(formatted2, "file.exe: data");
-
+        cfg_if! {
+            if #[cfg(windows)] {
+                assert_eq!(formatted2, "file.exe: data");
+            } else {
+                assert_eq!(formatted2, r"C:\Users\user\file.exe: data");
+            }
+        }
         // Relative path
         let eval3 =
             EvaluationResult::new(PathBuf::from("./test/sample.dat"), vec![], metadata.clone());
