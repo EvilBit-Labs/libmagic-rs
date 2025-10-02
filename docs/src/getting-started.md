@@ -201,7 +201,7 @@ let elf_rule = MagicRule {
     offset: OffsetSpec::Absolute(0),
     typ: TypeKind::Long {
         endian: Endianness::Little,
-        signed: false
+        signed: false,
     },
     op: Operator::Equal,
     value: Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]), // "\x7fELF"

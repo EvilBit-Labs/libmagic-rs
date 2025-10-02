@@ -355,7 +355,7 @@ Use `criterion` for performance benchmarks:
 
 ```rust
 // benches/evaluation_bench.rs
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use libmagic_rs::{EvaluationConfig, MagicDatabase};
 
 fn bench_file_evaluation(c: &mut Criterion) {

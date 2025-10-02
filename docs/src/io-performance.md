@@ -127,7 +127,9 @@ pub enum IoError {
         max_size: u64,
     },
 
-    #[error("Buffer access out of bounds: offset {offset} + length {length} > buffer size {buffer_size}")]
+    #[error(
+        "Buffer access out of bounds: offset {offset} + length {length} > buffer size {buffer_size}"
+    )]
     BufferOverrun {
         offset: usize,
         length: usize,

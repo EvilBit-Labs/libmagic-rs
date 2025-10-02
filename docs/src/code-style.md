@@ -264,7 +264,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 // External crates
-use nom::{bytes::complete::tag, IResult};
+use nom::{IResult, bytes::complete::tag};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

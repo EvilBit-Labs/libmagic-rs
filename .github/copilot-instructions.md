@@ -55,13 +55,13 @@ cargo fmt                    # Required before commit
 
 ```rust
 pub struct MagicRule {
-    pub offset: OffsetSpec,     // Absolute, Indirect, Relative
-    pub typ: TypeKind,         // Byte, Short, Long, String, Regex
-    pub op: Operator,          // Equal, NotEqual, Greater, Less, BitwiseAnd
-    pub value: Value,          // Number, String, Regex with escaping
-    pub message: String,       // Output text for matches
+    pub offset: OffsetSpec,       // Absolute, Indirect, Relative
+    pub typ: TypeKind,            // Byte, Short, Long, String, Regex
+    pub op: Operator,             // Equal, NotEqual, Greater, Less, BitwiseAnd
+    pub value: Value,             // Number, String, Regex with escaping
+    pub message: String,          // Output text for matches
     pub children: Vec<MagicRule>, // Hierarchical nesting
-    pub level: u32,           // Indentation level
+    pub level: u32,               // Indentation level
 }
 ```
 
@@ -176,8 +176,8 @@ use regex::bytes::Regex;
 
 ```toml
 [workspace.lints.rust]
-unsafe_code = "forbid"    # Zero unsafe code policy
-warnings = "deny"         # Zero warnings policy
+unsafe_code = "forbid" # Zero unsafe code policy
+warnings = "deny"      # Zero warnings policy
 
 [workspace.lints.clippy]
 correctness = { level = "deny", priority = -1 }
