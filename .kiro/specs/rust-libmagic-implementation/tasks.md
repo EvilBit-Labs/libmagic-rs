@@ -191,7 +191,7 @@
   - Write unit tests for operator application interface with all supported operators
   - _Requirements: 2.3_
 
-- [ ] 8. Create basic rule evaluation
+- [x] 8. Create basic rule evaluation
 
 - [x] 8.1 Create basic rule evaluation
 
@@ -207,14 +207,14 @@
   - Write unit tests for context creation and state management
   - _Requirements: 2.4_
 
-- [ ] 8.3 Add evaluation configuration
+- [x] 8.3 Add evaluation configuration
 
   - Create EvaluationConfig struct in evaluator/mod.rs with evaluation options
   - Add fields for recursion limits, string length limits, and match behavior
   - Write unit tests for configuration creation and validation
   - _Requirements: 2.4, 6.3_
 
-- [ ] 8.4 Implement hierarchical rule evaluation
+- [x] 8.4 Implement hierarchical rule evaluation
 
   - Add evaluate_rules function to evaluator/mod.rs for processing rule lists
   - Implement parent-child rule relationship handling with proper hierarchy traversal
