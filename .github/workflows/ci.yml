@@ -1,0 +1,163 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+    workflow_dispatch:
+
+defaults:
+    run:
+        shell: bash
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    CARGO_TERM_COLOR: always
+    CI: true
+    GITHUB_ACTIONS: true
+
+jobs:
+    # Detect if Rust code has changed
+    changes:
+        runs-on: ubuntu-latest
+        outputs:
+            rust: ${{ steps.filter.outputs.rust }}
+            docs: ${{ steps.filter.outputs.docs }}
+        steps:
+            - uses: actions/checkout@v5
+            - uses: dorny/paths-filter@v3
+              id: filter
+              with:
+                  filters: |
+                      rust:
+                        - '**/*.rs'
+                        - '**/Cargo.toml'
+                        - '**/Cargo.lock'
+                        - '**/build.rs'
+                        - 'justfile'
+                        - 'rust-toolchain.toml'
+                        - 'deny.toml'
+                      docs:
+                        - 'docs/**'
+                        - '*.md'
+                        - '.kiro/**'
+                        - 'spec/**'
+
+    # Code quality checks - always run
+    quality:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
+            - uses: dtolnay/rust-toolchain@1.90
+              with:
+                  components: rustfmt, clippy
+
+            - name: Install just
+              uses: extractions/setup-just@v3
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@v2
+
+            - name: Rustfmt Check
+              uses: actions-rust-lang/rustfmt@v1
+
+            - name: Run clippy (all features)
+              run: cargo clippy --all-targets --all-features -- -D warnings
+
+    test:
+        runs-on: ubuntu-latest
+        needs: changes
+        if: needs.changes.outputs.rust == 'true'
+        steps:
+            - uses: actions/checkout@v5
+
+            - name: Setup Rust
+              uses: dtolnay/rust-toolchain@1.90
+              with:
+                  components: rustfmt, clippy
+
+            - name: Install cargo-nextest
+              uses: taiki-e/install-action@v2
+              with:
+                  tool: cargo-nextest
+
+            - name: Run tests (all features)
+              run: cargo nextest run --all-features
+
+            - name: Build release
+              run: cargo build --release --all-features
+
+    # Test cross-platform - only run when Rust code changes
+    test-cross-platform:
+        strategy:
+            matrix:
+                include:
+                    # Primary Support - Linux
+                    - os: ubuntu-latest
+                      platform: "Linux"
+                    - os: arm
+                      platform: "Linux"
+                    # Primary Support - macOS (using available runners)
+                    - os: macos-latest
+                      platform: "macOS"
+                    # Primary Support - Windows
+                    - os: windows-latest
+                      platform: "Windows"
+
+        runs-on: ${{ matrix.os }}
+        needs: changes
+        if: needs.changes.outputs.rust == 'true'
+        steps:
+            - uses: actions/checkout@v5
+
+            - name: Setup Rust
+              uses: dtolnay/rust-toolchain@1.90
+
+            - name: Install cargo-nextest
+              uses: taiki-e/install-action@v2
+              with:
+                  tool: cargo-nextest
+
+            # Run tests and build the release binary
+            - run: cargo nextest run --all-features
+            - run: cargo build --release --all-features
+
+    # Generate coverage for TLS-enabled builds - only run when Rust code changes
+    coverage:
+        runs-on: ubuntu-latest
+        needs: [changes, test, test-cross-platform]
+        if: needs.changes.outputs.rust == 'true'
+        steps:
+            - uses: actions/checkout@v5
+
+            - name: Setup Rust
+              uses: dtolnay/rust-toolchain@1.90
+              with:
+                  components: llvm-tools
+
+            - name: Install cargo-llvm-cov
+              uses: taiki-e/install-action@v2
+              with:
+                  tool: cargo-llvm-cov
+
+            - name: Generate coverage
+              run: cargo llvm-cov --all-features --no-report
+
+            - name: Combine coverage reports
+              run: cargo llvm-cov report --lcov --output-path lcov.info
+
+            - name: Upload to Codecov
+              uses: codecov/codecov-action@v5
+              with:
+                  files: lcov.info
+                  fail_ci_if_error: false
+                  token: ${{ secrets.CODECOV_TOKEN }}
+                  slug: EvilBit-Labs/StringyMcStringFace
+            - uses: qltysh/qlty-action/coverage@v2
+              with:
+                  token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
+                  files: target/lcov.info
