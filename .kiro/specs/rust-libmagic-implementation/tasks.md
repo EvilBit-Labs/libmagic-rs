@@ -224,7 +224,7 @@
 
 - [ ] 9. Create basic match result structure
 
-- [ ] 9.1 Create basic match result structure
+- [x] 9.1 Create basic match result structure
 
   - Create src/output/mod.rs with MatchResult struct for storing evaluation results
   - Add fields for message, offset, value, and rule metadata
