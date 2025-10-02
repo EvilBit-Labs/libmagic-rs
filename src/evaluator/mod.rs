@@ -3,12 +3,169 @@
 //! This module contains the core evaluation logic for executing magic rules
 //! against file buffers to identify file types.
 
-use crate::LibmagicError;
 use crate::parser::ast::MagicRule;
+use crate::{EvaluationConfig, LibmagicError};
 
 pub mod offset;
 pub mod operators;
 pub mod types;
+
+/// Context for maintaining evaluation state during rule processing
+///
+/// The `EvaluationContext` tracks the current state of rule evaluation,
+/// including the current offset position, recursion depth for nested rules,
+/// and configuration settings that control evaluation behavior.
+///
+/// # Examples
+///
+/// ```rust
+/// use libmagic_rs::evaluator::EvaluationContext;
+/// use libmagic_rs::EvaluationConfig;
+///
+/// let config = EvaluationConfig::default();
+/// let context = EvaluationContext::new(config);
+///
+/// assert_eq!(context.current_offset(), 0);
+/// assert_eq!(context.recursion_depth(), 0);
+/// ```
+#[derive(Debug, Clone)]
+pub struct EvaluationContext {
+    /// Current offset position in the file buffer
+    current_offset: usize,
+    /// Current recursion depth for nested rule evaluation
+    recursion_depth: u32,
+    /// Configuration settings for evaluation behavior
+    config: EvaluationConfig,
+}
+
+impl EvaluationContext {
+    /// Create a new evaluation context with the given configuration
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Configuration settings for evaluation behavior
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use libmagic_rs::evaluator::EvaluationContext;
+    /// use libmagic_rs::EvaluationConfig;
+    ///
+    /// let config = EvaluationConfig::default();
+    /// let context = EvaluationContext::new(config);
+    /// ```
+    #[must_use]
+    pub fn new(config: EvaluationConfig) -> Self {
+        Self {
+            current_offset: 0,
+            recursion_depth: 0,
+            config,
+        }
+    }
+
+    /// Get the current offset position
+    ///
+    /// # Returns
+    ///
+    /// The current offset position in the file buffer
+    #[must_use]
+    pub fn current_offset(&self) -> usize {
+        self.current_offset
+    }
+
+    /// Set the current offset position
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - The new offset position
+    pub fn set_current_offset(&mut self, offset: usize) {
+        self.current_offset = offset;
+    }
+
+    /// Get the current recursion depth
+    ///
+    /// # Returns
+    ///
+    /// The current recursion depth for nested rule evaluation
+    #[must_use]
+    pub fn recursion_depth(&self) -> u32 {
+        self.recursion_depth
+    }
+
+    /// Increment the recursion depth
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if the recursion depth is within limits, or `Err(LibmagicError)`
+    /// if the maximum recursion depth would be exceeded
+    ///
+    /// # Errors
+    ///
+    /// Returns `LibmagicError::EvaluationError` if incrementing would exceed
+    /// the maximum recursion depth configured in the evaluation config.
+    pub fn increment_recursion_depth(&mut self) -> Result<(), LibmagicError> {
+        if self.recursion_depth >= self.config.max_recursion_depth {
+            return Err(LibmagicError::EvaluationError(
+                "Maximum recursion depth exceeded".to_string(),
+            ));
+        }
+        self.recursion_depth += 1;
+        Ok(())
+    }
+
+    /// Decrement the recursion depth
+    ///
+    /// # Panics
+    ///
+    /// Panics if the recursion depth is already 0, as this indicates
+    /// a programming error in the evaluation logic.
+    pub fn decrement_recursion_depth(&mut self) {
+        assert!(
+            self.recursion_depth != 0,
+            "Attempted to decrement recursion depth below 0"
+        );
+        self.recursion_depth -= 1;
+    }
+
+    /// Get a reference to the evaluation configuration
+    ///
+    /// # Returns
+    ///
+    /// A reference to the `EvaluationConfig` used by this context
+    #[must_use]
+    pub fn config(&self) -> &EvaluationConfig {
+        &self.config
+    }
+
+    /// Check if evaluation should stop at the first match
+    ///
+    /// # Returns
+    ///
+    /// `true` if evaluation should stop at the first match, `false` otherwise
+    #[must_use]
+    pub fn should_stop_at_first_match(&self) -> bool {
+        self.config.stop_at_first_match
+    }
+
+    /// Get the maximum string length allowed
+    ///
+    /// # Returns
+    ///
+    /// The maximum string length that should be read during evaluation
+    #[must_use]
+    pub fn max_string_length(&self) -> usize {
+        self.config.max_string_length
+    }
+
+    /// Reset the context to initial state while preserving configuration
+    ///
+    /// This resets the current offset and recursion depth to 0, but keeps
+    /// the same configuration settings.
+    pub fn reset(&mut self) {
+        self.current_offset = 0;
+        self.recursion_depth = 0;
+    }
+}
 
 /// Evaluate a single magic rule against a file buffer
 ///
@@ -731,5 +888,251 @@ mod tests {
 
         let result = evaluate_single_rule(&large_rule, &large_buffer).unwrap();
         assert!(result);
+    }
+
+    // Tests for EvaluationContext
+    #[test]
+    fn test_evaluation_context_new() {
+        let config = EvaluationConfig::default();
+        let context = EvaluationContext::new(config.clone());
+
+        assert_eq!(context.current_offset(), 0);
+        assert_eq!(context.recursion_depth(), 0);
+        assert_eq!(
+            context.config().max_recursion_depth,
+            config.max_recursion_depth
+        );
+        assert_eq!(context.config().max_string_length, config.max_string_length);
+        assert_eq!(
+            context.config().stop_at_first_match,
+            config.stop_at_first_match
+        );
+    }
+
+    #[test]
+    fn test_evaluation_context_offset_management() {
+        let config = EvaluationConfig::default();
+        let mut context = EvaluationContext::new(config);
+
+        // Test initial offset
+        assert_eq!(context.current_offset(), 0);
+
+        // Test setting offset
+        context.set_current_offset(42);
+        assert_eq!(context.current_offset(), 42);
+
+        // Test setting different offset
+        context.set_current_offset(1024);
+        assert_eq!(context.current_offset(), 1024);
+
+        // Test setting offset to 0
+        context.set_current_offset(0);
+        assert_eq!(context.current_offset(), 0);
+    }
+
+    #[test]
+    fn test_evaluation_context_recursion_depth_management() {
+        let config = EvaluationConfig::default();
+        let mut context = EvaluationContext::new(config);
+
+        // Test initial recursion depth
+        assert_eq!(context.recursion_depth(), 0);
+
+        // Test incrementing recursion depth
+        context.increment_recursion_depth().unwrap();
+        assert_eq!(context.recursion_depth(), 1);
+
+        context.increment_recursion_depth().unwrap();
+        assert_eq!(context.recursion_depth(), 2);
+
+        // Test decrementing recursion depth
+        context.decrement_recursion_depth();
+        assert_eq!(context.recursion_depth(), 1);
+
+        context.decrement_recursion_depth();
+        assert_eq!(context.recursion_depth(), 0);
+    }
+
+    #[test]
+    fn test_evaluation_context_recursion_depth_limit() {
+        let config = EvaluationConfig {
+            max_recursion_depth: 2,
+            ..Default::default()
+        };
+        let mut context = EvaluationContext::new(config);
+
+        // Should be able to increment up to the limit
+        assert!(context.increment_recursion_depth().is_ok());
+        assert_eq!(context.recursion_depth(), 1);
+
+        assert!(context.increment_recursion_depth().is_ok());
+        assert_eq!(context.recursion_depth(), 2);
+
+        // Should fail when exceeding the limit
+        let result = context.increment_recursion_depth();
+        assert!(result.is_err());
+        assert_eq!(context.recursion_depth(), 2); // Should not have changed
+
+        match result.unwrap_err() {
+            LibmagicError::EvaluationError(msg) => {
+                assert!(msg.contains("Maximum recursion depth exceeded"));
+            }
+            _ => panic!("Expected EvaluationError"),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Attempted to decrement recursion depth below 0")]
+    fn test_evaluation_context_recursion_depth_underflow() {
+        let config = EvaluationConfig::default();
+        let mut context = EvaluationContext::new(config);
+
+        // Should panic when trying to decrement below 0
+        context.decrement_recursion_depth();
+    }
+
+    #[test]
+    fn test_evaluation_context_config_access() {
+        let config = EvaluationConfig {
+            max_recursion_depth: 10,
+            max_string_length: 4096,
+            stop_at_first_match: false,
+        };
+
+        let context = EvaluationContext::new(config.clone());
+
+        // Test config access
+        assert_eq!(context.config().max_recursion_depth, 10);
+        assert_eq!(context.config().max_string_length, 4096);
+        assert!(!context.config().stop_at_first_match);
+
+        // Test convenience methods
+        assert!(!context.should_stop_at_first_match());
+        assert_eq!(context.max_string_length(), 4096);
+    }
+
+    #[test]
+    fn test_evaluation_context_reset() {
+        let config = EvaluationConfig::default();
+        let mut context = EvaluationContext::new(config.clone());
+
+        // Modify the context state
+        context.set_current_offset(100);
+        context.increment_recursion_depth().unwrap();
+        context.increment_recursion_depth().unwrap();
+
+        assert_eq!(context.current_offset(), 100);
+        assert_eq!(context.recursion_depth(), 2);
+
+        // Reset should restore initial state but keep config
+        context.reset();
+
+        assert_eq!(context.current_offset(), 0);
+        assert_eq!(context.recursion_depth(), 0);
+        assert_eq!(
+            context.config().max_recursion_depth,
+            config.max_recursion_depth
+        );
+    }
+
+    #[test]
+    fn test_evaluation_context_clone() {
+        let config = EvaluationConfig {
+            max_recursion_depth: 5,
+            max_string_length: 2048,
+            ..Default::default()
+        };
+
+        let mut context = EvaluationContext::new(config);
+        context.set_current_offset(50);
+        context.increment_recursion_depth().unwrap();
+
+        // Clone the context
+        let cloned_context = context.clone();
+
+        // Both should have the same state
+        assert_eq!(context.current_offset(), cloned_context.current_offset());
+        assert_eq!(context.recursion_depth(), cloned_context.recursion_depth());
+        assert_eq!(
+            context.config().max_recursion_depth,
+            cloned_context.config().max_recursion_depth
+        );
+        assert_eq!(
+            context.config().max_string_length,
+            cloned_context.config().max_string_length
+        );
+
+        // Modifying one should not affect the other
+        context.set_current_offset(75);
+        assert_eq!(context.current_offset(), 75);
+        assert_eq!(cloned_context.current_offset(), 50);
+    }
+
+    #[test]
+    fn test_evaluation_context_with_custom_config() {
+        let config = EvaluationConfig {
+            max_recursion_depth: 15,
+            max_string_length: 16384,
+            stop_at_first_match: false,
+        };
+
+        let context = EvaluationContext::new(config);
+
+        assert_eq!(context.config().max_recursion_depth, 15);
+        assert_eq!(context.max_string_length(), 16384);
+        assert!(!context.should_stop_at_first_match());
+
+        // Test that we can increment up to the custom limit
+        let mut mutable_context = context;
+        for i in 1..=15 {
+            assert!(mutable_context.increment_recursion_depth().is_ok());
+            assert_eq!(mutable_context.recursion_depth(), i);
+        }
+
+        // Should fail on the 16th increment
+        let result = mutable_context.increment_recursion_depth();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_evaluation_context_state_management_sequence() {
+        let config = EvaluationConfig::default();
+        let mut context = EvaluationContext::new(config);
+
+        // Simulate a sequence of evaluation operations
+        assert_eq!(context.current_offset(), 0);
+        assert_eq!(context.recursion_depth(), 0);
+
+        // Start evaluation at offset 10
+        context.set_current_offset(10);
+        assert_eq!(context.current_offset(), 10);
+
+        // Enter nested rule evaluation
+        context.increment_recursion_depth().unwrap();
+        assert_eq!(context.recursion_depth(), 1);
+
+        // Move to different offset during nested evaluation
+        context.set_current_offset(25);
+        assert_eq!(context.current_offset(), 25);
+
+        // Enter deeper nesting
+        context.increment_recursion_depth().unwrap();
+        assert_eq!(context.recursion_depth(), 2);
+
+        // Exit nested evaluation
+        context.decrement_recursion_depth();
+        assert_eq!(context.recursion_depth(), 1);
+
+        // Continue evaluation at different offset
+        context.set_current_offset(50);
+        assert_eq!(context.current_offset(), 50);
+
+        // Exit all nesting
+        context.decrement_recursion_depth();
+        assert_eq!(context.recursion_depth(), 0);
+
+        // Final state check
+        assert_eq!(context.current_offset(), 50);
+        assert_eq!(context.recursion_depth(), 0);
     }
 }

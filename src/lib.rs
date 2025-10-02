@@ -35,6 +35,9 @@ pub mod parser;
 // Re-export core AST types for convenience
 pub use parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, TypeKind, Value};
 
+// Re-export evaluator types for convenience
+pub use evaluator::EvaluationContext;
+
 /// Core error types for the library
 #[derive(Debug, Error)]
 pub enum LibmagicError {
