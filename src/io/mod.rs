@@ -148,7 +148,16 @@ pub struct FileBuffer {
 
 impl FileBuffer {
     /// Maximum file size that can be processed (1 GB)
+    ///
+    /// This limit prevents memory exhaustion attacks and ensures reasonable
+    /// processing times. Files larger than this are likely not suitable for
+    /// magic rule evaluation and may indicate malicious input.
     const MAX_FILE_SIZE: FileSize = 1024 * 1024 * 1024;
+
+    /// Maximum number of concurrent file mappings to prevent resource exhaustion
+    /// TODO: Implement concurrent mapping tracking in future versions
+    #[allow(dead_code)]
+    const MAX_CONCURRENT_MAPPINGS: usize = 100;
 
     // TODO: Consider implementing adaptive I/O strategy for small files
     // Files smaller than 4KB might benefit from regular read() instead of mmap
@@ -339,6 +348,13 @@ impl FileBuffer {
     }
 
     /// Creates memory mapping for the file
+    ///
+    /// # Security
+    ///
+    /// This function uses memory mapping which provides several security benefits:
+    /// - Avoids loading entire files into memory, reducing memory exhaustion attacks
+    /// - Provides read-only access to file contents
+    /// - Leverages OS-level memory protection mechanisms
     fn create_memory_mapping(file: &File, path_buf: &Path) -> Result<Mmap, IoError> {
         // SAFETY: We use safe memory mapping through memmap2, which handles
         // the unsafe operations internally with proper error checking.
@@ -346,12 +362,18 @@ impl FileBuffer {
         // over unsafe memory mapping operations.
         #[allow(unsafe_code)]
         unsafe {
-            MmapOptions::new()
-                .map(file)
-                .map_err(|source| IoError::MmapError {
-                    path: path_buf.to_path_buf(),
+            MmapOptions::new().map(file).map_err(|source| {
+                // Sanitize error message to avoid leaking sensitive path information
+                let sanitized_path = path_buf.file_name().map_or_else(
+                    || "<unknown>".to_string(),
+                    |name| name.to_string_lossy().into_owned(),
+                );
+
+                IoError::MmapError {
+                    path: PathBuf::from(sanitized_path),
                     source,
-                })
+                }
+            })
         }
     }
 
@@ -939,6 +961,42 @@ mod tests {
     }
 
     #[test]
+    fn test_buffer_access_security_patterns() {
+        // Test patterns that could indicate security vulnerabilities
+        let buffer_size = 1024;
+
+        // Test potential integer overflow patterns
+        let overflow_patterns = vec![
+            (usize::MAX, 1),           // Maximum offset
+            (buffer_size, usize::MAX), // Maximum length
+            (usize::MAX - 1, 2),       // Near-overflow offset
+        ];
+
+        for (offset, length) in overflow_patterns {
+            let result = validate_buffer_access(buffer_size, offset, length);
+            assert!(
+                result.is_err(),
+                "Should reject potentially dangerous access pattern: offset={offset}, length={length}"
+            );
+        }
+
+        // Test boundary conditions that should be safe
+        let safe_patterns = vec![
+            (0, 1),               // Start of buffer
+            (buffer_size - 1, 1), // End of buffer
+            (buffer_size / 2, 1), // Middle of buffer
+        ];
+
+        for (offset, length) in safe_patterns {
+            let result = validate_buffer_access(buffer_size, offset, length);
+            assert!(
+                result.is_ok(),
+                "Should accept safe access pattern: offset={offset}, length={length}"
+            );
+        }
+    }
+
+    #[test]
     fn test_buffer_overrun_error_display() {
         let error = IoError::BufferOverrun {
             offset: 10,
@@ -1021,7 +1079,7 @@ mod tests {
         let symlink_result = FileBuffer::create_symlink(&temp_dir, &symlink_path);
 
         match symlink_result {
-            Ok(_) => {
+            Ok(()) => {
                 let result = FileBuffer::new(&symlink_path);
 
                 assert!(result.is_err());
@@ -1070,7 +1128,7 @@ mod tests {
         let symlink_result = FileBuffer::create_symlink(&temp_file, &symlink_path);
 
         match symlink_result {
-            Ok(_) => {
+            Ok(()) => {
                 let result = FileBuffer::new(&symlink_path);
 
                 assert!(result.is_ok());

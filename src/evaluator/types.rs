@@ -30,6 +30,9 @@ pub enum TypeReadError {
 
 /// Safely reads a single byte from the buffer at the specified offset
 ///
+/// This function provides secure byte reading with comprehensive bounds checking
+/// to prevent buffer overruns and potential security vulnerabilities.
+///
 /// # Arguments
 ///
 /// * `buffer` - The byte buffer to read from
@@ -39,6 +42,13 @@ pub enum TypeReadError {
 ///
 /// Returns `Ok(Value::Uint(byte_value))` if the read is successful, or
 /// `Err(TypeReadError::BufferOverrun)` if the offset is beyond the buffer bounds.
+///
+/// # Security
+///
+/// This function performs strict bounds checking to prevent:
+/// - Buffer overruns that could lead to memory safety issues
+/// - Reading uninitialized or out-of-bounds memory
+/// - Integer overflow in offset calculations
 ///
 /// # Examples
 ///
@@ -62,6 +72,14 @@ pub enum TypeReadError {
 /// Returns `TypeReadError::BufferOverrun` if the offset is greater than or equal to
 /// the buffer length.
 pub fn read_byte(buffer: &[u8], offset: usize) -> Result<Value, TypeReadError> {
+    // Additional security check: ensure offset doesn't cause integer overflow
+    if offset >= buffer.len() {
+        return Err(TypeReadError::BufferOverrun {
+            offset,
+            buffer_len: buffer.len(),
+        });
+    }
+
     buffer
         .get(offset)
         .copied()

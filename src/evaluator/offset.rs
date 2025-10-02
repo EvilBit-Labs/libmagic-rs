@@ -396,6 +396,30 @@ mod tests {
             assert_eq!(result, expected, "Failed for spec: {spec:?}");
         }
     }
+
+    /// Test for potential integer overflow vulnerabilities in offset calculations
+    #[test]
+    fn test_offset_security_edge_cases() {
+        let buffer = b"test";
+
+        // Test potential overflow scenarios
+        let overflow_cases = vec![i64::MAX, i64::MIN, i64::MAX - 1, i64::MIN + 1];
+
+        for offset in overflow_cases {
+            let result = resolve_absolute_offset(offset, buffer);
+            // Should either succeed with valid offset or fail gracefully
+            if let Ok(resolved) = result {
+                // If it succeeds, the resolved offset must be within buffer bounds
+                assert!(
+                    resolved < buffer.len(),
+                    "Resolved offset {resolved} exceeds buffer length {}",
+                    buffer.len()
+                );
+            } else {
+                // Failure is acceptable for extreme values
+            }
+        }
+    }
 }
 #[test]
 fn test_resolve_absolute_offset_arithmetic_overflow() {
