@@ -1,16 +1,16 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 language: en-US
-tone_instructions: ""
+tone_instructions: "Memory-safe libmagic alternative in idiomatic Rust. Zero unsafe code, comprehensive error handling, Result-based APIs. Safety over performance, library reusability, modern Rust patterns."
 early_access: true
 enable_free_tier: true
 reviews:
-    profile: chill
+    profile: assertive
     request_changes_workflow: true
     high_level_summary: true
     high_level_summary_placeholder: "@coderabbitai summary"
     high_level_summary_in_walkthrough: true
     auto_title_placeholder: "@coderabbitai"
-    auto_title_instructions: ""
+    auto_title_instructions: "Generate PR/MR titles following Conventional Commits format: type(scope): description. Use types: feat, fix, docs, style, refactor, perf, test, build, ci, chore. Use scopes: parser, evaluator, io, output, cli, ast, grammar, types, operators, offsets, magic, file-type, performance, memory-safety, compatibility, testing, benchmarks, documentation. Keep descriptions concise and action-oriented, focusing on libmagic-rs functionality."
     review_status: true
     commit_status: true
     fail_commit_status: false
@@ -24,21 +24,110 @@ reviews:
     suggested_labels: true
     auto_apply_labels: true
     suggested_reviewers: true
-    auto_assign_reviewers: true
+    auto_assign_reviewers: false
     in_progress_fortune: true
     poem: true
-    labeling_instructions: []
-    path_filters: []
-    path_instructions: []
+    labeling_instructions:
+        - label: "parser"
+          instructions: "Apply when changes are made to src/parser/ directory, magic file parsing, grammar rules, or AST structures"
+        - label: "evaluator"
+          instructions: "Apply when changes are made to src/evaluator/ directory, rule evaluation logic, or offset resolution"
+        - label: "io"
+          instructions: "Apply when changes are made to src/io/ directory, file I/O operations, memory mapping, or FileBuffer"
+        - label: "output"
+          instructions: "Apply when changes are made to src/output/ directory, result formatting, or output generation"
+        - label: "cli"
+          instructions: "Apply when changes are made to src/main.rs, command-line interface, or CLI tools"
+        - label: "memory-safety"
+          instructions: "Apply when changes improve memory safety, add bounds checking, or remove unsafe code"
+        - label: "performance"
+          instructions: "Apply when changes involve performance optimizations, benchmarks, or speed improvements"
+        - label: "compatibility"
+          instructions: "Apply when changes involve libmagic compatibility features, migration tools, or API compatibility"
+        - label: "testing"
+          instructions: "Apply when changes involve test infrastructure, test coverage, or testing utilities"
+        - label: "rust"
+          instructions: "Apply when changes involve Rust language features, idioms, or modern Rust patterns"
+    path_filters:
+        [
+            "src/**",
+            "docs/src/**",
+            "spec/**",
+            ".kiro/**/*.md",
+            ".cursor/**/*.mdc",
+            ".github/**",
+            "!.github/workflows/release.yml",
+            "*.md",
+            "*.toml",
+            "*.yaml",
+            "*.yml",
+            "*.json",
+            "*.sh",
+            "justfile",
+            "!target/**",
+            "!dist/**",
+            "!docs/book/**",
+            "!node_modules/**",
+            "!*.woff2",
+            "!*.png",
+            "!*.svg",
+            "!*.ico",
+            "!*.wxs",
+        ]
+    path_instructions:
+        - path: "src/lib.rs"
+          instructions: "Focus on public API design, core data structures (MagicRule, Value, TypeKind, Operator, OffsetSpec), and library interface. Ensure comprehensive rustdoc documentation with examples. Prioritize memory safety and idiomatic Rust patterns."
+        - path: "src/main.rs"
+          instructions: "Review CLI interface design, argument parsing with clap, error handling, and user experience. Ensure proper exit codes and help text. Focus on usability and cross-platform compatibility."
+        - path: "src/parser/**"
+          instructions: "Focus on magic file DSL parsing, AST node definitions, and grammar rules. Ensure comprehensive error handling for malformed input, proper escape sequence handling, and robust parsing logic. Include property tests for parser invariants."
+        - path: "src/parser/ast.rs"
+          instructions: "Review AST data structures matching the libmagic spec. Ensure proper serialization support, comprehensive documentation, and type safety. Focus on memory layout and performance characteristics."
+        - path: "src/parser/grammar.rs"
+          instructions: "Review nom-based parsing logic, grammar rules, and parser combinators. Ensure robust parsing of magic file syntax, proper error recovery, and comprehensive test coverage for edge cases."
+        - path: "src/evaluator/**"
+          instructions: "Focus on rule evaluation engine, offset resolution, type interpretation, and comparison operators. Ensure memory safety, bounds checking, and performance optimization. Include comprehensive error handling for malformed files."
+        - path: "src/evaluator/offset.rs"
+          instructions: "Review offset resolution logic for absolute, indirect, and relative offsets. Ensure proper bounds checking, endianness handling, and performance optimization. Focus on memory safety and edge case handling."
+        - path: "src/evaluator/types.rs"
+          instructions: "Review type interpretation logic for byte, short, long, string types with endianness support. Ensure proper bounds checking, overflow handling, and performance optimization."
+        - path: "src/evaluator/operators.rs"
+          instructions: "Review comparison and bitwise operators implementation. Ensure proper type coercion, overflow handling, and performance optimization. Focus on correctness and edge case handling."
+        - path: "src/output/**"
+          instructions: "Focus on output formatting for text and JSON formats. Ensure compatibility with GNU file command output, proper error handling, and structured metadata. Review performance for large result sets."
+        - path: "src/output/text.rs"
+          instructions: "Review human-readable output formatting. Ensure compatibility with GNU file command, proper text encoding, and performance optimization. Focus on user experience and readability."
+        - path: "src/output/json.rs"
+          instructions: "Review JSON structured output with metadata. Ensure proper serialization, schema consistency, and performance optimization. Focus on API usability and backward compatibility."
+        - path: "src/io/**"
+          instructions: "Focus on file I/O operations, memory mapping, and resource management. Ensure proper bounds checking, error handling, and RAII patterns. Prioritize memory safety and performance."
+        - path: "src/error.rs"
+          instructions: "Review error types and handling strategies. Ensure comprehensive error coverage, proper error propagation, and user-friendly error messages. Focus on error recovery and debugging support."
+        - path: "tests/**"
+          instructions: "Review test coverage, test organization, and test quality. Ensure comprehensive unit tests, integration tests, and property-based tests. Focus on test maintainability and edge case coverage."
+        - path: "tests/integration/**"
+          instructions: "Review integration test design and coverage. Ensure end-to-end workflow testing, compatibility testing, and performance regression testing. Focus on real-world usage scenarios."
+        - path: "tests/fixtures/**"
+          instructions: "Review test fixtures and sample files. Ensure comprehensive test data coverage, proper file organization, and test data maintenance. Focus on realistic test scenarios."
+        - path: "benches/**"
+          instructions: "Review benchmark design and performance testing. Ensure meaningful benchmarks, proper statistical analysis, and performance regression detection. Focus on critical path optimization."
+        - path: "magic/**"
+          instructions: "Review magic file databases and rule sets. Ensure proper magic file syntax, comprehensive rule coverage, and compatibility with libmagic. Focus on rule accuracy and performance."
+        - path: "docs/**"
+          instructions: "Review documentation quality, completeness, and accuracy. Ensure comprehensive API documentation, usage examples, and migration guides. Focus on user experience and developer onboarding."
+        - path: "Cargo.toml"
+          instructions: "Review dependency management, feature flags, and build configuration. Ensure proper version constraints, security considerations, and build optimization. Focus on dependency hygiene and performance."
+        - path: "justfile"
+          instructions: "Review build automation and development workflow. Ensure comprehensive task coverage, cross-platform compatibility, and developer experience. Focus on workflow efficiency and maintainability."
     abort_on_close: true
     disable_cache: false
     auto_review:
         enabled: true
         auto_incremental_review: true
-        ignore_title_keywords: []
-        labels: []
+        ignore_title_keywords: ["WIP", "draft", "do not merge"]
+        labels: ["libmagic-rs", "rust", "file-type-detection"]
         drafts: false
-        base_branches: []
+        base_branches: ["main", "develop"]
         ignore_usernames: []
     finishing_touches:
         docstrings:
@@ -48,15 +137,25 @@ reviews:
     pre_merge_checks:
         docstrings:
             mode: warning
-            threshold: 80
+            threshold: 85
         title:
             mode: warning
-            requirements: ""
+            requirements: "Must follow Conventional Commits specification: type(scope): description. Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore. Scopes: auth, api, cli, models, detection, alerting, etc. Breaking changes indicated with ! in header or BREAKING CHANGE: in footer."
         description:
             mode: warning
         issue_assessment:
             mode: warning
-        custom_checks: []
+        custom_checks:
+            - name: "memory-safety-check"
+              instructions: "Verify no unsafe code blocks are introduced (except in vetted dependencies like memmap2, byteorder). All buffer access must use bounds checking with .get() methods. No raw pointer arithmetic or transmute operations."
+            - name: "libmagic-compatibility-check"
+              instructions: "Ensure changes maintain compatibility with libmagic behavior and magic file format. Magic file parsing must handle standard syntax correctly. Output format should match GNU file command expectations."
+            - name: "performance-regression-check"
+              instructions: "Check for potential performance regressions in critical paths (parser, evaluator, I/O). Memory-mapped I/O should be used for file access. Avoid unnecessary allocations in hot paths. Consider Aho-Corasick for multi-pattern searches."
+            - name: "test-coverage-check"
+              instructions: "Verify adequate test coverage for new functionality, especially edge cases and error conditions. Include property tests with proptest for complex data structures. Test malformed input handling and boundary conditions."
+            - name: "error-handling-check"
+              instructions: "Verify proper error handling with Result types and no panics in library code. All public APIs should return Result<T, E> for error conditions. Use thiserror for structured error types. No unwrap() or expect() in library code."
     tools:
         ast-grep:
             rule_dirs: []
@@ -66,12 +165,12 @@ reviews:
         shellcheck:
             enabled: true
         ruff:
-            enabled: true
+            enabled: false
         markdownlint:
             enabled: true
         github-checks:
             enabled: true
-            timeout_ms: 90000
+            timeout_ms: 120000
         languagetool:
             enabled: true
             enabled_rules: []
@@ -81,74 +180,74 @@ reviews:
             enabled_only: false
             level: default
         biome:
-            enabled: true
+            enabled: false
         hadolint:
-            enabled: true
+            enabled: false
         swiftlint:
-            enabled: true
+            enabled: false
         phpstan:
-            enabled: true
+            enabled: false
             level: default
         phpmd:
-            enabled: true
+            enabled: false
         phpcs:
-            enabled: true
+            enabled: false
         golangci-lint:
-            enabled: true
+            enabled: false
         yamllint:
             enabled: true
         gitleaks:
             enabled: true
         checkov:
-            enabled: true
+            enabled: false
         detekt:
-            enabled: true
+            enabled: false
         eslint:
-            enabled: true
+            enabled: false
         flake8:
-            enabled: true
+            enabled: false
         rubocop:
-            enabled: true
+            enabled: false
         buf:
-            enabled: true
+            enabled: false
         regal:
-            enabled: true
+            enabled: false
         actionlint:
             enabled: true
         pmd:
-            enabled: true
+            enabled: false
         cppcheck:
-            enabled: true
+            enabled: false
         semgrep:
             enabled: true
         circleci:
-            enabled: true
+            enabled: false
         clippy:
             enabled: true
         sqlfluff:
-            enabled: true
+            enabled: false
         prismaLint:
-            enabled: true
+            enabled: false
         pylint:
-            enabled: true
+            enabled: false
         oxc:
-            enabled: true
+            enabled: false
         shopifyThemeCheck:
-            enabled: true
+            enabled: false
         luacheck:
-            enabled: true
+            enabled: false
         brakeman:
-            enabled: true
+            enabled: false
         dotenvLint:
-            enabled: true
+            enabled: false
         htmlhint:
-            enabled: true
+            enabled: false
         checkmake:
-            enabled: true
+            enabled: false
         osvScanner:
             enabled: true
 chat:
-    art: true
+    art: false
     auto_reply: true
     integrations:
         jira:
@@ -180,6 +279,42 @@ knowledge_base:
 code_generation:
     docstrings:
         language: en-US
-        path_instructions: []
+        path_instructions:
+            - path: "src/lib.rs"
+              instructions: "Generate comprehensive rustdoc for public API with usage examples, error conditions, and performance notes. Include migration guide from libmagic and memory safety guarantees."
+            - path: "src/main.rs"
+              instructions: "Document CLI interface with usage examples, exit codes, and cross-platform considerations. Include troubleshooting and common use cases."
+            - path: "src/parser/**/*.rs"
+              instructions: "Document parser components with magic file syntax examples, error handling, and libmagic compatibility notes. Include serialization behavior and performance characteristics."
+            - path: "src/evaluator/**/*.rs"
+              instructions: "Document evaluation logic with performance notes, memory safety guarantees, and bounds checking behavior. Include endianness handling and type coercion examples."
+            - path: "src/output/**/*.rs"
+              instructions: "Document output formatting with examples matching GNU file command and JSON schema. Include encoding considerations and API versioning notes."
+            - path: "src/io/**/*.rs"
+              instructions: "Document I/O operations with memory safety guarantees, resource management, and performance characteristics. Include error recovery examples."
+            - path: "src/error.rs"
+              instructions: "Document error types with recovery strategies, debugging information, and user-friendly error messages. Include error propagation examples."
     unit_tests:
-        path_instructions: []
+        path_instructions:
+            - path: "src/lib.rs"
+              instructions: "Generate API integration tests with real magic files, error condition testing, and memory safety validation. Include compatibility tests against libmagic."
+            - path: "src/main.rs"
+              instructions: "Test CLI interface with various arguments, error conditions, and cross-platform behavior. Include help text validation and exit code testing."
+            - path: "src/parser/ast.rs"
+              instructions: "Test AST serialization/deserialization, memory layout validation, and type safety. Include property tests for AST invariants and edge cases."
+            - path: "src/parser/grammar.rs"
+              instructions: "Test parser with malformed magic files, boundary conditions, escape sequences, and performance. Include property tests for parser correctness and fuzzing with proptest."
+            - path: "src/evaluator/offset.rs"
+              instructions: "Test offset resolution with various file types, boundary conditions, and endianness scenarios. Include memory safety tests and performance benchmarks."
+            - path: "src/evaluator/types.rs"
+              instructions: "Test type interpretation with edge cases, overflow conditions, and endianness handling. Include property tests for type conversion invariants."
+            - path: "src/evaluator/operators.rs"
+              instructions: "Test operators with various data types, edge cases, and performance scenarios. Include correctness tests and type coercion validation."
+            - path: "src/output/text.rs"
+              instructions: "Test text output with various file types, encoding scenarios, and GNU file compatibility. Include performance tests for large result sets."
+            - path: "src/output/json.rs"
+              instructions: "Test JSON output with schema validation, metadata accuracy, and serialization performance. Include API versioning and backward compatibility tests."
+            - path: "src/io/**/*.rs"
+              instructions: "Test I/O operations with truncated files, permission errors, memory mapping edge cases, and resource cleanup. Include memory safety tests and performance benchmarks."
+            - path: "src/error.rs"
+              instructions: "Test error handling with various failure scenarios, error propagation, and recovery strategies. Include user experience testing for error messages."
