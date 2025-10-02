@@ -161,7 +161,7 @@
   - Write unit tests for typed value reading with various TypeKind variants
   - _Requirements: 2.2_
 
-- [ ] 7. Create basic equality operator
+- [x] 7. Create basic equality operator
 
 - [x] 7.1 Create basic equality operator
 
@@ -170,21 +170,21 @@
   - Write unit tests for equality comparison with same and different value types
   - _Requirements: 2.3, 1.4_
 
-- [ ] 7.2 Add inequality operator
+- [x] 7.2 Add inequality operator
 
   - Add apply_not_equal function to operators.rs for inequality comparison
   - Implement negation of equality comparison logic
   - Write unit tests for inequality comparison with various value combinations
   - _Requirements: 2.3, 1.4_
 
-- [ ] 7.3 Add bitwise AND operator
+- [x] 7.3 Add bitwise AND operator
 
   - Add apply_bitwise_and function to operators.rs for pattern matching
   - Implement bitwise AND operation for integer values with proper type handling
   - Write unit tests for bitwise AND with various integer values and masks
   - _Requirements: 2.3, 1.4_
 
-- [ ] 7.4 Create operator application interface
+- [x] 7.4 Create operator application interface
 
   - Add apply_operator function in operators.rs that handles Operator enum
   - Implement operator dispatch using existing apply functions
