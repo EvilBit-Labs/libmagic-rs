@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "name": "Code Quality Check",
+  "description": "Run `just check` when a code file is saved and ensure everything passes. Some of the formatters will make changes, so you may need to run it twice to ensure that the changes resolved any formatting issues.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "**/*.rs",
+      "**/Cargo.toml",
+      "**/Cargo.lock",
+      "justfile"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A code file has been saved. Run `just check` to validate formatting, linting, and basic compilation. If the first run makes formatting changes, run it again to ensure all issues are resolved. Report the results and any issues that need attention."
+  }
+}

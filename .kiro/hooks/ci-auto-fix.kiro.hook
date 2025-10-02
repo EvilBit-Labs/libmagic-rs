@@ -1,22 +1,21 @@
 {
   "enabled": true,
-  "name": "Auto CI Checks & Fixes",
+  "name": "CI Auto-Fix",
   "description": "Automatically runs CI checks when source files change and fixes any failures including formatting, linting, compilation errors, test failures, security audits, and license compliance issues",
   "version": "1",
   "when": {
-    "type": "fileEdited",
+    "type": "userTriggered",
     "patterns": [
-      "src/**/*.rs",
-      "Cargo.toml",
-      "Cargo.lock",
-      "tests/**/*.rs",
-      "*.md",
-      "rustfmt.toml",
-      ".gitignore"
+      "**/*.rs",
+      "**/Cargo.toml",
+      "**/Cargo.lock",
+      "justfile",
+      "deny.toml",
+      "rust-toolchain.toml"
     ]
   },
   "then": {
     "type": "askAgent",
-    "prompt": "Source files have been modified. Please run a comprehensive CI check and fix any issues found. This should include:\n\n1. **Code Formatting**: Run `cargo fmt` to fix any formatting issues\n2. **Linting**: Run `cargo clippy --all-targets --all-features -- -D warnings` and fix any clippy warnings\n3. **Compilation**: Ensure `cargo build` and `cargo build --release` both succeed\n4. **Testing**: Run `cargo test` and `cargo nextest run` (if available) and fix any test failures\n5. **Security Audit**: Run `cargo audit` and address any security vulnerabilities\n6. **License Compliance**: Check that all dependencies have compatible licenses\n7. **Documentation**: Ensure `cargo doc` builds without warnings\n8. **Coverage**: Run coverage checks if llvm-cov is available\n\nFor each issue found:\n- Identify the root cause\n- Apply the appropriate fix\n- Verify the fix resolves the issue\n- Ensure no new issues are introduced\n\nIf any issues cannot be automatically fixed, provide clear guidance on manual resolution steps needed."
+    "prompt": "1. First, run `just ci-check` to identify any failures\n2. Analyze the output to understand what specific checks are failing. If everything passes, you're done.\n3. Make minimal, targeted fixes to address ONLY the failing checks:\n- For formatting issues: run `just format`\n- For linting issues (clippy): fix the specific violations reported (rerun with `just lint-rust` / `just lint-rust-min`)\n- For compilation/type errors: fix the underlying Rust code until `just check` (or `cargo check`) succeeds\n- For test failures: fix the failing tests or underlying code (verify with `just test` or `just test-ci`)\n- For dependency security/advisory issues: run `just audit` (cargo-audit) and/or update `Cargo.toml` then `cargo update`\n- For license/compliance issues: run `just deny` and address cargo-deny findings\n4. After making fixes, run `just ci-check` again to verify all checks pass\n5. If any checks still fail, repeat steps 2-4 until all checks pass\n6. Provide a summary of what was fixed and confirm that `just ci-check` now passes completely\nKeep changes minimal and focused - only fix what's actually causing the CI failures. Do not make unnecessary refactoring or style changes beyond what's required to pass the checks."
   }
 }

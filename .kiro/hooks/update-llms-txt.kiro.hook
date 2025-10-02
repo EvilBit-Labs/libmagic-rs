@@ -1,0 +1,22 @@
+{
+  "enabled": true,
+  "name": "LLMs.txt Auto-Updater",
+  "description": "Automatically updates the llms.txt file when documentation, specifications, or repository structure changes to maintain accuracy for LLM consumption. Treats kiro specifications and steering documents as authoritative, but considers actual code as gospel.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "README.md",
+      "AGENTS.md",
+      "SECURITY.md",
+      "LICENSE",
+      ".cursor/rules/**/*.mdc",
+      ".kiro/steetring/**/*.md",
+      ".kiro/specs/**/requirements.md"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "# Update LLMs.txt File\n\nUpdate the `llms.txt` file to reflect current documentation and specifications. Follow the llms.txt specification at https://llmstxt.org/.\n\n## Quick Steps\n1. Read existing `llms.txt`\n2. Scan for markdown files: root `*.md`, `docs/src/**/*.md`, `spec/*.md`\n3. Compare with current file references\n4. Update using format: `[Name](path): description`\n5. Output ONLY the complete new file content (or \"NO CHANGE\")\n\nEXCLUDE: `docs/book/**` (generated), `target/`, coverage reports, lockfiles, binaries\n\n## Required Structure\n- An H1 with the name of the project or site. This is the only required section\n- A blockquote with a short summary of the project, containing key information necessary for understanding the rest of the file\n- Zero or more markdown sections (e.g. paragraphs, lists, etc) of any type except headings, containing more detailed information about the project and how to interpret the provided files\n- Zero or more markdown sections delimited by H2 headers, containing “file lists” of URLs where further detail is available\n  - Each “file list” is a markdown list, containing a required markdown hyperlink [name](url), then optionally a : and notes about the file.\n\n> Note that the “Optional” section has a special meaning—if it’s included, the URLs provided there can be skipped if a shorter context is needed. Use it for secondary information which can often be skipped.\n\n### Example:\n```markdown\n# DaemonEye\n> Brief project description\n\n## Documentation\n- [README](README.md): Main project documentation\n- [Security](SECURITY.md): Security policies and reporting\n\n## Specifications  \n- [Product Spec](spec/product.md): Product overview and requirements\n- [Technical Spec](spec/tech.md): Technical architecture and stack\n\n## Optional\n- [Architecture](docs/src/architecture/system-architecture.md): System design details\n```\n Write the file to llm.txt with specific focus on content for an AI assistant to be able to assist in developing using the libraries and assist with configuration files and commands. Examine the various identified documents for relevance and usefulness and only include content, examples, and references that are useful to the specific focus.\n\n## Rules\n- Single H1 header only\n- Sections: Documentation → Specifications → Optional\n- Descriptions ≤140 chars, no trailing periods\n- Alphabetical order within sections\n- All links must be valid relative paths\n- No duplicates"
+  }
+}
