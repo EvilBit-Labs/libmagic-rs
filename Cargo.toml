@@ -9,6 +9,8 @@ authors = [
 description = "A pure-Rust implementation of libmagic for file type identification"
 license = "Apache-2.0"
 repository = "https://github.com/EvilBit-Labs/libmagic-rs"
+homepage = "https://evilbitlabs.io/libmagic-rs"
+documentation = "https://docs.rs/libmagic-rs"
 keywords = ["file", "magic", "libmagic", "file-type", "identification"]
 categories = ["command-line-utilities", "parsing"]
 rust-version = "1.85"
@@ -127,19 +129,17 @@ cargo_common_metadata = "warn"
 multiple_crate_versions = "warn"
 missing_errors_doc = "warn"
 missing_panics_doc = "deny"
-# Allow specific lints that are too noisy for this project
-
-must_use_candidate = "allow"       # TODO: Revisit this
-cast_possible_truncation = "allow" # TODO: Revisit this
-cast_precision_loss = "allow"      # TODO: Revisit this
-cast_sign_loss = "allow"           # TODO: Revisit this
-module_name_repetitions = "allow"  # TODO: Revisit this
-similar_names = "allow"            # TODO: Revisit this
-too_many_lines = "allow"           # TODO: Revisit this
-type_complexity = "allow"          # TODO: Revisit this
-async_yields_async = "allow"       # TODO: Revisit this
-large_futures = "allow"            # TODO: Revisit this
-result_large_err = "allow"         # TODO: Revisit this
+must_use_candidate = "warn"
+cast_possible_truncation = "warn"
+cast_precision_loss = "warn"
+cast_sign_loss = "warn"
+module_name_repetitions = "warn"
+similar_names = "warn"
+too_many_lines = "warn"
+type_complexity = "warn"
+async_yields_async = "warn"
+large_futures = "warn"
+result_large_err = "warn"
 
 [[bin]]
 name = "rmagic"
@@ -147,6 +147,7 @@ path = "src/main.rs"
 
 [dependencies]
 byteorder = "1.5.0"
+cfg-if = "1.0.3"
 clap = { version = "4.5.48", features = ["derive"] }
 memmap2 = "0.9.8"
 nom = "8.0.0"
@@ -156,6 +157,7 @@ thiserror = "2.0.17"
 
 [dev-dependencies]
 criterion = "0.7.0"
+nix = { version = "0.28", features = ["fs"] }
 proptest = "1.8.0"
 
 # The profile that 'dist' will build with

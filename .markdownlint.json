@@ -18,9 +18,7 @@
     },
     "MD029": false,
     "MD033": {
-        "allowed_elements": [
-            "span"
-        ]
+        "allowed_elements": ["span"]
     },
     "MD035": {
         "style": "---"
