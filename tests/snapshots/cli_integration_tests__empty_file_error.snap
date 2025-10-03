@@ -1,0 +1,9 @@
+---
+source: tests/cli_integration_tests.rs
+expression: stderr
+---
+Error: File buffer error
+File '\\?\D:\libmagic-rs\test_files\empty.bin' is empty
+Failed to create memory-mapped buffer for the file.
+The file may be too large, corrupted, or in use by another process.
+error: process didn't exit successfully: `target\debug\rmagic.exe test_files/empty.bin` (exit code: 3)

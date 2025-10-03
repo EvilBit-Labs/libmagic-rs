@@ -1,0 +1,8 @@
+---
+source: tests/cli_integration_tests.rs
+expression: stderr
+---
+Error: File not found
+The specified file does not exist or cannot be accessed.
+Please check the file path and try again.
+error: process didn't exit successfully: `target\debug\rmagic.exe nonexistent_file.bin` (exit code: 3)

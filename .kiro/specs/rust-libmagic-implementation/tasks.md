@@ -245,7 +245,7 @@
   - Write unit tests comparing output with expected GNU file command format
   - _Requirements: 4.1, 4.4_
 
-- [ ] 10. Create basic CLI argument structure
+- [x] 10. Create basic CLI argument structure
 
 - [x] 10.1 Create basic CLI argument structure
 
@@ -264,7 +264,7 @@
   - Write integration tests for CLI functionality with sample files
   - _Requirements: 5.1, 5.5_
 
-- [ ] 10.3 Add CLI error handling
+- [x] 10.3 Add CLI error handling
 
   - Implement error handling in main.rs with proper exit codes
   - Add user-friendly error messages for common failure scenarios

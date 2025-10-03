@@ -1,0 +1,10 @@
+---
+source: tests/cli_integration_tests.rs
+expression: output
+---
+{
+  "confidence": 0.0,
+  "description": "data",
+  "filename": "test_files/sample.bin",
+  "mime_type": null
+}

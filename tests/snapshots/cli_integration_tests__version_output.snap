@@ -1,0 +1,5 @@
+---
+source: tests/cli_integration_tests.rs
+expression: stdout
+---
+rmagic 0.1.0

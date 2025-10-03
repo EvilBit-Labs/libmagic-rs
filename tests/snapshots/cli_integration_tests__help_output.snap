@@ -1,0 +1,17 @@
+---
+source: tests/cli_integration_tests.rs
+expression: stdout
+---
+A pure-Rust implementation of libmagic for file type identification
+
+Usage: rmagic.exe [OPTIONS] <FILE>
+
+Arguments:
+  <FILE>  File to analyze
+
+Options:
+      --json               Output results in JSON format
+      --text               Output results in text format (default)
+      --magic-file <FILE>  Use custom magic file
+  -h, --help               Print help
+  -V, --version            Print version

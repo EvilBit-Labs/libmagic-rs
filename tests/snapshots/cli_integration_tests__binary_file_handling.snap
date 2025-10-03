@@ -1,0 +1,5 @@
+---
+source: tests/cli_integration_tests.rs
+expression: output
+---
+test_files/binary.bin: data

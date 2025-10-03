@@ -6,6 +6,7 @@
 //! - Magic file loading and parsing
 //! - Error handling and edge cases
 
+use insta::assert_snapshot;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -27,7 +28,18 @@ fn run_cli_stdout(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
 /// Helper function to run the CLI and get stderr as string
 fn run_cli_stderr(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
     let output = run_cli(args)?;
-    Ok(String::from_utf8(output.stderr)?)
+    let stderr = String::from_utf8(output.stderr)?;
+    // Filter out build noise for cleaner snapshots
+    let filtered_stderr = stderr
+        .lines()
+        .filter(|line| {
+            !line.contains("Blocking waiting for file lock")
+                && !line.contains("Finished `dev` profile")
+                && !line.contains("Running `target\\debug\\rmagic.exe")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(filtered_stderr)
 }
 
 /// Helper function to create a temporary test file with given content
@@ -44,8 +56,7 @@ fn test_cli_basic_file_processing() {
     assert!(result.is_ok());
 
     let output = result.unwrap();
-    assert!(output.contains("test_files/sample.bin:"));
-    assert!(output.contains("data")); // Default fallback when no rules match
+    assert_snapshot!("basic_file_processing", output);
 }
 
 #[test]
@@ -55,21 +66,7 @@ fn test_cli_json_output_format() {
     assert!(result.is_ok());
 
     let output = result.unwrap();
-
-    // Verify it's valid JSON
-    let json_result: serde_json::Value =
-        serde_json::from_str(&output).expect("Output should be valid JSON");
-
-    // Verify expected JSON structure
-    assert!(json_result.get("filename").is_some());
-    assert!(json_result.get("description").is_some());
-    assert!(json_result.get("mime_type").is_some());
-    assert!(json_result.get("confidence").is_some());
-
-    // Verify specific values
-    assert_eq!(json_result["filename"], "test_files/sample.bin");
-    assert_eq!(json_result["description"], "data");
-    assert_eq!(json_result["confidence"], 0.0);
+    assert_snapshot!("json_output_format", output);
 }
 
 #[test]
@@ -79,8 +76,7 @@ fn test_cli_text_output_format_explicit() {
     assert!(result.is_ok());
 
     let output = result.unwrap();
-    assert!(output.contains("test_files/sample.bin:"));
-    assert!(output.contains("data"));
+    assert_snapshot!("text_output_format_explicit", output);
 }
 
 #[test]
@@ -92,9 +88,8 @@ fn test_cli_nonexistent_file() {
     let output = result.unwrap();
     assert!(!output.status.success());
 
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("Error:"));
-    assert!(stderr.contains("File not found") || stderr.contains("nonexistent_file.bin"));
+    let stderr = run_cli_stderr(&["nonexistent_file.bin"]).unwrap();
+    assert_snapshot!("nonexistent_file_error", stderr);
 }
 
 #[test]
@@ -117,8 +112,7 @@ fn test_cli_custom_magic_file() {
     assert!(result.is_ok());
 
     let output = result.unwrap();
-    // Since magic parsing isn't fully implemented yet, we expect "data" as fallback
-    assert!(output.contains("data"));
+    assert_snapshot!("custom_magic_file", output);
 
     // Clean up
     let _ = fs::remove_file(&magic_file_path);
@@ -136,7 +130,7 @@ fn test_cli_invalid_magic_file() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("data")); // Should fall back to "data"
+    assert_snapshot!("invalid_magic_file", stdout);
 }
 
 #[test]
@@ -148,8 +142,8 @@ fn test_cli_conflicting_output_formats() {
     let output = result.unwrap();
     assert!(!output.status.success());
 
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("conflicts") || stderr.contains("cannot be used"));
+    let stderr = run_cli_stderr(&["test_files/sample.bin", "--json", "--text"]).unwrap();
+    assert_snapshot!("conflicting_output_formats", stderr);
 }
 
 #[test]
@@ -161,8 +155,8 @@ fn test_cli_missing_file_argument() {
     let output = result.unwrap();
     assert!(!output.status.success());
 
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("required") || stderr.contains("FILE"));
+    let stderr = run_cli_stderr(&["--json"]).unwrap();
+    assert_snapshot!("missing_file_argument", stderr);
 }
 
 #[test]
@@ -173,13 +167,7 @@ fn test_cli_help_output() {
 
     let output = result.unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
-
-    // Verify help contains expected information
-    assert!(stdout.contains("rmagic") || stdout.contains("libmagic"));
-    assert!(stdout.contains("FILE"));
-    assert!(stdout.contains("--json"));
-    assert!(stdout.contains("--text"));
-    assert!(stdout.contains("--magic-file"));
+    assert_snapshot!("help_output", stdout);
 }
 
 #[test]
@@ -190,10 +178,7 @@ fn test_cli_version_output() {
 
     let output = result.unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
-
-    // Verify version contains expected information
-    assert!(stdout.contains("rmagic") || stdout.contains("libmagic"));
-    assert!(stdout.contains("0.1.0")); // Current version from Cargo.toml
+    assert_snapshot!("version_output", stdout);
 }
 
 #[test]
@@ -226,23 +211,11 @@ fn test_cli_json_output_structure() {
     assert!(result.is_ok());
 
     let output = result.unwrap();
-    let json_result: serde_json::Value =
+    // Verify it's valid JSON by parsing it
+    let _json_result: serde_json::Value =
         serde_json::from_str(&output).expect("Output should be valid JSON");
 
-    // Verify all required fields are present
-    assert!(json_result.is_object());
-    let obj = json_result.as_object().unwrap();
-
-    assert!(obj.contains_key("filename"));
-    assert!(obj.contains_key("description"));
-    assert!(obj.contains_key("mime_type"));
-    assert!(obj.contains_key("confidence"));
-
-    // Verify field types
-    assert!(obj["filename"].is_string());
-    assert!(obj["description"].is_string());
-    assert!(obj["mime_type"].is_null() || obj["mime_type"].is_string());
-    assert!(obj["confidence"].is_number());
+    assert_snapshot!("json_output_structure", output);
 }
 
 #[test]
@@ -277,12 +250,11 @@ fn test_cli_empty_file() {
     // Empty files might cause an error, which is acceptable behavior
     if output.status.success() {
         let stdout = String::from_utf8(output.stdout).unwrap();
-        assert!(stdout.contains("empty.bin") || stdout.contains(&empty_file_path));
-        assert!(stdout.contains("data")); // Should handle empty files gracefully
+        assert_snapshot!("empty_file_success", stdout);
     } else {
         // Empty file error is acceptable
-        let stderr = String::from_utf8(output.stderr).unwrap();
-        assert!(stderr.contains("Error:") && stderr.contains("empty"));
+        let stderr = run_cli_stderr(&[&empty_file_path]).unwrap();
+        assert_snapshot!("empty_file_error", stderr);
     }
 
     // Clean up
@@ -300,8 +272,7 @@ fn test_cli_large_file_handling() {
     assert!(result.is_ok());
 
     let output = result.unwrap();
-    assert!(output.contains(&large_file_path));
-    assert!(output.contains("data"));
+    assert_snapshot!("large_file_handling", output);
 
     // Clean up
     let _ = fs::remove_file(&large_file_path);
@@ -318,8 +289,7 @@ fn test_cli_binary_file_handling() {
     assert!(result.is_ok());
 
     let output = result.unwrap();
-    assert!(output.contains(&binary_file_path));
-    assert!(output.contains("data"));
+    assert_snapshot!("binary_file_handling", output);
 
     // Clean up
     let _ = fs::remove_file(&binary_file_path);
@@ -339,7 +309,7 @@ fn test_cli_magic_file_fallback() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("data")); // Should fall back to "data"
+    assert_snapshot!("magic_file_fallback", stdout);
 }
 
 #[test]
@@ -388,13 +358,13 @@ fn test_cli_json_vs_text_consistency() {
 fn test_cli_error_exit_codes() {
     // Test that CLI returns appropriate exit codes for errors
 
-    // Nonexistent file should return non-zero exit code
+    // Nonexistent file should return exit code 3 (file not found)
     let result = run_cli(&["nonexistent_file.bin"]);
     assert!(result.is_ok());
 
     let output = result.unwrap();
     assert!(!output.status.success());
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(3));
 }
 
 #[test]

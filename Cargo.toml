@@ -157,6 +157,7 @@ thiserror = "2.0.17"
 
 [dev-dependencies]
 criterion = "0.7.0"
+insta = { version = "1.39.0", features = ["json"] }
 nix = { version = "0.28", features = ["fs"] }
 proptest = "1.8.0"
 

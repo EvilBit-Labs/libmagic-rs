@@ -1,0 +1,10 @@
+---
+source: tests/cli_integration_tests.rs
+expression: stderr
+---
+error: the argument '--json' cannot be used with '--text'
+
+Usage: rmagic.exe --json <FILE>
+
+For more information, try '--help'.
+error: process didn't exit successfully: `target\debug\rmagic.exe test_files/sample.bin --json --text` (exit code: 2)
