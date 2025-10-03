@@ -207,6 +207,21 @@ build-release:
 test:
     @cargo nextest run --workspace --no-capture
 
+# Initialize and update compatibility test files from file/file submodule
+download-compatibility-tests:
+    @echo "Initializing git submodule for compatibility tests..."
+    git submodule update --init --recursive tests/compatibility/file-tests
+
+# Run compatibility tests against original libmagic test suite
+test-compatibility:
+    @cargo test test_compatibility_with_original_libmagic -- --ignored
+
+# Run all compatibility tests (including setup)
+test-compatibility-full:
+    @just download-compatibility-tests
+    @cargo build --release
+    @cargo test test_compatibility_with_original_libmagic -- --ignored
+
 # Test justfile cross-platform functionality
 [windows]
 test-justfile:
@@ -273,6 +288,9 @@ coverage-check:
 
 # Full local CI parity check
 ci-check: pre-commit-run fmt-check lint-rust lint-rust-min test-ci build-release audit coverage-check dist-plan
+
+# Run compatibility tests as part of CI
+ci-check-compatibility: pre-commit-run fmt-check lint-rust lint-rust-min test-ci build-release audit coverage-check test-compatibility dist-plan
 
 # =============================================================================
 # DEVELOPMENT AND EXECUTION

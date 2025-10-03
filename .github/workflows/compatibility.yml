@@ -1,0 +1,48 @@
+name: Compatibility Tests
+
+on:
+    push:
+        branches: [main, develop]
+    pull_request:
+        branches: [main, develop]
+    schedule:
+        # Run daily at 2 AM UTC to catch any regressions
+        - cron: "0 2 * * *"
+
+jobs:
+    compatibility-tests:
+        name: Compatibility Tests
+        runs-on: ${{ matrix.os }}
+
+        strategy:
+            matrix:
+                os: [ubuntu-latest, windows-latest, macos-latest]
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v5
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: rustfmt, clippy
+
+            - name: Cache cargo dependencies
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      target
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-cargo-
+
+            - name: Initialize git submodules
+              run: git submodule update --init --recursive tests/compatibility/file-tests
+
+            - name: Build rmagic
+              run: cargo build --release
+
+            - name: Run compatibility tests
+              run: cargo test test_compatibility_with_original_libmagic -- --ignored

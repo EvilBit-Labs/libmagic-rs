@@ -1,0 +1,3 @@
+[submodule "tests/compatibility/file-tests"]
+	path = tests/compatibility/file-tests
+	url = https://github.com/file/file.git

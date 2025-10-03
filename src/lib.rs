@@ -69,6 +69,10 @@ pub enum LibmagicError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
+    /// Custom I/O error from file buffer operations
+    #[error("File buffer error: {0}")]
+    FileBufferError(String),
+
     /// Invalid magic file format
     #[error("Invalid magic file format: {0}")]
     InvalidFormat(String),
@@ -83,6 +87,13 @@ pub enum LibmagicError {
 
 /// Result type for library operations
 pub type Result<T> = std::result::Result<T, LibmagicError>;
+
+// Implement From<IoError> for LibmagicError
+impl From<crate::io::IoError> for LibmagicError {
+    fn from(err: crate::io::IoError) -> Self {
+        LibmagicError::FileBufferError(err.to_string())
+    }
+}
 
 /// Configuration for rule evaluation
 ///
@@ -354,7 +365,8 @@ impl MagicDatabase {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn load_from_file<P: AsRef<Path>>(_path: P) -> Result<Self> {
-        // TODO: Implement magic file loading
+        // For now, return empty rules - magic file parsing will be implemented later
+        // This allows the CLI to work without crashing
         Ok(Self {
             rules: Vec::new(),
             config: EvaluationConfig::default(),
@@ -382,13 +394,42 @@ impl MagicDatabase {
     /// println!("File type: {}", result.description);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn evaluate_file<P: AsRef<Path>>(&self, _path: P) -> Result<EvaluationResult> {
-        // TODO: Implement file evaluation
-        Ok(EvaluationResult {
-            description: "data".to_string(),
-            mime_type: None,
-            confidence: 0.0,
-        })
+    pub fn evaluate_file<P: AsRef<Path>>(&self, path: P) -> Result<EvaluationResult> {
+        use crate::evaluator::evaluate_rules_with_config;
+        use crate::io::FileBuffer;
+
+        // Load the file into memory
+        let file_buffer = FileBuffer::new(path.as_ref())?;
+        let buffer = file_buffer.as_slice();
+
+        // If we have no rules, return "data" as fallback
+        if self.rules.is_empty() {
+            return Ok(EvaluationResult {
+                description: "data".to_string(),
+                mime_type: None,
+                confidence: 0.0,
+            });
+        }
+
+        // Evaluate rules against the file buffer
+        let matches = evaluate_rules_with_config(&self.rules, buffer, self.config.clone())?;
+
+        if matches.is_empty() {
+            // No matches found, return "data" as fallback
+            Ok(EvaluationResult {
+                description: "data".to_string(),
+                mime_type: None,
+                confidence: 0.0,
+            })
+        } else {
+            // Use the first match as the primary result
+            let primary_match = &matches[0];
+            Ok(EvaluationResult {
+                description: primary_match.message.clone(),
+                mime_type: None, // TODO: Implement MIME type mapping
+                confidence: 1.0, // TODO: Implement confidence scoring
+            })
+        }
     }
 }
 
