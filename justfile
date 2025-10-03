@@ -207,10 +207,18 @@ build-release:
 test:
     @cargo nextest run --workspace --no-capture
 
-# Initialize and update compatibility test files from file/file submodule
-download-compatibility-tests:
-    @echo "Initializing git submodule for compatibility tests..."
-    git submodule update --init --recursive tests/compatibility/file-tests
+# Verify compatibility test files are available
+[windows]
+verify-compatibility-tests:
+    @echo "Verifying compatibility test files are available..."
+    if (-not (Test-Path "third_party/tests")) { Write-Error "third_party/tests directory not found" }
+    if (-not (Test-Path "third_party/magic.mgc")) { Write-Error "third_party/magic.mgc not found" }
+
+[unix]
+verify-compatibility-tests:
+    @echo "Verifying compatibility test files are available..."
+    @if [ ! -d "third_party/tests" ]; then echo "third_party/tests directory not found" && exit 1; fi
+    @if [ ! -f "third_party/magic.mgc" ]; then echo "third_party/magic.mgc not found" && exit 1; fi
 
 # Run compatibility tests against original libmagic test suite
 test-compatibility:
@@ -218,7 +226,7 @@ test-compatibility:
 
 # Run all compatibility tests (including setup)
 test-compatibility-full:
-    @just download-compatibility-tests
+    @just verify-compatibility-tests
     @cargo build --release
     @cargo test test_compatibility_with_original_libmagic -- --ignored
 

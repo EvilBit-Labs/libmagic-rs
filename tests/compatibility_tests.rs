@@ -36,16 +36,19 @@ struct CompatibilityTestRunner {
 
 impl CompatibilityTestRunner {
     fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let test_dir = PathBuf::from("tests/compatibility/file-tests/tests");
-        let magic_file = PathBuf::from("test_files/magic");
+        let test_dir = PathBuf::from("third_party/tests");
+        let magic_file = PathBuf::from("third_party/magic.mgc");
         let rmagic_binary = find_rmagic_binary()?;
 
         if !test_dir.exists() {
-            return Err("Compatibility test files not found. Run 'git submodule update --init --recursive' first.".into());
+            return Err(
+                "Compatibility test files not found. Ensure third_party/tests directory exists."
+                    .into(),
+            );
         }
 
         if !magic_file.exists() {
-            return Err("Magic file not found. Ensure test_files/magic exists.".into());
+            return Err("Magic file not found. Ensure third_party/magic.mgc exists.".into());
         }
 
         Ok(Self {
@@ -285,9 +288,9 @@ fn test_compatibility_with_original_libmagic() {
 /// Test that verifies we can load the magic database
 #[test]
 fn test_magic_database_loading() {
-    let magic_file = Path::new("test_files/magic");
+    let magic_file = Path::new("third_party/magic.mgc");
     if !magic_file.exists() {
-        println!("Skipping magic database test: test_files/magic not found");
+        println!("Skipping magic database test: third_party/magic.mgc not found");
         return;
     }
 
@@ -319,9 +322,9 @@ fn test_rmagic_binary() {
 /// Test that verifies test files are available
 #[test]
 fn test_compatibility_files_available() {
-    let test_dir = Path::new("tests/compatibility/file-tests/tests");
+    let test_dir = Path::new("third_party/tests");
     if !test_dir.exists() {
-        println!("Skipping compatibility files test: test files not downloaded");
+        println!("Skipping compatibility files test: third_party/tests not found");
         return;
     }
 

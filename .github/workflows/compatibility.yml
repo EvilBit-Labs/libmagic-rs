@@ -38,8 +38,8 @@ jobs:
                   restore-keys: |
                       ${{ runner.os }}-cargo-
 
-            - name: Initialize git submodules
-              run: git submodule update --init --recursive tests/compatibility/file-tests
+            - name: Verify compatibility test files are available
+              run: just verify-compatibility-tests
 
             - name: Build rmagic
               run: cargo build --release
