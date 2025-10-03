@@ -168,7 +168,7 @@ lint: lint-rust lint-actions lint-docs lint-justfile
 
 # Individual lint recipes
 lint-actions:
-    actionlint .github/workflows/*.yml
+    actionlint .github/workflows/audit.yml .github/workflows/ci.yml .github/workflows/codeql.yml .github/workflows/compatibility.yml .github/workflows/copilot-setup-steps.yml .github/workflows/docs.yml .github/workflows/release.yml .github/workflows/security.yml
 
 lint-docs:
     markdownlint docs/**/*.md README.md

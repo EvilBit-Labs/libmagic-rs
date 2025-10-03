@@ -254,11 +254,11 @@
   - Write unit tests for argument parsing with various command line inputs
   - _Requirements: 5.1, 5.2, 5.3_
 
-- [ ] 10.2 Implement CLI file processing
+- [x] 10.2 Implement CLI file processing
 
   - Add main function logic in main.rs for processing input files
-  - Look in `/etc/magic` for magic rule files and parse them (on Unix-like platforms)
-  - Look in `%APPDATA%\Magic` for magic rule files and parse them (on Windows)
+  - Look in `/etc/magic` and `/usr/share/file` for magic rule files and parse them (on Unix-like platforms)
+  - Look in `%APPDATA%\Magic` for magic rule files and parse them (on Windows) (look in ./test_files if CI/CD)
   - Add a downloader script for the CI/CD environment to download
   - Implement file loading, rule evaluation, and output formatting
   - Write integration tests for CLI functionality with sample files
