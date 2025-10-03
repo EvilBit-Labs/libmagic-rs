@@ -247,7 +247,7 @@
 
 - [ ] 10. Create basic CLI argument structure
 
-- [ ] 10.1 Create basic CLI argument structure
+- [x] 10.1 Create basic CLI argument structure
 
   - Create CLI argument struct in src/main.rs using clap derive macros
   - Add fields for input file, output format flags (--text, --json)
@@ -257,6 +257,9 @@
 - [ ] 10.2 Implement CLI file processing
 
   - Add main function logic in main.rs for processing input files
+  - Look in `/etc/magic` for magic rule files and parse them (on Unix-like platforms)
+  - Look in `%APPDATA%\Magic` for magic rule files and parse them (on Windows)
+  - Add a downloader script for the CI/CD environment to download
   - Implement file loading, rule evaluation, and output formatting
   - Write integration tests for CLI functionality with sample files
   - _Requirements: 5.1, 5.5_
