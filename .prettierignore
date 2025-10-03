@@ -1,2 +1,4 @@
 **/*.md
 **/*.yml
+**/*.result
+**/*.testfile

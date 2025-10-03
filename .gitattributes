@@ -58,6 +58,10 @@ LICENSE text
 *.ico binary
 *.svg text
 
+# Test files
+**/*.result binary
+**/*.testfile binary
+
 # Font files
 *.ttf binary
 *.eot binary
