@@ -350,16 +350,7 @@ pub fn evaluate_rules(
             }
         }
 
-        // TODO: Add error handling for malformed rules
-        // - Validate rule structure before evaluation
-        // - Handle cases where rule.message is empty or contains invalid characters
-        // - Add context about which rule failed during evaluation
-
-        // Evaluate the current rule
-        // TODO: Add more specific error context for rule evaluation failures
-        // - Include rule message and offset in error messages
-        // - Add rule validation before evaluation
-        // - Handle edge cases like empty rule messages or invalid offsets
+        // Evaluate the current rule with enhanced error context
         let rule_matches = evaluate_single_rule(rule, buffer).map_err(|e| match e {
             LibmagicError::EvaluationError(msg) => LibmagicError::EvaluationError(format!(
                 "Rule '{}' at offset {:?}: {}",

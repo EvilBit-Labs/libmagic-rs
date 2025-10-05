@@ -299,9 +299,9 @@ impl EvaluationConfig {
         }
 
         if self.max_recursion_depth > MAX_SAFE_RECURSION_DEPTH {
-            return Err(LibmagicError::InvalidFormat(
-                "max_recursion_depth must not exceed 1000 to prevent stack overflow".to_string(),
-            ));
+            return Err(LibmagicError::InvalidFormat(format!(
+                "max_recursion_depth must not exceed {MAX_SAFE_RECURSION_DEPTH} to prevent stack overflow"
+            )));
         }
 
         Ok(())
@@ -318,9 +318,9 @@ impl EvaluationConfig {
         }
 
         if self.max_string_length > MAX_SAFE_STRING_LENGTH {
-            return Err(LibmagicError::InvalidFormat(
-                "max_string_length must not exceed 1MB to prevent memory exhaustion".to_string(),
-            ));
+            return Err(LibmagicError::InvalidFormat(format!(
+                "max_string_length must not exceed {MAX_SAFE_STRING_LENGTH} bytes to prevent memory exhaustion"
+            )));
         }
 
         Ok(())
@@ -338,10 +338,9 @@ impl EvaluationConfig {
             }
 
             if timeout > MAX_SAFE_TIMEOUT_MS {
-                return Err(LibmagicError::InvalidFormat(
-                    "timeout_ms must not exceed 300000 (5 minutes) to prevent denial of service"
-                        .to_string(),
-                ));
+                return Err(LibmagicError::InvalidFormat(format!(
+                    "timeout_ms must not exceed {MAX_SAFE_TIMEOUT_MS} (5 minutes) to prevent denial of service"
+                )));
             }
         }
 
@@ -356,9 +355,9 @@ impl EvaluationConfig {
         if self.max_recursion_depth > HIGH_RECURSION_THRESHOLD
             && self.max_string_length > LARGE_STRING_THRESHOLD
         {
-            return Err(LibmagicError::InvalidFormat(
-                "High recursion depth combined with large string length may cause resource exhaustion".to_string(),
-            ));
+            return Err(LibmagicError::InvalidFormat(format!(
+                "High recursion depth (>{HIGH_RECURSION_THRESHOLD}) combined with large string length (>{LARGE_STRING_THRESHOLD}) may cause resource exhaustion"
+            )));
         }
 
         Ok(())
@@ -596,7 +595,8 @@ mod tests {
 
         match result.unwrap_err() {
             LibmagicError::InvalidFormat(msg) => {
-                assert!(msg.contains("max_string_length must not exceed 1MB"));
+                assert!(msg.contains("max_string_length must not exceed"));
+                assert!(msg.contains("bytes to prevent memory exhaustion"));
             }
             _ => panic!("Expected InvalidFormat error"),
         }

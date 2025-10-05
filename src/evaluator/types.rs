@@ -351,13 +351,6 @@ pub fn read_typed_value(
     offset: usize,
     type_kind: &TypeKind,
 ) -> Result<Value, TypeReadError> {
-    // TODO: Add comprehensive error handling improvements:
-    // - Validate offset alignment for multi-byte types (shorts should be 2-byte aligned, etc.)
-    // - Add context about which type was being read when errors occur
-    // - Handle endianness conversion errors more gracefully
-    // - Add bounds checking warnings for reads near buffer boundaries
-    // - Consider adding support for partial reads when buffer is truncated
-
     match type_kind {
         TypeKind::Byte => read_byte(buffer, offset),
         TypeKind::Short { endian, signed } => read_short(buffer, offset, *endian, *signed),
