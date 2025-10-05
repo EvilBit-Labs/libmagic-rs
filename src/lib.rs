@@ -281,34 +281,55 @@ impl EvaluationConfig {
     /// assert!(invalid_config.validate().is_err());
     /// ```
     pub fn validate(&self) -> Result<()> {
-        // Validate recursion depth to prevent stack overflow attacks
+        self.validate_recursion_depth()?;
+        self.validate_string_length()?;
+        self.validate_timeout()?;
+        self.validate_resource_combination()?;
+        Ok(())
+    }
+
+    /// Validate recursion depth to prevent stack overflow attacks
+    fn validate_recursion_depth(&self) -> Result<()> {
+        const MAX_SAFE_RECURSION_DEPTH: u32 = 1000;
+
         if self.max_recursion_depth == 0 {
             return Err(LibmagicError::InvalidFormat(
                 "max_recursion_depth must be greater than 0".to_string(),
             ));
         }
 
-        if self.max_recursion_depth > 1000 {
-            return Err(LibmagicError::InvalidFormat(
-                "max_recursion_depth must not exceed 1000 to prevent stack overflow".to_string(),
-            ));
+        if self.max_recursion_depth > MAX_SAFE_RECURSION_DEPTH {
+            return Err(LibmagicError::InvalidFormat(format!(
+                "max_recursion_depth must not exceed {MAX_SAFE_RECURSION_DEPTH} to prevent stack overflow"
+            )));
         }
 
-        // Validate string length to prevent memory exhaustion
+        Ok(())
+    }
+
+    /// Validate string length to prevent memory exhaustion
+    fn validate_string_length(&self) -> Result<()> {
+        const MAX_SAFE_STRING_LENGTH: usize = 1_048_576; // 1MB
+
         if self.max_string_length == 0 {
             return Err(LibmagicError::InvalidFormat(
                 "max_string_length must be greater than 0".to_string(),
             ));
         }
 
-        if self.max_string_length > 1_048_576 {
-            // 1MB limit to prevent memory exhaustion attacks
+        if self.max_string_length > MAX_SAFE_STRING_LENGTH {
             return Err(LibmagicError::InvalidFormat(
                 "max_string_length must not exceed 1MB to prevent memory exhaustion".to_string(),
             ));
         }
 
-        // Validate timeout to prevent denial of service
+        Ok(())
+    }
+
+    /// Validate timeout to prevent denial of service
+    fn validate_timeout(&self) -> Result<()> {
+        const MAX_SAFE_TIMEOUT_MS: u64 = 300_000; // 5 minutes
+
         if let Some(timeout) = self.timeout_ms {
             if timeout == 0 {
                 return Err(LibmagicError::InvalidFormat(
@@ -316,17 +337,24 @@ impl EvaluationConfig {
                 ));
             }
 
-            if timeout > 300_000 {
-                // 5 minute limit to prevent DoS through excessive timeouts
-                return Err(LibmagicError::InvalidFormat(
-                    "timeout_ms must not exceed 300000 (5 minutes) to prevent denial of service"
-                        .to_string(),
-                ));
+            if timeout > MAX_SAFE_TIMEOUT_MS {
+                return Err(LibmagicError::InvalidFormat(format!(
+                    "timeout_ms must not exceed {MAX_SAFE_TIMEOUT_MS} (5 minutes) to prevent denial of service"
+                )));
             }
         }
 
-        // Additional security checks for configuration consistency
-        if self.max_recursion_depth > 100 && self.max_string_length > 65536 {
+        Ok(())
+    }
+
+    /// Validate resource combination to prevent resource exhaustion
+    fn validate_resource_combination(&self) -> Result<()> {
+        const HIGH_RECURSION_THRESHOLD: u32 = 100;
+        const LARGE_STRING_THRESHOLD: usize = 65536;
+
+        if self.max_recursion_depth > HIGH_RECURSION_THRESHOLD
+            && self.max_string_length > LARGE_STRING_THRESHOLD
+        {
             return Err(LibmagicError::InvalidFormat(
                 "High recursion depth combined with large string length may cause resource exhaustion".to_string(),
             ));

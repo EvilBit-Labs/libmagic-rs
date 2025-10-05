@@ -29,8 +29,12 @@ fn run_cli_stdout(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
 fn run_cli_stderr(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
     let output = run_cli(args)?;
     let stderr = String::from_utf8(output.stderr)?;
-    // Filter out build noise for cleaner snapshots
-    let filtered_stderr = stderr
+    Ok(filter_build_noise(&stderr))
+}
+
+/// Filter out build noise from stderr for cleaner snapshots
+fn filter_build_noise(stderr: &str) -> String {
+    stderr
         .lines()
         .filter(|line| {
             !line.contains("Blocking waiting for file lock")
@@ -38,8 +42,7 @@ fn run_cli_stderr(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
                 && !line.contains("Running `target\\debug\\rmagic.exe")
         })
         .collect::<Vec<_>>()
-        .join("\n");
-    Ok(filtered_stderr)
+        .join("\n")
 }
 
 /// Helper function to create a temporary test file with given content

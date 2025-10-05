@@ -136,68 +136,88 @@ fn main() {
 /// - 5: Evaluation timeout or resource limits exceeded
 fn handle_error(error: LibmagicError) -> i32 {
     match error {
-        LibmagicError::IoError(ref io_err) => match io_err.kind() {
-            std::io::ErrorKind::NotFound => {
-                eprintln!("Error: File not found");
-                eprintln!("The specified file does not exist or cannot be accessed.");
-                eprintln!("Please check the file path and try again.");
-                3
-            }
-            std::io::ErrorKind::PermissionDenied => {
-                eprintln!("Error: Permission denied");
-                eprintln!("You do not have permission to access the specified file.");
-                eprintln!("Please check file permissions or run with appropriate privileges.");
-                3
-            }
-            std::io::ErrorKind::InvalidInput => {
-                eprintln!("Error: Invalid input");
-                eprintln!("The file path or arguments provided are invalid.");
-                eprintln!("Please check your input and try again.");
-                2
-            }
-            _ => {
-                eprintln!("Error: File access failed");
-                eprintln!("Failed to access file: {}", io_err);
-                eprintln!("Please check the file path and permissions.");
-                3
-            }
-        },
-        LibmagicError::ParseError { line, message } => {
-            eprintln!("Error: Magic file parse error");
-            eprintln!("Parse error at line {}: {}", line, message);
-            eprintln!("The magic file contains invalid syntax or formatting.");
-            eprintln!("Please check the magic file format or try a different magic file.");
-            4
-        }
-        LibmagicError::InvalidFormat(ref msg) => {
-            eprintln!("Error: Invalid magic file format");
-            eprintln!("{}", msg);
-            eprintln!("The magic file format is not supported or contains errors.");
-            eprintln!("Please use a valid magic file or check the file format.");
-            4
-        }
-        LibmagicError::FileBufferError(ref msg) => {
-            eprintln!("Error: File buffer error");
-            eprintln!("{}", msg);
-            eprintln!("Failed to create memory-mapped buffer for the file.");
-            eprintln!("The file may be too large, corrupted, or in use by another process.");
+        LibmagicError::IoError(ref io_err) => handle_io_error(io_err),
+        LibmagicError::ParseError { line, message } => handle_parse_error(line, &message),
+        LibmagicError::InvalidFormat(ref msg) => handle_invalid_format_error(msg),
+        LibmagicError::FileBufferError(ref msg) => handle_file_buffer_error(msg),
+        LibmagicError::EvaluationError(ref msg) => handle_evaluation_error(msg),
+        LibmagicError::Timeout { timeout_ms } => handle_timeout_error(timeout_ms),
+    }
+}
+
+/// Handle I/O errors with specific error messages
+fn handle_io_error(io_err: &std::io::Error) -> i32 {
+    match io_err.kind() {
+        std::io::ErrorKind::NotFound => {
+            eprintln!("Error: File not found");
+            eprintln!("The specified file does not exist or cannot be accessed.");
+            eprintln!("Please check the file path and try again.");
             3
         }
-        LibmagicError::EvaluationError(ref msg) => {
-            eprintln!("Error: Rule evaluation failed");
-            eprintln!("{}", msg);
-            eprintln!("Failed to evaluate magic rules against the file.");
-            eprintln!("The file may be corrupted or the magic rules may be incompatible.");
-            1
+        std::io::ErrorKind::PermissionDenied => {
+            eprintln!("Error: Permission denied");
+            eprintln!("You do not have permission to access the specified file.");
+            eprintln!("Please check file permissions or run with appropriate privileges.");
+            3
         }
-        LibmagicError::Timeout { timeout_ms } => {
-            eprintln!("Error: Evaluation timeout");
-            eprintln!("File analysis timed out after {}ms", timeout_ms);
-            eprintln!("The file may be too large or complex to analyze within the time limit.");
-            eprintln!("Try using a simpler magic file or increasing the timeout limit.");
-            5
+        std::io::ErrorKind::InvalidInput => {
+            eprintln!("Error: Invalid input");
+            eprintln!("The file path or arguments provided are invalid.");
+            eprintln!("Please check your input and try again.");
+            2
+        }
+        _ => {
+            eprintln!("Error: File access failed");
+            eprintln!("Failed to access file: {}", io_err);
+            eprintln!("Please check the file path and permissions.");
+            3
         }
     }
+}
+
+/// Handle parse errors with detailed information
+fn handle_parse_error(line: usize, message: &str) -> i32 {
+    eprintln!("Error: Magic file parse error");
+    eprintln!("Parse error at line {}: {}", line, message);
+    eprintln!("The magic file contains invalid syntax or formatting.");
+    eprintln!("Please check the magic file format or try a different magic file.");
+    4
+}
+
+/// Handle invalid format errors
+fn handle_invalid_format_error(msg: &str) -> i32 {
+    eprintln!("Error: Invalid magic file format");
+    eprintln!("{}", msg);
+    eprintln!("The magic file format is not supported or contains errors.");
+    eprintln!("Please use a valid magic file or check the file format.");
+    4
+}
+
+/// Handle file buffer errors
+fn handle_file_buffer_error(msg: &str) -> i32 {
+    eprintln!("Error: File buffer error");
+    eprintln!("{}", msg);
+    eprintln!("Failed to create memory-mapped buffer for the file.");
+    eprintln!("The file may be too large, corrupted, or in use by another process.");
+    3
+}
+
+/// Handle evaluation errors
+fn handle_evaluation_error(msg: &str) -> i32 {
+    eprintln!("Error: Rule evaluation failed");
+    eprintln!("{}", msg);
+    eprintln!("Failed to evaluate magic rules against the file.");
+    eprintln!("The file may be corrupted or the magic rules may be incompatible.");
+    1
+}
+
+/// Handle timeout errors
+fn handle_timeout_error(timeout_ms: u64) -> i32 {
+    eprintln!("Error: Evaluation timeout");
+    eprintln!("File analysis timed out after {}ms", timeout_ms);
+    eprintln!("The file may be too large or complex to analyze within the time limit.");
+    eprintln!("Try using a simpler magic file or increasing the timeout limit.");
+    5
 }
 
 fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
@@ -369,8 +389,16 @@ fn download_magic_files(magic_file_path: &Path) -> Result<(), Box<dyn std::error
         return Ok(());
     }
 
-    // Create a basic magic file with common file type signatures
-    let basic_magic_content = r#"# Basic magic file for libmagic-rs
+    let basic_magic_content = create_basic_magic_content();
+    fs::write(magic_file_path, basic_magic_content)?;
+    eprintln!("Created basic magic file at {}", magic_file_path.display());
+
+    Ok(())
+}
+
+/// Create basic magic file content with common file type signatures
+fn create_basic_magic_content() -> &'static str {
+    r#"# Basic magic file for libmagic-rs
 # This is a minimal magic file for testing and CI/CD environments
 
 # ELF executables
@@ -422,12 +450,7 @@ fn download_magic_files(magic_file_path: &Path) -> Result<(), Box<dyn std::error
 0	string	\xca\xfe\xba\xbe	Java class file
 0	string	\xfe\xed\xfa\xce	Mach-O executable (32-bit)
 0	string	\xfe\xed\xfa\xcf	Mach-O executable (64-bit)
-"#;
-
-    fs::write(magic_file_path, basic_magic_content)?;
-    eprintln!("Created basic magic file at {}", magic_file_path.display());
-
-    Ok(())
+"#
 }
 
 #[cfg(test)]

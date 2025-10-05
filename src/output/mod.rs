@@ -269,10 +269,10 @@ impl MatchResult {
     /// assert_eq!(result.confidence, 100);
     /// ```
     pub fn set_confidence(&mut self, confidence: u8) {
-        // TODO: Add logging/warnings for confidence score adjustments:
-        // - Log when confidence scores are clamped from values > 100
-        // - Add validation warnings for suspiciously low confidence scores
-        // - Consider adding confidence score validation based on match type
+        if confidence > 100 {
+            eprintln!("Warning: Confidence score {confidence} clamped to 100");
+        }
+
         self.confidence = confidence.min(100);
     }
 
@@ -432,13 +432,26 @@ impl EvaluationResult {
     /// assert_eq!(result.matches.len(), 1);
     /// ```
     pub fn add_match(&mut self, match_result: MatchResult) {
-        // TODO: Add validation and error handling for match results:
+        Self::validate_match_result(&match_result);
+        self.matches.push(match_result);
+    }
+
+    /// Validate a match result before adding it
+    fn validate_match_result(match_result: &MatchResult) {
+        // TODO: Add comprehensive validation:
         // - Validate that match_result.offset is within file bounds
         // - Check for duplicate matches at the same offset
         // - Validate confidence scores are in valid range (0-100)
         // - Add warnings for overlapping matches that might indicate conflicts
         // - Consider sorting matches by offset or confidence automatically
-        self.matches.push(match_result);
+
+        // For now, just validate confidence score range
+        if match_result.confidence > 100 {
+            eprintln!(
+                "Warning: Match result has confidence score > 100: {}",
+                match_result.confidence
+            );
+        }
     }
 
     /// Get the primary match (first match with highest confidence)
