@@ -296,7 +296,7 @@
   - Write integration tests for JSON output through CLI interface
   - _Requirements: 5.2, 4.2_
 
-- [ ] 12. Add basic string type to AST
+- [x] 12. Add basic string type to AST
 
 - [x] 12.1 Add basic string type to AST
 
@@ -311,7 +311,7 @@
   - Write unit tests for string reading with various string lengths and termination
   - _Requirements: 2.2, 3.2_
 
-- [ ] 12.3 Add string matching support
+- [x] 12.3 Add string matching support
 
   - Extend read_typed_value function in types.rs to handle String type
   - Implement UTF-8 validation and ASCII fallback for string values
