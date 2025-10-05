@@ -347,11 +347,22 @@ fn test_cli_json_vs_text_consistency() {
     let json_data: serde_json::Value =
         serde_json::from_str(&json_output).expect("JSON output should be valid");
 
-    // Extract description from JSON
-    let json_description = json_data["description"].as_str().unwrap();
+    // Check that JSON has the expected structure
+    assert!(json_data.is_object());
+    assert!(json_data["matches"].is_array());
 
-    // Text output should contain the same description
-    assert!(text_output.contains(json_description));
+    let matches = json_data["matches"].as_array().unwrap();
+
+    if matches.is_empty() {
+        // If no matches in JSON, text output should contain "data" (fallback)
+        assert!(text_output.contains("data"));
+    } else {
+        // If there are matches, the first match's text should be in the text output
+        let first_match = &matches[0];
+        if let Some(match_text) = first_match["text"].as_str() {
+            assert!(text_output.contains(match_text));
+        }
+    }
 }
 
 #[test]

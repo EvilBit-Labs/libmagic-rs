@@ -272,9 +272,9 @@
   - Write unit tests for CLI error handling and exit code behavior
   - _Requirements: 5.5, 6.5_
 
-- [ ] 11. Create JSON match result structure
+- [x] 11. Create JSON match result structure
 
-- [ ] 11.1 Create JSON match result structure
+- [x] 11.1 Create JSON match result structure
 
   - Create src/output/json.rs with JsonMatchResult struct following original spec
   - Add fields for text, offset, value, tags, and score
@@ -282,14 +282,14 @@
   - Write unit tests for JSON match result serialization
   - _Requirements: 4.2_
 
-- [ ] 11.2 Implement JSON output formatting
+- [x] 11.2 Implement JSON output formatting
 
   - Add format_json_output function to json.rs for converting match results to JSON
   - Implement matches array structure with proper field mapping
   - Write unit tests for JSON output format validation and structure
   - _Requirements: 4.2, 1.1_
 
-- [ ] 11.3 Add JSON output integration
+- [x] 11.3 Add JSON output integration
 
   - Integrate JSON formatter into CLI output routing in main.rs
   - Add --json flag handling with appropriate output selection

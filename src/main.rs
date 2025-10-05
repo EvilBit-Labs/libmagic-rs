@@ -4,6 +4,9 @@
 //! serving as a drop-in replacement for the GNU `file` command.
 
 use clap::Parser;
+use libmagic_rs::output::MatchResult;
+use libmagic_rs::output::json::format_json_output;
+use libmagic_rs::parser::ast::Value;
 use libmagic_rs::{LibmagicError, MagicDatabase};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -236,13 +239,24 @@ fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
     // Output results based on format
     match args.output_format() {
         OutputFormat::Json => {
-            let json_result = serde_json::json!({
-                "filename": args.file.display().to_string(),
-                "description": result.description,
-                "mime_type": result.mime_type,
-                "confidence": result.confidence
-            });
-            match serde_json::to_string_pretty(&json_result) {
+            // Convert the simple EvaluationResult to MatchResult for JSON formatting
+            let match_results = if result.description == "data" && result.confidence == 0.0 {
+                // No matches found - return empty matches array
+                vec![]
+            } else {
+                // Create a match result from the evaluation result
+                vec![MatchResult::with_metadata(
+                    result.description.clone(),
+                    0,                                         // Offset 0 for primary match
+                    result.description.len(), // Use description length as match length
+                    Value::String(result.description.clone()), // Use description as matched value
+                    vec![],                   // No rule path available from simple result
+                    (result.confidence * 100.0) as u8, // Convert 0.0-1.0 to 0-100
+                    result.mime_type.clone(),
+                )]
+            };
+
+            match format_json_output(&match_results) {
                 Ok(json_str) => println!("{}", json_str),
                 Err(e) => {
                     return Err(LibmagicError::EvaluationError(format!(

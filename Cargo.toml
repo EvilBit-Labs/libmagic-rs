@@ -160,6 +160,7 @@ criterion = "0.7.0"
 insta = { version = "1.39.0", features = ["json"] }
 nix = { version = "0.28", features = ["fs"] }
 proptest = "1.8.0"
+tempfile = "3.8.1"
 
 # The profile that 'dist' will build with
 [profile.dist]
