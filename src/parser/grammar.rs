@@ -275,18 +275,19 @@ fn parse_hex_bytes_no_prefix(input: &str) -> IResult<&str, Vec<u8>> {
     }
 
     // Parse pairs of hex digits
-    let mut bytes = Vec::new();
+    let mut bytes = Vec::with_capacity(hex_chars.len() / 2);
     let mut chars = hex_chars.chars();
     while let (Some(c1), Some(c2)) = (chars.next(), chars.next()) {
-        let hex_str = format!("{c1}{c2}");
-        if let Ok(byte_val) = u8::from_str_radix(&hex_str, 16) {
-            bytes.push(byte_val);
-        } else {
-            return Err(nom::Err::Error(NomError::new(
-                input,
-                nom::error::ErrorKind::MapRes,
-            )));
-        }
+        // Avoid format! allocation by parsing digits directly
+        let digit1 = c1
+            .to_digit(16)
+            .ok_or_else(|| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::MapRes)))?;
+        let digit2 = c2
+            .to_digit(16)
+            .ok_or_else(|| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::MapRes)))?;
+        let byte_val = u8::try_from((digit1 << 4) | digit2)
+            .map_err(|_| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::MapRes)))?;
+        bytes.push(byte_val);
     }
 
     let remaining = &input[hex_chars.len()..];

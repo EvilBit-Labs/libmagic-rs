@@ -339,7 +339,7 @@ pub fn evaluate_rules(
     buffer: &[u8],
     context: &mut EvaluationContext,
 ) -> Result<Vec<MatchResult>, LibmagicError> {
-    let mut matches = Vec::new();
+    let mut matches = Vec::with_capacity(rules.len());
     let start_time = std::time::Instant::now();
 
     for rule in rules {

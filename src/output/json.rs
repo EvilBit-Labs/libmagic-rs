@@ -524,10 +524,10 @@ impl JsonOutput {
 /// Returns a `serde_json::Error` if the match results cannot be serialized
 /// to JSON, which should be rare in practice since all fields are serializable.
 pub fn format_json_output(match_results: &[MatchResult]) -> Result<String, serde_json::Error> {
-    let mut json_matches = Vec::with_capacity(match_results.len());
-    for match_result in match_results {
-        json_matches.push(JsonMatchResult::from_match_result(match_result));
-    }
+    let json_matches: Vec<JsonMatchResult> = match_results
+        .iter()
+        .map(JsonMatchResult::from_match_result)
+        .collect();
 
     let output = JsonOutput::new(json_matches);
     serde_json::to_string_pretty(&output)
@@ -571,10 +571,10 @@ pub fn format_json_output(match_results: &[MatchResult]) -> Result<String, serde
 pub fn format_json_output_compact(
     match_results: &[MatchResult],
 ) -> Result<String, serde_json::Error> {
-    let mut json_matches = Vec::with_capacity(match_results.len());
-    for match_result in match_results {
-        json_matches.push(JsonMatchResult::from_match_result(match_result));
-    }
+    let json_matches: Vec<JsonMatchResult> = match_results
+        .iter()
+        .map(JsonMatchResult::from_match_result)
+        .collect();
 
     let output = JsonOutput::new(json_matches);
     serde_json::to_string(&output)
