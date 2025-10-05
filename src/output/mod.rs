@@ -269,6 +269,8 @@ impl MatchResult {
     /// assert_eq!(result.confidence, 100);
     /// ```
     pub fn set_confidence(&mut self, confidence: u8) {
+        // Only warn in debug builds to avoid performance impact
+        #[cfg(debug_assertions)]
         if confidence > 100 {
             eprintln!("Warning: Confidence score {confidence} clamped to 100");
         }
@@ -432,11 +434,15 @@ impl EvaluationResult {
     /// assert_eq!(result.matches.len(), 1);
     /// ```
     pub fn add_match(&mut self, match_result: MatchResult) {
+        // Only validate in debug builds to avoid performance impact
+        #[cfg(debug_assertions)]
         Self::validate_match_result(&match_result);
+
         self.matches.push(match_result);
     }
 
     /// Validate a match result before adding it
+    #[cfg(debug_assertions)]
     fn validate_match_result(match_result: &MatchResult) {
         // TODO: Add comprehensive validation:
         // - Validate that match_result.offset is within file bounds

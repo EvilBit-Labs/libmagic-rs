@@ -299,9 +299,9 @@ impl EvaluationConfig {
         }
 
         if self.max_recursion_depth > MAX_SAFE_RECURSION_DEPTH {
-            return Err(LibmagicError::InvalidFormat(format!(
-                "max_recursion_depth must not exceed {MAX_SAFE_RECURSION_DEPTH} to prevent stack overflow"
-            )));
+            return Err(LibmagicError::InvalidFormat(
+                "max_recursion_depth must not exceed 1000 to prevent stack overflow".to_string(),
+            ));
         }
 
         Ok(())
@@ -338,9 +338,10 @@ impl EvaluationConfig {
             }
 
             if timeout > MAX_SAFE_TIMEOUT_MS {
-                return Err(LibmagicError::InvalidFormat(format!(
-                    "timeout_ms must not exceed {MAX_SAFE_TIMEOUT_MS} (5 minutes) to prevent denial of service"
-                )));
+                return Err(LibmagicError::InvalidFormat(
+                    "timeout_ms must not exceed 300000 (5 minutes) to prevent denial of service"
+                        .to_string(),
+                ));
             }
         }
 

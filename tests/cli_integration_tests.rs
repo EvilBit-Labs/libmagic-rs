@@ -40,9 +40,14 @@ fn filter_build_noise(stderr: &str) -> String {
             !line.contains("Blocking waiting for file lock")
                 && !line.contains("Finished `dev` profile")
                 && !line.contains("Running `target\\debug\\rmagic.exe")
+                && !line.contains("warning: error finalizing incremental compilation")
+                && !line.contains("warning: `libmagic-rs` (lib) generated")
+                && !line.trim().is_empty() // Remove empty lines that might be left after filtering
         })
         .collect::<Vec<_>>()
         .join("\n")
+        .trim() // Remove leading/trailing whitespace
+        .to_string()
 }
 
 /// Helper function to create a temporary test file with given content
