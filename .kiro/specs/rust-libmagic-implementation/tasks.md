@@ -320,7 +320,7 @@
 
 - [ ] 13. Create basic error types
 
-- [ ] 13.1 Create basic error types
+- [x] 13.1 Create basic error types
 
   - Create src/error.rs with LibmagicError enum using thiserror
   - Add variants for ParseError, EvaluationError, and IoError

@@ -137,10 +137,8 @@ fn main() {
 fn handle_error(error: LibmagicError) -> i32 {
     match error {
         LibmagicError::IoError(ref io_err) => handle_io_error(io_err),
-        LibmagicError::ParseError { line, message } => handle_parse_error(line, &message),
-        LibmagicError::InvalidFormat(ref msg) => handle_invalid_format_error(msg),
-        LibmagicError::FileBufferError(ref msg) => handle_file_buffer_error(msg),
-        LibmagicError::EvaluationError(ref msg) => handle_evaluation_error(msg),
+        LibmagicError::ParseError(ref parse_err) => handle_parse_error_new(parse_err),
+        LibmagicError::EvaluationError(ref eval_err) => handle_evaluation_error_new(eval_err),
         LibmagicError::Timeout { timeout_ms } => handle_timeout_error(timeout_ms),
     }
 }
@@ -177,37 +175,19 @@ fn handle_io_error(io_err: &std::io::Error) -> i32 {
 }
 
 /// Handle parse errors with detailed information
-fn handle_parse_error(line: usize, message: &str) -> i32 {
+fn handle_parse_error_new(parse_err: &libmagic_rs::ParseError) -> i32 {
     eprintln!(
-        "Error: Magic file parse error\nParse error at line {}: {}\nThe magic file contains invalid syntax or formatting.\nPlease check the magic file format or try a different magic file.",
-        line, message
+        "Error: Magic file parse error\n{}\nThe magic file contains invalid syntax or formatting.\nPlease check the magic file format or try a different magic file.",
+        parse_err
     );
     4
-}
-
-/// Handle invalid format errors
-fn handle_invalid_format_error(msg: &str) -> i32 {
-    eprintln!(
-        "Error: Invalid magic file format\n{}\nThe magic file format is not supported or contains errors.\nPlease use a valid magic file or check the file format.",
-        msg
-    );
-    4
-}
-
-/// Handle file buffer errors
-fn handle_file_buffer_error(msg: &str) -> i32 {
-    eprintln!(
-        "Error: File buffer error\n{}\nFailed to create memory-mapped buffer for the file.\nThe file may be too large, corrupted, or in use by another process.",
-        msg
-    );
-    3
 }
 
 /// Handle evaluation errors
-fn handle_evaluation_error(msg: &str) -> i32 {
+fn handle_evaluation_error_new(eval_err: &libmagic_rs::EvaluationError) -> i32 {
     eprintln!(
         "Error: Rule evaluation failed\n{}\nFailed to evaluate magic rules against the file.\nThe file may be corrupted or the magic rules may be incompatible.",
-        msg
+        eval_err
     );
     1
 }
@@ -241,11 +221,16 @@ fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
 
         // Try to create basic magic files if we're in CI/CD or test environment
         if let Err(e) = download_magic_files(&magic_file_path) {
-            return Err(LibmagicError::InvalidFormat(format!(
-                "Magic file not found at {} and failed to create fallback: {}",
-                magic_file_path.display(),
-                e
-            )));
+            return Err(LibmagicError::ParseError(
+                libmagic_rs::ParseError::invalid_syntax(
+                    0,
+                    format!(
+                        "Magic file not found at {} and failed to create fallback: {}",
+                        magic_file_path.display(),
+                        e
+                    ),
+                ),
+            ));
         }
     }
 
@@ -280,10 +265,12 @@ fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
             match format_json_output(&match_results) {
                 Ok(json_str) => println!("{}", json_str),
                 Err(e) => {
-                    return Err(LibmagicError::EvaluationError(format!(
-                        "Failed to serialize JSON output: {}",
-                        e
-                    )));
+                    return Err(LibmagicError::EvaluationError(
+                        libmagic_rs::EvaluationError::unsupported_type(format!(
+                            "Failed to serialize JSON output: {}",
+                            e
+                        )),
+                    ));
                 }
             }
         }
@@ -310,8 +297,8 @@ fn validate_arguments(args: &Args) -> Result<(), LibmagicError> {
     if let Some(ref magic_file) = args.magic_file {
         let magic_str = magic_file.to_string_lossy();
         if magic_str.trim().is_empty() {
-            return Err(LibmagicError::InvalidFormat(
-                "Magic file path cannot be empty".to_string(),
+            return Err(LibmagicError::ParseError(
+                libmagic_rs::ParseError::invalid_syntax(0, "Magic file path cannot be empty"),
             ));
         }
     }
@@ -346,18 +333,25 @@ fn validate_input_file(file_path: &Path) -> Result<(), LibmagicError> {
 /// Validate that the magic file exists and is readable
 fn validate_magic_file(magic_file_path: &Path) -> Result<(), LibmagicError> {
     if !magic_file_path.exists() {
-        return Err(LibmagicError::InvalidFormat(format!(
-            "Magic file not found: {}",
-            magic_file_path.display()
-        )));
+        return Err(LibmagicError::ParseError(
+            libmagic_rs::ParseError::invalid_syntax(
+                0,
+                format!("Magic file not found: {}", magic_file_path.display()),
+            ),
+        ));
     }
 
     // Check if it's a directory
     if magic_file_path.is_dir() {
-        return Err(LibmagicError::InvalidFormat(format!(
-            "Magic file path is a directory, not a file: {}",
-            magic_file_path.display()
-        )));
+        return Err(LibmagicError::ParseError(
+            libmagic_rs::ParseError::invalid_syntax(
+                0,
+                format!(
+                    "Magic file path is a directory, not a file: {}",
+                    magic_file_path.display()
+                ),
+            ),
+        ));
     }
 
     // Try to read the magic file to check permissions and basic format
@@ -365,8 +359,8 @@ fn validate_magic_file(magic_file_path: &Path) -> Result<(), LibmagicError> {
         Ok(content) => {
             // Basic validation - check if file is completely empty
             if content.trim().is_empty() {
-                return Err(LibmagicError::InvalidFormat(
-                    "Magic file is empty".to_string(),
+                return Err(LibmagicError::ParseError(
+                    libmagic_rs::ParseError::invalid_syntax(0, "Magic file is empty"),
                 ));
             }
             Ok(())
@@ -639,31 +633,19 @@ mod tests {
 
     #[test]
     fn test_handle_error_parse_error() {
-        let error = LibmagicError::ParseError {
-            line: 42,
-            message: "Invalid syntax".to_string(),
-        };
+        let error = LibmagicError::ParseError(libmagic_rs::ParseError::invalid_syntax(
+            42,
+            "Invalid syntax",
+        ));
         let exit_code = handle_error(error);
         assert_eq!(exit_code, 4);
-    }
-
-    #[test]
-    fn test_handle_error_invalid_format() {
-        let error = LibmagicError::InvalidFormat("Bad format".to_string());
-        let exit_code = handle_error(error);
-        assert_eq!(exit_code, 4);
-    }
-
-    #[test]
-    fn test_handle_error_file_buffer_error() {
-        let error = LibmagicError::FileBufferError("Buffer error".to_string());
-        let exit_code = handle_error(error);
-        assert_eq!(exit_code, 3);
     }
 
     #[test]
     fn test_handle_error_evaluation_error() {
-        let error = LibmagicError::EvaluationError("Evaluation failed".to_string());
+        let error = LibmagicError::EvaluationError(libmagic_rs::EvaluationError::unsupported_type(
+            "Evaluation failed",
+        ));
         let exit_code = handle_error(error);
         assert_eq!(exit_code, 1);
     }
@@ -724,10 +706,11 @@ mod tests {
         let result = validate_arguments(&args);
         assert!(result.is_err());
         match result.unwrap_err() {
-            LibmagicError::InvalidFormat(msg) => {
+            LibmagicError::ParseError(parse_err) => {
+                let msg = parse_err.to_string();
                 assert!(msg.contains("Magic file path cannot be empty"));
             }
-            _ => panic!("Expected InvalidFormat error"),
+            _ => panic!("Expected ParseError"),
         }
     }
 
@@ -794,10 +777,11 @@ mod tests {
         let result = validate_magic_file(&PathBuf::from("nonexistent_magic.db"));
         assert!(result.is_err());
         match result.unwrap_err() {
-            LibmagicError::InvalidFormat(msg) => {
+            LibmagicError::ParseError(parse_err) => {
+                let msg = parse_err.to_string();
                 assert!(msg.contains("Magic file not found"));
             }
-            _ => panic!("Expected InvalidFormat error"),
+            _ => panic!("Expected ParseError"),
         }
     }
 
@@ -810,10 +794,11 @@ mod tests {
         let result = validate_magic_file(&temp_dir);
         assert!(result.is_err());
         match result.unwrap_err() {
-            LibmagicError::InvalidFormat(msg) => {
+            LibmagicError::ParseError(parse_err) => {
+                let msg = parse_err.to_string();
                 assert!(msg.contains("Magic file path is a directory"));
             }
-            _ => panic!("Expected InvalidFormat error"),
+            _ => panic!("Expected ParseError"),
         }
 
         // Clean up
@@ -829,10 +814,11 @@ mod tests {
         let result = validate_magic_file(&temp_file);
         assert!(result.is_err());
         match result.unwrap_err() {
-            LibmagicError::InvalidFormat(msg) => {
+            LibmagicError::ParseError(parse_err) => {
+                let msg = parse_err.to_string();
                 assert!(msg.contains("Magic file is empty"));
             }
-            _ => panic!("Expected InvalidFormat error"),
+            _ => panic!("Expected ParseError"),
         }
 
         // Clean up
@@ -848,10 +834,11 @@ mod tests {
         let result = validate_magic_file(&temp_file);
         assert!(result.is_err());
         match result.unwrap_err() {
-            LibmagicError::InvalidFormat(msg) => {
+            LibmagicError::ParseError(parse_err) => {
+                let msg = parse_err.to_string();
                 assert!(msg.contains("Magic file is empty"));
             }
-            _ => panic!("Expected InvalidFormat error"),
+            _ => panic!("Expected ParseError"),
         }
 
         // Clean up

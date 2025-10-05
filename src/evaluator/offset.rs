@@ -140,24 +140,30 @@ pub fn resolve_absolute_offset(offset: i64, buffer: &[u8]) -> Result<usize, Offs
 /// * `LibmagicError::EvaluationError` - If offset resolution fails
 pub fn resolve_offset(spec: &OffsetSpec, buffer: &[u8]) -> Result<usize, LibmagicError> {
     match spec {
-        OffsetSpec::Absolute(offset) => resolve_absolute_offset(*offset, buffer)
-            .map_err(|e| LibmagicError::EvaluationError(e.to_string())),
+        OffsetSpec::Absolute(offset) => resolve_absolute_offset(*offset, buffer).map_err(|_e| {
+            LibmagicError::EvaluationError(crate::error::EvaluationError::buffer_overrun(0))
+        }),
         OffsetSpec::Indirect { .. } => {
             // TODO: Implement indirect offset resolution in task 15.2
             Err(LibmagicError::EvaluationError(
-                "Indirect offsets not yet implemented".to_string(),
+                crate::error::EvaluationError::unsupported_type(
+                    "Indirect offsets not yet implemented",
+                ),
             ))
         }
         OffsetSpec::Relative(_) => {
             // TODO: Implement relative offset resolution in future task
             Err(LibmagicError::EvaluationError(
-                "Relative offsets not yet implemented".to_string(),
+                crate::error::EvaluationError::unsupported_type(
+                    "Relative offsets not yet implemented",
+                ),
             ))
         }
         OffsetSpec::FromEnd(offset) => {
             // FromEnd is handled the same as negative Absolute offsets
-            resolve_absolute_offset(*offset, buffer)
-                .map_err(|e| LibmagicError::EvaluationError(e.to_string()))
+            resolve_absolute_offset(*offset, buffer).map_err(|_e| {
+                LibmagicError::EvaluationError(crate::error::EvaluationError::buffer_overrun(0))
+            })
         }
     }
 }
@@ -287,10 +293,12 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::EvaluationError(msg) => {
-                assert!(msg.contains("Buffer overrun"));
+            LibmagicError::EvaluationError(crate::error::EvaluationError::BufferOverrun {
+                ..
+            }) => {
+                // Expected error type
             }
-            _ => panic!("Expected EvaluationError"),
+            _ => panic!("Expected EvaluationError with BufferOverrun"),
         }
     }
 
@@ -308,10 +316,12 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::EvaluationError(msg) => {
-                assert!(msg.contains("Indirect offsets not yet implemented"));
+            LibmagicError::EvaluationError(crate::error::EvaluationError::UnsupportedType {
+                type_name,
+            }) => {
+                assert!(type_name.contains("Indirect offsets not yet implemented"));
             }
-            _ => panic!("Expected EvaluationError for unimplemented feature"),
+            _ => panic!("Expected EvaluationError with UnsupportedType"),
         }
     }
 
@@ -324,10 +334,12 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::EvaluationError(msg) => {
-                assert!(msg.contains("Relative offsets not yet implemented"));
+            LibmagicError::EvaluationError(crate::error::EvaluationError::UnsupportedType {
+                type_name,
+            }) => {
+                assert!(type_name.contains("Relative offsets not yet implemented"));
             }
-            _ => panic!("Expected EvaluationError for unimplemented feature"),
+            _ => panic!("Expected EvaluationError with UnsupportedType"),
         }
     }
 

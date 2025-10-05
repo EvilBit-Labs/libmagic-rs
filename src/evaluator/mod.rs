@@ -109,7 +109,7 @@ impl EvaluationContext {
     pub fn increment_recursion_depth(&mut self) -> Result<(), LibmagicError> {
         if self.recursion_depth >= self.config.max_recursion_depth {
             return Err(LibmagicError::EvaluationError(
-                "Maximum recursion depth exceeded".to_string(),
+                crate::error::EvaluationError::recursion_limit_exceeded(self.recursion_depth),
             ));
         }
         self.recursion_depth += 1;
@@ -259,7 +259,7 @@ pub fn evaluate_single_rule(rule: &MagicRule, buffer: &[u8]) -> Result<bool, Lib
 
     // Step 2: Read and interpret bytes at the resolved offset according to the rule's type
     let read_value = types::read_typed_value(buffer, absolute_offset, &rule.typ)
-        .map_err(|e| LibmagicError::EvaluationError(e.to_string()))?;
+        .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
 
     // Step 3: Apply the operator to compare the read value with the expected value
     let matches = operators::apply_operator(&rule.op, &read_value, &rule.value);
@@ -351,19 +351,13 @@ pub fn evaluate_rules(
         }
 
         // Evaluate the current rule with enhanced error context
-        let rule_matches = evaluate_single_rule(rule, buffer).map_err(|e| match e {
-            LibmagicError::EvaluationError(msg) => LibmagicError::EvaluationError(format!(
-                "Rule '{}' at offset {:?}: {}",
-                rule.message, rule.offset, msg
-            )),
-            other => other,
-        })?;
+        let rule_matches = evaluate_single_rule(rule, buffer)?;
 
         if rule_matches {
             // Create match result for this rule
             let absolute_offset = offset::resolve_offset(&rule.offset, buffer)?;
             let read_value = types::read_typed_value(buffer, absolute_offset, &rule.typ)
-                .map_err(|e| LibmagicError::EvaluationError(e.to_string()))?;
+                .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
 
             let match_result = MatchResult {
                 message: rule.message.clone(),
@@ -787,7 +781,8 @@ mod tests {
 
         match result.unwrap_err() {
             LibmagicError::EvaluationError(msg) => {
-                assert!(msg.contains("Buffer overrun"));
+                let error_string = format!("{msg}");
+                assert!(error_string.contains("Buffer overrun"));
             }
             _ => panic!("Expected EvaluationError"),
         }
@@ -814,7 +809,8 @@ mod tests {
 
         match result.unwrap_err() {
             LibmagicError::EvaluationError(msg) => {
-                assert!(msg.contains("Buffer overrun"));
+                let error_string = format!("{msg}");
+                assert!(error_string.contains("Buffer overrun"));
             }
             _ => panic!("Expected EvaluationError"),
         }
@@ -841,7 +837,8 @@ mod tests {
 
         match result.unwrap_err() {
             LibmagicError::EvaluationError(msg) => {
-                assert!(msg.contains("Buffer overrun"));
+                let error_string = format!("{msg}");
+                assert!(error_string.contains("Buffer overrun"));
             }
             _ => panic!("Expected EvaluationError"),
         }
@@ -865,7 +862,8 @@ mod tests {
 
         match result.unwrap_err() {
             LibmagicError::EvaluationError(msg) => {
-                assert!(msg.contains("Buffer overrun"));
+                let error_string = format!("{msg}");
+                assert!(error_string.contains("Buffer overrun"));
             }
             _ => panic!("Expected EvaluationError"),
         }
@@ -1210,7 +1208,8 @@ fn test_evaluation_context_recursion_depth_limit() {
 
     match result.unwrap_err() {
         LibmagicError::EvaluationError(msg) => {
-            assert!(msg.contains("Maximum recursion depth exceeded"));
+            let error_string = format!("{msg}");
+            assert!(error_string.contains("Recursion limit exceeded"));
         }
         _ => panic!("Expected EvaluationError"),
     }
@@ -1808,7 +1807,8 @@ fn test_evaluate_rules_recursion_depth_limit() {
 
     match result.unwrap_err() {
         LibmagicError::EvaluationError(msg) => {
-            assert!(msg.contains("Maximum recursion depth exceeded"));
+            let error_string = format!("{msg}");
+            assert!(error_string.contains("Recursion limit exceeded"));
         }
         _ => panic!("Expected EvaluationError for recursion limit"),
     }
@@ -1886,7 +1886,8 @@ fn test_evaluate_rules_empty_buffer() {
 
     match result.unwrap_err() {
         LibmagicError::EvaluationError(msg) => {
-            assert!(msg.contains("Buffer overrun"));
+            let error_string = format!("{msg}");
+            assert!(error_string.contains("Buffer overrun"));
         }
         _ => panic!("Expected EvaluationError for empty buffer"),
     }
