@@ -6,6 +6,9 @@
 use crate::parser::ast::MagicRule;
 use crate::{EvaluationConfig, LibmagicError};
 
+#[cfg(test)]
+use crate::parser::ast::{Endianness, OffsetSpec, Operator, TypeKind, Value};
+
 pub mod offset;
 pub mod operators;
 pub mod types;
@@ -878,7 +881,7 @@ mod tests {
     }
 
     #[test]
-    fn test_evaluate_single_rule_string_type_unsupported() {
+    fn test_evaluate_single_rule_string_type_supported() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
             typ: TypeKind::String { max_length: None },
@@ -889,1118 +892,1129 @@ mod tests {
             level: 0,
         };
 
-        let buffer = b"test data";
+        // Test matching string
+        let buffer = b"test\x00 data";
         let result = evaluate_single_rule(&rule, buffer);
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        let matches = result.unwrap();
+        assert!(matches); // Should match
 
-        match result.unwrap_err() {
-            LibmagicError::EvaluationError(msg) => {
-                assert!(msg.contains("Unsupported type"));
-                assert!(msg.contains("String"));
-            }
-            _ => panic!("Expected EvaluationError for unsupported type"),
+        // Test non-matching string
+        let rule_no_match = MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::String { max_length: None },
+            op: Operator::Equal,
+            value: Value::String("hello".to_string()),
+            message: "String type".to_string(),
+            children: vec![],
+            level: 0,
+        };
+
+        let result = evaluate_single_rule(&rule_no_match, buffer);
+        assert!(result.is_ok());
+        let matches = result.unwrap();
+        assert!(!matches); // Should not match
+    }
+}
+
+#[test]
+fn test_evaluate_single_rule_cross_type_comparison() {
+    // Test that cross-type comparisons work correctly (should not match)
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Int(42), // Int value vs Uint from byte read
+        message: "Cross-type comparison".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let buffer = &[42]; // Byte value 42
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(!result); // Should not match due to type mismatch (Uint vs Int)
+}
+
+#[test]
+fn test_evaluate_single_rule_bitwise_and_with_shorts() {
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Short {
+            endian: Endianness::Little,
+            signed: false,
+        },
+        op: Operator::BitwiseAnd,
+        value: Value::Uint(0xff00), // Check high byte
+        message: "High byte check".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let buffer = &[0x34, 0x12]; // 0x1234 in little-endian
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(result); // 0x1234 & 0xff00 = 0x1200 (non-zero)
+}
+
+#[test]
+fn test_evaluate_single_rule_bitwise_and_with_longs() {
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Long {
+            endian: Endianness::Big,
+            signed: false,
+        },
+        op: Operator::BitwiseAnd,
+        value: Value::Uint(0xffff_0000), // Check high word
+        message: "High word check".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let buffer = &[0x12, 0x34, 0x56, 0x78]; // 0x12345678 in big-endian
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(result); // 0x12345678 & 0xffff0000 = 0x12340000 (non-zero)
+}
+
+#[test]
+fn test_evaluate_single_rule_comprehensive_elf_check() {
+    // Test a comprehensive ELF magic check
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Long {
+            endian: Endianness::Little,
+            signed: false,
+        },
+        op: Operator::Equal,
+        value: Value::Uint(0x464c_457f), // ELF magic as 32-bit little-endian
+        message: "ELF executable".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 header start
+    let result = evaluate_single_rule(&rule, elf_buffer).unwrap();
+    assert!(result);
+
+    let non_elf_buffer = &[0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]; // ZIP header
+    let result = evaluate_single_rule(&rule, non_elf_buffer).unwrap();
+    assert!(!result);
+}
+
+#[test]
+fn test_evaluate_single_rule_native_endianness() {
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Short {
+            endian: Endianness::Native,
+            signed: false,
+        },
+        op: Operator::NotEqual,
+        value: Value::Uint(0),
+        message: "Non-zero native short".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let buffer = &[0x01, 0x02]; // Non-zero bytes
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(result); // Should be non-zero regardless of endianness
+}
+
+#[test]
+fn test_evaluate_single_rule_all_operators() {
+    let buffer = &[0x42, 0x00, 0xff, 0x80];
+
+    // Test Equal operator
+    let equal_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x42),
+        message: "Equal test".to_string(),
+        children: vec![],
+        level: 0,
+    };
+    assert!(evaluate_single_rule(&equal_rule, buffer).unwrap());
+
+    // Test NotEqual operator
+    let not_equal_rule = MagicRule {
+        offset: OffsetSpec::Absolute(1),
+        typ: TypeKind::Byte,
+        op: Operator::NotEqual,
+        value: Value::Uint(0x42),
+        message: "NotEqual test".to_string(),
+        children: vec![],
+        level: 0,
+    };
+    assert!(evaluate_single_rule(&not_equal_rule, buffer).unwrap()); // 0x00 != 0x42
+
+    // Test BitwiseAnd operator
+    let bitwise_and_rule = MagicRule {
+        offset: OffsetSpec::Absolute(3),
+        typ: TypeKind::Byte,
+        op: Operator::BitwiseAnd,
+        value: Value::Uint(0x80),
+        message: "BitwiseAnd test".to_string(),
+        children: vec![],
+        level: 0,
+    };
+    assert!(evaluate_single_rule(&bitwise_and_rule, buffer).unwrap()); // 0x80 & 0x80 = 0x80
+}
+
+#[test]
+fn test_evaluate_single_rule_edge_case_values() {
+    // Test with maximum values
+    let max_uint_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Long {
+            endian: Endianness::Little,
+            signed: false,
+        },
+        op: Operator::Equal,
+        value: Value::Uint(0xffff_ffff),
+        message: "Max uint32".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let max_buffer = &[0xff, 0xff, 0xff, 0xff];
+    let result = evaluate_single_rule(&max_uint_rule, max_buffer).unwrap();
+    assert!(result);
+
+    // Test with minimum signed value
+    let min_int_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Long {
+            endian: Endianness::Little,
+            signed: true,
+        },
+        op: Operator::Equal,
+        value: Value::Int(-2_147_483_648), // i32::MIN
+        message: "Min int32".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let min_buffer = &[0x00, 0x00, 0x00, 0x80]; // 0x80000000 in little-endian
+    let result = evaluate_single_rule(&min_int_rule, min_buffer).unwrap();
+    assert!(result);
+}
+
+#[test]
+fn test_evaluate_single_rule_various_buffer_sizes() {
+    // Test with single byte buffer
+    let single_byte_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0xaa),
+        message: "Single byte".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let single_buffer = &[0xaa];
+    let result = evaluate_single_rule(&single_byte_rule, single_buffer).unwrap();
+    assert!(result);
+
+    // Test with large buffer
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let large_buffer: Vec<u8> = (0..1024).map(|i| (i % 256) as u8).collect();
+    let large_rule = MagicRule {
+        offset: OffsetSpec::Absolute(1000),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint((1000 % 256) as u64),
+        message: "Large buffer".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let result = evaluate_single_rule(&large_rule, &large_buffer).unwrap();
+    assert!(result);
+}
+
+// Tests for EvaluationContext
+#[test]
+fn test_evaluation_context_new() {
+    let config = EvaluationConfig::default();
+    let context = EvaluationContext::new(config.clone());
+
+    assert_eq!(context.current_offset(), 0);
+    assert_eq!(context.recursion_depth(), 0);
+    assert_eq!(
+        context.config().max_recursion_depth,
+        config.max_recursion_depth
+    );
+    assert_eq!(context.config().max_string_length, config.max_string_length);
+    assert_eq!(
+        context.config().stop_at_first_match,
+        config.stop_at_first_match
+    );
+}
+
+#[test]
+fn test_evaluation_context_offset_management() {
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    // Test initial offset
+    assert_eq!(context.current_offset(), 0);
+
+    // Test setting offset
+    context.set_current_offset(42);
+    assert_eq!(context.current_offset(), 42);
+
+    // Test setting different offset
+    context.set_current_offset(1024);
+    assert_eq!(context.current_offset(), 1024);
+
+    // Test setting offset to 0
+    context.set_current_offset(0);
+    assert_eq!(context.current_offset(), 0);
+}
+
+#[test]
+fn test_evaluation_context_recursion_depth_management() {
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    // Test initial recursion depth
+    assert_eq!(context.recursion_depth(), 0);
+
+    // Test incrementing recursion depth
+    context.increment_recursion_depth().unwrap();
+    assert_eq!(context.recursion_depth(), 1);
+
+    context.increment_recursion_depth().unwrap();
+    assert_eq!(context.recursion_depth(), 2);
+
+    // Test decrementing recursion depth
+    context.decrement_recursion_depth();
+    assert_eq!(context.recursion_depth(), 1);
+
+    context.decrement_recursion_depth();
+    assert_eq!(context.recursion_depth(), 0);
+}
+
+#[test]
+fn test_evaluation_context_recursion_depth_limit() {
+    let config = EvaluationConfig {
+        max_recursion_depth: 2,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    // Should be able to increment up to the limit
+    assert!(context.increment_recursion_depth().is_ok());
+    assert_eq!(context.recursion_depth(), 1);
+
+    assert!(context.increment_recursion_depth().is_ok());
+    assert_eq!(context.recursion_depth(), 2);
+
+    // Should fail when exceeding the limit
+    let result = context.increment_recursion_depth();
+    assert!(result.is_err());
+    assert_eq!(context.recursion_depth(), 2); // Should not have changed
+
+    match result.unwrap_err() {
+        LibmagicError::EvaluationError(msg) => {
+            assert!(msg.contains("Maximum recursion depth exceeded"));
         }
+        _ => panic!("Expected EvaluationError"),
+    }
+}
+
+#[test]
+#[should_panic(expected = "Attempted to decrement recursion depth below 0")]
+fn test_evaluation_context_recursion_depth_underflow() {
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    // Should panic when trying to decrement below 0
+    context.decrement_recursion_depth();
+}
+
+#[test]
+fn test_evaluation_context_config_access() {
+    let config = EvaluationConfig {
+        max_recursion_depth: 10,
+        max_string_length: 4096,
+        stop_at_first_match: false,
+        enable_mime_types: true,
+        timeout_ms: Some(2000),
+    };
+
+    let context = EvaluationContext::new(config);
+
+    // Test config access
+    assert_eq!(context.config().max_recursion_depth, 10);
+    assert_eq!(context.config().max_string_length, 4096);
+    assert!(!context.config().stop_at_first_match);
+
+    // Test convenience methods
+    assert!(!context.should_stop_at_first_match());
+    assert_eq!(context.max_string_length(), 4096);
+}
+
+#[test]
+fn test_evaluation_context_reset() {
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config.clone());
+
+    // Modify the context state
+    context.set_current_offset(100);
+    context.increment_recursion_depth().unwrap();
+    context.increment_recursion_depth().unwrap();
+
+    assert_eq!(context.current_offset(), 100);
+    assert_eq!(context.recursion_depth(), 2);
+
+    // Reset should restore initial state but keep config
+    context.reset();
+
+    assert_eq!(context.current_offset(), 0);
+    assert_eq!(context.recursion_depth(), 0);
+    assert_eq!(
+        context.config().max_recursion_depth,
+        config.max_recursion_depth
+    );
+}
+
+#[test]
+fn test_evaluation_context_clone() {
+    let config = EvaluationConfig {
+        max_recursion_depth: 5,
+        max_string_length: 2048,
+        ..Default::default()
+    };
+
+    let mut context = EvaluationContext::new(config);
+    context.set_current_offset(50);
+    context.increment_recursion_depth().unwrap();
+
+    // Clone the context
+    let cloned_context = context.clone();
+
+    // Both should have the same state
+    assert_eq!(context.current_offset(), cloned_context.current_offset());
+    assert_eq!(context.recursion_depth(), cloned_context.recursion_depth());
+    assert_eq!(
+        context.config().max_recursion_depth,
+        cloned_context.config().max_recursion_depth
+    );
+    assert_eq!(
+        context.config().max_string_length,
+        cloned_context.config().max_string_length
+    );
+
+    // Modifying one should not affect the other
+    context.set_current_offset(75);
+    assert_eq!(context.current_offset(), 75);
+    assert_eq!(cloned_context.current_offset(), 50);
+}
+
+#[test]
+fn test_evaluation_context_with_custom_config() {
+    let config = EvaluationConfig {
+        max_recursion_depth: 15,
+        max_string_length: 16384,
+        stop_at_first_match: false,
+        enable_mime_types: true,
+        timeout_ms: Some(5000),
+    };
+
+    let context = EvaluationContext::new(config);
+
+    assert_eq!(context.config().max_recursion_depth, 15);
+    assert_eq!(context.max_string_length(), 16384);
+    assert!(!context.should_stop_at_first_match());
+
+    // Test that we can increment up to the custom limit
+    let mut mutable_context = context;
+    for i in 1..=15 {
+        assert!(mutable_context.increment_recursion_depth().is_ok());
+        assert_eq!(mutable_context.recursion_depth(), i);
     }
 
-    #[test]
-    fn test_evaluate_single_rule_cross_type_comparison() {
-        // Test that cross-type comparisons work correctly (should not match)
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
+    // Should fail on the 16th increment
+    let result = mutable_context.increment_recursion_depth();
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_evaluation_context_mime_types_access() {
+    let config_with_mime = EvaluationConfig {
+        enable_mime_types: true,
+        ..Default::default()
+    };
+    let context_with_mime = EvaluationContext::new(config_with_mime);
+    assert!(context_with_mime.enable_mime_types());
+
+    let config_without_mime = EvaluationConfig {
+        enable_mime_types: false,
+        ..Default::default()
+    };
+    let context_without_mime = EvaluationContext::new(config_without_mime);
+    assert!(!context_without_mime.enable_mime_types());
+}
+
+#[test]
+fn test_evaluation_context_timeout_access() {
+    let config_with_timeout = EvaluationConfig {
+        timeout_ms: Some(5000),
+        ..Default::default()
+    };
+    let context_with_timeout = EvaluationContext::new(config_with_timeout);
+    assert_eq!(context_with_timeout.timeout_ms(), Some(5000));
+
+    let config_without_timeout = EvaluationConfig {
+        timeout_ms: None,
+        ..Default::default()
+    };
+    let context_without_timeout = EvaluationContext::new(config_without_timeout);
+    assert_eq!(context_without_timeout.timeout_ms(), None);
+}
+
+#[test]
+fn test_evaluation_context_comprehensive_config() {
+    let config = EvaluationConfig {
+        max_recursion_depth: 30,
+        max_string_length: 16384,
+        stop_at_first_match: false,
+        enable_mime_types: true,
+        timeout_ms: Some(10000),
+    };
+    let context = EvaluationContext::new(config);
+
+    assert_eq!(context.config().max_recursion_depth, 30);
+    assert_eq!(context.config().max_string_length, 16384);
+    assert!(!context.should_stop_at_first_match());
+    assert!(context.enable_mime_types());
+    assert_eq!(context.timeout_ms(), Some(10000));
+    assert_eq!(context.max_string_length(), 16384);
+}
+
+#[test]
+fn test_evaluation_context_performance_config() {
+    let config = EvaluationConfig {
+        max_recursion_depth: 5,
+        max_string_length: 512,
+        stop_at_first_match: true,
+        enable_mime_types: false,
+        timeout_ms: Some(1000),
+    };
+    let context = EvaluationContext::new(config);
+
+    assert_eq!(context.config().max_recursion_depth, 5);
+    assert_eq!(context.max_string_length(), 512);
+    assert!(context.should_stop_at_first_match());
+    assert!(!context.enable_mime_types());
+    assert_eq!(context.timeout_ms(), Some(1000));
+}
+
+#[test]
+fn test_match_result_creation() {
+    let match_result = MatchResult {
+        message: "ELF executable".to_string(),
+        offset: 0,
+        level: 0,
+        value: Value::Uint(0x7f),
+    };
+
+    assert_eq!(match_result.message, "ELF executable");
+    assert_eq!(match_result.offset, 0);
+    assert_eq!(match_result.level, 0);
+    assert_eq!(match_result.value, Value::Uint(0x7f));
+}
+
+#[test]
+fn test_match_result_clone() {
+    let original = MatchResult {
+        message: "Test message".to_string(),
+        offset: 42,
+        level: 1,
+        value: Value::String("test".to_string()),
+    };
+
+    let cloned = original.clone();
+    assert_eq!(original, cloned);
+}
+
+#[test]
+fn test_match_result_debug() {
+    let match_result = MatchResult {
+        message: "Debug test".to_string(),
+        offset: 10,
+        level: 2,
+        value: Value::Bytes(vec![0x01, 0x02]),
+    };
+
+    let debug_str = format!("{match_result:?}");
+    assert!(debug_str.contains("MatchResult"));
+    assert!(debug_str.contains("Debug test"));
+    assert!(debug_str.contains("10"));
+    assert!(debug_str.contains('2'));
+}
+
+#[test]
+fn test_evaluate_rules_empty_list() {
+    let rules = vec![];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46];
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+    assert!(matches.is_empty());
+}
+
+#[test]
+fn test_evaluate_rules_single_matching_rule() {
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "ELF magic".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let rules = vec![rule];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46];
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].message, "ELF magic");
+    assert_eq!(matches[0].offset, 0);
+    assert_eq!(matches[0].level, 0);
+    assert_eq!(matches[0].value, Value::Uint(0x7f));
+}
+
+#[test]
+fn test_evaluate_rules_single_non_matching_rule() {
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x50), // ZIP magic, not ELF
+        message: "ZIP magic".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let rules = vec![rule];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF buffer
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+    assert!(matches.is_empty());
+}
+
+#[test]
+fn test_evaluate_rules_multiple_rules_stop_at_first() {
+    let rule1 = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "First match".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let rule2 = MagicRule {
+        offset: OffsetSpec::Absolute(1),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x45),
+        message: "Second match".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let rule_list = vec![rule1, rule2];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46];
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rule_list, buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].message, "First match");
+}
+
+#[test]
+fn test_evaluate_rules_multiple_rules_find_all() {
+    let rule1 = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "First match".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let rule2 = MagicRule {
+        offset: OffsetSpec::Absolute(1),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x45),
+        message: "Second match".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let rule_set = vec![rule1, rule2];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46];
+    let config = EvaluationConfig {
+        stop_at_first_match: false,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rule_set, buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].message, "First match");
+    assert_eq!(matches[1].message, "Second match");
+}
+
+#[test]
+fn test_evaluate_rules_hierarchical_parent_child() {
+    let child_rule = MagicRule {
+        offset: OffsetSpec::Absolute(4),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x02), // ELF class 64-bit
+        message: "64-bit".to_string(),
+        children: vec![],
+        level: 1,
+    };
+
+    let parent_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "ELF".to_string(),
+        children: vec![child_rule],
+        level: 0,
+    };
+
+    let rules = vec![parent_rule];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 header
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].message, "ELF");
+    assert_eq!(matches[0].level, 0);
+    assert_eq!(matches[1].message, "64-bit");
+    assert_eq!(matches[1].level, 1);
+}
+
+#[test]
+fn test_evaluate_rules_hierarchical_parent_no_match() {
+    let child_rule = MagicRule {
+        offset: OffsetSpec::Absolute(4),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x02),
+        message: "64-bit".to_string(),
+        children: vec![],
+        level: 1,
+    };
+
+    let parent_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x50), // ZIP magic, not ELF
+        message: "ZIP".to_string(),
+        children: vec![child_rule],
+        level: 0,
+    };
+
+    let rules = vec![parent_rule];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF buffer
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+    assert!(matches.is_empty()); // Parent doesn't match, so children shouldn't be evaluated
+}
+
+#[test]
+fn test_evaluate_rules_hierarchical_parent_match_child_no_match() {
+    let child_rule = MagicRule {
+        offset: OffsetSpec::Absolute(4),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x01), // ELF class 32-bit, but buffer has 64-bit
+        message: "32-bit".to_string(),
+        children: vec![],
+        level: 1,
+    };
+
+    let parent_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "ELF".to_string(),
+        children: vec![child_rule],
+        level: 0,
+    };
+
+    let rules = vec![parent_rule];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 header
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 1); // Only parent matches
+    assert_eq!(matches[0].message, "ELF");
+    assert_eq!(matches[0].level, 0);
+}
+
+#[test]
+fn test_evaluate_rules_deep_hierarchy() {
+    let grandchild_rule = MagicRule {
+        offset: OffsetSpec::Absolute(5),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x01), // Little endian
+        message: "little-endian".to_string(),
+        children: vec![],
+        level: 2,
+    };
+
+    let child_rule = MagicRule {
+        offset: OffsetSpec::Absolute(4),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x02), // 64-bit
+        message: "64-bit".to_string(),
+        children: vec![grandchild_rule],
+        level: 1,
+    };
+
+    let parent_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "ELF".to_string(),
+        children: vec![child_rule],
+        level: 0,
+    };
+
+    let rules = vec![parent_rule];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 little-endian header
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 3);
+    assert_eq!(matches[0].message, "ELF");
+    assert_eq!(matches[0].level, 0);
+    assert_eq!(matches[1].message, "64-bit");
+    assert_eq!(matches[1].level, 1);
+    assert_eq!(matches[2].message, "little-endian");
+    assert_eq!(matches[2].level, 2);
+}
+
+#[test]
+fn test_evaluate_rules_multiple_children() {
+    let child1 = MagicRule {
+        offset: OffsetSpec::Absolute(4),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x02),
+        message: "64-bit".to_string(),
+        children: vec![],
+        level: 1,
+    };
+
+    let child2 = MagicRule {
+        offset: OffsetSpec::Absolute(5),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x01),
+        message: "little-endian".to_string(),
+        children: vec![],
+        level: 1,
+    };
+
+    let parent_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "ELF".to_string(),
+        children: vec![child1, child2],
+        level: 0,
+    };
+
+    let rules = vec![parent_rule];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01];
+    let config = EvaluationConfig {
+        stop_at_first_match: false, // Find all matches
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 3);
+    assert_eq!(matches[0].message, "ELF");
+    assert_eq!(matches[1].message, "64-bit");
+    assert_eq!(matches[2].message, "little-endian");
+}
+
+#[test]
+fn test_evaluate_rules_recursion_depth_limit() {
+    // Create a deeply nested rule structure that exceeds the limit
+    let mut current_rule = MagicRule {
+        offset: OffsetSpec::Absolute(10),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x00),
+        message: "Deep level".to_string(),
+        children: vec![],
+        level: 10,
+    };
+
+    // Build a chain of nested rules
+    for i in (0u32..10u32).rev() {
+        current_rule = MagicRule {
+            offset: OffsetSpec::Absolute(i64::from(i)),
             typ: TypeKind::Byte,
             op: Operator::Equal,
-            value: Value::Int(42), // Int value vs Uint from byte read
-            message: "Cross-type comparison".to_string(),
-            children: vec![],
-            level: 0,
+            value: Value::Uint(u64::from(i)),
+            message: format!("Level {i}"),
+            children: vec![current_rule],
+            level: i,
         };
-
-        let buffer = &[42]; // Byte value 42
-        let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(!result); // Should not match due to type mismatch (Uint vs Int)
     }
 
-    #[test]
-    fn test_evaluate_single_rule_bitwise_and_with_shorts() {
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Short {
-                endian: Endianness::Little,
-                signed: false,
-            },
-            op: Operator::BitwiseAnd,
-            value: Value::Uint(0xff00), // Check high byte
-            message: "High byte check".to_string(),
-            children: vec![],
-            level: 0,
-        };
+    let rules = vec![current_rule];
+    let buffer = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0]; // Matches all levels
+    let config = EvaluationConfig {
+        max_recursion_depth: 5, // Limit to 5 levels
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
 
-        let buffer = &[0x34, 0x12]; // 0x1234 in little-endian
-        let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result); // 0x1234 & 0xff00 = 0x1200 (non-zero)
-    }
+    let result = evaluate_rules(&rules, buffer, &mut context);
+    assert!(result.is_err());
 
-    #[test]
-    fn test_evaluate_single_rule_bitwise_and_with_longs() {
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Long {
-                endian: Endianness::Big,
-                signed: false,
-            },
-            op: Operator::BitwiseAnd,
-            value: Value::Uint(0xffff_0000), // Check high word
-            message: "High word check".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let buffer = &[0x12, 0x34, 0x56, 0x78]; // 0x12345678 in big-endian
-        let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result); // 0x12345678 & 0xffff0000 = 0x12340000 (non-zero)
-    }
-
-    #[test]
-    fn test_evaluate_single_rule_comprehensive_elf_check() {
-        // Test a comprehensive ELF magic check
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Long {
-                endian: Endianness::Little,
-                signed: false,
-            },
-            op: Operator::Equal,
-            value: Value::Uint(0x464c_457f), // ELF magic as 32-bit little-endian
-            message: "ELF executable".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 header start
-        let result = evaluate_single_rule(&rule, elf_buffer).unwrap();
-        assert!(result);
-
-        let non_elf_buffer = &[0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]; // ZIP header
-        let result = evaluate_single_rule(&rule, non_elf_buffer).unwrap();
-        assert!(!result);
-    }
-
-    #[test]
-    fn test_evaluate_single_rule_native_endianness() {
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Short {
-                endian: Endianness::Native,
-                signed: false,
-            },
-            op: Operator::NotEqual,
-            value: Value::Uint(0),
-            message: "Non-zero native short".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let buffer = &[0x01, 0x02]; // Non-zero bytes
-        let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result); // Should be non-zero regardless of endianness
-    }
-
-    #[test]
-    fn test_evaluate_single_rule_all_operators() {
-        let buffer = &[0x42, 0x00, 0xff, 0x80];
-
-        // Test Equal operator
-        let equal_rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x42),
-            message: "Equal test".to_string(),
-            children: vec![],
-            level: 0,
-        };
-        assert!(evaluate_single_rule(&equal_rule, buffer).unwrap());
-
-        // Test NotEqual operator
-        let not_equal_rule = MagicRule {
-            offset: OffsetSpec::Absolute(1),
-            typ: TypeKind::Byte,
-            op: Operator::NotEqual,
-            value: Value::Uint(0x42),
-            message: "NotEqual test".to_string(),
-            children: vec![],
-            level: 0,
-        };
-        assert!(evaluate_single_rule(&not_equal_rule, buffer).unwrap()); // 0x00 != 0x42
-
-        // Test BitwiseAnd operator
-        let bitwise_and_rule = MagicRule {
-            offset: OffsetSpec::Absolute(3),
-            typ: TypeKind::Byte,
-            op: Operator::BitwiseAnd,
-            value: Value::Uint(0x80),
-            message: "BitwiseAnd test".to_string(),
-            children: vec![],
-            level: 0,
-        };
-        assert!(evaluate_single_rule(&bitwise_and_rule, buffer).unwrap()); // 0x80 & 0x80 = 0x80
-    }
-
-    #[test]
-    fn test_evaluate_single_rule_edge_case_values() {
-        // Test with maximum values
-        let max_uint_rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Long {
-                endian: Endianness::Little,
-                signed: false,
-            },
-            op: Operator::Equal,
-            value: Value::Uint(0xffff_ffff),
-            message: "Max uint32".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let max_buffer = &[0xff, 0xff, 0xff, 0xff];
-        let result = evaluate_single_rule(&max_uint_rule, max_buffer).unwrap();
-        assert!(result);
-
-        // Test with minimum signed value
-        let min_int_rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Long {
-                endian: Endianness::Little,
-                signed: true,
-            },
-            op: Operator::Equal,
-            value: Value::Int(-2_147_483_648), // i32::MIN
-            message: "Min int32".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let min_buffer = &[0x00, 0x00, 0x00, 0x80]; // 0x80000000 in little-endian
-        let result = evaluate_single_rule(&min_int_rule, min_buffer).unwrap();
-        assert!(result);
-    }
-
-    #[test]
-    fn test_evaluate_single_rule_various_buffer_sizes() {
-        // Test with single byte buffer
-        let single_byte_rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0xaa),
-            message: "Single byte".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let single_buffer = &[0xaa];
-        let result = evaluate_single_rule(&single_byte_rule, single_buffer).unwrap();
-        assert!(result);
-
-        // Test with large buffer
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let large_buffer: Vec<u8> = (0..1024).map(|i| (i % 256) as u8).collect();
-        let large_rule = MagicRule {
-            offset: OffsetSpec::Absolute(1000),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint((1000 % 256) as u64),
-            message: "Large buffer".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let result = evaluate_single_rule(&large_rule, &large_buffer).unwrap();
-        assert!(result);
-    }
-
-    // Tests for EvaluationContext
-    #[test]
-    fn test_evaluation_context_new() {
-        let config = EvaluationConfig::default();
-        let context = EvaluationContext::new(config.clone());
-
-        assert_eq!(context.current_offset(), 0);
-        assert_eq!(context.recursion_depth(), 0);
-        assert_eq!(
-            context.config().max_recursion_depth,
-            config.max_recursion_depth
-        );
-        assert_eq!(context.config().max_string_length, config.max_string_length);
-        assert_eq!(
-            context.config().stop_at_first_match,
-            config.stop_at_first_match
-        );
-    }
-
-    #[test]
-    fn test_evaluation_context_offset_management() {
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config);
-
-        // Test initial offset
-        assert_eq!(context.current_offset(), 0);
-
-        // Test setting offset
-        context.set_current_offset(42);
-        assert_eq!(context.current_offset(), 42);
-
-        // Test setting different offset
-        context.set_current_offset(1024);
-        assert_eq!(context.current_offset(), 1024);
-
-        // Test setting offset to 0
-        context.set_current_offset(0);
-        assert_eq!(context.current_offset(), 0);
-    }
-
-    #[test]
-    fn test_evaluation_context_recursion_depth_management() {
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config);
-
-        // Test initial recursion depth
-        assert_eq!(context.recursion_depth(), 0);
-
-        // Test incrementing recursion depth
-        context.increment_recursion_depth().unwrap();
-        assert_eq!(context.recursion_depth(), 1);
-
-        context.increment_recursion_depth().unwrap();
-        assert_eq!(context.recursion_depth(), 2);
-
-        // Test decrementing recursion depth
-        context.decrement_recursion_depth();
-        assert_eq!(context.recursion_depth(), 1);
-
-        context.decrement_recursion_depth();
-        assert_eq!(context.recursion_depth(), 0);
-    }
-
-    #[test]
-    fn test_evaluation_context_recursion_depth_limit() {
-        let config = EvaluationConfig {
-            max_recursion_depth: 2,
-            ..Default::default()
-        };
-        let mut context = EvaluationContext::new(config);
-
-        // Should be able to increment up to the limit
-        assert!(context.increment_recursion_depth().is_ok());
-        assert_eq!(context.recursion_depth(), 1);
-
-        assert!(context.increment_recursion_depth().is_ok());
-        assert_eq!(context.recursion_depth(), 2);
-
-        // Should fail when exceeding the limit
-        let result = context.increment_recursion_depth();
-        assert!(result.is_err());
-        assert_eq!(context.recursion_depth(), 2); // Should not have changed
-
-        match result.unwrap_err() {
-            LibmagicError::EvaluationError(msg) => {
-                assert!(msg.contains("Maximum recursion depth exceeded"));
-            }
-            _ => panic!("Expected EvaluationError"),
+    match result.unwrap_err() {
+        LibmagicError::EvaluationError(msg) => {
+            assert!(msg.contains("Maximum recursion depth exceeded"));
         }
+        _ => panic!("Expected EvaluationError for recursion limit"),
     }
+}
 
-    #[test]
-    #[should_panic(expected = "Attempted to decrement recursion depth below 0")]
-    fn test_evaluation_context_recursion_depth_underflow() {
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config);
+#[test]
+fn test_evaluate_rules_with_config_convenience() {
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "ELF magic".to_string(),
+        children: vec![],
+        level: 0,
+    };
 
-        // Should panic when trying to decrement below 0
-        context.decrement_recursion_depth();
+    let rules = vec![rule];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46];
+    let config = EvaluationConfig::default();
+
+    let matches = evaluate_rules_with_config(&rules, buffer, config).unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].message, "ELF magic");
+}
+
+#[test]
+fn test_evaluate_rules_timeout() {
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "ELF magic".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let rules = vec![rule];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46];
+    let config = EvaluationConfig {
+        timeout_ms: Some(0), // Immediate timeout
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    // Note: This test might be flaky due to timing, but it demonstrates the timeout mechanism
+    let result = evaluate_rules(&rules, buffer, &mut context);
+    // The result could be either success (if evaluation is very fast) or timeout
+    // We just verify that timeout errors are handled correctly when they occur
+    if let Err(LibmagicError::Timeout { timeout_ms }) = result {
+        assert_eq!(timeout_ms, 0);
     }
+}
 
-    #[test]
-    fn test_evaluation_context_config_access() {
-        let config = EvaluationConfig {
-            max_recursion_depth: 10,
-            max_string_length: 4096,
-            stop_at_first_match: false,
-            enable_mime_types: true,
-            timeout_ms: Some(2000),
-        };
+#[test]
+fn test_evaluate_rules_empty_buffer() {
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "Should not match".to_string(),
+        children: vec![],
+        level: 0,
+    };
 
-        let context = EvaluationContext::new(config);
+    let rules = vec![rule];
+    let buffer = &[]; // Empty buffer
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
 
-        // Test config access
-        assert_eq!(context.config().max_recursion_depth, 10);
-        assert_eq!(context.config().max_string_length, 4096);
-        assert!(!context.config().stop_at_first_match);
+    let result = evaluate_rules(&rules, buffer, &mut context);
+    assert!(result.is_err());
 
-        // Test convenience methods
-        assert!(!context.should_stop_at_first_match());
-        assert_eq!(context.max_string_length(), 4096);
-    }
-
-    #[test]
-    fn test_evaluation_context_reset() {
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config.clone());
-
-        // Modify the context state
-        context.set_current_offset(100);
-        context.increment_recursion_depth().unwrap();
-        context.increment_recursion_depth().unwrap();
-
-        assert_eq!(context.current_offset(), 100);
-        assert_eq!(context.recursion_depth(), 2);
-
-        // Reset should restore initial state but keep config
-        context.reset();
-
-        assert_eq!(context.current_offset(), 0);
-        assert_eq!(context.recursion_depth(), 0);
-        assert_eq!(
-            context.config().max_recursion_depth,
-            config.max_recursion_depth
-        );
-    }
-
-    #[test]
-    fn test_evaluation_context_clone() {
-        let config = EvaluationConfig {
-            max_recursion_depth: 5,
-            max_string_length: 2048,
-            ..Default::default()
-        };
-
-        let mut context = EvaluationContext::new(config);
-        context.set_current_offset(50);
-        context.increment_recursion_depth().unwrap();
-
-        // Clone the context
-        let cloned_context = context.clone();
-
-        // Both should have the same state
-        assert_eq!(context.current_offset(), cloned_context.current_offset());
-        assert_eq!(context.recursion_depth(), cloned_context.recursion_depth());
-        assert_eq!(
-            context.config().max_recursion_depth,
-            cloned_context.config().max_recursion_depth
-        );
-        assert_eq!(
-            context.config().max_string_length,
-            cloned_context.config().max_string_length
-        );
-
-        // Modifying one should not affect the other
-        context.set_current_offset(75);
-        assert_eq!(context.current_offset(), 75);
-        assert_eq!(cloned_context.current_offset(), 50);
-    }
-
-    #[test]
-    fn test_evaluation_context_with_custom_config() {
-        let config = EvaluationConfig {
-            max_recursion_depth: 15,
-            max_string_length: 16384,
-            stop_at_first_match: false,
-            enable_mime_types: true,
-            timeout_ms: Some(5000),
-        };
-
-        let context = EvaluationContext::new(config);
-
-        assert_eq!(context.config().max_recursion_depth, 15);
-        assert_eq!(context.max_string_length(), 16384);
-        assert!(!context.should_stop_at_first_match());
-
-        // Test that we can increment up to the custom limit
-        let mut mutable_context = context;
-        for i in 1..=15 {
-            assert!(mutable_context.increment_recursion_depth().is_ok());
-            assert_eq!(mutable_context.recursion_depth(), i);
+    match result.unwrap_err() {
+        LibmagicError::EvaluationError(msg) => {
+            assert!(msg.contains("Buffer overrun"));
         }
-
-        // Should fail on the 16th increment
-        let result = mutable_context.increment_recursion_depth();
-        assert!(result.is_err());
+        _ => panic!("Expected EvaluationError for empty buffer"),
     }
-
-    #[test]
-    fn test_evaluation_context_mime_types_access() {
-        let config_with_mime = EvaluationConfig {
-            enable_mime_types: true,
-            ..Default::default()
-        };
-        let context_with_mime = EvaluationContext::new(config_with_mime);
-        assert!(context_with_mime.enable_mime_types());
-
-        let config_without_mime = EvaluationConfig {
-            enable_mime_types: false,
-            ..Default::default()
-        };
-        let context_without_mime = EvaluationContext::new(config_without_mime);
-        assert!(!context_without_mime.enable_mime_types());
-    }
-
-    #[test]
-    fn test_evaluation_context_timeout_access() {
-        let config_with_timeout = EvaluationConfig {
-            timeout_ms: Some(5000),
-            ..Default::default()
-        };
-        let context_with_timeout = EvaluationContext::new(config_with_timeout);
-        assert_eq!(context_with_timeout.timeout_ms(), Some(5000));
-
-        let config_without_timeout = EvaluationConfig {
-            timeout_ms: None,
-            ..Default::default()
-        };
-        let context_without_timeout = EvaluationContext::new(config_without_timeout);
-        assert_eq!(context_without_timeout.timeout_ms(), None);
-    }
-
-    #[test]
-    fn test_evaluation_context_comprehensive_config() {
-        let config = EvaluationConfig {
-            max_recursion_depth: 30,
-            max_string_length: 16384,
-            stop_at_first_match: false,
-            enable_mime_types: true,
-            timeout_ms: Some(10000),
-        };
-        let context = EvaluationContext::new(config);
-
-        assert_eq!(context.config().max_recursion_depth, 30);
-        assert_eq!(context.config().max_string_length, 16384);
-        assert!(!context.should_stop_at_first_match());
-        assert!(context.enable_mime_types());
-        assert_eq!(context.timeout_ms(), Some(10000));
-        assert_eq!(context.max_string_length(), 16384);
-    }
-
-    #[test]
-    fn test_evaluation_context_performance_config() {
-        let config = EvaluationConfig {
-            max_recursion_depth: 5,
-            max_string_length: 512,
-            stop_at_first_match: true,
-            enable_mime_types: false,
-            timeout_ms: Some(1000),
-        };
-        let context = EvaluationContext::new(config);
-
-        assert_eq!(context.config().max_recursion_depth, 5);
-        assert_eq!(context.max_string_length(), 512);
-        assert!(context.should_stop_at_first_match());
-        assert!(!context.enable_mime_types());
-        assert_eq!(context.timeout_ms(), Some(1000));
-    }
-
-    #[test]
-    fn test_match_result_creation() {
-        let match_result = MatchResult {
-            message: "ELF executable".to_string(),
-            offset: 0,
-            level: 0,
-            value: Value::Uint(0x7f),
-        };
-
-        assert_eq!(match_result.message, "ELF executable");
-        assert_eq!(match_result.offset, 0);
-        assert_eq!(match_result.level, 0);
-        assert_eq!(match_result.value, Value::Uint(0x7f));
-    }
-
-    #[test]
-    fn test_match_result_clone() {
-        let original = MatchResult {
-            message: "Test message".to_string(),
-            offset: 42,
-            level: 1,
-            value: Value::String("test".to_string()),
-        };
-
-        let cloned = original.clone();
-        assert_eq!(original, cloned);
-    }
-
-    #[test]
-    fn test_match_result_debug() {
-        let match_result = MatchResult {
-            message: "Debug test".to_string(),
-            offset: 10,
-            level: 2,
-            value: Value::Bytes(vec![0x01, 0x02]),
-        };
-
-        let debug_str = format!("{match_result:?}");
-        assert!(debug_str.contains("MatchResult"));
-        assert!(debug_str.contains("Debug test"));
-        assert!(debug_str.contains("10"));
-        assert!(debug_str.contains('2'));
-    }
-
-    #[test]
-    fn test_evaluate_rules_empty_list() {
-        let rules = vec![];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config);
-
-        let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
-        assert!(matches.is_empty());
-    }
-
-    #[test]
-    fn test_evaluate_rules_single_matching_rule() {
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x7f),
-            message: "ELF magic".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let rules = vec![rule];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config);
-
-        let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].message, "ELF magic");
-        assert_eq!(matches[0].offset, 0);
-        assert_eq!(matches[0].level, 0);
-        assert_eq!(matches[0].value, Value::Uint(0x7f));
-    }
-
-    #[test]
-    fn test_evaluate_rules_single_non_matching_rule() {
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x50), // ZIP magic, not ELF
-            message: "ZIP magic".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let rules = vec![rule];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF buffer
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config);
-
-        let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
-        assert!(matches.is_empty());
-    }
-
-    #[test]
-    fn test_evaluate_rules_multiple_rules_stop_at_first() {
-        let rule1 = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x7f),
-            message: "First match".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let rule2 = MagicRule {
-            offset: OffsetSpec::Absolute(1),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x45),
-            message: "Second match".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let rule_list = vec![rule1, rule2];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-        let config = EvaluationConfig {
-            stop_at_first_match: true,
-            ..Default::default()
-        };
-        let mut context = EvaluationContext::new(config);
-
-        let matches = evaluate_rules(&rule_list, buffer, &mut context).unwrap();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].message, "First match");
-    }
-
-    #[test]
-    fn test_evaluate_rules_multiple_rules_find_all() {
-        let rule1 = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x7f),
-            message: "First match".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let rule2 = MagicRule {
-            offset: OffsetSpec::Absolute(1),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x45),
-            message: "Second match".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let rule_set = vec![rule1, rule2];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-        let config = EvaluationConfig {
-            stop_at_first_match: false,
-            ..Default::default()
-        };
-        let mut context = EvaluationContext::new(config);
-
-        let matches = evaluate_rules(&rule_set, buffer, &mut context).unwrap();
-        assert_eq!(matches.len(), 2);
-        assert_eq!(matches[0].message, "First match");
-        assert_eq!(matches[1].message, "Second match");
-    }
-
-    #[test]
-    fn test_evaluate_rules_hierarchical_parent_child() {
-        let child_rule = MagicRule {
-            offset: OffsetSpec::Absolute(4),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x02), // ELF class 64-bit
-            message: "64-bit".to_string(),
-            children: vec![],
-            level: 1,
-        };
-
-        let parent_rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x7f),
-            message: "ELF".to_string(),
-            children: vec![child_rule],
-            level: 0,
-        };
-
-        let rules = vec![parent_rule];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 header
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config);
-
-        let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
-        assert_eq!(matches.len(), 2);
-        assert_eq!(matches[0].message, "ELF");
-        assert_eq!(matches[0].level, 0);
-        assert_eq!(matches[1].message, "64-bit");
-        assert_eq!(matches[1].level, 1);
-    }
-
-    #[test]
-    fn test_evaluate_rules_hierarchical_parent_no_match() {
-        let child_rule = MagicRule {
-            offset: OffsetSpec::Absolute(4),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x02),
-            message: "64-bit".to_string(),
-            children: vec![],
-            level: 1,
-        };
-
-        let parent_rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x50), // ZIP magic, not ELF
-            message: "ZIP".to_string(),
-            children: vec![child_rule],
-            level: 0,
-        };
-
-        let rules = vec![parent_rule];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF buffer
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config);
-
-        let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
-        assert!(matches.is_empty()); // Parent doesn't match, so children shouldn't be evaluated
-    }
-
-    #[test]
-    fn test_evaluate_rules_hierarchical_parent_match_child_no_match() {
-        let child_rule = MagicRule {
-            offset: OffsetSpec::Absolute(4),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x01), // ELF class 32-bit, but buffer has 64-bit
-            message: "32-bit".to_string(),
-            children: vec![],
-            level: 1,
-        };
-
-        let parent_rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x7f),
-            message: "ELF".to_string(),
-            children: vec![child_rule],
-            level: 0,
-        };
-
-        let rules = vec![parent_rule];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 header
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config);
-
-        let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
-        assert_eq!(matches.len(), 1); // Only parent matches
-        assert_eq!(matches[0].message, "ELF");
-        assert_eq!(matches[0].level, 0);
-    }
-
-    #[test]
-    fn test_evaluate_rules_deep_hierarchy() {
-        let grandchild_rule = MagicRule {
-            offset: OffsetSpec::Absolute(5),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x01), // Little endian
-            message: "little-endian".to_string(),
-            children: vec![],
-            level: 2,
-        };
-
-        let child_rule = MagicRule {
-            offset: OffsetSpec::Absolute(4),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x02), // 64-bit
-            message: "64-bit".to_string(),
-            children: vec![grandchild_rule],
-            level: 1,
-        };
-
-        let parent_rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x7f),
-            message: "ELF".to_string(),
-            children: vec![child_rule],
-            level: 0,
-        };
-
-        let rules = vec![parent_rule];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 little-endian header
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config);
-
-        let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
-        assert_eq!(matches.len(), 3);
-        assert_eq!(matches[0].message, "ELF");
-        assert_eq!(matches[0].level, 0);
-        assert_eq!(matches[1].message, "64-bit");
-        assert_eq!(matches[1].level, 1);
-        assert_eq!(matches[2].message, "little-endian");
-        assert_eq!(matches[2].level, 2);
-    }
-
-    #[test]
-    fn test_evaluate_rules_multiple_children() {
-        let child1 = MagicRule {
-            offset: OffsetSpec::Absolute(4),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x02),
-            message: "64-bit".to_string(),
-            children: vec![],
-            level: 1,
-        };
-
-        let child2 = MagicRule {
-            offset: OffsetSpec::Absolute(5),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x01),
-            message: "little-endian".to_string(),
-            children: vec![],
-            level: 1,
-        };
-
-        let parent_rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x7f),
-            message: "ELF".to_string(),
-            children: vec![child1, child2],
-            level: 0,
-        };
-
-        let rules = vec![parent_rule];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01];
-        let config = EvaluationConfig {
-            stop_at_first_match: false, // Find all matches
-            ..Default::default()
-        };
-        let mut context = EvaluationContext::new(config);
-
-        let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
-        assert_eq!(matches.len(), 3);
-        assert_eq!(matches[0].message, "ELF");
-        assert_eq!(matches[1].message, "64-bit");
-        assert_eq!(matches[2].message, "little-endian");
-    }
-
-    #[test]
-    fn test_evaluate_rules_recursion_depth_limit() {
-        // Create a deeply nested rule structure that exceeds the limit
-        let mut current_rule = MagicRule {
-            offset: OffsetSpec::Absolute(10),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x00),
-            message: "Deep level".to_string(),
-            children: vec![],
-            level: 10,
-        };
-
-        // Build a chain of nested rules
-        for i in (0u32..10u32).rev() {
-            current_rule = MagicRule {
-                offset: OffsetSpec::Absolute(i64::from(i)),
-                typ: TypeKind::Byte,
-                op: Operator::Equal,
-                value: Value::Uint(u64::from(i)),
-                message: format!("Level {i}"),
-                children: vec![current_rule],
-                level: i,
-            };
-        }
-
-        let rules = vec![current_rule];
-        let buffer = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0]; // Matches all levels
-        let config = EvaluationConfig {
-            max_recursion_depth: 5, // Limit to 5 levels
-            ..Default::default()
-        };
-        let mut context = EvaluationContext::new(config);
-
-        let result = evaluate_rules(&rules, buffer, &mut context);
-        assert!(result.is_err());
-
-        match result.unwrap_err() {
-            LibmagicError::EvaluationError(msg) => {
-                assert!(msg.contains("Maximum recursion depth exceeded"));
-            }
-            _ => panic!("Expected EvaluationError for recursion limit"),
-        }
-    }
-
-    #[test]
-    fn test_evaluate_rules_with_config_convenience() {
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x7f),
-            message: "ELF magic".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let rules = vec![rule];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-        let config = EvaluationConfig::default();
-
-        let matches = evaluate_rules_with_config(&rules, buffer, config).unwrap();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].message, "ELF magic");
-    }
-
-    #[test]
-    fn test_evaluate_rules_timeout() {
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x7f),
-            message: "ELF magic".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let rules = vec![rule];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-        let config = EvaluationConfig {
-            timeout_ms: Some(0), // Immediate timeout
-            ..Default::default()
-        };
-        let mut context = EvaluationContext::new(config);
-
-        // Note: This test might be flaky due to timing, but it demonstrates the timeout mechanism
-        let result = evaluate_rules(&rules, buffer, &mut context);
-        // The result could be either success (if evaluation is very fast) or timeout
-        // We just verify that timeout errors are handled correctly when they occur
-        if let Err(LibmagicError::Timeout { timeout_ms }) = result {
-            assert_eq!(timeout_ms, 0);
-        }
-    }
-
-    #[test]
-    fn test_evaluate_rules_empty_buffer() {
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x7f),
-            message: "Should not match".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let rules = vec![rule];
-        let buffer = &[]; // Empty buffer
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config);
-
-        let result = evaluate_rules(&rules, buffer, &mut context);
-        assert!(result.is_err());
-
-        match result.unwrap_err() {
-            LibmagicError::EvaluationError(msg) => {
-                assert!(msg.contains("Buffer overrun"));
-            }
-            _ => panic!("Expected EvaluationError for empty buffer"),
-        }
-    }
-
-    #[test]
-    fn test_evaluate_rules_mixed_matching_non_matching() {
-        let rule1 = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x7f),
-            message: "Matches".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let rule2 = MagicRule {
-            offset: OffsetSpec::Absolute(1),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x99), // Doesn't match
-            message: "Doesn't match".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let rule3 = MagicRule {
-            offset: OffsetSpec::Absolute(2),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x4c),
-            message: "Also matches".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let rule_collection = vec![rule1, rule2, rule3];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-        let config = EvaluationConfig {
-            stop_at_first_match: false,
-            ..Default::default()
-        };
-        let mut context = EvaluationContext::new(config);
-
-        let matches = evaluate_rules(&rule_collection, buffer, &mut context).unwrap();
-        assert_eq!(matches.len(), 2);
-        assert_eq!(matches[0].message, "Matches");
-        assert_eq!(matches[1].message, "Also matches");
-    }
-
-    #[test]
-    fn test_evaluate_rules_context_state_preservation() {
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
-            op: Operator::Equal,
-            value: Value::Uint(0x7f),
-            message: "ELF magic".to_string(),
-            children: vec![],
-            level: 0,
-        };
-
-        let rules = vec![rule];
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config);
-
-        // Set some initial state
-        context.set_current_offset(100);
-        let initial_offset = context.current_offset();
-        let initial_depth = context.recursion_depth();
-
-        let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
-        assert_eq!(matches.len(), 1);
-
-        // Context state should be preserved
-        assert_eq!(context.current_offset(), initial_offset);
-        assert_eq!(context.recursion_depth(), initial_depth);
-    }
-
-    #[test]
-    fn test_evaluation_context_state_management_sequence() {
-        let config = EvaluationConfig::default();
-        let mut context = EvaluationContext::new(config);
-
-        // Simulate a sequence of evaluation operations
-        assert_eq!(context.current_offset(), 0);
-        assert_eq!(context.recursion_depth(), 0);
-
-        // Start evaluation at offset 10
-        context.set_current_offset(10);
-        assert_eq!(context.current_offset(), 10);
-
-        // Enter nested rule evaluation
-        context.increment_recursion_depth().unwrap();
-        assert_eq!(context.recursion_depth(), 1);
-
-        // Move to different offset during nested evaluation
-        context.set_current_offset(25);
-        assert_eq!(context.current_offset(), 25);
-
-        // Enter deeper nesting
-        context.increment_recursion_depth().unwrap();
-        assert_eq!(context.recursion_depth(), 2);
-
-        // Exit nested evaluation
-        context.decrement_recursion_depth();
-        assert_eq!(context.recursion_depth(), 1);
-
-        // Continue evaluation at different offset
-        context.set_current_offset(50);
-        assert_eq!(context.current_offset(), 50);
-
-        // Exit all nesting
-        context.decrement_recursion_depth();
-        assert_eq!(context.recursion_depth(), 0);
-
-        // Final state check
-        assert_eq!(context.current_offset(), 50);
-        assert_eq!(context.recursion_depth(), 0);
-    }
+}
+
+#[test]
+fn test_evaluate_rules_mixed_matching_non_matching() {
+    let rule1 = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "Matches".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let rule2 = MagicRule {
+        offset: OffsetSpec::Absolute(1),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x99), // Doesn't match
+        message: "Doesn't match".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let rule3 = MagicRule {
+        offset: OffsetSpec::Absolute(2),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x4c),
+        message: "Also matches".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let rule_collection = vec![rule1, rule2, rule3];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46];
+    let config = EvaluationConfig {
+        stop_at_first_match: false,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rule_collection, buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].message, "Matches");
+    assert_eq!(matches[1].message, "Also matches");
+}
+
+#[test]
+fn test_evaluate_rules_context_state_preservation() {
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "ELF magic".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let rules = vec![rule];
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46];
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    // Set some initial state
+    context.set_current_offset(100);
+    let initial_offset = context.current_offset();
+    let initial_depth = context.recursion_depth();
+
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 1);
+
+    // Context state should be preserved
+    assert_eq!(context.current_offset(), initial_offset);
+    assert_eq!(context.recursion_depth(), initial_depth);
+}
+
+#[test]
+fn test_evaluation_context_state_management_sequence() {
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    // Simulate a sequence of evaluation operations
+    assert_eq!(context.current_offset(), 0);
+    assert_eq!(context.recursion_depth(), 0);
+
+    // Start evaluation at offset 10
+    context.set_current_offset(10);
+    assert_eq!(context.current_offset(), 10);
+
+    // Enter nested rule evaluation
+    context.increment_recursion_depth().unwrap();
+    assert_eq!(context.recursion_depth(), 1);
+
+    // Move to different offset during nested evaluation
+    context.set_current_offset(25);
+    assert_eq!(context.current_offset(), 25);
+
+    // Enter deeper nesting
+    context.increment_recursion_depth().unwrap();
+    assert_eq!(context.recursion_depth(), 2);
+
+    // Exit nested evaluation
+    context.decrement_recursion_depth();
+    assert_eq!(context.recursion_depth(), 1);
+
+    // Continue evaluation at different offset
+    context.set_current_offset(50);
+    assert_eq!(context.current_offset(), 50);
+
+    // Exit all nesting
+    context.decrement_recursion_depth();
+    assert_eq!(context.recursion_depth(), 0);
+
+    // Final state check
+    assert_eq!(context.current_offset(), 50);
+    assert_eq!(context.recursion_depth(), 0);
 }

@@ -298,13 +298,13 @@
 
 - [ ] 12. Add basic string type to AST
 
-- [ ] 12.1 Add basic string type to AST
+- [x] 12.1 Add basic string type to AST
 
   - Extend TypeKind enum in ast.rs to include String variant with max_length field
   - Update serialization and unit tests for new String type variant
   - _Requirements: 1.3_
 
-- [ ] 12.2 Implement string reading in evaluator
+- [x] 12.2 Implement string reading in evaluator
 
   - Add read_string function to evaluator/types.rs for null-terminated string reading
   - Implement safe string extraction with length limits and bounds checking
