@@ -327,7 +327,7 @@
   - Write unit tests for error type creation and Display formatting
   - _Requirements: 1.6, 2.6, 6.5_
 
-- [ ] 13.2 Add evaluation error types
+- [x] 13.2 Add evaluation error types
 
   - Create EvaluationError enum in error.rs for runtime evaluation errors
   - Add variants for BufferOverrun, InvalidOffset, and UnsupportedType
