@@ -140,9 +140,21 @@ pub fn resolve_absolute_offset(offset: i64, buffer: &[u8]) -> Result<usize, Offs
 /// * `LibmagicError::EvaluationError` - If offset resolution fails
 pub fn resolve_offset(spec: &OffsetSpec, buffer: &[u8]) -> Result<usize, LibmagicError> {
     match spec {
-        OffsetSpec::Absolute(offset) => resolve_absolute_offset(*offset, buffer).map_err(|_e| {
-            LibmagicError::EvaluationError(crate::error::EvaluationError::buffer_overrun(0))
-        }),
+        OffsetSpec::Absolute(offset) => {
+            resolve_absolute_offset(*offset, buffer).map_err(|e| match e {
+                OffsetError::BufferOverrun {
+                    offset,
+                    buffer_len: _,
+                } => LibmagicError::EvaluationError(crate::error::EvaluationError::BufferOverrun {
+                    offset,
+                }),
+                OffsetError::InvalidOffset { reason: _ } | OffsetError::ArithmeticOverflow => {
+                    LibmagicError::EvaluationError(crate::error::EvaluationError::InvalidOffset {
+                        offset: *offset,
+                    })
+                }
+            })
+        }
         OffsetSpec::Indirect { .. } => {
             // TODO: Implement indirect offset resolution in task 15.2
             Err(LibmagicError::EvaluationError(
@@ -161,8 +173,18 @@ pub fn resolve_offset(spec: &OffsetSpec, buffer: &[u8]) -> Result<usize, Libmagi
         }
         OffsetSpec::FromEnd(offset) => {
             // FromEnd is handled the same as negative Absolute offsets
-            resolve_absolute_offset(*offset, buffer).map_err(|_e| {
-                LibmagicError::EvaluationError(crate::error::EvaluationError::buffer_overrun(0))
+            resolve_absolute_offset(*offset, buffer).map_err(|e| match e {
+                OffsetError::BufferOverrun {
+                    offset,
+                    buffer_len: _,
+                } => LibmagicError::EvaluationError(crate::error::EvaluationError::BufferOverrun {
+                    offset,
+                }),
+                OffsetError::InvalidOffset { reason: _ } | OffsetError::ArithmeticOverflow => {
+                    LibmagicError::EvaluationError(crate::error::EvaluationError::InvalidOffset {
+                        offset: *offset,
+                    })
+                }
             })
         }
     }

@@ -269,17 +269,20 @@ pub fn evaluate_single_rule(rule: &MagicRule, buffer: &[u8]) -> Result<bool, Lib
 
 /// Evaluate a list of magic rules against a file buffer with hierarchical processing
 ///
-/// This function implements the core hierarchical rule evaluation algorithm:
+/// This function implements the core hierarchical rule evaluation algorithm with graceful
+/// error handling:
 /// 1. Evaluates each top-level rule in sequence
 /// 2. If a parent rule matches, evaluates its child rules for refinement
 /// 3. Collects all matches or stops at first match based on configuration
 /// 4. Maintains evaluation context for recursion limits and state
+/// 5. Implements graceful degradation by skipping problematic rules and continuing evaluation
 ///
 /// The hierarchical evaluation follows these principles:
 /// - Parent rules must match before children are evaluated
 /// - Child rules provide refinement and additional detail
 /// - Evaluation can stop at first match or continue for all matches
 /// - Recursion depth is limited to prevent infinite loops
+/// - Problematic rules are skipped to allow evaluation to continue
 ///
 /// # Arguments
 ///
@@ -289,8 +292,9 @@ pub fn evaluate_single_rule(rule: &MagicRule, buffer: &[u8]) -> Result<bool, Lib
 ///
 /// # Returns
 ///
-/// Returns `Ok(Vec<MatchResult>)` containing all matches found, or `Err(LibmagicError)`
-/// if evaluation fails due to buffer access issues, recursion limits, or other errors.
+/// Returns `Ok(Vec<MatchResult>)` containing all matches found. Errors in individual rules
+/// are logged and skipped to allow evaluation to continue. Only returns `Err(LibmagicError)`
+/// for critical failures like timeout or recursion limit exceeded.
 ///
 /// # Examples
 ///
@@ -331,9 +335,10 @@ pub fn evaluate_single_rule(rule: &MagicRule, buffer: &[u8]) -> Result<bool, Lib
 ///
 /// # Errors
 ///
-/// * `LibmagicError::EvaluationError` - If rule evaluation fails, recursion limit exceeded,
-///   or buffer access issues occur
 /// * `LibmagicError::Timeout` - If evaluation exceeds configured timeout
+/// * `LibmagicError::EvaluationError` - Only for critical failures like recursion limit exceeded
+///
+/// Individual rule evaluation errors are handled gracefully and do not stop the overall evaluation.
 pub fn evaluate_rules(
     rules: &[MagicRule],
     buffer: &[u8],
@@ -350,14 +355,42 @@ pub fn evaluate_rules(
             }
         }
 
-        // Evaluate the current rule with enhanced error context
-        let rule_matches = evaluate_single_rule(rule, buffer)?;
+        // Evaluate the current rule with graceful error handling
+        let rule_matches = match evaluate_single_rule(rule, buffer) {
+            Ok(matches) => matches,
+            Err(e) => {
+                // Log the error and continue with next rule (graceful degradation)
+                eprintln!(
+                    "Warning: Skipping rule '{}' due to error: {}",
+                    rule.message, e
+                );
+                continue;
+            }
+        };
 
         if rule_matches {
-            // Create match result for this rule
-            let absolute_offset = offset::resolve_offset(&rule.offset, buffer)?;
-            let read_value = types::read_typed_value(buffer, absolute_offset, &rule.typ)
-                .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
+            // Create match result for this rule with graceful error handling
+            let absolute_offset = match offset::resolve_offset(&rule.offset, buffer) {
+                Ok(offset) => offset,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: Skipping rule '{}' due to offset resolution error: {}",
+                        rule.message, e
+                    );
+                    continue;
+                }
+            };
+
+            let read_value = match types::read_typed_value(buffer, absolute_offset, &rule.typ) {
+                Ok(value) => value,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: Skipping rule '{}' due to type reading error: {}",
+                        rule.message, e
+                    );
+                    continue;
+                }
+            };
 
             let match_result = MatchResult {
                 message: rule.message.clone(),
@@ -369,12 +402,40 @@ pub fn evaluate_rules(
 
             // If this rule has children, evaluate them recursively
             if !rule.children.is_empty() {
-                // Check recursion depth limit
+                // Check recursion depth limit - this is a critical error that should stop evaluation
                 context.increment_recursion_depth()?;
 
-                // Recursively evaluate child rules
-                let child_matches = evaluate_rules(&rule.children, buffer, context)?;
-                matches.extend(child_matches);
+                // Recursively evaluate child rules with graceful error handling
+                match evaluate_rules(&rule.children, buffer, context) {
+                    Ok(child_matches) => {
+                        matches.extend(child_matches);
+                    }
+                    Err(LibmagicError::Timeout { .. }) => {
+                        // Timeout is critical, propagate it up
+                        context.decrement_recursion_depth();
+                        return Err(LibmagicError::Timeout {
+                            timeout_ms: context.timeout_ms().unwrap_or(0),
+                        });
+                    }
+                    Err(LibmagicError::EvaluationError(
+                        crate::error::EvaluationError::RecursionLimitExceeded { .. },
+                    )) => {
+                        // Recursion limit is critical, propagate it up
+                        context.decrement_recursion_depth();
+                        return Err(LibmagicError::EvaluationError(
+                            crate::error::EvaluationError::RecursionLimitExceeded {
+                                depth: context.recursion_depth(),
+                            },
+                        ));
+                    }
+                    Err(e) => {
+                        // Other errors in child evaluation are logged but don't stop parent evaluation
+                        eprintln!(
+                            "Warning: Error evaluating children of rule '{}': {}",
+                            rule.message, e
+                        );
+                    }
+                }
 
                 // Restore recursion depth
                 context.decrement_recursion_depth();
@@ -1881,16 +1942,12 @@ fn test_evaluate_rules_empty_buffer() {
     let config = EvaluationConfig::default();
     let mut context = EvaluationContext::new(config);
 
+    // With graceful error handling, this should succeed but return no matches
     let result = evaluate_rules(&rules, buffer, &mut context);
-    assert!(result.is_err());
+    assert!(result.is_ok());
 
-    match result.unwrap_err() {
-        LibmagicError::EvaluationError(msg) => {
-            let error_string = format!("{msg}");
-            assert!(error_string.contains("Buffer overrun"));
-        }
-        _ => panic!("Expected EvaluationError for empty buffer"),
-    }
+    let matches = result.unwrap();
+    assert_eq!(matches.len(), 0); // No matches due to buffer overrun being handled gracefully
 }
 
 #[test]
@@ -2009,4 +2066,412 @@ fn test_evaluation_context_state_management_sequence() {
     // Final state check
     assert_eq!(context.current_offset(), 50);
     assert_eq!(context.recursion_depth(), 0);
+}
+#[test]
+fn test_error_recovery_skip_problematic_rules() {
+    // Test that evaluation continues when individual rules fail
+    let rules = vec![
+        // Valid rule that should match
+        MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Byte,
+            op: Operator::Equal,
+            value: Value::Uint(0x7f),
+            message: "Valid rule".to_string(),
+            children: vec![],
+            level: 0,
+        },
+        // Invalid rule with out-of-bounds offset
+        MagicRule {
+            offset: OffsetSpec::Absolute(100), // Beyond buffer
+            typ: TypeKind::Byte,
+            op: Operator::Equal,
+            value: Value::Uint(0x00),
+            message: "Invalid rule".to_string(),
+            children: vec![],
+            level: 0,
+        },
+        // Another valid rule that should match
+        MagicRule {
+            offset: OffsetSpec::Absolute(1),
+            typ: TypeKind::Byte,
+            op: Operator::Equal,
+            value: Value::Uint(0x45),
+            message: "Another valid rule".to_string(),
+            children: vec![],
+            level: 0,
+        },
+    ];
+
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
+    let config = EvaluationConfig {
+        max_recursion_depth: 20,
+        max_string_length: 8192,
+        stop_at_first_match: false, // Don't stop at first match
+        enable_mime_types: false,
+        timeout_ms: None,
+    };
+    let mut context = EvaluationContext::new(config);
+
+    // Evaluation should succeed despite the problematic rule
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+
+    // Should have 2 matches (skipping the problematic one)
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].message, "Valid rule");
+    assert_eq!(matches[1].message, "Another valid rule");
+}
+
+#[test]
+fn test_error_recovery_child_rule_failures() {
+    // Test that parent evaluation continues when child rules fail
+    let rules = vec![MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "Parent rule".to_string(),
+        children: vec![
+            // Valid child rule
+            MagicRule {
+                offset: OffsetSpec::Absolute(1),
+                typ: TypeKind::Byte,
+                op: Operator::Equal,
+                value: Value::Uint(0x45),
+                message: "Valid child".to_string(),
+                children: vec![],
+                level: 1,
+            },
+            // Invalid child rule
+            MagicRule {
+                offset: OffsetSpec::Absolute(100), // Beyond buffer
+                typ: TypeKind::Byte,
+                op: Operator::Equal,
+                value: Value::Uint(0x00),
+                message: "Invalid child".to_string(),
+                children: vec![],
+                level: 1,
+            },
+        ],
+        level: 0,
+    }];
+
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    // Evaluation should succeed with parent and valid child
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+
+    // Should have parent match and valid child match
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].message, "Parent rule");
+    assert_eq!(matches[1].message, "Valid child");
+}
+
+#[test]
+fn test_error_recovery_mixed_rule_types() {
+    // Test error recovery with different types of rule failures
+    let rules = vec![
+        // Valid byte rule
+        MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Byte,
+            op: Operator::Equal,
+            value: Value::Uint(0x7f),
+            message: "Valid byte".to_string(),
+            children: vec![],
+            level: 0,
+        },
+        // Invalid short rule (insufficient bytes)
+        MagicRule {
+            offset: OffsetSpec::Absolute(3), // Only 1 byte left for short
+            typ: TypeKind::Short {
+                endian: Endianness::Little,
+                signed: false,
+            },
+            op: Operator::Equal,
+            value: Value::Uint(0x1234),
+            message: "Invalid short".to_string(),
+            children: vec![],
+            level: 0,
+        },
+        // Valid string rule
+        MagicRule {
+            offset: OffsetSpec::Absolute(1),
+            typ: TypeKind::String {
+                max_length: Some(3),
+            },
+            op: Operator::Equal,
+            value: Value::String("ELF".to_string()),
+            message: "Valid string".to_string(),
+            children: vec![],
+            level: 0,
+        },
+    ];
+
+    let buffer = &[0x7f, b'E', b'L', b'F']; // ELF magic bytes
+    let config = EvaluationConfig {
+        max_recursion_depth: 20,
+        max_string_length: 8192,
+        stop_at_first_match: false, // Don't stop at first match
+        enable_mime_types: false,
+        timeout_ms: None,
+    };
+    let mut context = EvaluationContext::new(config);
+
+    // Evaluation should succeed with valid rules
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+
+    // Should have 2 matches (byte and string, skipping invalid short)
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].message, "Valid byte");
+    assert_eq!(matches[1].message, "Valid string");
+}
+
+#[test]
+fn test_error_recovery_all_rules_fail() {
+    // Test behavior when all rules fail
+    let rules = vec![
+        // Out of bounds offset
+        MagicRule {
+            offset: OffsetSpec::Absolute(100),
+            typ: TypeKind::Byte,
+            op: Operator::Equal,
+            value: Value::Uint(0x00),
+            message: "Out of bounds".to_string(),
+            children: vec![],
+            level: 0,
+        },
+        // Insufficient bytes for type
+        MagicRule {
+            offset: OffsetSpec::Absolute(2),
+            typ: TypeKind::Long {
+                endian: Endianness::Little,
+                signed: false,
+            },
+            op: Operator::Equal,
+            value: Value::Uint(0x1234_5678),
+            message: "Insufficient bytes".to_string(),
+            children: vec![],
+            level: 0,
+        },
+    ];
+
+    let buffer = &[0x7f, 0x45]; // Short buffer
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    // Evaluation should succeed but return no matches
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 0);
+}
+
+#[test]
+fn test_error_recovery_timeout_propagation() {
+    // Test that timeout errors are properly propagated (not gracefully handled)
+    let rules = vec![MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "Test rule".to_string(),
+        children: vec![],
+        level: 0,
+    }];
+
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46];
+    let config = EvaluationConfig {
+        max_recursion_depth: 10,
+        max_string_length: 1024,
+        stop_at_first_match: false,
+        enable_mime_types: false,
+        timeout_ms: Some(0), // Immediate timeout
+    };
+    let mut context = EvaluationContext::new(config);
+
+    // The timeout test is inherently flaky due to timing, so we'll just test
+    // that the timeout configuration is properly set and the function doesn't panic
+    let result = evaluate_rules(&rules, buffer, &mut context);
+
+    // The result should either be success (if evaluation was fast) or timeout error
+    match result {
+        Ok(_) | Err(LibmagicError::Timeout { .. }) => {
+            // Evaluation was fast enough or timeout occurred, both are acceptable
+        }
+        Err(e) => {
+            panic!("Unexpected error type: {e:?}");
+        }
+    }
+}
+
+#[test]
+fn test_error_recovery_recursion_limit_propagation() {
+    // Test that recursion limit errors are properly propagated
+    let rules = vec![MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x7f),
+        message: "Parent".to_string(),
+        children: vec![MagicRule {
+            offset: OffsetSpec::Absolute(1),
+            typ: TypeKind::Byte,
+            op: Operator::Equal,
+            value: Value::Uint(0x45),
+            message: "Child".to_string(),
+            children: vec![],
+            level: 1,
+        }],
+        level: 0,
+    }];
+
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46];
+    let config = EvaluationConfig {
+        max_recursion_depth: 0, // No recursion allowed
+        max_string_length: 1024,
+        stop_at_first_match: false,
+        enable_mime_types: false,
+        timeout_ms: None,
+    };
+    let mut context = EvaluationContext::new(config);
+
+    // Should return recursion limit error when trying to evaluate children
+    let result = evaluate_rules(&rules, buffer, &mut context);
+    assert!(result.is_err());
+
+    match result.unwrap_err() {
+        LibmagicError::EvaluationError(crate::error::EvaluationError::RecursionLimitExceeded {
+            ..
+        }) => {
+            // Expected recursion limit error
+        }
+        _ => panic!("Expected recursion limit error"),
+    }
+}
+
+#[test]
+fn test_error_recovery_preserves_context_state() {
+    // Test that context state is preserved despite rule failures
+    let rules = vec![
+        // Valid rule
+        MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Byte,
+            op: Operator::Equal,
+            value: Value::Uint(0x7f),
+            message: "Valid rule".to_string(),
+            children: vec![],
+            level: 0,
+        },
+        // Invalid rule
+        MagicRule {
+            offset: OffsetSpec::Absolute(100),
+            typ: TypeKind::Byte,
+            op: Operator::Equal,
+            value: Value::Uint(0x00),
+            message: "Invalid rule".to_string(),
+            children: vec![],
+            level: 0,
+        },
+    ];
+
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46];
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    // Set initial context state
+    context.set_current_offset(42);
+    let initial_offset = context.current_offset();
+    let initial_depth = context.recursion_depth();
+
+    // Evaluation should succeed
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 1);
+
+    // Context state should be preserved
+    assert_eq!(context.current_offset(), initial_offset);
+    assert_eq!(context.recursion_depth(), initial_depth);
+}
+#[test]
+fn test_debug_error_recovery() {
+    // Simple test to debug error recovery
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(100), // Beyond buffer
+        typ: TypeKind::Byte,
+        op: Operator::Equal,
+        value: Value::Uint(0x00),
+        message: "Out of bounds rule".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    let buffer = &[0x7f, 0x45]; // Short buffer
+
+    // Test single rule evaluation - should fail
+    let single_result = evaluate_single_rule(&rule, buffer);
+    println!("Single rule result: {single_result:?}");
+    assert!(single_result.is_err());
+
+    // Test rules evaluation - should succeed with no matches
+    let rules = vec![rule];
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+    println!("Rules evaluation matches: {}", matches.len());
+    assert_eq!(matches.len(), 0);
+}
+#[test]
+fn test_debug_mixed_rules() {
+    let rules = vec![
+        // Valid rule that should match
+        MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Byte,
+            op: Operator::Equal,
+            value: Value::Uint(0x7f),
+            message: "Valid rule".to_string(),
+            children: vec![],
+            level: 0,
+        },
+        // Invalid rule with out-of-bounds offset
+        MagicRule {
+            offset: OffsetSpec::Absolute(100), // Beyond buffer
+            typ: TypeKind::Byte,
+            op: Operator::Equal,
+            value: Value::Uint(0x00),
+            message: "Invalid rule".to_string(),
+            children: vec![],
+            level: 0,
+        },
+        // Another valid rule that should match
+        MagicRule {
+            offset: OffsetSpec::Absolute(1),
+            typ: TypeKind::Byte,
+            op: Operator::Equal,
+            value: Value::Uint(0x45),
+            message: "Another valid rule".to_string(),
+            children: vec![],
+            level: 0,
+        },
+    ];
+
+    let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
+
+    // Test each rule individually
+    for (i, rule) in rules.iter().enumerate() {
+        let result = evaluate_single_rule(rule, buffer);
+        println!("Rule {}: '{}' -> {:?}", i, rule.message, result);
+    }
+
+    // Test rules evaluation
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+    println!("Total matches: {}", matches.len());
+    for (i, m) in matches.iter().enumerate() {
+        println!("Match {}: '{}'", i, m.message);
+    }
 }

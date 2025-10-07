@@ -318,7 +318,7 @@
   - Write unit tests for string type interpretation with various encodings
   - _Requirements: 1.3, 2.2_
 
-- [ ] 13. Create basic error types
+- [x] 13. Create basic error types
 
 - [x] 13.1 Create basic error types
 
@@ -334,7 +334,7 @@
   - Write unit tests for evaluation error scenarios and error messages
   - _Requirements: 2.6, 3.5_
 
-- [ ] 13.3 Integrate error handling in evaluator
+- [x] 13.3 Integrate error handling in evaluator
 
   - Update evaluator functions to return Result types with proper error handling
   - Implement graceful degradation to skip problematic rules and continue evaluation
