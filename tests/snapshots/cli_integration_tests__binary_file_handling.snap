@@ -1,5 +1,5 @@
 ---
 source: tests/cli_integration_tests.rs
-expression: output
+expression: normalized_output
 ---
-test_files/binary.bin: data
+<BINARY_FILE_PATH>: data

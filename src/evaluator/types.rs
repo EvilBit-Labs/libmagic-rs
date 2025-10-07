@@ -224,7 +224,10 @@ pub fn read_long(
 ///
 /// * `buffer` - The byte buffer to read from
 /// * `offset` - The offset position to start reading the string from
-/// * `max_length` - Optional maximum length limit for the string (not including null terminator)
+/// * `max_length` - Optional maximum number of bytes to read excluding the null terminator.
+///   If a NUL is found within `max_length` bytes, it is not counted in the result length.
+///   If no NUL is found, up to `max_length` bytes are returned with no trailing NUL.
+///   When `None`, reads until the first NUL or end of buffer.
 ///
 /// # Returns
 ///
@@ -259,6 +262,16 @@ pub fn read_long(
 /// let buffer = b"NoNull";
 /// let result = read_string(buffer, 0, Some(6)).unwrap();
 /// assert_eq!(result, Value::String("NoNull".to_string()));
+///
+/// // NUL found within max_length (NUL not counted in result)
+/// let buffer = b"Hello\x00World";
+/// let result = read_string(buffer, 0, Some(10)).unwrap();
+/// assert_eq!(result, Value::String("Hello".to_string()));
+///
+/// // No NUL found, returns exactly max_length bytes
+/// let buffer = b"ABCDEF";
+/// let result = read_string(buffer, 0, Some(4)).unwrap();
+/// assert_eq!(result, Value::String("ABCD".to_string()));
 /// ```
 ///
 /// # Errors

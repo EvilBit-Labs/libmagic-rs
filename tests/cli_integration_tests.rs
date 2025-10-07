@@ -7,10 +7,13 @@
 //! - Error handling and edge cases
 
 use insta::assert_snapshot;
+use regex::Regex;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::str;
+use tempfile::NamedTempFile;
 
 /// Helper function to run the CLI with given arguments
 fn run_cli(args: &[&str]) -> Result<std::process::Output, std::io::Error> {
@@ -32,29 +35,88 @@ fn run_cli_stderr(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
     Ok(filter_build_noise(&stderr))
 }
 
+/// Configuration for build noise filtering
+struct BuildNoiseFilter {
+    patterns: Vec<Regex>,
+}
+
+impl BuildNoiseFilter {
+    fn new() -> Self {
+        // Configurable filter patterns for build noise
+        let pattern_strings = vec![
+            // Cargo build messages
+            "Blocking waiting for file lock",
+            "Finished `dev` profile",
+            "Running `target[\\/]debug[\\/]rmagic", // Cross-platform path handling
+            "warning: error finalizing incremental compilation",
+            "warning: `libmagic-rs` \\(lib\\) generated",
+            // Additional common cargo output patterns
+            "Compiling libmagic-rs",
+            "Finished dev \\[unoptimized \\+ debuginfo\\] target",
+            // Process execution patterns (cross-platform)
+            "Running `target[\\/]debug[\\/]rmagic\\.exe`", // Windows
+            "Running `target[\\/]debug[\\/]rmagic`",       // Unix-like
+            // Additional patterns that may appear in cargo output
+            "Compiling .* v[0-9]+\\.[0-9]+\\.[0-9]+",
+            "Finished .* target\\(s\\) in [0-9]+\\.[0-9]+s",
+            "Running `.*`",
+        ];
+
+        let patterns = pattern_strings
+            .into_iter()
+            .map(|pattern| Regex::new(pattern).expect("Invalid regex pattern"))
+            .collect();
+
+        Self { patterns }
+    }
+
+    /// Add a new filter pattern at runtime
+    fn add_pattern(&mut self, pattern: &str) -> Result<(), regex::Error> {
+        let regex = Regex::new(pattern)?;
+        self.patterns.push(regex);
+        Ok(())
+    }
+
+    /// Remove a pattern by index (useful for testing)
+    fn remove_pattern(&mut self, index: usize) {
+        if index < self.patterns.len() {
+            self.patterns.remove(index);
+        }
+    }
+
+    fn filter(&self, stderr: &str) -> String {
+        stderr
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim();
+                // Skip empty lines
+                if trimmed.is_empty() {
+                    return false;
+                }
+
+                // Check against all patterns
+                !self.patterns.iter().any(|pattern| pattern.is_match(line))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string()
+    }
+}
+
 /// Filter out build noise from stderr for cleaner snapshots
 fn filter_build_noise(stderr: &str) -> String {
-    stderr
-        .lines()
-        .filter(|line| {
-            !line.contains("Blocking waiting for file lock")
-                && !line.contains("Finished `dev` profile")
-                && !line.contains("Running `target\\debug\\rmagic.exe")
-                && !line.contains("warning: error finalizing incremental compilation")
-                && !line.contains("warning: `libmagic-rs` (lib) generated")
-                && !line.trim().is_empty() // Remove empty lines that might be left after filtering
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim() // Remove leading/trailing whitespace
-        .to_string()
+    let filter = BuildNoiseFilter::new();
+    filter.filter(stderr)
 }
 
 /// Helper function to create a temporary test file with given content
-fn create_test_file(name: &str, content: &[u8]) -> Result<String, std::io::Error> {
-    let path = format!("test_files/{}", name);
-    fs::write(&path, content)?;
-    Ok(path)
+/// Returns a NamedTempFile that will be automatically cleaned up when dropped
+fn create_test_file(content: &[u8]) -> Result<NamedTempFile, std::io::Error> {
+    let mut temp_file = NamedTempFile::new()?;
+    temp_file.write_all(content)?;
+    temp_file.flush()?;
+    Ok(temp_file)
 }
 
 #[test]
@@ -108,23 +170,24 @@ fn test_cli_custom_magic_file() {
 0	string	HELLO	Hello file format
 "#;
 
-    let magic_file_path = create_test_file("custom.magic", custom_magic_content.as_bytes())
+    // Create temporary magic file
+    let magic_temp_file = create_test_file(custom_magic_content.as_bytes())
         .expect("Failed to create custom magic file");
+    let magic_file_path = magic_temp_file.path().to_str().unwrap();
 
     // Create a test file that matches our custom magic
-    let test_file_path =
-        create_test_file("test_custom.bin", b"TEST data here").expect("Failed to create test file");
+    let test_temp_file = create_test_file(b"TEST data here").expect("Failed to create test file");
+    let test_file_path = test_temp_file.path().to_str().unwrap();
 
     // Test with custom magic file
-    let result = run_cli_stdout(&[&test_file_path, "--magic-file", &magic_file_path]);
+    let result = run_cli_stdout(&[test_file_path, "--magic-file", magic_file_path]);
     assert!(result.is_ok());
 
     let output = result.unwrap();
-    assert_snapshot!("custom_magic_file", output);
-
-    // Clean up
-    let _ = fs::remove_file(&magic_file_path);
-    let _ = fs::remove_file(&test_file_path);
+    let normalized_output = output
+        .replace(magic_file_path, "<MAGIC_FILE_PATH>")
+        .replace(test_file_path, "<TEST_FILE_PATH>");
+    assert_snapshot!("custom_magic_file", normalized_output);
 }
 
 #[test]
@@ -248,10 +311,10 @@ fn test_cli_file_path_handling() {
 #[test]
 fn test_cli_empty_file() {
     // Create an empty test file
-    let empty_file_path =
-        create_test_file("empty.bin", &[]).expect("Failed to create empty test file");
+    let empty_temp_file = create_test_file(&[]).expect("Failed to create empty test file");
+    let empty_file_path = empty_temp_file.path().to_str().unwrap();
 
-    let result = run_cli(&[&empty_file_path]);
+    let result = run_cli(&[empty_file_path]);
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -261,46 +324,42 @@ fn test_cli_empty_file() {
         assert_snapshot!("empty_file_success", stdout);
     } else {
         // Empty file error is acceptable
-        let stderr = run_cli_stderr(&[&empty_file_path]).unwrap();
-        assert_snapshot!("empty_file_error", stderr);
+        let stderr = run_cli_stderr(&[empty_file_path]).unwrap();
+        let normalized_stderr = stderr.replace(empty_file_path, "<EMPTY_FILE_PATH>");
+        assert_snapshot!("empty_file_error", normalized_stderr);
     }
-
-    // Clean up
-    let _ = fs::remove_file(&empty_file_path);
 }
 
 #[test]
 fn test_cli_large_file_handling() {
     // Create a larger test file (1KB)
     let large_content = vec![0x41; 1024]; // 1KB of 'A' characters
-    let large_file_path =
-        create_test_file("large.bin", &large_content).expect("Failed to create large test file");
+    let large_temp_file =
+        create_test_file(&large_content).expect("Failed to create large test file");
+    let large_file_path = large_temp_file.path().to_str().unwrap();
 
-    let result = run_cli_stdout(&[&large_file_path]);
+    let result = run_cli_stdout(&[large_file_path]);
     assert!(result.is_ok());
 
     let output = result.unwrap();
-    assert_snapshot!("large_file_handling", output);
-
-    // Clean up
-    let _ = fs::remove_file(&large_file_path);
+    let normalized_output = output.replace(large_file_path, "<LARGE_FILE_PATH>");
+    assert_snapshot!("large_file_handling", normalized_output);
 }
 
 #[test]
 fn test_cli_binary_file_handling() {
     // Create a binary file with various byte values
     let binary_content = (0..=255u8).collect::<Vec<u8>>();
-    let binary_file_path =
-        create_test_file("binary.bin", &binary_content).expect("Failed to create binary test file");
+    let binary_temp_file =
+        create_test_file(&binary_content).expect("Failed to create binary test file");
+    let binary_file_path = binary_temp_file.path().to_str().unwrap();
 
-    let result = run_cli_stdout(&[&binary_file_path]);
+    let result = run_cli_stdout(&[binary_file_path]);
     assert!(result.is_ok());
 
     let output = result.unwrap();
-    assert_snapshot!("binary_file_handling", output);
-
-    // Clean up
-    let _ = fs::remove_file(&binary_file_path);
+    let normalized_output = output.replace(binary_file_path, "<BINARY_FILE_PATH>");
+    assert_snapshot!("binary_file_handling", normalized_output);
 }
 
 #[test]
@@ -413,21 +472,42 @@ fn test_cli_platform_specific_magic_paths() {
 #[test]
 fn test_cli_ci_environment_detection() {
     // Test CI environment detection for magic file fallback
-    // Set CI environment variable temporarily
-    unsafe {
-        std::env::set_var("CI", "true");
-    }
+    temp_env::with_var("CI", Some("true"), || {
+        let result = run_cli_stdout(&["test_files/sample.bin"]);
+        assert!(result.is_ok());
 
-    let result = run_cli_stdout(&["test_files/sample.bin"]);
-    assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("test_files/sample.bin"));
+    });
+}
 
-    let output = result.unwrap();
-    assert!(output.contains("test_files/sample.bin"));
+#[test]
+fn test_build_noise_filter() {
+    // Test the build noise filter functionality
+    let mut filter = BuildNoiseFilter::new();
 
-    // Clean up environment variable
-    unsafe {
-        std::env::remove_var("CI");
-    }
+    // Test with typical cargo output
+    let test_stderr = r#"Blocking waiting for file lock on build directory
+Compiling libmagic-rs v0.1.0
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s
+Running `target\debug\rmagic.exe --help`
+Error: File not found"#;
+
+    let filtered = filter.filter(test_stderr);
+    assert_eq!(filtered, "Error: File not found");
+
+    // Test adding a custom pattern
+    filter.add_pattern("Custom pattern").unwrap();
+    let test_with_custom = "Custom pattern\nError: File not found";
+    let filtered_custom = filter.filter(test_with_custom);
+    assert_eq!(filtered_custom, "Error: File not found");
+
+    // Test removing a pattern
+    filter.remove_pattern(0); // Remove first pattern
+    let test_after_removal = "Blocking waiting for file lock\nError: File not found";
+    let filtered_after_removal = filter.filter(test_after_removal);
+    // Should still contain the "Blocking" line since we removed that pattern
+    assert!(filtered_after_removal.contains("Blocking waiting for file lock"));
 }
 
 #[test]
@@ -515,17 +595,15 @@ fn test_cli_file_processing_with_different_extensions() {
     ];
 
     for (filename, content) in test_cases {
-        let file_path = create_test_file(filename, content).expect("Failed to create test file");
+        let temp_file = create_test_file(content).expect("Failed to create test file");
+        let file_path = temp_file.path().to_str().unwrap();
 
-        let result = run_cli_stdout(&[&file_path]);
+        let result = run_cli_stdout(&[file_path]);
         assert!(result.is_ok(), "Failed to process {}", filename);
 
         let output = result.unwrap();
-        assert!(output.contains(&file_path));
+        assert!(output.contains(file_path));
         assert!(output.contains("data"));
-
-        // Clean up
-        let _ = fs::remove_file(&file_path);
     }
 }
 

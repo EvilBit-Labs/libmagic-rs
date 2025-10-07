@@ -15,9 +15,12 @@ use libmagic_rs::MagicDatabase;
 struct TestResult {
     test_file: PathBuf,
     status: TestStatus,
+    #[allow(dead_code)]
     expected_output: String,
+    #[allow(dead_code)]
     actual_output: String,
     error: Option<String>,
+    errors: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,6 +77,8 @@ impl CompatibilityTestRunner {
             }
         }
 
+        // Sort by input file path to ensure deterministic test execution
+        test_files.sort_unstable_by_key(|(input_path, _)| input_path.clone());
         test_files
     }
 
@@ -95,8 +100,10 @@ impl CompatibilityTestRunner {
         let full_output = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
         // Extract just the description part (after the colon)
-        if let Some(colon_pos) = full_output.find(':') {
-            Ok(full_output[colon_pos + 1..].trim().to_string())
+        // Expected format: "filename: description" - split at first colon only
+        // Fallback: return full output if no colon is present
+        if let Some((_filename, description)) = full_output.split_once(':') {
+            Ok(description.trim().to_string())
         } else {
             Ok(full_output)
         }
@@ -123,6 +130,7 @@ impl CompatibilityTestRunner {
                     expected_output: String::new(),
                     actual_output: String::new(),
                     error: Some(format!("Failed to read result file: {}", e)),
+                    errors: vec![],
                 };
             }
         };
@@ -136,26 +144,34 @@ impl CompatibilityTestRunner {
                     expected_output,
                     actual_output: String::new(),
                     error: Some(format!("rmagic failed: {}", e)),
+                    errors: vec![],
                 };
             }
         };
 
-        // Assert that the outputs match - this will cause the test to fail immediately
-        assert_eq!(
-            self.normalize_output(&expected_output),
-            self.normalize_output(&actual_output),
-            "Test failed for {}:\nExpected: {}\nActual: {}",
-            test_file.display(),
-            expected_output,
-            actual_output
-        );
+        // Compare normalized outputs and record failures instead of panicking
+        let normalized_expected = self.normalize_output(&expected_output);
+        let normalized_actual = self.normalize_output(&actual_output);
+
+        let (status, errors) = if normalized_expected == normalized_actual {
+            (TestStatus::Pass, vec![])
+        } else {
+            let error_message = format!(
+                "Test failed for {}:\nExpected: {}\nActual: {}",
+                test_file.display(),
+                expected_output,
+                actual_output
+            );
+            (TestStatus::Fail, vec![error_message])
+        };
 
         TestResult {
             test_file,
-            status: TestStatus::Pass,
+            status,
             expected_output,
             actual_output,
             error: None,
+            errors,
         }
     }
 
@@ -209,13 +225,11 @@ fn find_rmagic_binary() -> Result<PathBuf, Box<dyn std::error::Error>> {
         "target/debug/rmagic.exe",
     ];
 
-    for candidate in &candidates {
-        if Path::new(candidate).exists() {
-            return Ok(PathBuf::from(candidate));
-        }
-    }
-
-    Err("rmagic binary not found. Please build the project first.".into())
+    candidates
+        .iter()
+        .find(|c| Path::new(c).exists())
+        .map(PathBuf::from)
+        .ok_or_else(|| "rmagic binary not found. Please build the project first.".into())
 }
 
 /// Test that downloads and runs compatibility tests
@@ -249,8 +263,9 @@ fn test_compatibility_with_original_libmagic() {
         println!("\n=== FAILED TESTS ===");
         for result in failed_tests {
             println!("FAIL {}", result.test_file.display());
-            println!("   Expected: {}", result.expected_output);
-            println!("   Actual:   {}", result.actual_output);
+            for error in &result.errors {
+                println!("   {}", error);
+            }
             println!();
         }
     }
