@@ -15,6 +15,8 @@ use std::process::Command;
 use std::str;
 use tempfile::NamedTempFile;
 
+mod common;
+
 /// Helper function to run the CLI with given arguments
 fn run_cli(args: &[&str]) -> Result<std::process::Output, std::io::Error> {
     let mut cmd = Command::new("cargo");
@@ -159,7 +161,8 @@ fn test_cli_nonexistent_file() {
     assert!(!output.status.success());
 
     let stderr = run_cli_stderr(&["nonexistent_file.bin"]).unwrap();
-    assert_snapshot!("nonexistent_file_error", stderr);
+    let normalized_stderr = common::normalize_cli_output(&stderr);
+    assert_snapshot!("nonexistent_file_error", normalized_stderr);
 }
 
 #[test]
@@ -214,7 +217,8 @@ fn test_cli_conflicting_output_formats() {
     assert!(!output.status.success());
 
     let stderr = run_cli_stderr(&["test_files/sample.bin", "--json", "--text"]).unwrap();
-    assert_snapshot!("conflicting_output_formats", stderr);
+    let normalized_stderr = common::normalize_cli_output(&stderr);
+    assert_snapshot!("conflicting_output_formats", normalized_stderr);
 }
 
 #[test]
@@ -227,7 +231,8 @@ fn test_cli_missing_file_argument() {
     assert!(!output.status.success());
 
     let stderr = run_cli_stderr(&["--json"]).unwrap();
-    assert_snapshot!("missing_file_argument", stderr);
+    let normalized_stderr = common::normalize_cli_output(&stderr);
+    assert_snapshot!("missing_file_argument", normalized_stderr);
 }
 
 #[test]
@@ -238,7 +243,8 @@ fn test_cli_help_output() {
 
     let output = result.unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_snapshot!("help_output", stdout);
+    let normalized_stdout = common::normalize_cli_output(&stdout);
+    assert_snapshot!("help_output", normalized_stdout);
 }
 
 #[test]
@@ -326,6 +332,7 @@ fn test_cli_empty_file() {
         // Empty file error is acceptable
         let stderr = run_cli_stderr(&[empty_file_path]).unwrap();
         let normalized_stderr = stderr.replace(empty_file_path, "<EMPTY_FILE_PATH>");
+        let normalized_stderr = common::normalize_cli_output(&normalized_stderr);
         assert_snapshot!("empty_file_error", normalized_stderr);
     }
 }

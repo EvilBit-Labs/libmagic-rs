@@ -3,6 +3,5 @@ source: tests/cli_integration_tests.rs
 expression: normalized_stderr
 ---
 Error: File access failed
-Failed to access file: File '\\?\<EMPTY_FILE_PATH>' is empty
+Failed to access file: File '<EMPTY_FILE_PATH>' is empty
 Please check the file path and permissions.
-error: process didn't exit successfully: `target\debug\rmagic.exe <EMPTY_FILE_PATH>` (exit code: 3)

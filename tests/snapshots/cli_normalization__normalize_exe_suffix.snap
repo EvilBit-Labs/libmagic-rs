@@ -1,0 +1,8 @@
+---
+source: tests/cli_normalization.rs
+expression: normalized
+---
+Usage: rmagic [OPTIONS] <FILE>
+
+Arguments:
+  <FILE>  File to analyze

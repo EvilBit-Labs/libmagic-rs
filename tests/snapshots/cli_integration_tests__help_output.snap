@@ -4,7 +4,7 @@ expression: stdout
 ---
 A pure-Rust implementation of libmagic for file type identification
 
-Usage: rmagic.exe [OPTIONS] <FILE>
+Usage: rmagic [OPTIONS] <FILE>
 
 Arguments:
   <FILE>  File to analyze

@@ -452,6 +452,61 @@ cargo flamegraph --bench parser_bench
 valgrind --tool=massif target/release/rmagic large_file.bin
 ```
 
+## CLI Testing and Cross-Platform Snapshots
+
+### CLI Integration Tests
+
+CLI functionality is tested using integration tests with insta snapshots to ensure consistent output across different platforms.
+
+### Cross-Platform Normalization
+
+**Important**: CLI insta snapshots must use the normalization helper to ensure consistent results between Windows and Unix systems:
+
+```rust
+mod common;
+
+#[test]
+fn test_cli_help_output() {
+    let result = run_cli(&["--help"]);
+    let stdout = String::from_utf8(result.stdout).unwrap();
+
+    // REQUIRED: Use normalization for CLI snapshots
+    let normalized_stdout = common::normalize_cli_output(&stdout);
+    assert_snapshot!("help_output", normalized_stdout);
+}
+```
+
+### Normalization Features
+
+The `common::normalize_cli_output()` function handles:
+
+- **Executable Names**: Converts `rmagic.exe` → `rmagic` for Windows compatibility
+- **Path Prefixes**: Removes Windows `\\?\\` path prefixes
+- **Error Messages**: Filters out cargo-specific error output
+
+### Running CLI Tests
+
+```bash
+# Run all CLI integration tests
+cargo test --test cli_integration_tests
+
+# Run CLI normalization tests
+cargo test --test cli_normalization
+
+# Review snapshot changes
+cargo insta review
+
+# Accept all snapshot changes (use with caution)
+cargo insta accept
+```
+
+### Snapshot Best Practices
+
+1. **Always Normalize**: Use `normalize_cli_output()` for CLI snapshots
+2. **Review Changes**: Always review snapshot diffs with `cargo insta review`
+3. **Test Cross-Platform**: Verify tests pass on both Windows and Unix
+4. **Keep Snapshots Small**: Use focused tests for specific CLI features
+
 ## Future Testing Plans
 
 ### Integration Testing
