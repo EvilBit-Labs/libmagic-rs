@@ -287,12 +287,38 @@ deny:
 # =============================================================================
 
 # Generate coverage report
+[unix]
 coverage:
-    cargo llvm-cov --workspace --lcov --output-path lcov.info
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Clean any existing coverage artifacts
+    rm -rf target/llvm-cov-target
+    # Generate coverage with proper environment setup
+    RUSTFLAGS="--cfg coverage" cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+[windows]
+coverage:
+    # Clean any existing coverage artifacts
+    Remove-Item -Recurse -Force target/llvm-cov-target -ErrorAction SilentlyContinue
+    # Generate coverage with proper environment setup
+    $env:RUSTFLAGS = "--cfg coverage"; cargo llvm-cov --workspace --lcov --output-path lcov.info
 
 # Check coverage thresholds
+[unix]
 coverage-check:
-    cargo llvm-cov --workspace --lcov --output-path lcov.info --fail-under-lines 9.7
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Clean any existing coverage artifacts
+    rm -rf target/llvm-cov-target
+    # Generate coverage with threshold check and proper environment setup
+    RUSTFLAGS="--cfg coverage" cargo llvm-cov --workspace --lcov --output-path lcov.info --fail-under-lines 9.7
+
+[windows]
+coverage-check:
+    # Clean any existing coverage artifacts
+    Remove-Item -Recurse -Force target/llvm-cov-target -ErrorAction SilentlyContinue
+    # Generate coverage with threshold check and proper environment setup
+    $env:RUSTFLAGS = "--cfg coverage"; cargo llvm-cov --workspace --lcov --output-path lcov.info --fail-under-lines 9.7
 
 # Full local CI parity check
 ci-check: pre-commit-run fmt-check lint-rust lint-rust-min test-ci build-release audit coverage-check dist-plan
