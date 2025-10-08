@@ -272,9 +272,9 @@
   - Write unit tests for CLI error handling and exit code behavior
   - _Requirements: 5.5, 6.5_
 
-- [ ] 11. Create JSON match result structure
+- [x] 11. Create JSON match result structure
 
-- [ ] 11.1 Create JSON match result structure
+- [x] 11.1 Create JSON match result structure
 
   - Create src/output/json.rs with JsonMatchResult struct following original spec
   - Add fields for text, offset, value, tags, and score
@@ -282,133 +282,164 @@
   - Write unit tests for JSON match result serialization
   - _Requirements: 4.2_
 
-- [ ] 11.2 Implement JSON output formatting
+- [x] 11.2 Implement JSON output formatting
 
   - Add format_json_output function to json.rs for converting match results to JSON
   - Implement matches array structure with proper field mapping
   - Write unit tests for JSON output format validation and structure
   - _Requirements: 4.2, 1.1_
 
-- [ ] 11.3 Add JSON output integration
+- [x] 11.3 Add JSON output integration
 
   - Integrate JSON formatter into CLI output routing in main.rs
   - Add --json flag handling with appropriate output selection
   - Write integration tests for JSON output through CLI interface
   - _Requirements: 5.2, 4.2_
 
-- [ ] 12. Add basic string type to AST
+- [x] 12. Add basic string type to AST
 
-- [ ] 12.1 Add basic string type to AST
+- [x] 12.1 Add basic string type to AST
 
   - Extend TypeKind enum in ast.rs to include String variant with max_length field
   - Update serialization and unit tests for new String type variant
   - _Requirements: 1.3_
 
-- [ ] 12.2 Implement string reading in evaluator
+- [x] 12.2 Implement string reading in evaluator
 
   - Add read_string function to evaluator/types.rs for null-terminated string reading
   - Implement safe string extraction with length limits and bounds checking
   - Write unit tests for string reading with various string lengths and termination
   - _Requirements: 2.2, 3.2_
 
-- [ ] 12.3 Add string matching support
+- [x] 12.3 Add string matching support
 
   - Extend read_typed_value function in types.rs to handle String type
   - Implement UTF-8 validation and ASCII fallback for string values
   - Write unit tests for string type interpretation with various encodings
   - _Requirements: 1.3, 2.2_
 
-- [ ] 13. Create basic error types
+- [x] 13. Create basic error types
 
-- [ ] 13.1 Create basic error types
+- [x] 13.1 Create basic error types
 
   - Create src/error.rs with LibmagicError enum using thiserror
   - Add variants for ParseError, EvaluationError, and IoError
   - Write unit tests for error type creation and Display formatting
   - _Requirements: 1.6, 2.6, 6.5_
 
-- [ ] 13.2 Add evaluation error types
+- [x] 13.2 Add evaluation error types
 
   - Create EvaluationError enum in error.rs for runtime evaluation errors
   - Add variants for BufferOverrun, InvalidOffset, and UnsupportedType
   - Write unit tests for evaluation error scenarios and error messages
   - _Requirements: 2.6, 3.5_
 
-- [ ] 13.3 Integrate error handling in evaluator
+- [x] 13.3 Integrate error handling in evaluator
 
   - Update evaluator functions to return Result types with proper error handling
   - Implement graceful degradation to skip problematic rules and continue evaluation
   - Write unit tests for error recovery behavior in rule evaluation
   - _Requirements: 2.6, 3.5_
 
-- [ ] 14. Create basic library API structure
+- [ ] 14. Implement text-based magic file parsing
 
-- [ ] 14.1 Create basic library API structure
+**Note: Magic files come in two formats:**
 
-  - Create public API functions in lib.rs for loading and parsing magic files
-  - Add load_magic_file function that returns parsed rules
-  - Write unit tests for magic file loading with valid and invalid files
-  - _Requirements: 6.1, 6.2_
+- **Text format (.magic)**: Human-readable files with lines like "0 string \x7fELF ELF executable"
+- **Binary format (.mgc)**: Compiled binary files with magic signature, optimized for fast loading
+- **Priority**: Implement text format first (more common in development), then binary format for compatibility
 
-- [ ] 14.2 Add file evaluation API
+- [ ] 14.1 Implement complete magic rule parsing for text format
 
-  - Create evaluate_file function in lib.rs for processing files with magic rules
-  - Implement file loading, rule evaluation, and result collection
-  - Write unit tests for file evaluation API with sample files and rules
-  - _Requirements: 6.2, 6.3_
+  - Add parse_magic_rule function to parser/grammar.rs for parsing complete rule lines from text magic files
+  - Support offset, type, operator, value, and message parsing in sequence for human-readable format
+  - Handle hierarchical rule parsing with proper indentation levels (> prefix for child rules)
+  - Parse comments (# prefix), empty lines, and continuation lines (\\ suffix)
+  - Write unit tests for complete rule parsing with various text magic file formats
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
 
-- [ ] 14.3 Create magic database structure
+- [ ] 14.2 Implement text magic file parsing
 
-  - Implement MagicDatabase struct in lib.rs for rule management
-  - Add methods for loading rules, caching, and evaluation configuration
-  - Write unit tests for database creation and rule management
-  - _Requirements: 6.1, 6.3_
+  - Add parse_text_magic_file function to parser/mod.rs for parsing entire text-based magic files
+  - Handle line-by-line parsing with proper error reporting and line numbers
+  - Support comments, empty lines, and continuation lines in text format
+  - Implement hierarchical rule nesting based on indentation and > prefixes
+  - Write unit tests for text magic file parsing with sample .magic files
+  - _Requirements: 1.1, 1.5, 1.6_
 
-- [ ] 15. Add indirect offset parsing
+- [ ] 14.3 Add magic file format detection
 
-- [ ] 15.1 Add indirect offset parsing
+  - Create detect_magic_file_format function to distinguish between text and binary magic files
+  - Check for binary .mgc file signatures (magic bytes at start of compiled files)
+  - Implement fallback logic: try binary first, then text format
+  - Add proper error handling for unsupported or corrupted magic file formats
+  - Write unit tests for format detection with both text and binary magic files
+  - _Requirements: 6.1, 1.6_
 
-  - Extend parse_offset function in parser/grammar.rs to support indirect syntax
-  - Implement parsing for parentheses-based indirect offset notation
-  - Write unit tests for indirect offset parsing with various formats
-  - _Requirements: 1.2, 1.6_
+- [ ] 15. Implement binary magic file (.mgc) support
 
-- [ ] 15.2 Implement indirect offset resolution
+**Note: Binary .mgc files are compiled versions of text magic files:**
 
-  - Add resolve_indirect_offset function to evaluator/offset.rs
-  - Implement pointer dereferencing with proper endianness handling using byteorder
-  - Write unit tests for indirect offset resolution with different pointer types
-  - _Requirements: 2.1, 1.2_
+- **Structure**: Header + Rule entries + String tables + Metadata
+- **Advantages**: Faster loading, pre-validated rules, optimized for production use
+- **Challenges**: Format is not officially documented, requires reverse engineering or libmagic source analysis
+- **Detection**: Usually start with specific magic bytes (e.g., 0x0d0a1a0a) and have .mgc extension
 
-- [ ] 15.3 Integrate indirect offsets in evaluation
+- [ ] 15.1 Add binary magic file format detection and basic parsing
 
-  - Update resolve_offset function to handle OffsetSpec::Indirect variant
-  - Add recursion limits to prevent infinite indirect offset chains
-  - Write unit tests for indirect offset integration in rule evaluation
-  - _Requirements: 2.1_
+  - Research and document the binary .mgc file format structure (header, rule entries, string tables)
+  - Implement detect_binary_magic_format function to identify .mgc files by magic signature
+  - Create basic binary parser structure for reading .mgc file headers and metadata
+  - Add proper error handling for corrupted or unsupported binary magic file versions
+  - Write unit tests for binary format detection and header parsing
+  - _Requirements: 6.1, 1.6_
 
-- [ ] 16. Add regex type to AST
+- [ ] 15.2 Implement binary magic rule deserialization
 
-- [ ] 16.1 Add regex type to AST
+  - Add parse_binary_magic_file function to deserialize compiled magic rules from .mgc files
+  - Implement binary rule entry parsing (offset, type, operator, value, message extraction)
+  - Handle string table lookups for rule messages and string values
+  - Support hierarchical rule relationships as stored in binary format
+  - Write unit tests for binary rule deserialization with sample .mgc files
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
 
-  - Extend TypeKind enum in ast.rs to include Regex variant
-  - Add regex pattern field and compilation flags
-  - Write unit tests for regex type serialization and deserialization
-  - _Requirements: 1.3_
+- [ ] 15.3 Integrate unified magic file loading
 
-- [ ] 16.2 Create binary regex trait
+  - Create unified load_magic_file function that handles both text and binary formats
+  - Implement format auto-detection: try binary .mgc first, fallback to text parsing
+  - Connect both text and binary parsers with MagicDatabase loading
+  - Add comprehensive error handling and format-specific error messages
+  - Write integration tests with both text .magic and binary .mgc files
+  - _Requirements: 6.1, 6.2, 1.6_
 
-  - Create BinaryRegex trait in evaluator/types.rs for abstracting regex engines
-  - Implement trait methods for binary-safe pattern matching
-  - Write unit tests for binary regex trait interface
-  - _Requirements: 1.3, 2.2_
+- [ ] 16. Complete MagicDatabase integration and CLI functionality
 
-- [ ] 16.3 Implement regex matching
+- [ ] 16.1 Implement MagicDatabase with unified magic file loading
 
-  - Add regex crate dependency and implement BinaryRegex for regex::bytes::Regex
-  - Create read_regex function in types.rs for pattern matching on binary data
-  - Write unit tests for regex matching with various binary patterns
-  - _Requirements: 1.3, 2.2_
+  - Update MagicDatabase::load_from_file to use the unified magic file parser (text and binary)
+  - Replace the current placeholder that returns empty rules with actual parsing integration
+  - Add proper error propagation from parsing failures to database creation errors
+  - Implement rule validation and consistency checking after loading
+  - Write unit tests for database loading with both text and binary magic files
+  - _Requirements: 6.1, 6.2, 1.6_
+
+- [ ] 16.2 Fix file evaluation pipeline integration
+
+  - Connect loaded magic rules with the evaluation engine in evaluate_file function
+  - Ensure proper buffer loading, rule evaluation, and result collection
+  - Fix the current placeholder implementation that always returns "data"
+  - Add proper error handling for file access and evaluation failures
+  - Write integration tests for end-to-end file type detection with real magic files
+  - _Requirements: 6.2, 6.3, 2.5_
+
+- [ ] 16.3 Add built-in fallback magic rules
+
+  - Create a comprehensive set of built-in magic rules for common file types (ELF, PE, ZIP, JPEG, PNG, PDF, GIF)
+  - Implement fallback mechanism when no external magic file is available or loading fails
+  - Ensure CLI works out-of-the-box for basic file type detection without requiring system magic files
+  - Add configuration option to disable built-in rules and force external magic file usage
+  - Write tests for built-in rule functionality and fallback behavior
+  - _Requirements: 7.1, 5.5, 6.2_
 
 - [ ] 17. Set up basic test infrastructure
 
