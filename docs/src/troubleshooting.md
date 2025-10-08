@@ -8,7 +8,7 @@ Common issues and solutions when using libmagic-rs.
 
 **Problem**: Build fails with older Rust versions
 
-```
+```text
 error: package `libmagic-rs v0.1.0` cannot be built because it requires rustc 1.85 or newer
 ```
 
@@ -23,7 +23,7 @@ rustc --version  # Should show 1.85+
 
 **Problem**: Cargo fails to resolve dependencies
 
-```
+```text
 error: failed to select a version for the requirement `serde = "^1.0"`
 ```
 
@@ -41,7 +41,7 @@ cargo build
 
 **Problem**: Cannot load magic file
 
-```
+```text
 Error: Parse error at line 42: Invalid offset specification
 ```
 
@@ -68,7 +68,7 @@ if !Path::new(magic_path).exists() {
 
 **Problem**: File analysis fails
 
-```
+```text
 Error: IO error: Permission denied (os error 13)
 ```
 
@@ -137,7 +137,7 @@ for file_path in file_list {
 
 **Problem**: Clippy warnings treated as errors
 
-```
+```text
 error: this expression creates a reference which is immediately dereferenced
 ```
 
@@ -190,7 +190,7 @@ fn test_big_endian_parsing() {
 
 **Problem**: Magic file parsing fails
 
-```
+```text
 Parse error at line 15: Expected operator, found 'invalid'
 ```
 

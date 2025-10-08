@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod common;
+use common::{normalize_paths_in_text, normalize_testfile_path};
 
 /// Get the root directory for canonical libmagic tests
 fn canonical_tests_root() -> PathBuf {
@@ -105,7 +106,11 @@ fn cli_matches_canonical_libmagic_tests() {
         let actual_output = match run_cli_on_testfile(&testfile) {
             Ok(output) => output,
             Err(e) => {
-                failures.push(format!("{}\n  CLI error: {}", testfile.display(), e));
+                failures.push(format!(
+                    "{}\n  CLI error: {}",
+                    normalize_testfile_path(&testfile.to_string_lossy()),
+                    e
+                ));
                 continue;
             }
         };
@@ -118,7 +123,7 @@ fn cli_matches_canonical_libmagic_tests() {
         if !matched {
             failures.push(format!(
                 "{}\n  got:      '{}'\n  expected: {:?}",
-                testfile.display(),
+                normalize_testfile_path(&testfile.to_string_lossy()),
                 actual_output,
                 expected_variants
             ));
@@ -133,7 +138,9 @@ fn cli_matches_canonical_libmagic_tests() {
             canonical_test_pairs().len(),
             failures.join("\n\n")
         );
-        assert_snapshot!("canonical_cli_test_failures", failure_summary);
+        // Normalize any remaining paths in the summary before snapshotting
+        let normalized_summary = normalize_paths_in_text(&failure_summary);
+        assert_snapshot!("canonical_cli_test_failures", normalized_summary);
     }
 }
 
