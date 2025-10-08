@@ -226,8 +226,8 @@ Validate against GNU `file` command:
 ```rust
 #[test]
 fn test_elf_detection_compatibility() {
-    let gnu_result = run_gnu_file("test_files/elf64_sample");
-    let our_result = evaluate_file("test_files/elf64_sample");
+    let gnu_result = run_gnu_file("third_party/tests/elf64.testfile");
+    let our_result = evaluate_file("third_party/tests/elf64.testfile");
 
     assert_eq!(extract_file_type(&gnu_result), our_result.description);
 }

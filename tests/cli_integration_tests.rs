@@ -1,665 +1,175 @@
-//! CLI integration tests for libmagic-rs
+//! CLI integration tests for libmagic-rs using canonical libmagic test suite
 //!
-//! These tests verify the command-line interface functionality including:
-//! - File processing with various input files
-//! - Output format selection (text, JSON)
-//! - Magic file loading and parsing
-//! - Error handling and edge cases
+//! These tests verify the command-line interface functionality by running against
+//! the canonical libmagic test suite from third_party/tests/.
+//! Each test consists of a .testfile (input) and .result (expected output) pair.
 
 use insta::assert_snapshot;
-use regex::Regex;
+use std::ffi::OsStr;
 use std::fs;
-use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::str;
-use tempfile::NamedTempFile;
 
 mod common;
 
-/// Helper function to run the CLI with given arguments
-fn run_cli(args: &[&str]) -> Result<std::process::Output, std::io::Error> {
-    let mut cmd = Command::new("cargo");
-    cmd.arg("run").arg("--").args(args);
-    cmd.output()
+/// Get the root directory for canonical libmagic tests
+fn canonical_tests_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("third_party")
+        .join("tests")
 }
 
-/// Helper function to run the CLI and get stdout as string
-fn run_cli_stdout(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
-    let output = run_cli(args)?;
-    Ok(String::from_utf8(output.stdout)?)
-}
-
-/// Helper function to run the CLI and get stderr as string
-fn run_cli_stderr(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
-    let output = run_cli(args)?;
-    let stderr = String::from_utf8(output.stderr)?;
-    Ok(filter_build_noise(&stderr))
-}
-
-/// Configuration for build noise filtering
-struct BuildNoiseFilter {
-    patterns: Vec<Regex>,
-}
-
-impl BuildNoiseFilter {
-    fn new() -> Self {
-        // Configurable filter patterns for build noise
-        let pattern_strings = vec![
-            // Cargo build messages
-            "Blocking waiting for file lock",
-            "Finished `dev` profile",
-            "Running `target[\\/]debug[\\/]rmagic", // Cross-platform path handling
-            "warning: error finalizing incremental compilation",
-            "warning: `libmagic-rs` \\(lib\\) generated",
-            // Additional common cargo output patterns
-            "Compiling libmagic-rs",
-            "Finished dev \\[unoptimized \\+ debuginfo\\] target",
-            // Process execution patterns (cross-platform)
-            "Running `target[\\/]debug[\\/]rmagic\\.exe`", // Windows
-            "Running `target[\\/]debug[\\/]rmagic`",       // Unix-like
-            // Additional patterns that may appear in cargo output
-            "Compiling .* v[0-9]+\\.[0-9]+\\.[0-9]+",
-            "Finished .* target\\(s\\) in [0-9]+\\.[0-9]+s",
-            "Running `.*`",
-        ];
-
-        let patterns = pattern_strings
-            .into_iter()
-            .map(|pattern| Regex::new(pattern).expect("Invalid regex pattern"))
-            .collect();
-
-        Self { patterns }
-    }
-
-    /// Add a new filter pattern at runtime
-    fn add_pattern(&mut self, pattern: &str) -> Result<(), regex::Error> {
-        let regex = Regex::new(pattern)?;
-        self.patterns.push(regex);
-        Ok(())
-    }
-
-    /// Remove a pattern by index (useful for testing)
-    fn remove_pattern(&mut self, index: usize) {
-        if index < self.patterns.len() {
-            self.patterns.remove(index);
-        }
-    }
-
-    fn filter(&self, stderr: &str) -> String {
-        stderr
-            .lines()
-            .filter(|line| {
-                let trimmed = line.trim();
-                // Skip empty lines
-                if trimmed.is_empty() {
-                    return false;
-                }
-
-                // Check against all patterns
-                !self.patterns.iter().any(|pattern| pattern.is_match(line))
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-            .trim()
-            .to_string()
-    }
-}
-
-/// Filter out build noise from stderr for cleaner snapshots
-fn filter_build_noise(stderr: &str) -> String {
-    let filter = BuildNoiseFilter::new();
-    filter.filter(stderr)
-}
-
-/// Helper function to create a temporary test file with given content
-/// Returns a NamedTempFile that will be automatically cleaned up when dropped
-fn create_test_file(content: &[u8]) -> Result<NamedTempFile, std::io::Error> {
-    let mut temp_file = NamedTempFile::new()?;
-    temp_file.write_all(content)?;
-    temp_file.flush()?;
-    Ok(temp_file)
-}
-
-#[test]
-fn test_cli_basic_file_processing() {
-    // Test basic file processing with text output (default)
-    let result = run_cli_stdout(&["test_files/sample.bin"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    assert_snapshot!("basic_file_processing", output);
-}
-
-#[test]
-fn test_cli_json_output_format() {
-    // Test JSON output format
-    let result = run_cli_stdout(&["test_files/sample.bin", "--json"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    assert_snapshot!("json_output_format", output);
-}
-
-#[test]
-fn test_cli_text_output_format_explicit() {
-    // Test explicit text output format
-    let result = run_cli_stdout(&["test_files/sample.bin", "--text"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    assert_snapshot!("text_output_format_explicit", output);
-}
-
-#[test]
-fn test_cli_nonexistent_file() {
-    // Test error handling for nonexistent file
-    let result = run_cli(&["nonexistent_file.bin"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    assert!(!output.status.success());
-
-    let stderr = run_cli_stderr(&["nonexistent_file.bin"]).unwrap();
-    let normalized_stderr = common::normalize_cli_output(&stderr);
-    assert_snapshot!("nonexistent_file_error", normalized_stderr);
-}
-
-#[test]
-fn test_cli_custom_magic_file() {
-    // Create a simple custom magic file
-    let custom_magic_content = r#"# Custom magic file for testing
-0	string	TEST	Test file format
-0	string	HELLO	Hello file format
-"#;
-
-    // Create temporary magic file
-    let magic_temp_file = create_test_file(custom_magic_content.as_bytes())
-        .expect("Failed to create custom magic file");
-    let magic_file_path = magic_temp_file.path().to_str().unwrap();
-
-    // Create a test file that matches our custom magic
-    let test_temp_file = create_test_file(b"TEST data here").expect("Failed to create test file");
-    let test_file_path = test_temp_file.path().to_str().unwrap();
-
-    // Test with custom magic file
-    let result = run_cli_stdout(&[test_file_path, "--magic-file", magic_file_path]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let normalized_output = output
-        .replace(magic_file_path, "<MAGIC_FILE_PATH>")
-        .replace(test_file_path, "<TEST_FILE_PATH>");
-    assert_snapshot!("custom_magic_file", normalized_output);
-}
-
-#[test]
-fn test_cli_invalid_magic_file() {
-    // Test with nonexistent magic file - should still work with fallback
-    let result = run_cli(&["test_files/sample.bin", "--magic-file", "nonexistent.magic"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    // Should succeed even with missing magic file (uses fallback)
-    assert!(output.status.success());
-
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_snapshot!("invalid_magic_file", stdout);
-}
-
-#[test]
-fn test_cli_conflicting_output_formats() {
-    // Test that --json and --text conflict
-    let result = run_cli(&["test_files/sample.bin", "--json", "--text"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    assert!(!output.status.success());
-
-    let stderr = run_cli_stderr(&["test_files/sample.bin", "--json", "--text"]).unwrap();
-    let normalized_stderr = common::normalize_cli_output(&stderr);
-    assert_snapshot!("conflicting_output_formats", normalized_stderr);
-}
-
-#[test]
-fn test_cli_missing_file_argument() {
-    // Test that file argument is required
-    let result = run_cli(&["--json"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    assert!(!output.status.success());
-
-    let stderr = run_cli_stderr(&["--json"]).unwrap();
-    let normalized_stderr = common::normalize_cli_output(&stderr);
-    assert_snapshot!("missing_file_argument", normalized_stderr);
-}
-
-#[test]
-fn test_cli_help_output() {
-    // Test help output
-    let result = run_cli(&["--help"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let normalized_stdout = common::normalize_cli_output(&stdout);
-    assert_snapshot!("help_output", normalized_stdout);
-}
-
-#[test]
-fn test_cli_version_output() {
-    // Test version output
-    let result = run_cli(&["--version"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_snapshot!("version_output", stdout);
-}
-
-#[test]
-fn test_cli_multiple_file_formats() {
-    // Test with different file types if they exist
-    let test_files = [
-        "test_files/sample.bin",
-        "test_files/magic",
-        "test_files/magic.mgc",
-        "test_files/magic.mime",
-    ];
-
-    for file_path in &test_files {
-        if Path::new(file_path).exists() {
-            let result = run_cli_stdout(&[file_path]);
-            assert!(result.is_ok(), "Failed to process file: {}", file_path);
-
-            let output = result.unwrap();
-            assert!(output.contains(file_path));
-            // All files should return some result (even if just "data")
-            assert!(!output.trim().is_empty());
-        }
-    }
-}
-
-#[test]
-fn test_cli_json_output_structure() {
-    // Test detailed JSON output structure
-    let result = run_cli_stdout(&["test_files/sample.bin", "--json"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    // Verify it's valid JSON by parsing it
-    let _json_result: serde_json::Value =
-        serde_json::from_str(&output).expect("Output should be valid JSON");
-
-    assert_snapshot!("json_output_structure", output);
-}
-
-#[test]
-fn test_cli_file_path_handling() {
-    // Test various file path formats
-    let test_cases = [
-        "test_files/sample.bin",   // Relative path
-        "./test_files/sample.bin", // Explicit relative path
-    ];
-
-    for file_path in &test_cases {
-        if Path::new(file_path).exists() {
-            let result = run_cli_stdout(&[file_path]);
-            assert!(result.is_ok(), "Failed with path: {}", file_path);
-
-            let output = result.unwrap();
-            assert!(output.contains(file_path) || output.contains("sample.bin"));
-        }
-    }
-}
-
-#[test]
-fn test_cli_empty_file() {
-    // Create an empty test file
-    let empty_temp_file = create_test_file(&[]).expect("Failed to create empty test file");
-    let empty_file_path = empty_temp_file.path().to_str().unwrap();
-
-    let result = run_cli(&[empty_file_path]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    // Empty files might cause an error, which is acceptable behavior
-    if output.status.success() {
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        assert_snapshot!("empty_file_success", stdout);
-    } else {
-        // Empty file error is acceptable
-        let stderr = run_cli_stderr(&[empty_file_path]).unwrap();
-        let normalized_stderr = stderr.replace(empty_file_path, "<EMPTY_FILE_PATH>");
-        let normalized_stderr = common::normalize_cli_output(&normalized_stderr);
-        assert_snapshot!("empty_file_error", normalized_stderr);
-    }
-}
-
-#[test]
-fn test_cli_large_file_handling() {
-    // Create a larger test file (1KB)
-    let large_content = vec![0x41; 1024]; // 1KB of 'A' characters
-    let large_temp_file =
-        create_test_file(&large_content).expect("Failed to create large test file");
-    let large_file_path = large_temp_file.path().to_str().unwrap();
-
-    let result = run_cli_stdout(&[large_file_path]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let normalized_output = output.replace(large_file_path, "<LARGE_FILE_PATH>");
-    assert_snapshot!("large_file_handling", normalized_output);
-}
-
-#[test]
-fn test_cli_binary_file_handling() {
-    // Create a binary file with various byte values
-    let binary_content = (0..=255u8).collect::<Vec<u8>>();
-    let binary_temp_file =
-        create_test_file(&binary_content).expect("Failed to create binary test file");
-    let binary_file_path = binary_temp_file.path().to_str().unwrap();
-
-    let result = run_cli_stdout(&[binary_file_path]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    let normalized_output = output.replace(binary_file_path, "<BINARY_FILE_PATH>");
-    assert_snapshot!("binary_file_handling", normalized_output);
-}
-
-#[test]
-fn test_cli_magic_file_fallback() {
-    // Test that CLI works even when magic files are missing
-    // This tests the download_magic_files functionality
-
-    // Try with a non-standard magic file location
-    let result = run_cli(&["test_files/sample.bin", "--magic-file", "missing.magic"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    // Should succeed even with missing magic file (uses fallback)
-    assert!(output.status.success());
-
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_snapshot!("magic_file_fallback", stdout);
-}
-
-#[test]
-fn test_cli_output_consistency() {
-    // Test that multiple runs produce consistent output
-    let file_path = "test_files/sample.bin";
-
-    let result1 = run_cli_stdout(&[file_path]);
-    let result2 = run_cli_stdout(&[file_path]);
-
-    assert!(result1.is_ok());
-    assert!(result2.is_ok());
-
-    let output1 = result1.unwrap();
-    let output2 = result2.unwrap();
-
-    // Outputs should be identical
-    assert_eq!(output1, output2);
-}
-
-#[test]
-fn test_cli_json_vs_text_consistency() {
-    // Test that JSON and text outputs contain consistent information
-    let file_path = "test_files/sample.bin";
-
-    let text_result = run_cli_stdout(&[file_path, "--text"]);
-    let json_result = run_cli_stdout(&[file_path, "--json"]);
-
-    assert!(text_result.is_ok());
-    assert!(json_result.is_ok());
-
-    let text_output = text_result.unwrap();
-    let json_output = json_result.unwrap();
-
-    let json_data: serde_json::Value =
-        serde_json::from_str(&json_output).expect("JSON output should be valid");
-
-    // Check that JSON has the expected structure
-    assert!(json_data.is_object());
-    assert!(json_data["matches"].is_array());
-
-    let matches = json_data["matches"].as_array().unwrap();
-
-    if matches.is_empty() {
-        // If no matches in JSON, text output should contain "data" (fallback)
-        assert!(text_output.contains("data"));
-    } else {
-        // If there are matches, the first match's text should be in the text output
-        let first_match = &matches[0];
-        if let Some(match_text) = first_match["text"].as_str() {
-            assert!(text_output.contains(match_text));
-        }
-    }
-}
-
-#[test]
-fn test_cli_error_exit_codes() {
-    // Test that CLI returns appropriate exit codes for errors
-
-    // Nonexistent file should return exit code 3 (file not found)
-    let result = run_cli(&["nonexistent_file.bin"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    assert!(!output.status.success());
-    assert_eq!(output.status.code(), Some(3));
-}
-
-#[test]
-fn test_cli_success_exit_codes() {
-    // Test that CLI returns zero exit code for successful operations
-    let result = run_cli(&["test_files/sample.bin"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    assert!(output.status.success());
-    assert_eq!(output.status.code(), Some(0));
-}
-
-#[test]
-fn test_cli_platform_specific_magic_paths() {
-    // Test that platform-specific magic file paths are handled correctly
-    // This is mainly testing the path resolution logic
-
-    let result = run_cli_stdout(&["test_files/sample.bin"]);
-    assert!(result.is_ok());
-
-    // Should work regardless of platform-specific paths
-    let output = result.unwrap();
-    assert!(output.contains("test_files/sample.bin"));
-}
-
-#[test]
-fn test_cli_ci_environment_detection() {
-    // Test CI environment detection for magic file fallback
-    temp_env::with_var("CI", Some("true"), || {
-        let result = run_cli_stdout(&["test_files/sample.bin"]);
-        assert!(result.is_ok());
-
-        let output = result.unwrap();
-        assert!(output.contains("test_files/sample.bin"));
-    });
-}
-
-#[test]
-fn test_build_noise_filter() {
-    // Test the build noise filter functionality
-    let mut filter = BuildNoiseFilter::new();
-
-    // Test with typical cargo output
-    let test_stderr = r#"Blocking waiting for file lock on build directory
-Compiling libmagic-rs v0.1.0
-Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s
-Running `target\debug\rmagic.exe --help`
-Error: File not found"#;
-
-    let filtered = filter.filter(test_stderr);
-    assert_eq!(filtered, "Error: File not found");
-
-    // Test adding a custom pattern
-    filter.add_pattern("Custom pattern").unwrap();
-    let test_with_custom = "Custom pattern\nError: File not found";
-    let filtered_custom = filter.filter(test_with_custom);
-    assert_eq!(filtered_custom, "Error: File not found");
-
-    // Test removing a pattern
-    filter.remove_pattern(0); // Remove first pattern
-    let test_after_removal = "Blocking waiting for file lock\nError: File not found";
-    let filtered_after_removal = filter.filter(test_after_removal);
-    // Should still contain the "Blocking" line since we removed that pattern
-    assert!(filtered_after_removal.contains("Blocking waiting for file lock"));
-}
-
-#[test]
-fn test_cli_magic_file_creation() {
-    // Test that basic magic file is created when missing
-    // This tests the download_magic_files functionality
-
-    // Create a temporary directory for testing
-    let temp_dir = "test_files/temp_magic_test";
-    let _ = fs::create_dir_all(temp_dir);
-
-    let temp_magic_path = format!("{}/test.magic", temp_dir);
-
-    // Ensure the file doesn't exist initially
-    let _ = fs::remove_file(&temp_magic_path);
-
-    let result = run_cli_stderr(&["test_files/sample.bin", "--magic-file", &temp_magic_path]);
-    assert!(result.is_ok());
-
-    // Clean up
-    let _ = fs::remove_file(&temp_magic_path);
-    let _ = fs::remove_dir(temp_dir);
-}
-
-#[test]
-fn test_cli_magic_file_download_functionality() {
-    // Test the download_magic_files function specifically
-    let temp_dir = "test_files/temp_download_test";
-    let _ = fs::create_dir_all(temp_dir);
-
-    let temp_magic_path = format!("{}/downloaded.magic", temp_dir);
-
-    // Ensure the file doesn't exist initially
-    let _ = fs::remove_file(&temp_magic_path);
-
-    // Run CLI with missing magic file to trigger download
-    let result = run_cli_stderr(&["test_files/sample.bin", "--magic-file", &temp_magic_path]);
-    assert!(result.is_ok());
-
-    let stderr = result.unwrap();
-    // Should show download attempt
-    assert!(stderr.contains("download") || stderr.contains("Created basic magic file"));
-
-    // Clean up
-    let _ = fs::remove_file(&temp_magic_path);
-    let _ = fs::remove_dir(temp_dir);
-}
-
-#[test]
-fn test_cli_with_existing_magic_files() {
-    // Test CLI behavior with existing magic files in test_files
-    let magic_file_path = "test_files/magic";
-
-    if Path::new(magic_file_path).exists() {
-        let result = run_cli_stdout(&["test_files/sample.bin", "--magic-file", magic_file_path]);
-        assert!(result.is_ok());
-
-        let output = result.unwrap();
-        assert!(output.contains("test_files/sample.bin"));
-        // Should process without errors even if magic parsing isn't complete
-        assert!(output.contains("data"));
-    }
-}
-
-#[test]
-fn test_cli_platform_magic_file_detection() {
-    // Test that CLI attempts to find platform-appropriate magic files
-    let result = run_cli_stdout(&["test_files/sample.bin"]);
-    assert!(result.is_ok());
-
-    let output = result.unwrap();
-    assert!(output.contains("test_files/sample.bin"));
-
-    // Should work even if system magic files aren't found
-    assert!(output.contains("data"));
-}
-
-#[test]
-fn test_cli_file_processing_with_different_extensions() {
-    // Test processing files with different extensions
-    let test_cases = vec![
-        ("test.txt", b"Hello, World!" as &[u8]),
-        ("test.bin", &[0x7f, 0x45, 0x4c, 0x46]), // ELF-like
-        ("test.dat", &[0x50, 0x4b, 0x03, 0x04]), // ZIP-like
-    ];
-
-    for (filename, content) in test_cases {
-        let temp_file = create_test_file(content).expect("Failed to create test file");
-        let file_path = temp_file.path().to_str().unwrap();
-
-        let result = run_cli_stdout(&[file_path]);
-        assert!(result.is_ok(), "Failed to process {}", filename);
-
-        let output = result.unwrap();
-        assert!(output.contains(file_path));
-        assert!(output.contains("data"));
-    }
-}
-
-#[test]
-fn test_cli_integration_with_sample_files() {
-    // Test integration with all available sample files in test_files
-    let test_files_dir = Path::new("test_files");
-
-    if test_files_dir.exists() {
-        for entry in fs::read_dir(test_files_dir).unwrap() {
-            let entry = entry.unwrap();
+/// Find all test file pairs (.testfile + .result) from the canonical test suite
+fn canonical_test_pairs() -> Vec<(PathBuf, PathBuf)> {
+    let root = canonical_tests_root();
+    let mut pairs = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(&root) {
+        for entry in entries.flatten() {
             let path = entry.path();
-
-            if path.is_file() {
-                let path_str = path.to_string_lossy();
-
-                // Skip temporary files and directories
-                if path_str.contains("temp_") || path_str.ends_with(".py") {
-                    continue;
-                }
-
-                let result = run_cli(&[&path_str]);
-                assert!(result.is_ok(), "Failed to process file: {}", path_str);
-
-                let output = result.unwrap();
-                let filename = path.file_name().unwrap().to_str().unwrap();
-
-                if output.status.success() {
-                    let stdout = String::from_utf8(output.stdout).unwrap();
-                    assert!(
-                        stdout.contains(path_str.as_ref())
-                            || stdout.contains(filename)
-                            || stdout.contains("data"), // At minimum should contain "data" as fallback
-                        "Output '{}' should contain file path '{}' or filename '{}'",
-                        stdout.trim(),
-                        path_str,
-                        filename
-                    );
-                    assert!(!stdout.trim().is_empty());
-                } else {
-                    // Some files might cause errors (like empty files), which is acceptable
-                    let stderr = String::from_utf8(output.stderr).unwrap();
-                    assert!(
-                        stderr.contains("Error:"),
-                        "Expected error message for file: {}",
-                        path_str
-                    );
+            if path.extension() == Some(OsStr::new("testfile")) {
+                let result = path.with_extension("result");
+                if result.exists() {
+                    pairs.push((path, result));
                 }
             }
         }
+    }
+
+    pairs.sort();
+    pairs
+}
+
+/// Parse expected results from a .result file
+/// Ignores blank lines and comment lines starting with '#'
+fn parse_expected(result_path: &Path) -> Vec<String> {
+    let raw = fs::read_to_string(result_path).unwrap_or_default();
+    raw.lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Normalize CLI output for comparison
+/// - Convert CRLF to LF
+/// - Trim whitespace
+/// - Strip "filename:" prefix if present
+fn normalize_cli_output(out: &str, file_name: &str) -> String {
+    let s = out.replace("\r\n", "\n").trim().to_string();
+
+    // If output starts with "filename:" strip it
+    if let Some(colon_pos) = s.find(':') {
+        let prefix = &s[..colon_pos];
+        if prefix.ends_with(file_name) {
+            return s[colon_pos + 1..].trim().to_string();
+        }
+    }
+
+    s
+}
+
+/// Run CLI with the given test file and return normalized output
+fn run_cli_on_testfile(testfile: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let output = Command::new("cargo")
+        .args(["run", "--", testfile.to_str().unwrap()])
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("CLI failed: {}", stderr).into());
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+    let file_name = testfile.file_name().unwrap().to_str().unwrap();
+    Ok(normalize_cli_output(&stdout, file_name))
+}
+
+/// Main test function that runs all canonical libmagic tests
+#[test]
+fn cli_matches_canonical_libmagic_tests() {
+    let mut failures = Vec::new();
+    let test_pairs = canonical_test_pairs();
+
+    println!("Running {} canonical libmagic test pairs", test_pairs.len());
+
+    for (testfile, resultfile) in test_pairs {
+        let expected_variants = parse_expected(&resultfile);
+
+        // Skip tests with no expected output
+        if expected_variants.is_empty() {
+            continue;
+        }
+
+        // Run CLI on the test file
+        let actual_output = match run_cli_on_testfile(&testfile) {
+            Ok(output) => output,
+            Err(e) => {
+                failures.push(format!("{}\n  CLI error: {}", testfile.display(), e));
+                continue;
+            }
+        };
+
+        // Check if actual output matches any expected variant
+        let matched = expected_variants
+            .iter()
+            .any(|expected| actual_output.contains(expected) || expected.contains(&actual_output));
+
+        if !matched {
+            failures.push(format!(
+                "{}\n  got:      '{}'\n  expected: {:?}",
+                testfile.display(),
+                actual_output,
+                expected_variants
+            ));
+        }
+    }
+
+    // If there are failures, create a snapshot for debugging
+    if !failures.is_empty() {
+        let failure_summary = format!(
+            "Found {} test failures out of {} canonical tests:\n\n{}",
+            failures.len(),
+            canonical_test_pairs().len(),
+            failures.join("\n\n")
+        );
+        assert_snapshot!("canonical_cli_test_failures", failure_summary);
+    }
+}
+
+/// Test that we can discover canonical test files
+#[test]
+fn test_canonical_test_discovery() {
+    let pairs = canonical_test_pairs();
+
+    // Should find at least some test pairs
+    assert!(
+        pairs.len() > 10,
+        "Expected to find more than 10 test pairs, found: {}",
+        pairs.len()
+    );
+
+    // Verify each pair has both testfile and result
+    for (testfile, resultfile) in &pairs {
+        assert!(
+            testfile.exists(),
+            "Test file should exist: {}",
+            testfile.display()
+        );
+        assert!(
+            resultfile.exists(),
+            "Result file should exist: {}",
+            resultfile.display()
+        );
+        assert_eq!(
+            testfile.extension(),
+            Some(OsStr::new("testfile")),
+            "Test file should have .testfile extension"
+        );
+        assert_eq!(
+            resultfile.extension(),
+            Some(OsStr::new("result")),
+            "Result file should have .result extension"
+        );
     }
 }

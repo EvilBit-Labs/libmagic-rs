@@ -1,0 +1,190 @@
+---
+source: tests/cli_integration_tests.rs
+assertion_line: 140
+expression: failure_summary
+---
+Found 46 test failures out of 81 canonical tests:
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/CVE-2014-1943.testfile
+  got:      'data'
+  expected: ["Apple Driver Map, blocksize 0"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/HWP2016.hwp.testfile
+  got:      'data'
+  expected: ["Hancom HWP (Hangul Word Processor) file, version 5.0"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/HWP2016.hwpx.zip.testfile
+  got:      'data'
+  expected: ["Hancom HWP (Hangul Word Processor) file, HWPX"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/HWP97.hwp.testfile
+  got:      'data'
+  expected: ["Hancom HWP (Hangul Word Processor) file, version 3.0"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/JW07022A.mp3.testfile
+  got:      'data'
+  expected: ["Audio file with ID3 version 2.2.0, contains: MPEG ADTS, layer III, v1, 96 kbps, 44.1 kHz, Monaural"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/android-vdex-1.testfile
+  got:      'data'
+  expected: ["Android vdex file, verifier deps version: 021, dex section version: 002, number of dex files: 4, verifier deps size: 106328"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/android-vdex-2.testfile
+  got:      'data'
+  expected: ["Android vdex file, being processed by dex2oat, verifier deps version: 019, dex section version: 002, number of dex files: 1, verifier deps size: 1016"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/bcachefs.testfile
+  got:      'data'
+  expected: ["bcachefs, UUID=46bd306f-80ad-4cd0-af4f-147e7d85f393, label \"Label\", version 13, min version 13, device 0/UUID=72a60ede-4cb6-4374-aa70-cb38a50af5ef, 1 devices"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/bcachefs2.testfile
+  got:      'data'
+  expected: ["bcachefs, UUID=4fa11b1e-75e6-4210-9167-34e1769c0fe1, label \"Label\", version 26, min version 26, device 0/UUID=0a3643b7-c515-47f8-a0ea-91fc38d043d1, 1 devices (unclean)"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/cl8m8ocofedso.testfile
+  got:      'data'
+  expected: ["Audio file with ID3 version 2.4.0, contains: MPEG ADTS, layer III, v1, 192 kbps, 44.1 kHz, JntStereo"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/cmd1.testfile
+  got:      'data'
+  expected: ["a /usr/bin/cmd1 script, ASCII text executable"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/cmd2.testfile
+  got:      'data'
+  expected: ["a /usr/bin/cmd2 script, ASCII text executable"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/gedcom.testfile
+  got:      'data'
+  expected: ["GEDCOM genealogy text version 5.5, ASCII text"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/gpkg-1-zst.testfile
+  got:      'data'
+  expected: ["Gentoo GLEP 78 (GPKG) binary package for \"inkscape-1.2.1-r2-1\" using zstd compression"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/hddrawcopytool.testfile
+  got:      'data'
+  expected: ["HDD Raw Copy Tool 1.10 - HD model: ST500DM0 02-1BD142 serial: 51D20233A7C0"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/hello-racket_rkt.testfile
+  got:      'data'
+  expected: ["Racket bytecode (version 8.5)"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/issue311docx.testfile
+  got:      'data'
+  expected: ["Microsoft Word 2007+"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/issue359xlsx.testfile
+  got:      'data'
+  expected: ["Microsoft Excel 2007+"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/jpeg-text.testfile
+  got:      'data'
+  expected: ["ASCII text, with no line terminators"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/json5.testfile
+  got:      'data'
+  expected: ["ASCII text"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/json7.testfile
+  got:      'data'
+  expected: ["ASCII text"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/keyman-0.testfile
+  got:      'data'
+  expected: ["Keyman Compiled Keyboard File version 0x1100 KMX+ Data"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/keyman-1.testfile
+  got:      'data'
+  expected: ["Keyman Compiled Keyboard File version 0x600"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/keyman-2.testfile
+  got:      'data'
+  expected: ["Keyman Compiled Package File"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/matilde.arm.testfile
+  got:      'data'
+  expected: ["Adaptive Multi-Rate Codec (GSM telephony)"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/multiple.testfile
+  got:      'data'
+  expected: ["Viva File 2.0\\012- RTF1.0\\012- Test File 1.0\\012- ABCD File, ASCII text, with no line terminators"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/pcjr.testfile
+  got:      'data'
+  expected: ["PCjr Cartridge image"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/pgp-binary-key-v2-phil.testfile
+  got:      'data'
+  expected: ["OpenPGP Public Key Version 2, Created Fri May 21 05:20:00 1993, RSA (Encrypt or Sign, 1024 bits); User ID; Signature; OpenPGP Certificate"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/pgp-binary-key-v3-lutz.testfile
+  got:      'data'
+  expected: ["OpenPGP Public Key Version 3, Created Mon Mar 17 11:14:30 1997, RSA (Encrypt or Sign, 1127 bits); User ID; Signature; OpenPGP Certificate"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/pgp-binary-key-v4-dsa.testfile
+  got:      'data'
+  expected: ["OpenPGP Public Key Version 4, Created Mon Apr  7 22:23:01 1997, DSA (1024 bits); User ID; Signature; OpenPGP Certificate"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/pgp-binary-key-v4-ecc-no-userid-secret.testfile
+  got:      'data'
+  expected: ["OpenPGP Secret Key Version 4, Created Wed Aug 26 20:52:13 2020, EdDSA; Signature; Secret Subkey; OpenPGP Certificate"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/pgp-binary-key-v4-ecc-secret-key.testfile
+  got:      'data'
+  expected: ["OpenPGP Secret Key Version 4, Created Sat Aug 22 14:07:46 2020, EdDSA; User ID; Signature; OpenPGP Certificate"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/pgp-binary-key-v4-rsa-key.testfile
+  got:      'data'
+  expected: ["OpenPGP Secret Key Version 4, Created Sat Aug 22 14:05:57 2020, RSA (Encrypt or Sign, 3072 bits); User ID; Signature; OpenPGP Certificate"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/pgp-binary-key-v4-rsa-no-userid-secret.testfile
+  got:      'data'
+  expected: ["OpenPGP Secret Key Version 4, Created Sat Aug 22 20:13:52 2020, RSA (Encrypt or Sign, 3072 bits); Signature; Secret Subkey; OpenPGP Certificate"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/pgp-binary-key-v4-rsa-secret-key.testfile
+  got:      'data'
+  expected: ["OpenPGP Secret Key Version 4, Created Sat Aug 22 14:05:57 2020, RSA (Encrypt or Sign, 3072 bits); User ID; Signature; OpenPGP Certificate"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/regex-eol.testfile
+  got:      'data'
+  expected: ["Ansible Vault text, version 1.1, using AES256 encryption"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/registry-pol.testfile
+  got:      'data'
+  expected: ["Group Policy Registry Policy, Version=1"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/rpm-v3.0-bin-aarch64.testfile
+  got:      'data'
+  expected: ["RPM v3.0 bin AArch64"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/rpm-v3.0-bin-powerpc64.testfile
+  got:      'data'
+  expected: ["RPM v3.0 bin PowerPC64"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/rpm-v3.0-bin-s390x.testfile
+  got:      'data'
+  expected: ["RPM v3.0 bin S/390x"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/rpm-v3.0-bin-x86_64.testfile
+  got:      'data'
+  expected: ["RPM v3.0 bin i386/x86_64"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/rpm-v3.0-src.testfile
+  got:      'data'
+  expected: ["RPM v3.0 src"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/searchbug.testfile
+  got:      'data'
+  expected: ["Testfmt (0) found_ABC followed_by 0x31 at_offset 11 (64) found_ABC followed_by 0x32 at_offset 75"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/uf2.testfile
+  got:      'data'
+  expected: ["UF2 firmware image, family ESP32-S2, base address 00000000, 4829 total blocks"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/utf16xmlsvg.testfile
+  got:      'data'
+  expected: ["SVG Scalable Vector Graphics image, Unicode text, UTF-16, little-endian text"]
+
+/Users/kmelton/Projects/libmagic-rs/third_party/tests/xclbin.testfile
+  got:      'data'
+  expected: ["AMD/Xilinx accelerator AXLF (xclbin) file, 46226070 bytes, created Fri Mar 25 00:51:37 2022, shell \"xilinx_u55c_gen3x16_xdma_3_202210_1\", uuid e106e953-cf90-4024-e075-282d1a7d820b, 11 sections"]

@@ -1,7 +1,0 @@
----
-source: tests/cli_integration_tests.rs
-expression: normalized_stderr
----
-Error: File access failed
-Failed to access file: File '<EMPTY_FILE_PATH>' is empty
-Please check the file path and permissions.

@@ -272,9 +272,9 @@
   - Write unit tests for CLI error handling and exit code behavior
   - _Requirements: 5.5, 6.5_
 
-- [x] 11. Create JSON match result structure
+- [ ] 11. Create JSON match result structure
 
-- [x] 11.1 Create JSON match result structure
+- [ ] 11.1 Create JSON match result structure
 
   - Create src/output/json.rs with JsonMatchResult struct following original spec
   - Add fields for text, offset, value, tags, and score
@@ -282,59 +282,59 @@
   - Write unit tests for JSON match result serialization
   - _Requirements: 4.2_
 
-- [x] 11.2 Implement JSON output formatting
+- [ ] 11.2 Implement JSON output formatting
 
   - Add format_json_output function to json.rs for converting match results to JSON
   - Implement matches array structure with proper field mapping
   - Write unit tests for JSON output format validation and structure
   - _Requirements: 4.2, 1.1_
 
-- [x] 11.3 Add JSON output integration
+- [ ] 11.3 Add JSON output integration
 
   - Integrate JSON formatter into CLI output routing in main.rs
   - Add --json flag handling with appropriate output selection
   - Write integration tests for JSON output through CLI interface
   - _Requirements: 5.2, 4.2_
 
-- [x] 12. Add basic string type to AST
+- [ ] 12. Add basic string type to AST
 
-- [x] 12.1 Add basic string type to AST
+- [ ] 12.1 Add basic string type to AST
 
   - Extend TypeKind enum in ast.rs to include String variant with max_length field
   - Update serialization and unit tests for new String type variant
   - _Requirements: 1.3_
 
-- [x] 12.2 Implement string reading in evaluator
+- [ ] 12.2 Implement string reading in evaluator
 
   - Add read_string function to evaluator/types.rs for null-terminated string reading
   - Implement safe string extraction with length limits and bounds checking
   - Write unit tests for string reading with various string lengths and termination
   - _Requirements: 2.2, 3.2_
 
-- [x] 12.3 Add string matching support
+- [ ] 12.3 Add string matching support
 
   - Extend read_typed_value function in types.rs to handle String type
   - Implement UTF-8 validation and ASCII fallback for string values
   - Write unit tests for string type interpretation with various encodings
   - _Requirements: 1.3, 2.2_
 
-- [x] 13. Create basic error types
+- [ ] 13. Create basic error types
 
-- [x] 13.1 Create basic error types
+- [ ] 13.1 Create basic error types
 
   - Create src/error.rs with LibmagicError enum using thiserror
   - Add variants for ParseError, EvaluationError, and IoError
   - Write unit tests for error type creation and Display formatting
   - _Requirements: 1.6, 2.6, 6.5_
 
-- [x] 13.2 Add evaluation error types
+- [ ] 13.2 Add evaluation error types
 
   - Create EvaluationError enum in error.rs for runtime evaluation errors
   - Add variants for BufferOverrun, InvalidOffset, and UnsupportedType
   - Write unit tests for evaluation error scenarios and error messages
   - _Requirements: 2.6, 3.5_
 
-- [x] 13.3 Integrate error handling in evaluator
+- [ ] 13.3 Integrate error handling in evaluator
 
   - Update evaluator functions to return Result types with proper error handling
   - Implement graceful degradation to skip problematic rules and continue evaluation

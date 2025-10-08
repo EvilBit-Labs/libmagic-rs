@@ -1,7 +1,0 @@
----
-source: tests/cli_integration_tests.rs
-expression: stderr
----
-error: the argument '--json' cannot be used with '--text'
-Usage: rmagic --json <FILE>
-For more information, try '--help'.

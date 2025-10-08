@@ -103,10 +103,10 @@ cargo build --release
 
 ### Magic File Not Found
 
-Ensure the magic file exists at `test_files/magic`:
+Ensure the magic file exists at `third_party/magic.mgc`:
 
 ```bash
-ls test_files/magic
+ls third_party/magic.mgc
 ```
 
 ## Test Results

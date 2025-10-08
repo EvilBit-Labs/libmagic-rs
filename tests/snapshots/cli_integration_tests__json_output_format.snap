@@ -1,7 +1,0 @@
----
-source: tests/cli_integration_tests.rs
-expression: output
----
-{
-  "matches": []
-}

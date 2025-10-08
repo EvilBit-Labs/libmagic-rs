@@ -61,29 +61,40 @@ impl Args {
     fn default_magic_file_path() -> PathBuf {
         #[cfg(unix)]
         {
-            // Try multiple common locations on Unix-like systems
+            // Try compiled magic files first (.mgc), then text magic files
             let candidates = [
-                "/etc/magic",
-                "/usr/share/misc/magic",
-                "/usr/share/file/magic",
-                "/opt/local/share/file/magic", // MacPorts
-                "/usr/local/share/misc/magic", // FreeBSD
+                "/usr/share/file/magic.mgc",       // Most common on Linux/macOS
+                "/usr/local/share/misc/magic.mgc", // Homebrew/FreeBSD
+                "/opt/local/share/file/magic.mgc", // MacPorts
+                "/etc/magic.mgc",                  // Alternative location
+                "/usr/share/misc/magic.mgc",       // BSD variant
+                "/usr/share/file/magic",           // Text magic files (directory)
+                "/etc/magic",                      // Text magic file
+                "/usr/share/misc/magic",           // Text magic file
+                "/opt/local/share/file/magic",     // MacPorts text
+                "/usr/local/share/misc/magic",     // FreeBSD text
             ];
 
             for candidate in &candidates {
                 let path = PathBuf::from(candidate);
-                if path.exists() {
+                if path.exists() && !path.is_dir() {
                     return path;
                 }
             }
 
+            // Fallback to third_party if in development environment
+            let dev_magic = PathBuf::from("third_party/magic.mgc");
+            if dev_magic.exists() {
+                return dev_magic;
+            }
+
             // Fallback to test files if in CI/CD environment
             if std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok() {
-                return PathBuf::from("test_files/magic");
+                return PathBuf::from("third_party/magic.mgc");
             }
 
             // Default fallback
-            PathBuf::from("/etc/magic")
+            PathBuf::from("/usr/share/file/magic.mgc")
         }
         #[cfg(windows)]
         {
@@ -95,12 +106,12 @@ impl Args {
                 }
             }
 
-            // Fallback to test files (common in CI/CD)
-            PathBuf::from("test_files/magic")
+            // Fallback to third_party (common in CI/CD)
+            PathBuf::from("third_party/magic.mgc")
         }
         #[cfg(not(any(unix, windows)))]
         {
-            PathBuf::from("test_files/magic")
+            PathBuf::from("third_party/magic.mgc")
         }
     }
 }
@@ -355,15 +366,37 @@ fn validate_magic_file(magic_file_path: &Path) -> Result<(), LibmagicError> {
     }
 
     // Try to read the magic file to check permissions and basic format
-    match fs::read_to_string(magic_file_path) {
+    // Handle both text magic files and binary .mgc files
+    match fs::read(magic_file_path) {
         Ok(content) => {
             // Basic validation - check if file is completely empty
-            if content.trim().is_empty() {
+            if content.is_empty() {
                 return Err(LibmagicError::ParseError(
                     libmagic_rs::ParseError::invalid_syntax(0, "Magic file is empty"),
                 ));
             }
-            Ok(())
+
+            // Check if it's a binary magic file (.mgc) - these start with specific magic bytes
+            if content.starts_with(b"\x0d\x0a\x1a\x0a") || content.len() > 100_000 {
+                // Looks like a binary magic file, just check it's readable
+                Ok(())
+            } else {
+                // Try to parse as text magic file
+                match std::str::from_utf8(&content) {
+                    Ok(text_content) => {
+                        if text_content.trim().is_empty() {
+                            return Err(LibmagicError::ParseError(
+                                libmagic_rs::ParseError::invalid_syntax(0, "Magic file is empty"),
+                            ));
+                        }
+                        Ok(())
+                    }
+                    Err(_) => {
+                        // Not valid UTF-8, might be a binary file - allow it
+                        Ok(())
+                    }
+                }
+            }
         }
         Err(e) => Err(LibmagicError::IoError(e)),
     }
@@ -575,14 +608,35 @@ mod tests {
         let default_path = args.get_magic_file_path();
 
         // Test that we get a platform-appropriate default
+        // The actual path depends on what magic files exist on the system
         #[cfg(unix)]
-        assert_eq!(default_path, PathBuf::from("/etc/magic"));
+        {
+            let expected_candidates = [
+                "/usr/share/file/magic.mgc",
+                "/usr/local/share/misc/magic.mgc",
+                "/opt/local/share/file/magic.mgc",
+                "/etc/magic.mgc",
+                "/usr/share/misc/magic.mgc",
+                "/usr/share/file/magic",
+                "/etc/magic",
+                "/usr/share/misc/magic",
+                "/opt/local/share/file/magic",
+                "/usr/local/share/misc/magic",
+                "third_party/magic.mgc", // Development/CI fallback
+            ];
+            // Should be one of the standard Unix magic file locations or fallback
+            assert!(
+                expected_candidates.contains(&default_path.to_str().unwrap()),
+                "Got unexpected path: {:?}",
+                default_path
+            );
+        }
 
         #[cfg(windows)]
-        assert_eq!(default_path, PathBuf::from("test_files/magic"));
+        assert_eq!(default_path, PathBuf::from("third_party/magic.mgc"));
 
         #[cfg(not(any(unix, windows)))]
-        assert_eq!(default_path, PathBuf::from("test_files/magic"));
+        assert_eq!(default_path, PathBuf::from("third_party/magic.mgc"));
     }
 
     #[test]
@@ -590,14 +644,35 @@ mod tests {
         let default_path = Args::default_magic_file_path();
 
         // Test that we get a platform-appropriate default
+        // The actual path depends on what magic files exist on the system
         #[cfg(unix)]
-        assert_eq!(default_path, PathBuf::from("/etc/magic"));
+        {
+            let expected_candidates = [
+                "/usr/share/file/magic.mgc",
+                "/usr/local/share/misc/magic.mgc",
+                "/opt/local/share/file/magic.mgc",
+                "/etc/magic.mgc",
+                "/usr/share/misc/magic.mgc",
+                "/usr/share/file/magic",
+                "/etc/magic",
+                "/usr/share/misc/magic",
+                "/opt/local/share/file/magic",
+                "/usr/local/share/misc/magic",
+                "third_party/magic.mgc", // Development/CI fallback
+            ];
+            // Should be one of the standard Unix magic file locations or fallback
+            assert!(
+                expected_candidates.contains(&default_path.to_str().unwrap()),
+                "Got unexpected path: {:?}",
+                default_path
+            );
+        }
 
         #[cfg(windows)]
-        assert_eq!(default_path, PathBuf::from("test_files/magic"));
+        assert_eq!(default_path, PathBuf::from("third_party/magic.mgc"));
 
         #[cfg(not(any(unix, windows)))]
-        assert_eq!(default_path, PathBuf::from("test_files/magic"));
+        assert_eq!(default_path, PathBuf::from("third_party/magic.mgc"));
     }
 
     // Error handling tests
