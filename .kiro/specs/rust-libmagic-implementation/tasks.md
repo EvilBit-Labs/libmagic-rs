@@ -86,7 +86,7 @@
 - **Binary format (.mgc)**: Compiled binary files with magic signature, optimized for fast loading
 - **Priority**: Implement text format first (more common in development), then binary format for compatibility
 
-- [ ] 14.1 Implement complete magic rule parsing for text format
+- [x] 14.1 Implement complete magic rule parsing for text format
 
   - Add parse_magic_rule function to parser/grammar.rs for parsing complete rule lines from text magic files
   - Support offset, type, operator, value, and message parsing in sequence for human-readable format

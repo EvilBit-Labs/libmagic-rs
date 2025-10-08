@@ -6,7 +6,7 @@
 use nom::{
     IResult, Parser,
     branch::alt,
-    bytes::complete::tag,
+    bytes::complete::{tag, take_while},
     character::complete::{char, digit1, hex_digit1, multispace0, none_of, one_of},
     combinator::{map, opt, recognize},
     error::Error as NomError,
@@ -14,7 +14,7 @@ use nom::{
     sequence::pair,
 };
 
-use crate::parser::ast::{OffsetSpec, Operator, Value};
+use crate::parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, TypeKind, Value};
 
 /// Parse a decimal number with overflow protection
 fn parse_decimal_number(input: &str) -> IResult<&str, i64> {
@@ -239,6 +239,49 @@ fn parse_hex_bytes_with_prefix(input: &str) -> IResult<&str, Vec<u8>> {
     }
 }
 
+/// Parse a mixed hex and ASCII sequence (like \x7fELF)
+fn parse_mixed_hex_ascii(input: &str) -> IResult<&str, Vec<u8>> {
+    // Must start with \ to be considered an escape sequence
+    if !input.starts_with('\\') {
+        return Err(nom::Err::Error(NomError::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )));
+    }
+
+    let mut bytes = Vec::new();
+    let mut remaining = input;
+
+    while !remaining.is_empty() {
+        // Try to parse escape sequences first (hex, octal, etc.)
+        if let Ok((new_remaining, escaped_char)) = parse_escape_sequence(remaining) {
+            bytes.push(escaped_char as u8);
+            remaining = new_remaining;
+        } else if let Ok((new_remaining, hex_byte)) = parse_hex_byte_with_prefix(remaining) {
+            bytes.push(hex_byte);
+            remaining = new_remaining;
+        } else if let Ok((new_remaining, ascii_char)) =
+            none_of::<&str, &str, NomError<&str>>(" \t\n\r")(remaining)
+        {
+            // Parse regular ASCII character (not whitespace)
+            bytes.push(ascii_char as u8);
+            remaining = new_remaining;
+        } else {
+            // Stop if we can't parse anything more
+            break;
+        }
+    }
+
+    if bytes.is_empty() {
+        Err(nom::Err::Error(NomError::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )))
+    } else {
+        Ok((remaining, bytes))
+    }
+}
+
 /// Parse a hex byte sequence without prefix (only if it looks like pure hex bytes)
 fn parse_hex_bytes_no_prefix(input: &str) -> IResult<&str, Vec<u8>> {
     // Only parse as hex bytes if:
@@ -294,9 +337,14 @@ fn parse_hex_bytes_no_prefix(input: &str) -> IResult<&str, Vec<u8>> {
     Ok((remaining, bytes))
 }
 
-/// Parse a hex byte sequence (e.g., "\\x7f\\x45\\x4c\\x46" or "7f454c46")
+/// Parse a hex byte sequence (e.g., "\\x7f\\x45\\x4c\\x46", "7f454c46", or "\\x7fELF")
 fn parse_hex_bytes(input: &str) -> IResult<&str, Vec<u8>> {
-    alt((parse_hex_bytes_with_prefix, parse_hex_bytes_no_prefix)).parse(input)
+    alt((
+        parse_mixed_hex_ascii,
+        parse_hex_bytes_with_prefix,
+        parse_hex_bytes_no_prefix,
+    ))
+    .parse(input)
 }
 
 /// Parse escape sequences in strings
@@ -425,18 +473,21 @@ fn parse_numeric_value(input: &str) -> IResult<&str, Value> {
 pub fn parse_value(input: &str) -> IResult<&str, Value> {
     let (input, _) = multispace0(input)?;
 
-    // Handle empty input case
+    // Handle empty input case - should fail for magic rules
     if input.is_empty() {
-        return Ok((input, Value::Bytes(vec![])));
+        return Err(nom::Err::Error(NomError::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )));
     }
 
     // Try to parse different value types in order of specificity
     let (input, value) = alt((
         // Try quoted string first
         map(parse_quoted_string, Value::String),
-        // Try hex byte sequence before numeric (to catch patterns like "7f", "ab", etc.)
+        // Try hex byte sequence before numeric (to catch patterns like "7f", "ab", "\\x7fELF", etc.)
         map(parse_hex_bytes, Value::Bytes),
-        // Try numeric value last (including hex numbers with 0x prefix)
+        // Try numeric value last (for pure numbers like 0x123, 1, etc.)
         parse_numeric_value,
     ))
     .parse(input)?;
@@ -1228,8 +1279,8 @@ mod tests {
             Ok(("", Value::Uint(2_147_483_647)))
         );
 
-        // Empty hex bytes
-        assert_eq!(parse_value(""), Ok(("", Value::Bytes(vec![]))));
+        // Empty input should fail
+        assert!(parse_value("").is_err());
     }
 
     #[test]
@@ -1343,5 +1394,817 @@ mod tests {
                 }
             }
         }
+    }
+}
+/// Parse a type specification (byte, short, long, string, etc.)
+///
+/// Supports various type formats found in magic files:
+/// - `byte` - single byte
+/// - `short` - 16-bit integer (native endian)
+/// - `leshort` - 16-bit little-endian integer
+/// - `beshort` - 16-bit big-endian integer
+/// - `long` - 32-bit integer (native endian)
+/// - `lelong` - 32-bit little-endian integer
+/// - `belong` - 32-bit big-endian integer
+/// - `string` - null-terminated string
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::grammar::parse_type;
+/// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+///
+/// assert_eq!(parse_type("byte"), Ok(("", TypeKind::Byte)));
+/// assert_eq!(parse_type("leshort"), Ok(("", TypeKind::Short { endian: Endianness::Little, signed: false })));
+/// assert_eq!(parse_type("string"), Ok(("", TypeKind::String { max_length: None })));
+/// ```
+/// Parse a type specification with optional attached operator
+/// Parse a type specification followed by an optional operator
+///
+/// # Errors
+/// Returns a nom parsing error if the input doesn't match the expected format
+pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<Operator>)> {
+    let (input, _) = multispace0(input)?;
+
+    let (input, type_name) = alt((
+        tag("lelong"),
+        tag("belong"),
+        tag("leshort"),
+        tag("beshort"),
+        tag("long"),
+        tag("short"),
+        tag("byte"),
+        tag("string"),
+    ))
+    .parse(input)?;
+
+    // Check for attached operator with mask (like &0xf0000000)
+    let (input, attached_op) = opt(alt((
+        // Parse &mask format
+        map(pair(char('&'), parse_number), |(_, mask)| {
+            Operator::BitwiseAndMask(mask.unsigned_abs())
+        }),
+        // Parse standalone & (for backward compatibility)
+        map(char('&'), |_| Operator::BitwiseAnd),
+        // Add more operators as needed
+    )))
+    .parse(input)?;
+
+    let (input, _) = multispace0(input)?;
+
+    let type_kind = match type_name {
+        "byte" => TypeKind::Byte,
+        "short" => TypeKind::Short {
+            endian: Endianness::Native,
+            signed: false,
+        },
+        "leshort" => TypeKind::Short {
+            endian: Endianness::Little,
+            signed: false,
+        },
+        "beshort" => TypeKind::Short {
+            endian: Endianness::Big,
+            signed: false,
+        },
+        "long" => TypeKind::Long {
+            endian: Endianness::Native,
+            signed: false,
+        },
+        "lelong" => TypeKind::Long {
+            endian: Endianness::Little,
+            signed: false,
+        },
+        "belong" => TypeKind::Long {
+            endian: Endianness::Big,
+            signed: false,
+        },
+        "string" => TypeKind::String { max_length: None },
+        _ => unreachable!("Parser should only match known types"),
+    };
+
+    Ok((input, (type_kind, attached_op)))
+}
+
+/// Parse a type specification (backward compatibility)
+/// Parse a type specification (byte, short, long, string, etc.)
+///
+/// # Errors
+/// Returns a nom parsing error if the input doesn't match any known type
+pub fn parse_type(input: &str) -> IResult<&str, TypeKind> {
+    let (input, (type_kind, _)) = parse_type_and_operator(input)?;
+    Ok((input, type_kind))
+}
+
+/// Parse the indentation level and offset for magic rules
+///
+/// Handles both absolute offsets and hierarchical child rules with `>` prefix.
+/// Child rules can be nested multiple levels deep with multiple `>` characters.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::grammar::parse_rule_offset;
+/// use libmagic_rs::parser::ast::OffsetSpec;
+///
+/// // Absolute offset
+/// assert_eq!(parse_rule_offset("0"), Ok(("", (0, OffsetSpec::Absolute(0)))));
+/// assert_eq!(parse_rule_offset("16"), Ok(("", (0, OffsetSpec::Absolute(16)))));
+///
+/// // Child rule (level 1)
+/// assert_eq!(parse_rule_offset(">4"), Ok(("", (1, OffsetSpec::Absolute(4)))));
+///
+/// // Nested child rule (level 2)
+/// assert_eq!(parse_rule_offset(">>8"), Ok(("", (2, OffsetSpec::Absolute(8)))));
+/// ```
+/// Parse rule offset with hierarchy level (> prefixes) and offset specification
+///
+/// # Errors
+/// Returns a nom parsing error if the input doesn't match the expected offset format
+pub fn parse_rule_offset(input: &str) -> IResult<&str, (u32, OffsetSpec)> {
+    let (input, _) = multispace0(input)?;
+
+    // Count the number of '>' characters for nesting level
+    let (input, level_chars) = many0(char('>')).parse(input)?;
+    let level = u32::try_from(level_chars.len()).unwrap_or(0);
+
+    // Parse the offset after the '>' characters
+    let (input, offset_spec) = parse_offset(input)?;
+
+    Ok((input, (level, offset_spec)))
+}
+
+/// Parse the message part of a magic rule
+///
+/// The message is everything after the value until the end of the line.
+/// It may contain format specifiers and can be empty.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::grammar::parse_message;
+///
+/// assert_eq!(parse_message("ELF executable"), Ok(("", "ELF executable".to_string())));
+/// assert_eq!(parse_message(""), Ok(("", "".to_string())));
+/// assert_eq!(parse_message("  \tPDF document  "), Ok(("", "PDF document".to_string())));
+/// ```
+/// Parse the message/description part of a magic rule
+///
+/// # Errors
+/// Returns a nom parsing error if the input cannot be parsed as a message
+pub fn parse_message(input: &str) -> IResult<&str, String> {
+    let (input, _) = multispace0(input)?;
+
+    // Take everything until end of line, trimming whitespace
+    // Use take_while instead of take_while1 to handle empty messages
+    let (input, message_text) = take_while(|c: char| c != '\n' && c != '\r').parse(input)?;
+    let message = message_text.trim().to_string();
+
+    Ok((input, message))
+}
+
+/// Parse a complete magic rule line from text format
+///
+/// Parses a complete magic rule in the format:
+/// `[>...]offset type [operator] value [message]`
+///
+/// Where:
+/// - `>...` indicates child rule nesting level (optional)
+/// - `offset` is the byte offset to read from
+/// - `type` is the data type (byte, short, long, string, etc.)
+/// - `operator` is the comparison operator (=, !=, &) - defaults to = if omitted
+/// - `value` is the expected value to compare against
+/// - `message` is the human-readable description (optional)
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::grammar::parse_magic_rule;
+/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
+///
+/// // Basic rule
+/// let input = "0 string \\x7fELF ELF executable";
+/// let (_, rule) = parse_magic_rule(input).unwrap();
+/// assert_eq!(rule.level, 0);
+/// assert_eq!(rule.message, "ELF executable");
+///
+/// // Child rule
+/// let input = ">4 byte 1 32-bit";
+/// let (_, rule) = parse_magic_rule(input).unwrap();
+/// assert_eq!(rule.level, 1);
+/// assert_eq!(rule.message, "32-bit");
+/// ```
+///
+/// # Errors
+///
+/// Returns a nom parsing error if:
+/// - The offset specification is invalid
+/// - The type specification is not recognized
+/// - The operator is invalid (if present)
+/// - The value cannot be parsed
+/// - The input format doesn't match the expected magic rule syntax
+pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
+    let (input, _) = multispace0(input)?;
+
+    // Parse the offset with nesting level
+    let (input, (level, offset)) = parse_rule_offset(input)?;
+
+    // Parse the type and any attached operator
+    let (input, (typ, attached_op)) = parse_type_and_operator(input)?;
+
+    // Try to parse a separate operator (optional - use attached operator if present)
+    let (input, separate_op) = opt(parse_operator).parse(input)?;
+    let op = attached_op.or(separate_op).unwrap_or(Operator::Equal);
+
+    // Parse the value
+    let (input, value) = parse_value(input)?;
+
+    // Parse the message (optional - everything remaining on the line)
+    let (input, message) = if input.trim().is_empty() {
+        (input, String::new())
+    } else {
+        parse_message(input)?
+    };
+
+    let rule = MagicRule {
+        offset,
+        typ,
+        op,
+        value,
+        message,
+        children: vec![], // Children will be added during hierarchical parsing
+        level,
+    };
+
+    Ok((input, rule))
+}
+
+/// Parse a comment line (starts with #)
+///
+/// Comments in magic files start with '#' and continue to the end of the line.
+/// This function consumes the entire comment line.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::grammar::parse_comment;
+///
+/// assert_eq!(parse_comment("# This is a comment"), Ok(("", "This is a comment".to_string())));
+/// assert_eq!(parse_comment("#"), Ok(("", "".to_string())));
+/// ```
+/// Parse a comment line (starting with #)
+///
+/// # Errors
+/// Returns a nom parsing error if the input is not a valid comment
+pub fn parse_comment(input: &str) -> IResult<&str, String> {
+    let (input, _) = multispace0(input)?;
+    let (input, _) = char('#').parse(input)?;
+    let (input, comment_text) = take_while(|c: char| c != '\n' && c != '\r').parse(input)?;
+    let comment = comment_text.trim().to_string();
+    Ok((input, comment))
+}
+
+/// Check if a line is empty or contains only whitespace
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::grammar::is_empty_line;
+///
+/// assert!(is_empty_line(""));
+/// assert!(is_empty_line("   "));
+/// assert!(is_empty_line("\t\t"));
+/// assert!(!is_empty_line("0 byte 1"));
+/// ```
+#[must_use]
+pub fn is_empty_line(input: &str) -> bool {
+    input.trim().is_empty()
+}
+
+/// Check if a line is a comment (starts with #)
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::grammar::is_comment_line;
+///
+/// assert!(is_comment_line("# This is a comment"));
+/// assert!(is_comment_line("#"));
+/// assert!(is_comment_line("  # Indented comment"));
+/// assert!(!is_comment_line("0 byte 1"));
+/// ```
+#[must_use]
+pub fn is_comment_line(input: &str) -> bool {
+    input.trim().starts_with('#')
+}
+
+/// Check if a line ends with a continuation character (\)
+///
+/// Magic files support line continuation with backslash at the end of lines.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::grammar::has_continuation;
+///
+/// assert!(has_continuation("0 string test \\"));
+/// assert!(has_continuation("message continues \\"));
+/// assert!(!has_continuation("0 string test"));
+/// ```
+#[must_use]
+pub fn has_continuation(input: &str) -> bool {
+    input.trim_end().ends_with('\\')
+}
+// Tests for new magic rule parsing functions
+
+#[test]
+fn test_parse_type_basic() {
+    assert_eq!(parse_type("byte"), Ok(("", TypeKind::Byte)));
+    assert_eq!(
+        parse_type("short"),
+        Ok((
+            "",
+            TypeKind::Short {
+                endian: Endianness::Native,
+                signed: false
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("long"),
+        Ok((
+            "",
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: false
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("string"),
+        Ok(("", TypeKind::String { max_length: None }))
+    );
+}
+
+#[test]
+fn test_parse_type_endianness() {
+    assert_eq!(
+        parse_type("leshort"),
+        Ok((
+            "",
+            TypeKind::Short {
+                endian: Endianness::Little,
+                signed: false
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("beshort"),
+        Ok((
+            "",
+            TypeKind::Short {
+                endian: Endianness::Big,
+                signed: false
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("lelong"),
+        Ok((
+            "",
+            TypeKind::Long {
+                endian: Endianness::Little,
+                signed: false
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("belong"),
+        Ok((
+            "",
+            TypeKind::Long {
+                endian: Endianness::Big,
+                signed: false
+            }
+        ))
+    );
+}
+
+#[test]
+fn test_parse_type_with_whitespace() {
+    assert_eq!(parse_type(" byte "), Ok(("", TypeKind::Byte)));
+    assert_eq!(
+        parse_type("\tstring\t"),
+        Ok(("", TypeKind::String { max_length: None }))
+    );
+    assert_eq!(
+        parse_type("  lelong  "),
+        Ok((
+            "",
+            TypeKind::Long {
+                endian: Endianness::Little,
+                signed: false
+            }
+        ))
+    );
+}
+
+#[test]
+fn test_parse_type_with_remaining_input() {
+    assert_eq!(parse_type("byte ="), Ok(("=", TypeKind::Byte)));
+    assert_eq!(
+        parse_type("string \\x7f"),
+        Ok(("\\x7f", TypeKind::String { max_length: None }))
+    );
+}
+
+#[test]
+fn test_parse_type_invalid() {
+    assert!(parse_type("").is_err());
+    assert!(parse_type("invalid").is_err());
+    assert!(parse_type("int").is_err());
+    assert!(parse_type("float").is_err());
+}
+
+#[test]
+fn test_parse_rule_offset_absolute() {
+    assert_eq!(
+        parse_rule_offset("0"),
+        Ok(("", (0, OffsetSpec::Absolute(0))))
+    );
+    assert_eq!(
+        parse_rule_offset("16"),
+        Ok(("", (0, OffsetSpec::Absolute(16))))
+    );
+    assert_eq!(
+        parse_rule_offset("0x10"),
+        Ok(("", (0, OffsetSpec::Absolute(16))))
+    );
+    assert_eq!(
+        parse_rule_offset("-4"),
+        Ok(("", (0, OffsetSpec::Absolute(-4))))
+    );
+}
+
+#[test]
+fn test_parse_rule_offset_child_rules() {
+    assert_eq!(
+        parse_rule_offset(">4"),
+        Ok(("", (1, OffsetSpec::Absolute(4))))
+    );
+    assert_eq!(
+        parse_rule_offset(">>8"),
+        Ok(("", (2, OffsetSpec::Absolute(8))))
+    );
+    assert_eq!(
+        parse_rule_offset(">>>12"),
+        Ok(("", (3, OffsetSpec::Absolute(12))))
+    );
+}
+
+#[test]
+fn test_parse_rule_offset_with_whitespace() {
+    assert_eq!(
+        parse_rule_offset(" 0 "),
+        Ok(("", (0, OffsetSpec::Absolute(0))))
+    );
+    assert_eq!(
+        parse_rule_offset("  >4  "),
+        Ok(("", (1, OffsetSpec::Absolute(4))))
+    );
+    assert_eq!(
+        parse_rule_offset("\t>>0x10\t"),
+        Ok(("", (2, OffsetSpec::Absolute(16))))
+    );
+}
+
+#[test]
+fn test_parse_rule_offset_with_remaining_input() {
+    assert_eq!(
+        parse_rule_offset("0 byte"),
+        Ok(("byte", (0, OffsetSpec::Absolute(0))))
+    );
+    assert_eq!(
+        parse_rule_offset(">4 string"),
+        Ok(("string", (1, OffsetSpec::Absolute(4))))
+    );
+}
+
+#[test]
+fn test_parse_message_basic() {
+    assert_eq!(
+        parse_message("ELF executable"),
+        Ok(("", "ELF executable".to_string()))
+    );
+    assert_eq!(
+        parse_message("PDF document"),
+        Ok(("", "PDF document".to_string()))
+    );
+    assert_eq!(parse_message(""), Ok(("", String::new())));
+}
+
+#[test]
+fn test_parse_message_with_whitespace() {
+    assert_eq!(
+        parse_message("  ELF executable  "),
+        Ok(("", "ELF executable".to_string()))
+    );
+    assert_eq!(
+        parse_message("\tPDF document\t"),
+        Ok(("", "PDF document".to_string()))
+    );
+    assert_eq!(parse_message("   "), Ok(("", String::new())));
+}
+
+#[test]
+fn test_parse_message_complex() {
+    assert_eq!(
+        parse_message("ELF 64-bit LSB executable"),
+        Ok(("", "ELF 64-bit LSB executable".to_string()))
+    );
+    assert_eq!(
+        parse_message("ZIP archive, version %d.%d"),
+        Ok(("", "ZIP archive, version %d.%d".to_string()))
+    );
+}
+
+#[test]
+fn test_parse_magic_rule_basic() {
+    let input = "0 string \\x7fELF ELF executable";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+
+    assert_eq!(remaining, "");
+    assert_eq!(rule.level, 0);
+    assert_eq!(rule.offset, OffsetSpec::Absolute(0));
+    assert_eq!(rule.typ, TypeKind::String { max_length: None });
+    assert_eq!(rule.op, Operator::Equal);
+    assert_eq!(rule.value, Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]));
+    assert_eq!(rule.message, "ELF executable");
+    assert!(rule.children.is_empty());
+}
+
+#[test]
+fn test_parse_magic_rule_child() {
+    let input = ">4 byte 1 32-bit";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+
+    assert_eq!(remaining, "");
+    assert_eq!(rule.level, 1);
+    assert_eq!(rule.offset, OffsetSpec::Absolute(4));
+    assert_eq!(rule.typ, TypeKind::Byte);
+    assert_eq!(rule.op, Operator::Equal);
+    assert_eq!(rule.value, Value::Uint(1));
+    assert_eq!(rule.message, "32-bit");
+}
+
+#[test]
+fn test_parse_magic_rule_with_operator() {
+    let input = "0 lelong&0xf0000000 0x10000000 MIPS-II";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+
+    assert_eq!(remaining, "");
+    assert_eq!(rule.level, 0);
+    assert_eq!(rule.offset, OffsetSpec::Absolute(0));
+    assert_eq!(
+        rule.typ,
+        TypeKind::Long {
+            endian: Endianness::Little,
+            signed: false
+        }
+    );
+    assert_eq!(rule.op, Operator::BitwiseAndMask(0xf000_0000));
+    assert_eq!(rule.value, Value::Uint(0x1000_0000));
+    assert_eq!(rule.message, "MIPS-II");
+}
+
+#[test]
+fn test_parse_magic_rule_no_message() {
+    let input = "0 byte 0x7f";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+
+    assert_eq!(remaining, "");
+    assert_eq!(rule.level, 0);
+    assert_eq!(rule.offset, OffsetSpec::Absolute(0));
+    assert_eq!(rule.typ, TypeKind::Byte);
+    assert_eq!(rule.op, Operator::Equal);
+    assert_eq!(rule.value, Value::Uint(0x7f));
+    assert_eq!(rule.message, "");
+}
+
+#[test]
+fn test_parse_magic_rule_nested() {
+    let input = ">>8 leshort 0x014c Microsoft COFF";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+
+    assert_eq!(remaining, "");
+    assert_eq!(rule.level, 2);
+    assert_eq!(rule.offset, OffsetSpec::Absolute(8));
+    assert_eq!(
+        rule.typ,
+        TypeKind::Short {
+            endian: Endianness::Little,
+            signed: false
+        }
+    );
+    assert_eq!(rule.op, Operator::Equal);
+    assert_eq!(rule.value, Value::Uint(0x014c));
+    assert_eq!(rule.message, "Microsoft COFF");
+}
+
+#[test]
+fn test_parse_magic_rule_with_whitespace() {
+    let input = "  >  4   byte   =   1   32-bit  ";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+
+    assert_eq!(remaining, "");
+    assert_eq!(rule.level, 1);
+    assert_eq!(rule.offset, OffsetSpec::Absolute(4));
+    assert_eq!(rule.typ, TypeKind::Byte);
+    assert_eq!(rule.op, Operator::Equal);
+    assert_eq!(rule.value, Value::Uint(1));
+    assert_eq!(rule.message, "32-bit");
+}
+
+#[test]
+fn test_parse_magic_rule_string_value() {
+    let input = "0 string \"PK\" ZIP archive";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+
+    assert_eq!(remaining, "");
+    assert_eq!(rule.level, 0);
+    assert_eq!(rule.offset, OffsetSpec::Absolute(0));
+    assert_eq!(rule.typ, TypeKind::String { max_length: None });
+    assert_eq!(rule.op, Operator::Equal);
+    assert_eq!(rule.value, Value::String("PK".to_string()));
+    assert_eq!(rule.message, "ZIP archive");
+}
+
+#[test]
+fn test_parse_magic_rule_hex_offset() {
+    let input = "0x10 belong 0x12345678 Test data";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+
+    assert_eq!(remaining, "");
+    assert_eq!(rule.level, 0);
+    assert_eq!(rule.offset, OffsetSpec::Absolute(16));
+    assert_eq!(
+        rule.typ,
+        TypeKind::Long {
+            endian: Endianness::Big,
+            signed: false
+        }
+    );
+    assert_eq!(rule.op, Operator::Equal);
+    assert_eq!(rule.value, Value::Uint(0x1234_5678));
+    assert_eq!(rule.message, "Test data");
+}
+
+#[test]
+fn test_parse_magic_rule_negative_offset() {
+    let input = "-4 byte 0 End marker";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+
+    assert_eq!(remaining, "");
+    assert_eq!(rule.level, 0);
+    assert_eq!(rule.offset, OffsetSpec::Absolute(-4));
+    assert_eq!(rule.typ, TypeKind::Byte);
+    assert_eq!(rule.op, Operator::Equal);
+    assert_eq!(rule.value, Value::Uint(0));
+    assert_eq!(rule.message, "End marker");
+}
+
+#[test]
+fn test_parse_comment() {
+    assert_eq!(
+        parse_comment("# This is a comment"),
+        Ok(("", "This is a comment".to_string()))
+    );
+    assert_eq!(parse_comment("#"), Ok(("", String::new())));
+    assert_eq!(
+        parse_comment("# ELF executables"),
+        Ok(("", "ELF executables".to_string()))
+    );
+}
+
+#[test]
+fn test_parse_comment_with_whitespace() {
+    assert_eq!(
+        parse_comment("  # Indented comment  "),
+        Ok(("", "Indented comment".to_string()))
+    );
+    assert_eq!(
+        parse_comment("\t#\tTabbed comment\t"),
+        Ok(("", "Tabbed comment".to_string()))
+    );
+}
+
+#[test]
+fn test_is_empty_line() {
+    assert!(is_empty_line(""));
+    assert!(is_empty_line("   "));
+    assert!(is_empty_line("\t\t"));
+    assert!(is_empty_line(" \t \t "));
+    assert!(!is_empty_line("0 byte 1"));
+    assert!(!is_empty_line("  # comment"));
+}
+
+#[test]
+fn test_is_comment_line() {
+    assert!(is_comment_line("# This is a comment"));
+    assert!(is_comment_line("#"));
+    assert!(is_comment_line("  # Indented comment"));
+    assert!(is_comment_line("\t# Tabbed comment"));
+    assert!(!is_comment_line("0 byte 1"));
+    assert!(!is_comment_line("string test"));
+}
+
+#[test]
+fn test_has_continuation() {
+    assert!(has_continuation("0 string test \\"));
+    assert!(has_continuation("message continues \\"));
+    assert!(has_continuation("line ends with backslash\\"));
+    assert!(has_continuation("  trailing whitespace  \\  "));
+    assert!(!has_continuation("0 string test"));
+    assert!(!has_continuation("no continuation"));
+    assert!(!has_continuation("backslash in middle \\ here"));
+}
+
+#[test]
+fn test_parse_magic_rule_real_world_examples() {
+    // Real examples from /usr/share/file/magic/elf
+    let examples = [
+        "0 string \\177ELF ELF",
+        ">4 byte 1 32-bit",
+        ">4 byte 2 64-bit",
+        ">5 byte 1 LSB",
+        ">5 byte 2 MSB",
+        ">>0 lelong&0xf0000000 0x10000000 MIPS-II",
+    ];
+
+    for example in examples {
+        let result = parse_magic_rule(example);
+        assert!(
+            result.is_ok(),
+            "Failed to parse real-world example: '{example}'"
+        );
+
+        let (remaining, rule) = result.unwrap();
+        assert_eq!(remaining, "", "Unexpected remaining input for: '{example}'");
+        assert!(
+            !rule.message.is_empty() || example.contains("\\177ELF"),
+            "Empty message for: '{example}'"
+        );
+    }
+}
+
+#[test]
+fn test_parse_magic_rule_edge_cases() {
+    // Test various edge cases
+    let edge_cases = [
+        ("0 byte 0", 0, TypeKind::Byte, Value::Uint(0), ""),
+        (
+            ">>>16 string \"\" Empty string",
+            3,
+            TypeKind::String { max_length: None },
+            Value::String(String::new()),
+            "Empty string",
+        ),
+        (
+            "0x100 lelong 0xFFFFFFFF Max value",
+            0,
+            TypeKind::Long {
+                endian: Endianness::Little,
+                signed: false,
+            },
+            Value::Uint(0xFFFF_FFFF),
+            "Max value",
+        ),
+    ];
+
+    for (input, expected_level, expected_type, expected_value, expected_message) in edge_cases {
+        let (remaining, rule) = parse_magic_rule(input).unwrap();
+        assert_eq!(remaining, "");
+        assert_eq!(rule.level, expected_level);
+        assert_eq!(rule.typ, expected_type);
+        assert_eq!(rule.value, expected_value);
+        assert_eq!(rule.message, expected_message);
+    }
+}
+
+#[test]
+fn test_parse_magic_rule_invalid_input() {
+    let invalid_inputs = [
+        "",               // Empty input
+        "invalid format", // No valid offset
+        "0",              // Missing type
+        "0 invalid_type", // Invalid type
+        "0 byte",         // Missing value
+    ];
+
+    for invalid_input in invalid_inputs {
+        let result = parse_magic_rule(invalid_input);
+        assert!(
+            result.is_err(),
+            "Should fail to parse invalid input: '{invalid_input}'"
+        );
     }
 }

@@ -104,8 +104,10 @@ pub enum Operator {
     Equal,
     /// Inequality comparison
     NotEqual,
-    /// Bitwise AND operation
+    /// Bitwise AND operation (without mask)
     BitwiseAnd,
+    /// Bitwise AND operation with mask value
+    BitwiseAndMask(u64),
 }
 
 /// Value types for rule matching
