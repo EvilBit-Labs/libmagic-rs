@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_all_offset_spec_variants() {
-        let variants = vec![
+        let variants = [
             OffsetSpec::Absolute(0),
             OffsetSpec::Absolute(-100),
             OffsetSpec::Indirect {
