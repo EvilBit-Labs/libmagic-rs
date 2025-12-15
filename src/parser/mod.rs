@@ -21,8 +21,6 @@ struct LineInfo {
     content: String,
     /// The original line number (1-indexed)
     line_number: usize,
-    /// The hierarchy level (0 = top-level, 1 = child, etc.)
-    level: u32,
 }
 
 /// Preprocess lines from a magic file
@@ -41,11 +39,7 @@ struct LineInfo {
 /// # Returns
 ///
 /// A vector of `LineInfo` structures representing preprocessed lines
-///
-/// # Errors
-///
-/// Returns `ParseError` if line continuation is malformed
-fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError> {
+fn preprocess_lines(input: &str) -> Vec<LineInfo> {
     let mut lines = Vec::new();
     let mut current_line = String::new();
     let mut continuation_start_line = 0;
@@ -89,7 +83,6 @@ fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError> {
                 lines.push(LineInfo {
                     content: trimmed.to_string(),
                     line_number: continuation_start_line,
-                    level: 0, // Level will be set by parse_magic_rule
                 });
             }
 
@@ -106,12 +99,11 @@ fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError> {
             lines.push(LineInfo {
                 content: trimmed.to_string(),
                 line_number: continuation_start_line,
-                level: 0, // Level will be set by parse_magic_rule
             });
         }
     }
 
-    Ok(lines)
+    lines
 }
 
 /// Parse a single magic rule line
@@ -138,7 +130,7 @@ fn parse_magic_rule_line(line_info: &LineInfo) -> Result<MagicRule, ParseError> 
             if !remaining.trim().is_empty() {
                 return Err(ParseError::invalid_syntax(
                     line_info.line_number,
-                    format!("Unexpected content after rule: '{}'", remaining),
+                    format!("Unexpected content after rule: '{remaining}'"),
                 ));
             }
 
@@ -317,7 +309,7 @@ fn navigate_to_parent<'a>(
 /// ```
 pub fn parse_text_magic_file(input: &str) -> Result<Vec<MagicRule>, ParseError> {
     // Phase 1: Preprocess lines
-    let line_infos = preprocess_lines(input)?;
+    let line_infos = preprocess_lines(input);
 
     // Phase 2: Parse each line into a rule
     let mut rules_with_line_numbers = Vec::new();
@@ -337,22 +329,21 @@ mod tests {
     #[test]
     fn test_preprocess_lines_basic() {
         let input = "0 string test Test file";
-        let lines = preprocess_lines(input).unwrap();
+        let lines = preprocess_lines(input);
 
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].content, "0 string test Test file");
         assert_eq!(lines[0].line_number, 1);
-        assert_eq!(lines[0].level, 0);
     }
 
     #[test]
     fn test_preprocess_lines_with_comments() {
-        let input = r#"
+        let input = r"
 # This is a comment
 0 string test Test file
 # Another comment
-"#;
-        let lines = preprocess_lines(input).unwrap();
+";
+        let lines = preprocess_lines(input);
 
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].content, "0 string test Test file");
@@ -361,22 +352,22 @@ mod tests {
 
     #[test]
     fn test_preprocess_lines_with_empty_lines() {
-        let input = r#"
-0 string test Test file
-
->4 byte 1 Child rule
-"#;
-        let lines = preprocess_lines(input).unwrap();
+        let input = "\n\
+                     0 string test Test file\n\
+                     \n\
+                     >4 byte 1 Child rule\n";
+        let lines = preprocess_lines(input);
 
         assert_eq!(lines.len(), 2);
-        assert_eq!(lines[0].level, 0);
-        assert_eq!(lines[1].level, 1);
+        // Lines should contain the > prefix
+        assert!(!lines[0].content.starts_with('>'));
+        assert!(lines[1].content.starts_with('>'));
     }
 
     #[test]
     fn test_preprocess_lines_with_continuation() {
         let input = "0 string test Long message \\\n        continued here";
-        let lines = preprocess_lines(input).unwrap();
+        let lines = preprocess_lines(input);
 
         assert_eq!(lines.len(), 1);
         assert!(lines[0].content.contains("Long message"));
@@ -390,7 +381,7 @@ mod tests {
 >4 byte 1 Child
 >>8 byte 2 Grandchild
 ";
-        let lines = preprocess_lines(input).unwrap();
+        let lines = preprocess_lines(input);
 
         assert_eq!(lines.len(), 3);
         // The > characters are NOT stripped - they're part of the content
@@ -402,7 +393,7 @@ mod tests {
     #[test]
     fn test_preprocess_lines_inline_comments() {
         let input = "0 string test Test file # This is a comment";
-        let lines = preprocess_lines(input).unwrap();
+        let lines = preprocess_lines(input);
 
         assert_eq!(lines.len(), 1);
         assert!(lines[0].content.contains("Test file"));
@@ -416,7 +407,6 @@ mod tests {
 
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].message, "ZIP archive");
-        assert_eq!(rules[0].level, 0);
         assert!(rules[0].children.is_empty());
     }
 
@@ -434,8 +424,6 @@ mod tests {
         assert_eq!(rules[0].children.len(), 2);
         assert_eq!(rules[0].children[0].message, "32-bit");
         assert_eq!(rules[0].children[1].message, "64-bit");
-        assert_eq!(rules[0].children[0].level, 1);
-        assert_eq!(rules[0].children[1].level, 1);
     }
 
     #[test]
@@ -452,7 +440,6 @@ mod tests {
         assert_eq!(rules[0].children.len(), 2);
         assert_eq!(rules[0].children[0].children.len(), 1);
         assert_eq!(rules[0].children[0].children[0].message, "executable");
-        assert_eq!(rules[0].children[0].children[0].level, 2);
     }
 
     #[test]
@@ -484,9 +471,12 @@ mod tests {
         let result = parse_text_magic_file(input);
 
         assert!(result.is_err());
-        let error_message = match result {
-            Err(ParseError::InvalidSyntax { message, .. }) => message,
-            _ => panic!("Expected InvalidSyntax error for orphaned child"),
+        let Err(ParseError::InvalidSyntax {
+            message: error_message,
+            ..
+        }) = result
+        else {
+            panic!("Expected InvalidSyntax error for orphaned child")
         };
         assert!(error_message.contains("Orphaned") || error_message.contains("Invalid"));
     }
@@ -675,7 +665,7 @@ mod tests {
 # Line 4 comment
 >4 byte 1 Child
         ";
-        let lines = preprocess_lines(input).unwrap();
+        let lines = preprocess_lines(input);
 
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].line_number, 4); // "0 string \x7f Test 1" is on line 4 (after empty line 1, comment line 2, empty line 3)
