@@ -59,12 +59,18 @@ fn parse_expected(result_path: &Path) -> Vec<String> {
 fn normalize_cli_output(out: &str, file_name: &str) -> String {
     let s = out.replace("\r\n", "\n").trim().to_string();
 
-    // If output starts with "filename:" strip it
-    if let Some(colon_pos) = s.find(':') {
-        let prefix = &s[..colon_pos];
-        if prefix.ends_with(file_name) {
-            return s[colon_pos + 1..].trim().to_string();
-        }
+    // Look for the pattern "filename: description" and extract just the description
+    // We need to handle paths that might contain colons (like Windows drive letters C:)
+    // so we search for the filename followed by a colon and space
+    let search_pattern = format!("{}: ", file_name);
+    if let Some(pos) = s.find(&search_pattern) {
+        return s[pos + search_pattern.len()..].trim().to_string();
+    }
+
+    // Fallback: try to find just "filename:" without the space
+    let search_pattern_no_space = format!("{}:", file_name);
+    if let Some(pos) = s.find(&search_pattern_no_space) {
+        return s[pos + search_pattern_no_space.len()..].trim().to_string();
     }
 
     s
