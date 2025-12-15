@@ -168,7 +168,7 @@ lint: lint-rust lint-actions lint-docs lint-justfile
 
 # Individual lint recipes
 lint-actions:
-    actionlint .github/workflows/*.yml
+    actionlint .github/workflows/audit.yml .github/workflows/ci.yml .github/workflows/codeql.yml .github/workflows/compatibility.yml .github/workflows/copilot-setup-steps.yml .github/workflows/docs.yml .github/workflows/release.yml .github/workflows/security.yml
 
 lint-docs:
     markdownlint docs/**/*.md README.md
@@ -206,6 +206,29 @@ build-release:
 
 test:
     @cargo nextest run --workspace --no-capture
+
+# Verify compatibility test files are available
+[windows]
+verify-compatibility-tests:
+    @echo "Verifying compatibility test files are available..."
+    if (-not (Test-Path "third_party/tests")) { Write-Error "third_party/tests directory not found" }
+    if (-not (Test-Path "third_party/magic.mgc")) { Write-Error "third_party/magic.mgc not found" }
+
+[unix]
+verify-compatibility-tests:
+    @echo "Verifying compatibility test files are available..."
+    @if [ ! -d "third_party/tests" ]; then echo "third_party/tests directory not found" && exit 1; fi
+    @if [ ! -f "third_party/magic.mgc" ]; then echo "third_party/magic.mgc not found" && exit 1; fi
+
+# Run compatibility tests against original libmagic test suite
+test-compatibility:
+    @cargo test test_compatibility_with_original_libmagic -- --ignored
+
+# Run all compatibility tests (including setup)
+test-compatibility-full:
+    @just verify-compatibility-tests
+    @cargo build --release
+    @cargo test test_compatibility_with_original_libmagic -- --ignored
 
 # Test justfile cross-platform functionality
 [windows]
@@ -264,15 +287,44 @@ deny:
 # =============================================================================
 
 # Generate coverage report
+[unix]
 coverage:
-    cargo llvm-cov --workspace --lcov --output-path lcov.info
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Clean any existing coverage artifacts
+    rm -rf target/llvm-cov-target
+    # Generate coverage with proper environment setup
+    RUSTFLAGS="--cfg coverage" cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+[windows]
+coverage:
+    # Clean any existing coverage artifacts
+    Remove-Item -Recurse -Force target/llvm-cov-target -ErrorAction SilentlyContinue
+    # Generate coverage with proper environment setup
+    $env:RUSTFLAGS = "--cfg coverage"; cargo llvm-cov --workspace --lcov --output-path lcov.info
 
 # Check coverage thresholds
+[unix]
 coverage-check:
-    cargo llvm-cov --workspace --lcov --output-path lcov.info --fail-under-lines 9.7
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Clean any existing coverage artifacts
+    rm -rf target/llvm-cov-target
+    # Generate coverage with threshold check and proper environment setup
+    RUSTFLAGS="--cfg coverage" cargo llvm-cov --workspace --lcov --output-path lcov.info --fail-under-lines 9.7
+
+[windows]
+coverage-check:
+    # Clean any existing coverage artifacts
+    Remove-Item -Recurse -Force target/llvm-cov-target -ErrorAction SilentlyContinue
+    # Generate coverage with threshold check and proper environment setup
+    $env:RUSTFLAGS = "--cfg coverage"; cargo llvm-cov --workspace --lcov --output-path lcov.info --fail-under-lines 9.7
 
 # Full local CI parity check
 ci-check: pre-commit-run fmt-check lint-rust lint-rust-min test-ci build-release audit coverage-check dist-plan
+
+# Run compatibility tests as part of CI
+ci-check-compatibility: pre-commit-run fmt-check lint-rust lint-rust-min test-ci build-release audit coverage-check test-compatibility dist-plan
 
 # =============================================================================
 # DEVELOPMENT AND EXECUTION

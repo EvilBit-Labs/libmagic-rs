@@ -312,8 +312,10 @@ use libmagic_rs::*;
 #[test]
 fn test_end_to_end_workflow() {
     // Test complete workflows
-    let db = MagicDatabase::load_from_file("test_files/magic/simple.magic").unwrap();
-    let result = db.evaluate_file("test_files/samples/elf64").unwrap();
+    let db = MagicDatabase::load_from_file("third_party/magic.mgc").unwrap();
+    let result = db
+        .evaluate_file("third_party/tests/elf64.testfile")
+        .unwrap();
     assert_eq!(result.description, "ELF 64-bit LSB executable");
 }
 ```

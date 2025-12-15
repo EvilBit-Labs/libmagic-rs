@@ -104,8 +104,10 @@ pub enum Operator {
     Equal,
     /// Inequality comparison
     NotEqual,
-    /// Bitwise AND operation
+    /// Bitwise AND operation (without mask)
     BitwiseAnd,
+    /// Bitwise AND operation with mask value
+    BitwiseAndMask(u64),
 }
 
 /// Value types for rule matching
@@ -274,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_all_offset_spec_variants() {
-        let variants = vec![
+        let variants = [
             OffsetSpec::Absolute(0),
             OffsetSpec::Absolute(-100),
             OffsetSpec::Indirect {

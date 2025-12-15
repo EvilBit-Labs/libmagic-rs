@@ -2,410 +2,181 @@
 
 - [x] 1. Create basic project structure
 
-  - Create Cargo.toml with project metadata and basic dependencies (serde, thiserror)
-  - Create src/lib.rs with empty public API structure
-  - Create src/main.rs with basic CLI entry point
-  - _Requirements: 6.1, 6.2_
+  **Completed**: Set up complete Rust project with Cargo.toml, core dependencies (memmap2, byteorder, nom, clap, serde, thiserror), and organized module structure with src/parser/, src/evaluator/, src/output/, src/io/ directories. Created basic CLI entry point and library API foundation.
 
-- [x] 1.1 Set up directory structure
+  _Requirements: 6.1, 6.2, 3.3, 2.2, 1.1, 5.1_
 
-  - Create src/parser/ directory with mod.rs file
-  - Create src/evaluator/ directory with mod.rs file
-  - Create src/output/ directory with mod.rs file
-  - Create src/io/ directory with mod.rs file
-  - _Requirements: 6.1_
+- [x] 2. Create comprehensive AST types
 
-- [x] 1.2 Add core dependencies to Cargo.toml
+  **Completed**: Implemented complete Abstract Syntax Tree in `src/parser/ast.rs` with `Value` enum (Uint, Int, Bytes, String), `OffsetSpec` enum (Absolute, Indirect, Relative, FromEnd), `TypeKind` enum (Byte, Short, Long, String with endianness/signedness), `Operator` enum (Equal, NotEqual, BitwiseAnd), `Endianness` enum, and `MagicRule` struct with hierarchical support. All types include full serde serialization and comprehensive unit tests.
 
-  - Add memmap2 for memory-mapped file I/O
-  - Add byteorder for endianness handling
-  - Add nom for parser combinators
-  - Add clap for CLI argument parsing
-  - _Requirements: 3.3, 2.2, 1.1, 5.1_
+  _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3_
 
-- [x] 2. Create basic AST value types
+- [x] 3. Create parser components using nom
 
-  - Create src/parser/ast.rs with Value enum (Uint, Int, Bytes, String)
-  - Implement Debug, Clone, PartialEq, Serialize, Deserialize for Value
-  - Write unit tests for Value enum serialization and comparison
-  - _Requirements: 1.1, 1.2_
+  **Completed**: Implemented comprehensive parser components in `src/parser/grammar.rs` using nom combinators. Created `parse_number` (decimal/hex), `parse_offset` (absolute offsets), `parse_operator` (=, !=, &), and `parse_value` (strings, numeric literals, hex bytes) functions. All parsers include proper error handling, overflow protection, and extensive unit tests covering edge cases and various input formats.
 
-- [x] 2.1 Create offset specification types
+  _Requirements: 1.1, 1.2, 1.3, 1.4, 1.6_
 
-  - Add OffsetSpec enum to ast.rs (Absolute, Indirect, Relative, FromEnd)
-  - Implement Debug, Clone, Serialize, Deserialize for OffsetSpec
-  - Write unit tests for OffsetSpec variants
-  - _Requirements: 1.2, 2.1_
+- [x] 4. Create memory-mapped file I/O system
 
-- [x] 2.2 Create type kind definitions
+  **Completed**: Implemented secure file I/O system in `src/io/mod.rs` with `FileBuffer` struct using memmap2 for efficient memory-mapped file access. Created comprehensive `IoError` type for file access errors, implemented RAII resource cleanup, and added bounds-checked buffer access helpers. Includes extensive unit tests for file operations, error handling, and buffer safety.
 
-  - Add TypeKind enum to ast.rs (Byte, Short, Long, String with basic options)
-  - Include endianness and signedness fields for numeric types
-  - Write unit tests for TypeKind variants and serialization
-  - _Requirements: 1.3, 2.2_
+  _Requirements: 3.3, 3.4, 3.5, 6.5, 3.2_
 
-- [x] 2.3 Create operator definitions
+- [x] 5. Create offset resolution system
 
-  - Add Operator enum to ast.rs (Equal, NotEqual, BitwiseAnd)
-  - Implement Debug, Clone, Serialize, Deserialize for Operator
-  - Write unit tests for Operator enum functionality
-  - _Requirements: 1.4, 2.3_
+  **Completed**: Implemented comprehensive offset resolution in `src/evaluator/offset.rs` with `resolve_absolute_offset` function supporting positive/negative offsets, `resolve_offset` interface handling `OffsetSpec` enum variants, and safe arithmetic preventing integer overflow. Includes bounds checking, proper error handling, and extensive unit tests for various offset scenarios and edge cases.
 
-- [x] 2.4 Create magic rule structure
+  _Requirements: 2.1, 3.2_
 
-  - Add MagicRule struct to ast.rs with offset, typ, op, value, message, children fields
-  - Implement Debug, Clone, Serialize, Deserialize for MagicRule
-  - Write unit tests for MagicRule creation and serialization
-  - _Requirements: 1.1, 1.5_
+- [x] 6. Create type reading and interpretation system
 
-- [x] 3. Create basic nom parser setup
+  **Completed**: Implemented comprehensive type reading system in `src/evaluator/types.rs` with `read_byte`, `read_short`, `read_long`, and `read_string` functions using byteorder crate for endianness handling. Created `read_typed_value` interface supporting all `TypeKind` variants, with proper bounds checking, UTF-8 validation, and extensive unit tests covering all data types and edge cases.
 
-  - Create src/parser/grammar.rs with nom imports and basic parser structure
-  - Implement parse_number function for parsing decimal and hex numbers
-  - Write unit tests for number parsing with various formats
-  - _Requirements: 1.1, 1.6_
+  _Requirements: 2.2, 3.2_
 
-- [x] 3.1 Implement offset parsing
+- [x] 7. Create operator evaluation system
 
-  - Add parse_offset function to grammar.rs for absolute offset parsing
-  - Support decimal and hexadecimal offset formats
-  - Write unit tests for offset parsing with positive and negative values
-  - _Requirements: 1.2, 1.6_
+  **Completed**: Implemented complete operator system in `src/evaluator/operators.rs` with `apply_equal`, `apply_not_equal`, and `apply_bitwise_and` functions for value comparison and pattern matching. Created `apply_operator` interface handling all `Operator` enum variants with proper type matching, integer operations, and comprehensive unit tests covering all operator combinations and edge cases.
 
-- [x] 3.2 Implement type parsing
+  _Requirements: 2.3, 1.4_
 
-  - Add parse_type function to grammar.rs for basic type parsing (byte, short, long)
-  - Support endianness specifiers (le, be) for multi-byte types
-  - Write unit tests for type parsing with various endianness options
-  - _Requirements: 1.3, 1.6_
+- [x] 8. Create rule evaluation engine
 
-- [x] 3.3 Implement operator parsing
+  **Completed**: Implemented complete rule evaluation system in `src/evaluator/mod.rs` with `evaluate_single_rule` and `evaluate_rules` functions for hierarchical rule processing. Created `EvaluationContext` for state management and `EvaluationConfig` for behavior control with recursion limits, string length limits, and match behavior. Includes graceful error handling, parent-child rule relationships, and comprehensive unit tests.
 
-  - Add parse_operator function to grammar.rs for comparison operators (`=`, `!=`, `&`)
-  - Support both symbolic and text representations of operators
-  - Write unit tests for operator parsing with different formats
-  - _Requirements: 1.4, 1.6_
+  _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 6.3_
 
-- [x] 3.4 Implement value parsing
+- [x] 9. Create output formatting system
 
-  - Add parse_value function to grammar.rs for string and numeric literals
-  - Support quoted strings with escape sequences and hex byte sequences
-  - Write unit tests for value parsing with various literal formats
-  - _Requirements: 1.1, 1.6_
+  **Completed**: Implemented comprehensive output system in `src/output/mod.rs` with `MatchResult` struct for storing evaluation results, `EvaluationResult` for complete file analysis, and `EvaluationMetadata` for performance tracking. Created text formatting in `src/output/text.rs` with GNU file command compatibility, message concatenation, and proper fallback handling. Includes extensive unit tests and serialization support.
 
-- [x] 4. Create basic file buffer structure
+  _Requirements: 4.1, 4.2, 4.4_
 
-  - Create src/io/mod.rs with FileBuffer struct using memmap2
-  - Implement new() method for creating memory-mapped file buffers
-  - Add as_slice() method for safe buffer access
-  - _Requirements: 3.3, 3.4_
+- [x] 10. Create comprehensive CLI interface
 
-- [x] 4.1 Add file buffer error handling
+  **Completed**: Implemented complete CLI interface in `src/main.rs` using clap with argument parsing for input files, output format flags (--text, --json), and custom magic file paths. Added platform-specific magic file discovery (Unix: /usr/share/file, /etc/magic; Windows: %APPDATA%\Magic), comprehensive error handling with proper exit codes, and fallback magic file creation for CI/CD environments. Includes extensive unit tests and integration tests.
 
-  - Create IoError type for file access errors in io/mod.rs
-  - Implement proper error handling in FileBuffer::new() with descriptive messages
-  - Add resource cleanup using RAII patterns for file handles
-  - Write unit tests for file buffer creation with invalid files
-  - _Requirements: 3.5, 6.5_
+  _Requirements: 5.1, 5.2, 5.3, 5.5, 6.5_
 
-- [x] 4.2 Add buffer bounds checking helpers
+- [x] 11. Create JSON output system
 
-  - Create safe_read_bytes function in io/mod.rs for bounds-checked buffer access
-  - Implement buffer length validation and overflow prevention
-  - Write unit tests for bounds checking with various buffer sizes and offsets
-  - _Requirements: 3.2, 3.5_
+  **Completed**: Implemented comprehensive JSON output system in `src/output/json.rs` with `JsonMatchResult` struct following original libmagic specification (text, offset, value, tags, score fields). Created `format_json_output` functions for both pretty and compact JSON formatting, integrated with CLI --json flag handling, and added `JsonOutput` structure for complete results. Includes 28 comprehensive unit tests covering all JSON functionality and edge cases.
 
-- [x] 5. Create basic offset resolution
+  _Requirements: 4.2, 1.1, 5.2_
 
-- [x] 5.1 Create basic offset resolution
+- [x] 12. Add string type support
 
-  - Create src/evaluator/offset.rs with resolve_absolute_offset function
-  - Implement simple absolute offset calculation with bounds checking
-  - Write unit tests for absolute offset resolution with valid offsets
-  - _Requirements: 2.1, 3.2_
+  **Completed**: Extended AST with `TypeKind::String { max_length: Option<usize> }` variant and implemented comprehensive string reading in `src/evaluator/types.rs` with `read_string` function. Added null-terminated string handling, UTF-8 validation with `String::from_utf8_lossy` fallback, length limits, bounds checking, and integration with `read_typed_value`. Includes 25 comprehensive unit tests covering string reading edge cases, encodings, and safety scenarios.
 
-- [x] 5.2 Add negative offset support
+  _Requirements: 1.3, 2.2, 3.2_
 
-  - Extend resolve_absolute_offset to handle negative offsets from file end
-  - Implement safe arithmetic to prevent integer overflow in offset calculations
-  - Write unit tests for negative offset resolution with various file sizes
-  - _Requirements: 2.1, 3.2_
+- [x] 13. Create comprehensive error handling system
 
-- [x] 5.3 Create offset resolution interface
+  **Completed**: Implemented complete error handling system in `src/error.rs` with `LibmagicError` enum using thiserror, including `ParseError`, `EvaluationError`, and `IoError` variants. Created detailed error types for buffer overruns, invalid offsets, unsupported types, and timeout scenarios. Integrated Result types throughout evaluator with graceful degradation and error recovery. Includes extensive unit tests for all error scenarios and proper error message formatting.
 
-  - Add resolve_offset function in offset.rs that handles OffsetSpec enum
-  - Implement basic absolute offset resolution using existing functions
-  - Write unit tests for offset resolution interface with OffsetSpec::Absolute
-  - _Requirements: 2.1_
+  _Requirements: 1.6, 2.6, 3.5, 6.5_
 
-- [x] 6. Create basic type reading for byte values
+- [ ] 14. Implement text-based magic file parsing
 
-- [x] 6.1 Create basic type reading for byte values
+**Note: Magic files come in two formats:**
 
-  - Create src/evaluator/types.rs with read_byte function
-  - Implement safe byte reading from buffer with bounds checking
-  - Write unit tests for byte reading at various buffer positions
-  - _Requirements: 2.2, 3.2_
+- **Text format (.magic)**: Human-readable files with lines like "0 string \x7fELF ELF executable"
+- **Binary format (.mgc)**: Compiled binary files with magic signature, optimized for fast loading
+- **Priority**: Implement text format first (more common in development), then binary format for compatibility
 
-- [x] 6.2 Add multi-byte type reading with endianness
+- [x] 14.1 Implement complete magic rule parsing for text format
 
-  - Add read_short and read_long functions to types.rs using byteorder crate
-  - Implement little-endian and big-endian reading for 16-bit and 32-bit values
-  - Write unit tests for multi-byte reading with different endianness
-  - _Requirements: 2.2, 3.2_
+  - Add parse_magic_rule function to parser/grammar.rs for parsing complete rule lines from text magic files
+  - Support offset, type, operator, value, and message parsing in sequence for human-readable format
+  - Handle hierarchical rule parsing with proper indentation levels (> prefix for child rules)
+  - Parse comments (# prefix), empty lines, and continuation lines (\\ suffix)
+  - Write unit tests for complete rule parsing with various text magic file formats
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
 
-- [x] 6.3 Create type interpretation interface
+- [ ] 14.2 Implement text magic file parsing
 
-  - Add read_typed_value function in types.rs that handles TypeKind enum
-  - Implement type-specific reading using existing read functions
-  - Write unit tests for typed value reading with various TypeKind variants
-  - _Requirements: 2.2_
-
-- [x] 7. Create basic equality operator
-
-- [x] 7.1 Create basic equality operator
-
-  - Create src/evaluator/operators.rs with apply_equal function for value equality comparison
-  - Implement Value-to-Value comparison with proper type matching
-  - Write unit tests for equality comparison with same and different value types
-  - _Requirements: 2.3, 1.4_
-
-- [x] 7.2 Add inequality operator
-
-  - Add apply_not_equal function to operators.rs for inequality comparison
-  - Implement negation of equality comparison logic
-  - Write unit tests for inequality comparison with various value combinations
-  - _Requirements: 2.3, 1.4_
-
-- [x] 7.3 Add bitwise AND operator
-
-  - Add apply_bitwise_and function to operators.rs for pattern matching
-  - Implement bitwise AND operation for integer values with proper type handling
-  - Write unit tests for bitwise AND with various integer values and masks
-  - _Requirements: 2.3, 1.4_
-
-- [x] 7.4 Create operator application interface
-
-  - Add apply_operator function in operators.rs that handles Operator enum
-  - Implement operator dispatch using existing apply functions
-  - Write unit tests for operator application interface with all supported operators
-  - _Requirements: 2.3_
-
-- [x] 8. Create basic rule evaluation
-
-- [x] 8.1 Create basic rule evaluation
-
-  - Create src/evaluator/mod.rs with evaluate_single_rule function
-  - Implement single rule evaluation using offset resolution, type reading, and operator application
-  - Write unit tests for single rule evaluation with simple magic rules
-  - _Requirements: 2.1, 2.2, 2.3, 2.5_
-
-- [x] 8.2 Add evaluation context structure
-
-  - Create EvaluationContext struct in evaluator/mod.rs for maintaining evaluation state
-  - Add fields for current offset, recursion depth, and configuration
-  - Write unit tests for context creation and state management
-  - _Requirements: 2.4_
-
-- [x] 8.3 Add evaluation configuration
-
-  - Create EvaluationConfig struct in evaluator/mod.rs with evaluation options
-  - Add fields for recursion limits, string length limits, and match behavior
-  - Write unit tests for configuration creation and validation
-  - _Requirements: 2.4, 6.3_
-
-- [x] 8.4 Implement hierarchical rule evaluation
-
-  - Add evaluate_rules function to evaluator/mod.rs for processing rule lists
-  - Implement parent-child rule relationship handling with proper hierarchy traversal
-  - Add early termination on first match and context preservation for nested rules
-  - Write unit tests for hierarchical evaluation with nested magic rules
-  - _Requirements: 2.4, 2.5_
-
-- [x] 9. Create basic match result structure
-
-- [x] 9.1 Create basic match result structure
-
-  - Create src/output/mod.rs with MatchResult struct for storing evaluation results
-  - Add fields for message, offset, value, and rule metadata
-  - Write unit tests for match result creation and serialization
-  - _Requirements: 4.1, 4.2_
-
-- [x] 9.2 Implement text output formatting
-
-  - Create src/output/text.rs with format_text_result function
-  - Implement message formatting for single match results
-  - Write unit tests for text formatting with various match results
-  - _Requirements: 4.1_
-
-- [x] 9.3 Add text output concatenation
-
-  - Add format_text_output function to text.rs for multiple match results
-  - Implement message concatenation and fallback handling for no matches
-  - Write unit tests comparing output with expected GNU file command format
-  - _Requirements: 4.1, 4.4_
-
-- [ ] 10. Create basic CLI argument structure
-
-- [ ] 10.1 Create basic CLI argument structure
-
-  - Create CLI argument struct in src/main.rs using clap derive macros
-  - Add fields for input file, output format flags (--text, --json)
-  - Write unit tests for argument parsing with various command line inputs
-  - _Requirements: 5.1, 5.2, 5.3_
-
-- [ ] 10.2 Implement CLI file processing
-
-  - Add main function logic in main.rs for processing input files
-  - Implement file loading, rule evaluation, and output formatting
-  - Write integration tests for CLI functionality with sample files
-  - _Requirements: 5.1, 5.5_
-
-- [ ] 10.3 Add CLI error handling
-
-  - Implement error handling in main.rs with proper exit codes
-  - Add user-friendly error messages for common failure scenarios
-  - Add usage information display when no arguments are provided
-  - Write unit tests for CLI error handling and exit code behavior
-  - _Requirements: 5.5, 6.5_
-
-- [ ] 11. Create JSON match result structure
-
-- [ ] 11.1 Create JSON match result structure
-
-  - Create src/output/json.rs with JsonMatchResult struct following original spec
-  - Add fields for text, offset, value, tags, and score
-  - Implement Serialize trait for JSON output compatibility
-  - Write unit tests for JSON match result serialization
-  - _Requirements: 4.2_
-
-- [ ] 11.2 Implement JSON output formatting
-
-  - Add format_json_output function to json.rs for converting match results to JSON
-  - Implement matches array structure with proper field mapping
-  - Write unit tests for JSON output format validation and structure
-  - _Requirements: 4.2, 1.1_
-
-- [ ] 11.3 Add JSON output integration
-
-  - Integrate JSON formatter into CLI output routing in main.rs
-  - Add --json flag handling with appropriate output selection
-  - Write integration tests for JSON output through CLI interface
-  - _Requirements: 5.2, 4.2_
-
-- [ ] 12. Add basic string type to AST
-
-- [ ] 12.1 Add basic string type to AST
-
-  - Extend TypeKind enum in ast.rs to include String variant with max_length field
-  - Update serialization and unit tests for new String type variant
-  - _Requirements: 1.3_
-
-- [ ] 12.2 Implement string reading in evaluator
-
-  - Add read_string function to evaluator/types.rs for null-terminated string reading
-  - Implement safe string extraction with length limits and bounds checking
-  - Write unit tests for string reading with various string lengths and termination
-  - _Requirements: 2.2, 3.2_
-
-- [ ] 12.3 Add string matching support
-
-  - Extend read_typed_value function in types.rs to handle String type
-  - Implement UTF-8 validation and ASCII fallback for string values
-  - Write unit tests for string type interpretation with various encodings
-  - _Requirements: 1.3, 2.2_
-
-- [ ] 13. Create basic error types
-
-- [ ] 13.1 Create basic error types
-
-  - Create src/error.rs with LibmagicError enum using thiserror
-  - Add variants for ParseError, EvaluationError, and IoError
-  - Write unit tests for error type creation and Display formatting
-  - _Requirements: 1.6, 2.6, 6.5_
-
-- [ ] 13.2 Add evaluation error types
-
-  - Create EvaluationError enum in error.rs for runtime evaluation errors
-  - Add variants for BufferOverrun, InvalidOffset, and UnsupportedType
-  - Write unit tests for evaluation error scenarios and error messages
-  - _Requirements: 2.6, 3.5_
-
-- [ ] 13.3 Integrate error handling in evaluator
-
-  - Update evaluator functions to return Result types with proper error handling
-  - Implement graceful degradation to skip problematic rules and continue evaluation
-  - Write unit tests for error recovery behavior in rule evaluation
-  - _Requirements: 2.6, 3.5_
-
-- [ ] 14. Create basic library API structure
-
-- [ ] 14.1 Create basic library API structure
-
-  - Create public API functions in lib.rs for loading and parsing magic files
-  - Add load_magic_file function that returns parsed rules
-  - Write unit tests for magic file loading with valid and invalid files
-  - _Requirements: 6.1, 6.2_
-
-- [ ] 14.2 Add file evaluation API
-
-  - Create evaluate_file function in lib.rs for processing files with magic rules
-  - Implement file loading, rule evaluation, and result collection
-  - Write unit tests for file evaluation API with sample files and rules
-  - _Requirements: 6.2, 6.3_
-
-- [ ] 14.3 Create magic database structure
-
-  - Implement MagicDatabase struct in lib.rs for rule management
-  - Add methods for loading rules, caching, and evaluation configuration
-  - Write unit tests for database creation and rule management
-  - _Requirements: 6.1, 6.3_
-
-- [ ] 15. Add indirect offset parsing
-
-- [ ] 15.1 Add indirect offset parsing
-
-  - Extend parse_offset function in parser/grammar.rs to support indirect syntax
-  - Implement parsing for parentheses-based indirect offset notation
-  - Write unit tests for indirect offset parsing with various formats
-  - _Requirements: 1.2, 1.6_
-
-- [ ] 15.2 Implement indirect offset resolution
-
-  - Add resolve_indirect_offset function to evaluator/offset.rs
-  - Implement pointer dereferencing with proper endianness handling using byteorder
-  - Write unit tests for indirect offset resolution with different pointer types
-  - _Requirements: 2.1, 1.2_
-
-- [ ] 15.3 Integrate indirect offsets in evaluation
-
-  - Update resolve_offset function to handle OffsetSpec::Indirect variant
-  - Add recursion limits to prevent infinite indirect offset chains
-  - Write unit tests for indirect offset integration in rule evaluation
-  - _Requirements: 2.1_
-
-- [ ] 16. Add regex type to AST
-
-- [ ] 16.1 Add regex type to AST
-
-  - Extend TypeKind enum in ast.rs to include Regex variant
-  - Add regex pattern field and compilation flags
-  - Write unit tests for regex type serialization and deserialization
-  - _Requirements: 1.3_
-
-- [ ] 16.2 Create binary regex trait
-
-  - Create BinaryRegex trait in evaluator/types.rs for abstracting regex engines
-  - Implement trait methods for binary-safe pattern matching
-  - Write unit tests for binary regex trait interface
-  - _Requirements: 1.3, 2.2_
-
-- [ ] 16.3 Implement regex matching
-
-  - Add regex crate dependency and implement BinaryRegex for regex::bytes::Regex
-  - Create read_regex function in types.rs for pattern matching on binary data
-  - Write unit tests for regex matching with various binary patterns
-  - _Requirements: 1.3, 2.2_
+  - Add parse_text_magic_file function to parser/mod.rs for parsing entire text-based magic files
+  - Handle line-by-line parsing with proper error reporting and line numbers
+  - Support comments, empty lines, and continuation lines in text format
+  - Implement hierarchical rule nesting based on indentation and > prefixes
+  - Write unit tests for text magic file parsing with sample .magic files
+  - _Requirements: 1.1, 1.5, 1.6_
+
+- [ ] 14.3 Add magic file format detection
+
+  - Create detect_magic_file_format function to distinguish between text and binary magic files
+  - Check for binary .mgc file signatures (magic bytes at start of compiled files)
+  - Implement fallback logic: try binary first, then text format
+  - Add proper error handling for unsupported or corrupted magic file formats
+  - Write unit tests for format detection with both text and binary magic files
+  - _Requirements: 6.1, 1.6_
+
+- [ ] 15. Implement binary magic file (.mgc) support
+
+**Note: Binary .mgc files are compiled versions of text magic files:**
+
+- **Structure**: Header + Rule entries + String tables + Metadata
+- **Advantages**: Faster loading, pre-validated rules, optimized for production use
+- **Challenges**: Format is not officially documented, requires reverse engineering or libmagic source analysis
+- **Detection**: Usually start with specific magic bytes (e.g., 0x0d0a1a0a) and have .mgc extension
+
+- [ ] 15.1 Add binary magic file format detection and basic parsing
+
+  - Research and document the binary .mgc file format structure (header, rule entries, string tables)
+  - Implement detect_binary_magic_format function to identify .mgc files by magic signature
+  - Create basic binary parser structure for reading .mgc file headers and metadata
+  - Add proper error handling for corrupted or unsupported binary magic file versions
+  - Write unit tests for binary format detection and header parsing
+  - _Requirements: 6.1, 1.6_
+
+- [ ] 15.2 Implement binary magic rule deserialization
+
+  - Add parse_binary_magic_file function to deserialize compiled magic rules from .mgc files
+  - Implement binary rule entry parsing (offset, type, operator, value, message extraction)
+  - Handle string table lookups for rule messages and string values
+  - Support hierarchical rule relationships as stored in binary format
+  - Write unit tests for binary rule deserialization with sample .mgc files
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
+
+- [ ] 15.3 Integrate unified magic file loading
+
+  - Create unified load_magic_file function that handles both text and binary formats
+  - Implement format auto-detection: try binary .mgc first, fallback to text parsing
+  - Connect both text and binary parsers with MagicDatabase loading
+  - Add comprehensive error handling and format-specific error messages
+  - Write integration tests with both text .magic and binary .mgc files
+  - _Requirements: 6.1, 6.2, 1.6_
+
+- [ ] 16. Complete MagicDatabase integration and CLI functionality
+
+- [ ] 16.1 Implement MagicDatabase with unified magic file loading
+
+  - Update MagicDatabase::load_from_file to use the unified magic file parser (text and binary)
+  - Replace the current placeholder that returns empty rules with actual parsing integration
+  - Add proper error propagation from parsing failures to database creation errors
+  - Implement rule validation and consistency checking after loading
+  - Write unit tests for database loading with both text and binary magic files
+  - _Requirements: 6.1, 6.2, 1.6_
+
+- [ ] 16.2 Fix file evaluation pipeline integration
+
+  - Connect loaded magic rules with the evaluation engine in evaluate_file function
+  - Ensure proper buffer loading, rule evaluation, and result collection
+  - Fix the current placeholder implementation that always returns "data"
+  - Add proper error handling for file access and evaluation failures
+  - Write integration tests for end-to-end file type detection with real magic files
+  - _Requirements: 6.2, 6.3, 2.5_
+
+- [ ] 16.3 Add built-in fallback magic rules
+
+  - Create a comprehensive set of built-in magic rules for common file types (ELF, PE, ZIP, JPEG, PNG, PDF, GIF)
+  - Implement fallback mechanism when no external magic file is available or loading fails
+  - Ensure CLI works out-of-the-box for basic file type detection without requiring system magic files
+  - Add configuration option to disable built-in rules and force external magic file usage
+  - Write tests for built-in rule functionality and fallback behavior
+  - _Requirements: 7.1, 5.5, 6.2_
 
 - [ ] 17. Set up basic test infrastructure
 

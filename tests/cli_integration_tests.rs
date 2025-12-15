@@ -1,0 +1,188 @@
+//! CLI integration tests for libmagic-rs using canonical libmagic test suite
+//!
+//! These tests verify the command-line interface functionality by running against
+//! the canonical libmagic test suite from third_party/tests/.
+//! Each test consists of a .testfile (input) and .result (expected output) pair.
+
+use insta::assert_snapshot;
+use std::ffi::OsStr;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+mod common;
+use common::{normalize_paths_in_text, normalize_testfile_path};
+
+/// Get the root directory for canonical libmagic tests
+fn canonical_tests_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("third_party")
+        .join("tests")
+}
+
+/// Find all test file pairs (.testfile + .result) from the canonical test suite
+fn canonical_test_pairs() -> Vec<(PathBuf, PathBuf)> {
+    let root = canonical_tests_root();
+    let mut pairs = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(&root) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension() == Some(OsStr::new("testfile")) {
+                let result = path.with_extension("result");
+                if result.exists() {
+                    pairs.push((path, result));
+                }
+            }
+        }
+    }
+
+    pairs.sort();
+    pairs
+}
+
+/// Parse expected results from a .result file
+/// Ignores blank lines and comment lines starting with '#'
+fn parse_expected(result_path: &Path) -> Vec<String> {
+    let raw = fs::read_to_string(result_path).unwrap_or_default();
+    raw.lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Normalize CLI output for comparison
+/// - Convert CRLF to LF
+/// - Trim whitespace
+/// - Strip "filename:" prefix if present
+fn normalize_cli_output(out: &str, file_name: &str) -> String {
+    let s = out.replace("\r\n", "\n").trim().to_string();
+
+    // Look for the pattern "filename: description" and extract just the description
+    // We need to handle paths that might contain colons (like Windows drive letters C:)
+    // so we search for the filename followed by a colon and space
+    let search_pattern = format!("{}: ", file_name);
+    if let Some(pos) = s.find(&search_pattern) {
+        return s[pos + search_pattern.len()..].trim().to_string();
+    }
+
+    // Fallback: try to find just "filename:" without the space
+    let search_pattern_no_space = format!("{}:", file_name);
+    if let Some(pos) = s.find(&search_pattern_no_space) {
+        return s[pos + search_pattern_no_space.len()..].trim().to_string();
+    }
+
+    s
+}
+
+/// Run CLI with the given test file and return normalized output
+fn run_cli_on_testfile(testfile: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let output = Command::new("cargo")
+        .args(["run", "--", testfile.to_str().unwrap()])
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("CLI failed: {}", stderr).into());
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+    let file_name = testfile.file_name().unwrap().to_str().unwrap();
+    Ok(normalize_cli_output(&stdout, file_name))
+}
+
+/// Main test function that runs all canonical libmagic tests
+#[test]
+fn cli_matches_canonical_libmagic_tests() {
+    let mut failures = Vec::new();
+    let test_pairs = canonical_test_pairs();
+
+    println!("Running {} canonical libmagic test pairs", test_pairs.len());
+
+    for (testfile, resultfile) in test_pairs {
+        let expected_variants = parse_expected(&resultfile);
+
+        // Skip tests with no expected output
+        if expected_variants.is_empty() {
+            continue;
+        }
+
+        // Run CLI on the test file
+        let actual_output = match run_cli_on_testfile(&testfile) {
+            Ok(output) => output,
+            Err(e) => {
+                failures.push(format!(
+                    "{}\n  CLI error: {}",
+                    normalize_testfile_path(&testfile.to_string_lossy()),
+                    e
+                ));
+                continue;
+            }
+        };
+
+        // Check if actual output matches any expected variant
+        let matched = expected_variants
+            .iter()
+            .any(|expected| actual_output.contains(expected) || expected.contains(&actual_output));
+
+        if !matched {
+            failures.push(format!(
+                "{}\n  got:      '{}'\n  expected: {:?}",
+                normalize_testfile_path(&testfile.to_string_lossy()),
+                actual_output,
+                expected_variants
+            ));
+        }
+    }
+
+    // If there are failures, create a snapshot for debugging
+    if !failures.is_empty() {
+        let failure_summary = format!(
+            "Found {} test failures out of {} canonical tests:\n\n{}",
+            failures.len(),
+            canonical_test_pairs().len(),
+            failures.join("\n\n")
+        );
+        // Normalize any remaining paths in the summary before snapshotting
+        let normalized_summary = normalize_paths_in_text(&failure_summary);
+        assert_snapshot!("canonical_cli_test_failures", normalized_summary);
+    }
+}
+
+/// Test that we can discover canonical test files
+#[test]
+fn test_canonical_test_discovery() {
+    let pairs = canonical_test_pairs();
+
+    // Should find at least some test pairs
+    assert!(
+        pairs.len() > 10,
+        "Expected to find more than 10 test pairs, found: {}",
+        pairs.len()
+    );
+
+    // Verify each pair has both testfile and result
+    for (testfile, resultfile) in &pairs {
+        assert!(
+            testfile.exists(),
+            "Test file should exist: {}",
+            testfile.display()
+        );
+        assert!(
+            resultfile.exists(),
+            "Result file should exist: {}",
+            resultfile.display()
+        );
+        assert_eq!(
+            testfile.extension(),
+            Some(OsStr::new("testfile")),
+            "Test file should have .testfile extension"
+        );
+        assert_eq!(
+            resultfile.extension(),
+            Some(OsStr::new("result")),
+            "Result file should have .result extension"
+        );
+    }
+}

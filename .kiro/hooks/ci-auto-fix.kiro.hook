@@ -6,12 +6,7 @@
   "when": {
     "type": "userTriggered",
     "patterns": [
-      "**/*.rs",
-      "**/Cargo.toml",
-      "**/Cargo.lock",
-      "justfile",
-      "deny.toml",
-      "rust-toolchain.toml"
+      "**/*.rs"
     ]
   },
   "then": {

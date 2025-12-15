@@ -157,8 +157,12 @@ thiserror = "2.0.17"
 
 [dev-dependencies]
 criterion = "0.7.0"
+insta = { version = "1.39.0", features = ["json"] }
 nix = { version = "0.30", features = ["fs"] }
 proptest = "1.8.0"
+regex = "1.11.0"
+temp-env = "0.2.0"
+tempfile = "3.8.1"
 
 # The profile that 'dist' will build with
 [profile.dist]

@@ -214,6 +214,24 @@ pub fn apply_operator(operator: &Operator, left: &Value, right: &Value) -> bool 
         Operator::Equal => apply_equal(left, right),
         Operator::NotEqual => apply_not_equal(left, right),
         Operator::BitwiseAnd => apply_bitwise_and(left, right),
+        Operator::BitwiseAndMask(mask) => {
+            // Apply mask to left value, then compare with right
+            let masked_left = match left {
+                Value::Uint(val) => Value::Uint(val & mask),
+                Value::Int(val) => {
+                    // Convert u64 mask to i64 safely
+                    let i64_mask = if i64::try_from(*mask).is_ok() {
+                        i64::try_from(*mask).unwrap_or(0)
+                    } else {
+                        // For values > i64::MAX, use bitwise representation
+                        i64::from_ne_bytes(mask.to_ne_bytes())
+                    };
+                    Value::Int(val & i64_mask)
+                }
+                _ => return false, // Can't apply bitwise operations to non-numeric values
+            };
+            apply_equal(&masked_left, right)
+        }
     }
 }
 
@@ -1505,7 +1523,12 @@ mod tests {
 
     #[test]
     fn test_apply_operator_all_combinations() {
-        let operators = [Operator::Equal, Operator::NotEqual, Operator::BitwiseAnd];
+        let operators = [
+            Operator::Equal,
+            Operator::NotEqual,
+            Operator::BitwiseAnd,
+            Operator::BitwiseAndMask(0xFF),
+        ];
         let values = [
             Value::Uint(42),
             Value::Int(-42),
@@ -1525,6 +1548,22 @@ mod tests {
                         Operator::Equal => apply_equal(left, right),
                         Operator::NotEqual => apply_not_equal(left, right),
                         Operator::BitwiseAnd => apply_bitwise_and(left, right),
+                        Operator::BitwiseAndMask(mask) => {
+                            // Apply mask to left value, then compare with right
+                            let masked_left = match left {
+                                Value::Uint(val) => Value::Uint(val & mask),
+                                Value::Int(val) => {
+                                    let i64_mask = if i64::try_from(*mask).is_ok() {
+                                        i64::try_from(*mask).unwrap_or(0)
+                                    } else {
+                                        i64::from_ne_bytes(mask.to_ne_bytes())
+                                    };
+                                    Value::Int(val & i64_mask)
+                                }
+                                _ => return, // Skip non-numeric values in test
+                            };
+                            apply_equal(&masked_left, right)
+                        }
                     };
 
                     assert_eq!(

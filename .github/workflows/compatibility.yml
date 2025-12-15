@@ -1,0 +1,39 @@
+name: Compatibility Tests
+
+on:
+    push:
+        branches: [main, develop]
+    pull_request:
+        branches: [main, develop]
+    schedule:
+        # Run daily at 2 AM UTC to catch any regressions
+        - cron: "0 2 * * *"
+
+jobs:
+    compatibility-tests:
+        name: Compatibility Tests
+        runs-on: ${{ matrix.os }}
+
+        strategy:
+            matrix:
+                os: [ubuntu-latest, windows-latest, macos-latest]
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v5
+
+            - uses: dtolnay/rust-toolchain@1.90
+
+            - name: Install just task runner
+              uses: taiki-e/install-action@v2
+              with:
+                tool: just
+
+            - name: Verify compatibility test files are available
+              run: just verify-compatibility-tests
+
+            - name: Build rmagic
+              run: cargo build --release
+
+            - name: Run compatibility tests
+              run: cargo test test_compatibility_with_original_libmagic -- --ignored

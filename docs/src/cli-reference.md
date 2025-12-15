@@ -18,6 +18,7 @@ rmagic [OPTIONS] <FILE>...
 - **Description**: Path to the file(s) to analyze
 - **Multiple**: Yes, can specify multiple files
 - **Examples**:
+
   ```bash
   rmagic file.bin
   rmagic file1.exe file2.pdf file3.zip
@@ -28,6 +29,7 @@ rmagic [OPTIONS] <FILE>...
 
 - **Description**: Display help information and exit
 - **Example**:
+
   ```bash
   rmagic --help
   ```
@@ -36,6 +38,7 @@ rmagic [OPTIONS] <FILE>...
 
 - **Description**: Display version information and exit
 - **Example**:
+
   ```bash
   rmagic --version
   ```
@@ -47,10 +50,13 @@ rmagic [OPTIONS] <FILE>...
 - **Description**: Output results in JSON format instead of text
 - **Default**: Text format
 - **Example**:
+
   ```bash
   rmagic --json file.bin
   ```
+
 - **Output Example**:
+
   ```json
   {
     "filename": "file.bin",
@@ -65,6 +71,7 @@ rmagic [OPTIONS] <FILE>...
 - **Description**: Output results in text format (default behavior)
 - **Default**: Enabled
 - **Example**:
+
   ```bash
   rmagic --text file.bin
   # Output: file.bin: ELF 64-bit LSB executable
@@ -78,6 +85,7 @@ rmagic [OPTIONS] <FILE>...
 - **Type**: Path to magic file
 - **Default**: Built-in magic database
 - **Example**:
+
   ```bash
   rmagic --magic-file custom.magic file.bin
   rmagic --magic-file /usr/share/misc/magic file.bin
@@ -90,6 +98,7 @@ rmagic [OPTIONS] <FILE>...
 - **Description**: Output MIME type instead of description
 - **Status**: 📋 Planned
 - **Example**:
+
   ```bash
   rmagic --mime-type file.bin
   # Output: application/x-executable
@@ -100,6 +109,7 @@ rmagic [OPTIONS] <FILE>...
 - **Description**: Output MIME encoding
 - **Status**: 📋 Planned
 - **Example**:
+
   ```bash
   rmagic --mime-encoding text.txt
   # Output: us-ascii
@@ -110,6 +120,7 @@ rmagic [OPTIONS] <FILE>...
 - **Description**: Brief output (no filename prefix)
 - **Status**: 📋 Planned
 - **Example**:
+
   ```bash
   rmagic --brief file.bin
   # Output: ELF 64-bit LSB executable
@@ -236,6 +247,7 @@ rmagic --recursive /path/to/directory/
 - **Description**: Default magic file path
 - **Default**: Built-in magic database
 - **Example**:
+
   ```bash
   export MAGIC=/usr/local/share/magic
   rmagic file.bin  # Uses /usr/local/share/magic
@@ -246,6 +258,7 @@ rmagic --recursive /path/to/directory/
 - **Description**: Enable debug output
 - **Values**: `0` (off), `1` (basic), `2` (verbose)
 - **Example**:
+
   ```bash
   RMAGIC_DEBUG=1 rmagic file.bin
   ```

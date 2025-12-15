@@ -73,6 +73,7 @@ reviews:
             "!*.svg",
             "!*.ico",
             "!*.wxs",
+            "!third_party/**",
         ]
     path_instructions:
         - path: "src/lib.rs"

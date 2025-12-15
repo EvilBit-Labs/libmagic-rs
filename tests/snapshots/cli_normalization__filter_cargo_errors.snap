@@ -1,0 +1,6 @@
+---
+source: tests/cli_normalization.rs
+expression: normalized
+---
+Error: File not found
+The specified file does not exist.

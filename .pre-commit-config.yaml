@@ -54,25 +54,25 @@ repos:
       hooks:
           - id: cargo-machete
 
-    # Markdown formatting and linting (temporarily disabled in CI due to path issues)
-    - repo: https://github.com/hukkin/mdformat
-      rev: 0.7.22
-      hooks:
-          - id: mdformat
-            additional_dependencies:
-                - mdformat-gfm
-                - mdformat-admon
-                - mdformat-config
-                - mdformat-footnote
-                - mdformat-frontmatter
-                - mdformat-simple-breaks
-                - mdformat-tables
-                - mdformat-web
-                - mdformat-wikilink
-                - mdformat-gfm-alerts
-                - mdformat-rustfmt
-                - mdformat-toc
-            files: \.(md|mdx)$
+    # Markdown formatting and linting (temporarily disabled due to rust code block formatting issues)
+    # - repo: https://github.com/hukkin/mdformat
+    #   rev: 0.7.22
+    #   hooks:
+    #       - id: mdformat
+    #         additional_dependencies:
+    #             - mdformat-gfm
+    #             - mdformat-admon
+    #             - mdformat-config
+    #             - mdformat-footnote
+    #             - mdformat-frontmatter
+    #             - mdformat-simple-breaks
+    #             - mdformat-tables
+    #             - mdformat-web
+    #             - mdformat-wikilink
+    #             - mdformat-gfm-alerts
+    #             - mdformat-toc
+    #         files: \.(md|mdx)$
+    #         exclude: ^target/|
 
     # Security audit for Rust dependencies (moved to CI)
     - repo: local

@@ -1,0 +1,52 @@
+# Basic magic file for libmagic-rs
+# This is a minimal magic file for testing and CI/CD environments
+
+# ELF executables
+0	string	\x7fELF	ELF
+>4	byte	1	32-bit
+>4	byte	2	64-bit
+>5	byte	1	LSB
+>5	byte	2	MSB
+
+# PE executables
+0	string	MZ	MS-DOS executable
+>60	lelong	0x00004550	PE32 executable
+
+# ZIP archives
+0	string	PK\x03\x04	ZIP archive
+0	string	PK\x05\x06	ZIP archive (empty)
+0	string	PK\x07\x08	ZIP archive (spanned)
+
+# JPEG images
+0	string	\xff\xd8\xff	JPEG image data
+
+# PNG images
+0	string	\x89PNG\r\n\x1a\n	PNG image data
+
+# GIF images
+0	string	GIF87a	GIF image data, version 87a
+0	string	GIF89a	GIF image data, version 89a
+
+# PDF documents
+0	string	%PDF-	PDF document
+
+# Text files
+0	string	#!/bin/sh	shell script
+0	string	#!/bin/bash	Bash script
+0	string	#!/usr/bin/env	script text
+
+# Common text patterns
+0	string	<?xml	XML document
+0	string	<html	HTML document
+0	string	<!DOCTYPE	HTML document
+
+# Archive formats
+0	string	\x1f\x8b	gzip compressed data
+0	string	BZh	bzip2 compressed data
+0	string	\xfd7zXZ\x00	XZ compressed data
+
+# Binary formats
+0	string	\x89HDF	HDF data
+0	string	\xca\xfe\xba\xbe	Java class file
+0	string	\xfe\xed\xfa\xce	Mach-O executable (32-bit)
+0	string	\xfe\xed\xfa\xcf	Mach-O executable (64-bit)

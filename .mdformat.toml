@@ -8,6 +8,8 @@ exclude = [
     "**/CHANGELOG.md",
     "target/**",
     "megalinter-reports/**",
+    "**/*.result",
+    "**/*.testfile",
 ]
 validate = true
 number = true

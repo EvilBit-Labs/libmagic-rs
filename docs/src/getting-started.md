@@ -121,7 +121,7 @@ libmagic-rs/
 │   └── io/
 │       └── mod.rs          # I/O utilities (placeholder)
 ├── tests/                  # Integration tests
-├── test_files/             # Test magic files and samples
+├── third_party/            # Canonical libmagic tests and magic files
 └── docs/                   # This documentation
 ```
 

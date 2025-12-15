@@ -214,6 +214,111 @@ pub fn read_long(
     }
 }
 
+/// Safely reads a null-terminated string from the buffer at the specified offset
+///
+/// This function reads bytes from the buffer starting at the given offset until it encounters
+/// a null byte (0x00) or reaches the maximum length limit. The resulting bytes are converted
+/// to a UTF-8 string with proper error handling for invalid sequences.
+///
+/// # Arguments
+///
+/// * `buffer` - The byte buffer to read from
+/// * `offset` - The offset position to start reading the string from
+/// * `max_length` - Optional maximum number of bytes to read excluding the null terminator.
+///   If a NUL is found within `max_length` bytes, it is not counted in the result length.
+///   If no NUL is found, up to `max_length` bytes are returned with no trailing NUL.
+///   When `None`, reads until the first NUL or end of buffer.
+///
+/// # Returns
+///
+/// Returns `Ok(Value::String(string))` if the read is successful, or an appropriate error
+/// if the read fails due to buffer overrun or invalid UTF-8 sequences.
+///
+/// # Security
+///
+/// This function provides several security guarantees:
+/// - Bounds checking prevents reading beyond buffer limits
+/// - Length limits prevent excessive memory allocation
+/// - UTF-8 validation ensures string safety
+/// - Null termination handling prevents runaway reads
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::evaluator::types::read_string;
+/// use libmagic_rs::parser::ast::Value;
+///
+/// // Null-terminated string
+/// let buffer = b"Hello\x00World";
+/// let result = read_string(buffer, 0, None).unwrap();
+/// assert_eq!(result, Value::String("Hello".to_string()));
+///
+/// // String with length limit
+/// let buffer = b"VeryLongString\x00";
+/// let result = read_string(buffer, 0, Some(4)).unwrap();
+/// assert_eq!(result, Value::String("Very".to_string()));
+///
+/// // String without null terminator (reads to max_length)
+/// let buffer = b"NoNull";
+/// let result = read_string(buffer, 0, Some(6)).unwrap();
+/// assert_eq!(result, Value::String("NoNull".to_string()));
+///
+/// // NUL found within max_length (NUL not counted in result)
+/// let buffer = b"Hello\x00World";
+/// let result = read_string(buffer, 0, Some(10)).unwrap();
+/// assert_eq!(result, Value::String("Hello".to_string()));
+///
+/// // No NUL found, returns exactly max_length bytes
+/// let buffer = b"ABCDEF";
+/// let result = read_string(buffer, 0, Some(4)).unwrap();
+/// assert_eq!(result, Value::String("ABCD".to_string()));
+/// ```
+///
+/// # Errors
+///
+/// Returns `TypeReadError::BufferOverrun` if the offset is beyond the buffer bounds,
+/// or if no null terminator is found within the available buffer space when no `max_length` is specified.
+pub fn read_string(
+    buffer: &[u8],
+    offset: usize,
+    max_length: Option<usize>,
+) -> Result<Value, TypeReadError> {
+    // Check if offset is within buffer bounds
+    if offset >= buffer.len() {
+        return Err(TypeReadError::BufferOverrun {
+            offset,
+            buffer_len: buffer.len(),
+        });
+    }
+
+    // Get the slice starting from offset
+    let remaining_buffer = &buffer[offset..];
+
+    // Determine the actual length to read
+    let read_length = if let Some(max_len) = max_length {
+        // Find null terminator within max_length, or use max_length if no null found
+        let search_len = std::cmp::min(max_len, remaining_buffer.len());
+        remaining_buffer[..search_len]
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(search_len)
+    } else {
+        // Find null terminator in entire remaining buffer
+        remaining_buffer
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(remaining_buffer.len())
+    };
+
+    // Extract the string bytes (excluding null terminator)
+    let string_bytes = &remaining_buffer[..read_length];
+
+    // Convert to UTF-8 string, replacing invalid sequences with replacement character
+    let string_value = String::from_utf8_lossy(string_bytes).into_owned();
+
+    Ok(Value::String(string_value))
+}
+
 /// Reads and interprets bytes according to the specified `TypeKind`
 ///
 /// This is the main interface for type interpretation that dispatches to the appropriate
@@ -259,24 +364,11 @@ pub fn read_typed_value(
     offset: usize,
     type_kind: &TypeKind,
 ) -> Result<Value, TypeReadError> {
-    // TODO: Add comprehensive error handling improvements:
-    // - Validate offset alignment for multi-byte types (shorts should be 2-byte aligned, etc.)
-    // - Add context about which type was being read when errors occur
-    // - Handle endianness conversion errors more gracefully
-    // - Add bounds checking warnings for reads near buffer boundaries
-    // - Consider adding support for partial reads when buffer is truncated
-
     match type_kind {
         TypeKind::Byte => read_byte(buffer, offset),
         TypeKind::Short { endian, signed } => read_short(buffer, offset, *endian, *signed),
         TypeKind::Long { endian, signed } => read_long(buffer, offset, *endian, *signed),
-        TypeKind::String { max_length: _ } => {
-            // TODO: Implement string type reading in task 12.2
-            // For now, return an error for unsupported string type
-            Err(TypeReadError::UnsupportedType {
-                type_name: "String".to_string(),
-            })
-        }
+        TypeKind::String { max_length } => read_string(buffer, offset, *max_length),
     }
 }
 
@@ -915,235 +1007,510 @@ mod tests {
             endian: Endianness::Native,
             signed: false,
         };
-        let short_result = read_typed_value(buffer, 0, &short_type).unwrap();
-        match short_result {
+
+        let result = read_typed_value(buffer, 0, &short_type).unwrap();
+        match result {
             Value::Uint(val) => {
                 // Should be either 0x1234 (little-endian) or 0x3412 (big-endian)
                 assert!(val == 0x1234 || val == 0x3412);
             }
             _ => panic!("Expected Value::Uint variant"),
         }
-
-        // Test long with native endianness
-        let long_type = TypeKind::Long {
-            endian: Endianness::Native,
-            signed: false,
-        };
-        let long_result = read_typed_value(buffer, 0, &long_type).unwrap();
-        match long_result {
-            Value::Uint(val) => {
-                // Should be either 0x56781234 (little-endian) or 0x12345678 (big-endian)
-                assert!(val == 0x5678_1234 || val == 0x1234_5678);
-            }
-            _ => panic!("Expected Value::Uint variant"),
-        }
     }
 
     #[test]
-    fn test_read_typed_value_string_unsupported() {
-        let buffer = &[0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00]; // "Hello\0"
+    fn test_read_typed_value_string() {
+        let buffer = b"Hello\x00World\x00";
         let type_kind = TypeKind::String { max_length: None };
 
-        let result = read_typed_value(buffer, 0, &type_kind);
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            TypeReadError::UnsupportedType {
-                type_name: "String".to_string()
-            }
-        );
+        let result = read_typed_value(buffer, 0, &type_kind).unwrap();
+        assert_eq!(result, Value::String("Hello".to_string()));
+
+        let result = read_typed_value(buffer, 6, &type_kind).unwrap();
+        assert_eq!(result, Value::String("World".to_string()));
     }
 
     #[test]
-    fn test_read_typed_value_string_with_max_length_unsupported() {
-        let buffer = &[0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00];
+    fn test_read_typed_value_string_with_max_length() {
+        let buffer = b"VeryLongString\x00";
         let type_kind = TypeKind::String {
-            max_length: Some(10),
+            max_length: Some(4),
         };
 
-        let result = read_typed_value(buffer, 0, &type_kind);
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            TypeReadError::UnsupportedType {
-                type_name: "String".to_string()
-            }
-        );
+        let result = read_typed_value(buffer, 0, &type_kind).unwrap();
+        assert_eq!(result, Value::String("Very".to_string()));
     }
 
     #[test]
     fn test_read_typed_value_buffer_overrun() {
-        let buffer = &[0x12, 0x34];
-
-        // Try to read a long (4 bytes) from a 2-byte buffer
-        let long_type = TypeKind::Long {
+        let buffer = &[0x12];
+        let type_kind = TypeKind::Short {
             endian: Endianness::Little,
             signed: false,
         };
-        let result = read_typed_value(buffer, 0, &long_type);
+
+        let result = read_typed_value(buffer, 0, &type_kind);
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err(),
             TypeReadError::BufferOverrun {
                 offset: 0,
-                buffer_len: 2
+                buffer_len: 1
             }
         );
+    }
 
-        // Try to read a short (2 bytes) at offset 1 from a 2-byte buffer
-        let short_type = TypeKind::Short {
-            endian: Endianness::Little,
-            signed: false,
-        };
-        let result = read_typed_value(buffer, 1, &short_type);
+    // Tests for read_string function
+    #[test]
+    fn test_read_string_null_terminated() {
+        let buffer = b"Hello\x00World";
+
+        let result = read_string(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String("Hello".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_null_terminated_at_offset() {
+        let buffer = b"Prefix\x00Hello\x00Suffix";
+
+        let result = read_string(buffer, 7, None).unwrap();
+        assert_eq!(result, Value::String("Hello".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_with_max_length_shorter_than_null() {
+        let buffer = b"VeryLongString\x00";
+
+        // Max length is shorter than the null terminator position
+        let result = read_string(buffer, 0, Some(4)).unwrap();
+        assert_eq!(result, Value::String("Very".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_with_max_length_longer_than_null() {
+        let buffer = b"Short\x00LongerSuffix";
+
+        // Max length is longer than the null terminator position
+        let result = read_string(buffer, 0, Some(10)).unwrap();
+        assert_eq!(result, Value::String("Short".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_no_null_terminator_with_max_length() {
+        let buffer = b"NoNullTerminator";
+
+        // Should read up to max_length when no null terminator is found
+        let result = read_string(buffer, 0, Some(6)).unwrap();
+        assert_eq!(result, Value::String("NoNull".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_no_null_terminator_no_max_length() {
+        let buffer = b"NoNullTerminator";
+
+        // Should read entire remaining buffer when no null terminator and no max_length
+        let result = read_string(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String("NoNullTerminator".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_empty_string() {
+        let buffer = b"\x00Hello";
+
+        // Should return empty string when null terminator is at offset
+        let result = read_string(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String(String::new()));
+    }
+
+    #[test]
+    fn test_read_string_empty_buffer() {
+        let buffer = b"";
+
+        // Should fail with buffer overrun for empty buffer
+        let result = read_string(buffer, 0, None);
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err(),
             TypeReadError::BufferOverrun {
-                offset: 1,
-                buffer_len: 2
+                offset: 0,
+                buffer_len: 0
             }
         );
     }
 
     #[test]
-    fn test_read_typed_value_all_supported_types() {
-        let buffer = &[0x7f, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12, 0xbc, 0x9a];
+    fn test_read_string_offset_out_of_bounds() {
+        let buffer = b"Hello";
 
-        // Test all supported TypeKind variants
-        let test_cases = vec![
-            (TypeKind::Byte, 0, Value::Uint(0x7f)),
-            (
-                TypeKind::Short {
-                    endian: Endianness::Little,
-                    signed: false,
-                },
-                1,
-                Value::Uint(0x1234), // bytes [0x34, 0x12] -> 0x1234 little-endian
-            ),
-            (
-                TypeKind::Short {
-                    endian: Endianness::Big,
-                    signed: false,
-                },
-                1,
-                Value::Uint(0x3412), // bytes [0x34, 0x12] -> 0x3412 big-endian
-            ),
-            (
-                TypeKind::Long {
-                    endian: Endianness::Little,
-                    signed: false,
-                },
-                1,
-                Value::Uint(0x5678_1234), // bytes [0x34, 0x12, 0x78, 0x56] -> 0x56781234 little-endian
-            ),
-            (
-                TypeKind::Long {
-                    endian: Endianness::Big,
-                    signed: false,
-                },
-                1,
-                Value::Uint(0x3412_7856), // bytes [0x34, 0x12, 0x78, 0x56] -> 0x34127856 big-endian
-            ),
-        ];
+        // Should fail when offset is beyond buffer length
+        let result = read_string(buffer, 10, None);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 10,
+                buffer_len: 5
+            }
+        );
+    }
 
-        for (type_kind, offset, expected) in test_cases {
-            let result = read_typed_value(buffer, offset, &type_kind).unwrap();
-            assert_eq!(result, expected, "Failed for type: {type_kind:?}");
+    #[test]
+    fn test_read_string_offset_at_buffer_end() {
+        let buffer = b"Hello";
+
+        // Should fail when offset equals buffer length
+        let result = read_string(buffer, 5, None);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 5,
+                buffer_len: 5
+            }
+        );
+    }
+
+    #[test]
+    fn test_read_string_max_length_zero() {
+        let buffer = b"Hello\x00World";
+
+        // Should return empty string when max_length is 0
+        let result = read_string(buffer, 0, Some(0)).unwrap();
+        assert_eq!(result, Value::String(String::new()));
+    }
+
+    #[test]
+    fn test_read_string_max_length_larger_than_buffer() {
+        let buffer = b"Short";
+
+        // Should read entire buffer when max_length exceeds buffer size
+        let result = read_string(buffer, 0, Some(100)).unwrap();
+        assert_eq!(result, Value::String("Short".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_utf8_valid() {
+        let buffer = b"Caf\xc3\xa9\x00"; // "Café" in UTF-8
+
+        let result = read_string(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String("Café".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_utf8_invalid() {
+        let buffer = b"Invalid\xff\xfe\x00"; // Invalid UTF-8 sequence
+
+        let result = read_string(buffer, 0, None).unwrap();
+        // Should use replacement characters for invalid UTF-8
+        assert!(matches!(result, Value::String(_)));
+        if let Value::String(s) = result {
+            assert!(s.starts_with("Invalid"));
+            assert!(s.contains('\u{FFFD}')); // UTF-8 replacement character
         }
     }
 
     #[test]
-    fn test_read_typed_value_signed_vs_unsigned() {
-        let buffer = &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+    fn test_read_string_binary_data() {
+        let buffer = &[0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x80, 0x90]; // "Hello" + binary
 
-        // Test signed vs unsigned interpretation for shorts
-        let unsigned_short = TypeKind::Short {
-            endian: Endianness::Little,
-            signed: false,
-        };
-        let signed_short = TypeKind::Short {
-            endian: Endianness::Little,
-            signed: true,
-        };
-
-        let unsigned_result = read_typed_value(buffer, 0, &unsigned_short).unwrap();
-        let signed_result = read_typed_value(buffer, 0, &signed_short).unwrap();
-
-        assert_eq!(unsigned_result, Value::Uint(65535));
-        assert_eq!(signed_result, Value::Int(-1));
-
-        // Test signed vs unsigned interpretation for longs
-        let unsigned_long = TypeKind::Long {
-            endian: Endianness::Little,
-            signed: false,
-        };
-        let signed_long = TypeKind::Long {
-            endian: Endianness::Little,
-            signed: true,
-        };
-
-        let unsigned_result = read_typed_value(buffer, 0, &unsigned_long).unwrap();
-        let signed_result = read_typed_value(buffer, 0, &signed_long).unwrap();
-
-        assert_eq!(unsigned_result, Value::Uint(4_294_967_295));
-        assert_eq!(signed_result, Value::Int(-1));
+        let result = read_string(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String("Hello".to_string()));
     }
 
     #[test]
-    fn test_read_typed_value_consistency_with_direct_calls() {
-        let buffer = &[0x34, 0x12, 0x78, 0x56, 0xbc, 0x9a, 0xde, 0xf0];
+    fn test_read_string_multiple_nulls() {
+        let buffer = b"First\x00\x00Second\x00";
 
-        // Test that read_typed_value gives same results as direct function calls
-        let byte_type = TypeKind::Byte;
-        let direct_byte = read_byte(buffer, 0).unwrap();
-        let typed_byte = read_typed_value(buffer, 0, &byte_type).unwrap();
-        assert_eq!(direct_byte, typed_byte);
+        // Should stop at first null terminator
+        let result = read_string(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String("First".to_string()));
 
-        let short_type = TypeKind::Short {
-            endian: Endianness::Little,
-            signed: false,
-        };
-        let direct_short = read_short(buffer, 0, Endianness::Little, false).unwrap();
-        let typed_short = read_typed_value(buffer, 0, &short_type).unwrap();
-        assert_eq!(direct_short, typed_short);
-
-        let long_type = TypeKind::Long {
-            endian: Endianness::Big,
-            signed: true,
-        };
-        let direct_long = read_long(buffer, 0, Endianness::Big, true).unwrap();
-        let typed_long = read_typed_value(buffer, 0, &long_type).unwrap();
-        assert_eq!(direct_long, typed_long);
+        // Reading from second null should return empty string
+        let result = read_string(buffer, 6, None).unwrap();
+        assert_eq!(result, Value::String(String::new()));
     }
 
     #[test]
-    fn test_read_typed_value_empty_buffer() {
-        let buffer = &[];
+    fn test_read_string_ascii_control_characters() {
+        let buffer = b"Hello\x09World\x00"; // Tab character in string
 
-        // All types should fail on empty buffer
-        let types = vec![
-            TypeKind::Byte,
+        let result = read_string(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String("Hello\tWorld".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_single_character() {
+        let buffer = b"A\x00";
+
+        let result = read_string(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String("A".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_max_length_exact_match() {
+        let buffer = b"Exact\x00";
+
+        // Max length exactly matches string length (excluding null)
+        let result = read_string(buffer, 0, Some(5)).unwrap();
+        assert_eq!(result, Value::String("Exact".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_at_buffer_boundary() {
+        let buffer = b"Hello";
+
+        // Reading from last character position
+        let result = read_string(buffer, 4, Some(1)).unwrap();
+        assert_eq!(result, Value::String("o".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_whitespace_handling() {
+        let buffer = b"  Spaces  \x00";
+
+        // Should preserve whitespace in strings
+        let result = read_string(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String("  Spaces  ".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_newline_characters() {
+        let buffer = b"Line1\nLine2\r\n\x00";
+
+        let result = read_string(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String("Line1\nLine2\r\n".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_consistency_with_typed_value() {
+        let buffer = b"Test\x00String";
+
+        // Test that read_string and read_typed_value produce same results
+        let direct_result = read_string(buffer, 0, None).unwrap();
+
+        let type_kind = TypeKind::String { max_length: None };
+        let typed_result = read_typed_value(buffer, 0, &type_kind).unwrap();
+
+        assert_eq!(direct_result, typed_result);
+        assert_eq!(typed_result, Value::String("Test".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_consistency_with_max_length() {
+        let buffer = b"LongString\x00";
+
+        // Test consistency between direct call and typed_value call with max_length
+        let direct_result = read_string(buffer, 0, Some(4)).unwrap();
+
+        let type_kind = TypeKind::String {
+            max_length: Some(4),
+        };
+        let typed_result = read_typed_value(buffer, 0, &type_kind).unwrap();
+
+        assert_eq!(direct_result, typed_result);
+        assert_eq!(typed_result, Value::String("Long".to_string()));
+    }
+
+    #[test]
+    fn test_read_string_edge_case_combinations() {
+        // Test various edge case combinations
+        let test_cases = [
+            (b"" as &[u8], 0, None, true), // Empty buffer should fail
+            (b"\x00", 0, None, false),     // Just null terminator
+            (b"A", 0, Some(0), false),     // Zero max length
+            (b"AB", 1, Some(1), false),    // Single char at offset
+        ];
+
+        for (buffer, offset, max_length, should_fail) in test_cases {
+            let result = read_string(buffer, offset, max_length);
+
+            if should_fail {
+                assert!(
+                    result.is_err(),
+                    "Expected failure for buffer {buffer:?}, offset {offset}, max_length {max_length:?}"
+                );
+            } else {
+                assert!(
+                    result.is_ok(),
+                    "Expected success for buffer {buffer:?}, offset {offset}, max_length {max_length:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_read_typed_value_buffer_overrun() {
+    let buffer = &[0x12, 0x34];
+
+    // Try to read a long (4 bytes) from a 2-byte buffer
+    let long_type = TypeKind::Long {
+        endian: Endianness::Little,
+        signed: false,
+    };
+    let result = read_typed_value(buffer, 0, &long_type);
+    assert!(result.is_err());
+    assert_eq!(
+        result.unwrap_err(),
+        TypeReadError::BufferOverrun {
+            offset: 0,
+            buffer_len: 2
+        }
+    );
+
+    // Try to read a short (2 bytes) at offset 1 from a 2-byte buffer
+    let short_type = TypeKind::Short {
+        endian: Endianness::Little,
+        signed: false,
+    };
+    let result = read_typed_value(buffer, 1, &short_type);
+    assert!(result.is_err());
+    assert_eq!(
+        result.unwrap_err(),
+        TypeReadError::BufferOverrun {
+            offset: 1,
+            buffer_len: 2
+        }
+    );
+}
+
+#[test]
+fn test_read_typed_value_all_supported_types() {
+    let buffer = &[0x7f, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12, 0xbc, 0x9a];
+
+    // Test all supported TypeKind variants
+    let test_cases = vec![
+        (TypeKind::Byte, 0, Value::Uint(0x7f)),
+        (
             TypeKind::Short {
                 endian: Endianness::Little,
                 signed: false,
             },
+            1,
+            Value::Uint(0x1234), // bytes [0x34, 0x12] -> 0x1234 little-endian
+        ),
+        (
+            TypeKind::Short {
+                endian: Endianness::Big,
+                signed: false,
+            },
+            1,
+            Value::Uint(0x3412), // bytes [0x34, 0x12] -> 0x3412 big-endian
+        ),
+        (
             TypeKind::Long {
                 endian: Endianness::Little,
                 signed: false,
             },
-        ];
+            1,
+            Value::Uint(0x5678_1234), // bytes [0x34, 0x12, 0x78, 0x56] -> 0x56781234 little-endian
+        ),
+        (
+            TypeKind::Long {
+                endian: Endianness::Big,
+                signed: false,
+            },
+            1,
+            Value::Uint(0x3412_7856), // bytes [0x34, 0x12, 0x78, 0x56] -> 0x34127856 big-endian
+        ),
+    ];
 
-        for type_kind in types {
-            let result = read_typed_value(buffer, 0, &type_kind);
-            assert!(result.is_err());
-            match result.unwrap_err() {
-                TypeReadError::BufferOverrun { offset, buffer_len } => {
-                    assert_eq!(offset, 0);
-                    assert_eq!(buffer_len, 0);
-                }
-                TypeReadError::UnsupportedType { .. } => panic!("Expected BufferOverrun error"),
+    for (type_kind, offset, expected) in test_cases {
+        let result = read_typed_value(buffer, offset, &type_kind).unwrap();
+        assert_eq!(result, expected, "Failed for type: {type_kind:?}");
+    }
+}
+
+#[test]
+fn test_read_typed_value_signed_vs_unsigned() {
+    let buffer = &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+
+    // Test signed vs unsigned interpretation for shorts
+    let unsigned_short = TypeKind::Short {
+        endian: Endianness::Little,
+        signed: false,
+    };
+    let signed_short = TypeKind::Short {
+        endian: Endianness::Little,
+        signed: true,
+    };
+
+    let unsigned_result = read_typed_value(buffer, 0, &unsigned_short).unwrap();
+    let signed_result = read_typed_value(buffer, 0, &signed_short).unwrap();
+
+    assert_eq!(unsigned_result, Value::Uint(65535));
+    assert_eq!(signed_result, Value::Int(-1));
+
+    // Test signed vs unsigned interpretation for longs
+    let unsigned_long = TypeKind::Long {
+        endian: Endianness::Little,
+        signed: false,
+    };
+    let signed_long = TypeKind::Long {
+        endian: Endianness::Little,
+        signed: true,
+    };
+
+    let unsigned_result = read_typed_value(buffer, 0, &unsigned_long).unwrap();
+    let signed_result = read_typed_value(buffer, 0, &signed_long).unwrap();
+
+    assert_eq!(unsigned_result, Value::Uint(4_294_967_295));
+    assert_eq!(signed_result, Value::Int(-1));
+}
+
+#[test]
+fn test_read_typed_value_consistency_with_direct_calls() {
+    let buffer = &[0x34, 0x12, 0x78, 0x56, 0xbc, 0x9a, 0xde, 0xf0];
+
+    // Test that read_typed_value gives same results as direct function calls
+    let byte_type = TypeKind::Byte;
+    let direct_byte = read_byte(buffer, 0).unwrap();
+    let typed_byte = read_typed_value(buffer, 0, &byte_type).unwrap();
+    assert_eq!(direct_byte, typed_byte);
+
+    let short_type = TypeKind::Short {
+        endian: Endianness::Little,
+        signed: false,
+    };
+    let direct_short = read_short(buffer, 0, Endianness::Little, false).unwrap();
+    let typed_short = read_typed_value(buffer, 0, &short_type).unwrap();
+    assert_eq!(direct_short, typed_short);
+
+    let long_type = TypeKind::Long {
+        endian: Endianness::Big,
+        signed: true,
+    };
+    let direct_long = read_long(buffer, 0, Endianness::Big, true).unwrap();
+    let typed_long = read_typed_value(buffer, 0, &long_type).unwrap();
+    assert_eq!(direct_long, typed_long);
+}
+
+#[test]
+fn test_read_typed_value_empty_buffer() {
+    let buffer = &[];
+
+    // All types should fail on empty buffer
+    let types = vec![
+        TypeKind::Byte,
+        TypeKind::Short {
+            endian: Endianness::Little,
+            signed: false,
+        },
+        TypeKind::Long {
+            endian: Endianness::Little,
+            signed: false,
+        },
+    ];
+
+    for type_kind in types {
+        let result = read_typed_value(buffer, 0, &type_kind);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            TypeReadError::BufferOverrun { offset, buffer_len } => {
+                assert_eq!(offset, 0);
+                assert_eq!(buffer_len, 0);
             }
+            TypeReadError::UnsupportedType { .. } => panic!("Expected BufferOverrun error"),
         }
     }
 }

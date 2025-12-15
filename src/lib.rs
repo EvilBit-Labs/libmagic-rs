@@ -35,9 +35,9 @@
 #![warn(clippy::pedantic)]
 
 use std::path::Path;
-use thiserror::Error;
 
 // Re-export modules
+pub mod error;
 pub mod evaluator;
 pub mod io;
 pub mod output;
@@ -49,40 +49,18 @@ pub use parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, TypeKind, Val
 // Re-export evaluator types for convenience
 pub use evaluator::{EvaluationContext, MatchResult};
 
-/// Core error types for the library
-#[derive(Debug, Error)]
-pub enum LibmagicError {
-    /// Parse error in magic file
-    #[error("Parse error at line {line}: {message}")]
-    ParseError {
-        /// Line number where error occurred
-        line: usize,
-        /// Error message
-        message: String,
-    },
-
-    /// Evaluation error during rule processing
-    #[error("Evaluation error: {0}")]
-    EvaluationError(String),
-
-    /// I/O error accessing files
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
-
-    /// Invalid magic file format
-    #[error("Invalid magic file format: {0}")]
-    InvalidFormat(String),
-
-    /// Evaluation timeout exceeded
-    #[error("Evaluation timeout exceeded after {timeout_ms}ms")]
-    Timeout {
-        /// Timeout duration in milliseconds
-        timeout_ms: u64,
-    },
-}
+// Re-export error types for convenience
+pub use error::{EvaluationError, LibmagicError, ParseError};
 
 /// Result type for library operations
 pub type Result<T> = std::result::Result<T, LibmagicError>;
+
+// Implement From<IoError> for LibmagicError
+impl From<crate::io::IoError> for LibmagicError {
+    fn from(err: crate::io::IoError) -> Self {
+        LibmagicError::IoError(std::io::Error::other(err.to_string()))
+    }
+}
 
 /// Configuration for rule evaluation
 ///
@@ -270,55 +248,98 @@ impl EvaluationConfig {
     /// assert!(invalid_config.validate().is_err());
     /// ```
     pub fn validate(&self) -> Result<()> {
-        // Validate recursion depth to prevent stack overflow attacks
+        self.validate_recursion_depth()?;
+        self.validate_string_length()?;
+        self.validate_timeout()?;
+        self.validate_resource_combination()?;
+        Ok(())
+    }
+
+    /// Validate recursion depth to prevent stack overflow attacks
+    fn validate_recursion_depth(&self) -> Result<()> {
+        const MAX_SAFE_RECURSION_DEPTH: u32 = 1000;
+
         if self.max_recursion_depth == 0 {
-            return Err(LibmagicError::InvalidFormat(
-                "max_recursion_depth must be greater than 0".to_string(),
-            ));
+            return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
+                0,
+                "max_recursion_depth must be greater than 0",
+            )));
         }
 
-        if self.max_recursion_depth > 1000 {
-            return Err(LibmagicError::InvalidFormat(
-                "max_recursion_depth must not exceed 1000 to prevent stack overflow".to_string(),
-            ));
+        if self.max_recursion_depth > MAX_SAFE_RECURSION_DEPTH {
+            return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
+                0,
+                format!(
+                    "max_recursion_depth must not exceed {MAX_SAFE_RECURSION_DEPTH} to prevent stack overflow"
+                ),
+            )));
         }
 
-        // Validate string length to prevent memory exhaustion
+        Ok(())
+    }
+
+    /// Validate string length to prevent memory exhaustion
+    fn validate_string_length(&self) -> Result<()> {
+        const MAX_SAFE_STRING_LENGTH: usize = 1_048_576; // 1MB
+
         if self.max_string_length == 0 {
-            return Err(LibmagicError::InvalidFormat(
-                "max_string_length must be greater than 0".to_string(),
-            ));
+            return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
+                0,
+                "max_string_length must be greater than 0",
+            )));
         }
 
-        if self.max_string_length > 1_048_576 {
-            // 1MB limit to prevent memory exhaustion attacks
-            return Err(LibmagicError::InvalidFormat(
-                "max_string_length must not exceed 1MB to prevent memory exhaustion".to_string(),
-            ));
+        if self.max_string_length > MAX_SAFE_STRING_LENGTH {
+            return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
+                0,
+                format!(
+                    "max_string_length must not exceed {MAX_SAFE_STRING_LENGTH} bytes to prevent memory exhaustion"
+                ),
+            )));
         }
 
-        // Validate timeout to prevent denial of service
+        Ok(())
+    }
+
+    /// Validate timeout to prevent denial of service
+    fn validate_timeout(&self) -> Result<()> {
+        const MAX_SAFE_TIMEOUT_MS: u64 = 300_000; // 5 minutes
+
         if let Some(timeout) = self.timeout_ms {
             if timeout == 0 {
-                return Err(LibmagicError::InvalidFormat(
-                    "timeout_ms must be greater than 0 if specified".to_string(),
-                ));
+                return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
+                    0,
+                    "timeout_ms must be greater than 0 if specified",
+                )));
             }
 
-            if timeout > 300_000 {
-                // 5 minute limit to prevent DoS through excessive timeouts
-                return Err(LibmagicError::InvalidFormat(
-                    "timeout_ms must not exceed 300000 (5 minutes) to prevent denial of service"
-                        .to_string(),
-                ));
+            if timeout > MAX_SAFE_TIMEOUT_MS {
+                return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
+                    0,
+                    format!(
+                        "timeout_ms must not exceed {MAX_SAFE_TIMEOUT_MS} (5 minutes) to prevent denial of service"
+                    ),
+                )));
             }
         }
 
-        // Additional security checks for configuration consistency
-        if self.max_recursion_depth > 100 && self.max_string_length > 65536 {
-            return Err(LibmagicError::InvalidFormat(
-                "High recursion depth combined with large string length may cause resource exhaustion".to_string(),
-            ));
+        Ok(())
+    }
+
+    /// Validate resource combination to prevent resource exhaustion
+    fn validate_resource_combination(&self) -> Result<()> {
+        const HIGH_RECURSION_THRESHOLD: u32 = 100;
+        const LARGE_STRING_THRESHOLD: usize = 65536;
+
+        if self.max_recursion_depth > HIGH_RECURSION_THRESHOLD
+            && self.max_string_length > LARGE_STRING_THRESHOLD
+        {
+            return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
+                0,
+                format!(
+                    "High recursion depth (>{HIGH_RECURSION_THRESHOLD}) combined with large string length (>{LARGE_STRING_THRESHOLD}) may cause resource exhaustion"
+                ),
+            )));
         }
 
         Ok(())
@@ -354,7 +375,8 @@ impl MagicDatabase {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn load_from_file<P: AsRef<Path>>(_path: P) -> Result<Self> {
-        // TODO: Implement magic file loading
+        // For now, return empty rules - magic file parsing will be implemented later
+        // This allows the CLI to work without crashing
         Ok(Self {
             rules: Vec::new(),
             config: EvaluationConfig::default(),
@@ -382,13 +404,42 @@ impl MagicDatabase {
     /// println!("File type: {}", result.description);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn evaluate_file<P: AsRef<Path>>(&self, _path: P) -> Result<EvaluationResult> {
-        // TODO: Implement file evaluation
-        Ok(EvaluationResult {
-            description: "data".to_string(),
-            mime_type: None,
-            confidence: 0.0,
-        })
+    pub fn evaluate_file<P: AsRef<Path>>(&self, path: P) -> Result<EvaluationResult> {
+        use crate::evaluator::evaluate_rules_with_config;
+        use crate::io::FileBuffer;
+
+        // Load the file into memory
+        let file_buffer = FileBuffer::new(path.as_ref())?;
+        let buffer = file_buffer.as_slice();
+
+        // If we have no rules, return "data" as fallback
+        if self.rules.is_empty() {
+            return Ok(EvaluationResult {
+                description: "data".to_string(),
+                mime_type: None,
+                confidence: 0.0,
+            });
+        }
+
+        // Evaluate rules against the file buffer
+        let matches = evaluate_rules_with_config(&self.rules, buffer, self.config.clone())?;
+
+        if matches.is_empty() {
+            // No matches found, return "data" as fallback
+            Ok(EvaluationResult {
+                description: "data".to_string(),
+                mime_type: None,
+                confidence: 0.0,
+            })
+        } else {
+            // Use the first match as the primary result
+            let primary_match = &matches[0];
+            Ok(EvaluationResult {
+                description: primary_match.message.clone(),
+                mime_type: None, // TODO: Implement MIME type mapping
+                confidence: 1.0, // TODO: Implement confidence scoring
+            })
+        }
     }
 }
 
@@ -471,10 +522,10 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::InvalidFormat(msg) => {
-                assert!(msg.contains("max_recursion_depth must be greater than 0"));
+            LibmagicError::ParseError(ParseError::InvalidSyntax { message, .. }) => {
+                assert!(message.contains("max_recursion_depth must be greater than 0"));
             }
-            _ => panic!("Expected InvalidFormat error"),
+            _ => panic!("Expected ParseError with InvalidSyntax"),
         }
     }
 
@@ -489,10 +540,10 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::InvalidFormat(msg) => {
-                assert!(msg.contains("max_recursion_depth must not exceed 1000"));
+            LibmagicError::ParseError(ParseError::InvalidSyntax { message, .. }) => {
+                assert!(message.contains("max_recursion_depth must not exceed 1000"));
             }
-            _ => panic!("Expected InvalidFormat error"),
+            _ => panic!("Expected ParseError with InvalidSyntax"),
         }
     }
 
@@ -507,10 +558,10 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::InvalidFormat(msg) => {
-                assert!(msg.contains("max_string_length must be greater than 0"));
+            LibmagicError::ParseError(ParseError::InvalidSyntax { message, .. }) => {
+                assert!(message.contains("max_string_length must be greater than 0"));
             }
-            _ => panic!("Expected InvalidFormat error"),
+            _ => panic!("Expected ParseError with InvalidSyntax"),
         }
     }
 
@@ -525,10 +576,11 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::InvalidFormat(msg) => {
-                assert!(msg.contains("max_string_length must not exceed 1MB"));
+            LibmagicError::ParseError(ParseError::InvalidSyntax { message, .. }) => {
+                assert!(message.contains("max_string_length must not exceed"));
+                assert!(message.contains("bytes to prevent memory exhaustion"));
             }
-            _ => panic!("Expected InvalidFormat error"),
+            _ => panic!("Expected ParseError with InvalidSyntax"),
         }
     }
 
@@ -543,10 +595,10 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::InvalidFormat(msg) => {
-                assert!(msg.contains("timeout_ms must be greater than 0 if specified"));
+            LibmagicError::ParseError(ParseError::InvalidSyntax { message, .. }) => {
+                assert!(message.contains("timeout_ms must be greater than 0 if specified"));
             }
-            _ => panic!("Expected InvalidFormat error"),
+            _ => panic!("Expected ParseError with InvalidSyntax"),
         }
     }
 
@@ -561,10 +613,10 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::InvalidFormat(msg) => {
-                assert!(msg.contains("timeout_ms must not exceed 300000"));
+            LibmagicError::ParseError(ParseError::InvalidSyntax { message, .. }) => {
+                assert!(message.contains("timeout_ms must not exceed 300000"));
             }
-            _ => panic!("Expected InvalidFormat error"),
+            _ => panic!("Expected ParseError with InvalidSyntax"),
         }
     }
 
@@ -655,20 +707,24 @@ mod tests {
     }
 
     #[test]
-    fn test_libmagic_error_timeout() {
-        let error = LibmagicError::Timeout { timeout_ms: 5000 };
-        let error_str = error.to_string();
+    fn test_libmagic_error_from_parse_error() {
+        let parse_error = ParseError::invalid_syntax(10, "test error");
+        let libmagic_error = LibmagicError::from(parse_error);
 
-        assert!(error_str.contains("Evaluation timeout exceeded"));
-        assert!(error_str.contains("5000ms"));
+        match libmagic_error {
+            LibmagicError::ParseError(_) => (),
+            _ => panic!("Expected ParseError variant"),
+        }
     }
 
     #[test]
-    fn test_libmagic_error_timeout_debug() {
-        let error = LibmagicError::Timeout { timeout_ms: 1000 };
-        let debug_str = format!("{error:?}");
+    fn test_libmagic_error_from_evaluation_error() {
+        let eval_error = EvaluationError::buffer_overrun(100);
+        let libmagic_error = LibmagicError::from(eval_error);
 
-        assert!(debug_str.contains("Timeout"));
-        assert!(debug_str.contains("1000"));
+        match libmagic_error {
+            LibmagicError::EvaluationError(_) => (),
+            _ => panic!("Expected EvaluationError variant"),
+        }
     }
 }
