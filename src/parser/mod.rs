@@ -133,7 +133,7 @@ fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError> {
 fn parse_magic_rule_line(line_info: &LineInfo) -> Result<MagicRule, ParseError> {
     // Use the grammar parser to parse the rule
     match grammar::parse_magic_rule(&line_info.content) {
-        Ok((remaining, mut rule)) => {
+        Ok((remaining, rule)) => {
             // Ensure all input was consumed
             if !remaining.trim().is_empty() {
                 return Err(ParseError::invalid_syntax(
@@ -142,9 +142,7 @@ fn parse_magic_rule_line(line_info: &LineInfo) -> Result<MagicRule, ParseError> 
                 ));
             }
 
-            // Update the level from line info (grammar parser already sets it, but we override)
-            rule.level = line_info.level;
-
+            // The grammar parser already set the level correctly from > prefix
             Ok(rule)
         }
         Err(e) => Err(ParseError::invalid_syntax(
@@ -675,6 +673,3 @@ mod tests {
         assert_eq!(lines[1].line_number, 6); // ">4 byte 1 Child" is on line 6
     }
 }
-// Add this to test parsing directly
-#[test]
-fn test_direct_parse() {
