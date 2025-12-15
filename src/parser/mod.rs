@@ -82,7 +82,7 @@ fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError> {
         // If not continuing, process the accumulated line
         if !has_continuation {
             let trimmed = current_line.trim();
-            
+
             // Skip empty lines and comment-only lines
             if !trimmed.is_empty() && !grammar::is_comment_line(trimmed) {
                 // Don't strip the > characters - the grammar parser needs them!
@@ -209,7 +209,10 @@ fn build_rule_hierarchy(rules: Vec<(MagicRule, usize)>) -> Result<Vec<MagicRule>
             if parent_path.len() < level {
                 return Err(ParseError::invalid_syntax(
                     line_number,
-                    format!("Orphaned child rule at level {level} (no parent at level {})", level.saturating_sub(1)),
+                    format!(
+                        "Orphaned child rule at level {level} (no parent at level {})",
+                        level.saturating_sub(1)
+                    ),
                 ));
             }
 
@@ -218,11 +221,11 @@ fn build_rule_hierarchy(rules: Vec<(MagicRule, usize)>) -> Result<Vec<MagicRule>
 
             // Navigate to the parent using the path
             let parent = navigate_to_parent(&mut top_level_rules, &parent_path)?;
-            
+
             // Add child to parent
             let child_index = parent.children.len();
             parent.children.push(rule);
-            
+
             // Update path to include this new child
             parent_path.push((child_index, false));
         }
@@ -247,7 +250,10 @@ fn navigate_to_parent<'a>(
     // Start with the top-level rule
     let (top_index, is_top) = parent_path[0];
     if !is_top || top_index >= top_level_rules.len() {
-        return Err(ParseError::invalid_syntax(0, "Invalid parent path: bad top-level index"));
+        return Err(ParseError::invalid_syntax(
+            0,
+            "Invalid parent path: bad top-level index",
+        ));
     }
 
     let mut current = &mut top_level_rules[top_index];
@@ -255,7 +261,10 @@ fn navigate_to_parent<'a>(
     // Navigate through children
     for &(child_index, _) in &parent_path[1..] {
         if child_index >= current.children.len() {
-            return Err(ParseError::invalid_syntax(0, "Invalid parent path: bad child index"));
+            return Err(ParseError::invalid_syntax(
+                0,
+                "Invalid parent path: bad child index",
+            ));
         }
         current = &mut current.children[child_index];
     }
@@ -329,7 +338,7 @@ mod tests {
     fn test_preprocess_lines_basic() {
         let input = "0 string test Test file";
         let lines = preprocess_lines(input).unwrap();
-        
+
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].content, "0 string test Test file");
         assert_eq!(lines[0].line_number, 1);
@@ -344,7 +353,7 @@ mod tests {
 # Another comment
 "#;
         let lines = preprocess_lines(input).unwrap();
-        
+
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].content, "0 string test Test file");
         assert_eq!(lines[0].line_number, 3);
@@ -358,7 +367,7 @@ mod tests {
 >4 byte 1 Child rule
 "#;
         let lines = preprocess_lines(input).unwrap();
-        
+
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].level, 0);
         assert_eq!(lines[1].level, 1);
@@ -368,7 +377,7 @@ mod tests {
     fn test_preprocess_lines_with_continuation() {
         let input = "0 string test Long message \\\n        continued here";
         let lines = preprocess_lines(input).unwrap();
-        
+
         assert_eq!(lines.len(), 1);
         assert!(lines[0].content.contains("Long message"));
         assert!(lines[0].content.contains("continued here"));
@@ -382,7 +391,7 @@ mod tests {
 >>8 byte 2 Grandchild
 ";
         let lines = preprocess_lines(input).unwrap();
-        
+
         assert_eq!(lines.len(), 3);
         // The > characters are NOT stripped - they're part of the content
         assert!(lines[0].content.starts_with('0'));
@@ -394,7 +403,7 @@ mod tests {
     fn test_preprocess_lines_inline_comments() {
         let input = "0 string test Test file # This is a comment";
         let lines = preprocess_lines(input).unwrap();
-        
+
         assert_eq!(lines.len(), 1);
         assert!(lines[0].content.contains("Test file"));
         assert!(!lines[0].content.contains("# This is a comment"));
@@ -404,7 +413,7 @@ mod tests {
     fn test_parse_simple_rule() {
         let input = "0 string PK\\x03\\x04 ZIP archive";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].message, "ZIP archive");
         assert_eq!(rules[0].level, 0);
@@ -419,7 +428,7 @@ mod tests {
 >4      byte      2               64-bit
         ";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].message, "ELF");
         assert_eq!(rules[0].children.len(), 2);
@@ -438,7 +447,7 @@ mod tests {
 >4      byte      2               64-bit
         ";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].children.len(), 2);
         assert_eq!(rules[0].children[0].children.len(), 1);
@@ -454,7 +463,7 @@ mod tests {
 0       string    \x7f    Test file
         ";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].message, "Test file");
     }
@@ -463,7 +472,7 @@ mod tests {
     fn test_parse_continuation_lines() {
         let input = "0 string \\x7f Long message \\\ncontinued here";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 1);
         assert!(rules[0].message.contains("Long message"));
         assert!(rules[0].message.contains("continued here"));
@@ -473,7 +482,7 @@ mod tests {
     fn test_error_orphaned_child() {
         let input = ">4 byte 1 orphaned";
         let result = parse_text_magic_file(input);
-        
+
         assert!(result.is_err());
         let error_message = match result {
             Err(ParseError::InvalidSyntax { message, .. }) => message,
@@ -489,7 +498,7 @@ mod tests {
 >>>4    byte      1       Invalid jump
         ";
         let result = parse_text_magic_file(input);
-        
+
         assert!(result.is_err());
         if let Err(ParseError::InvalidSyntax { message, .. }) = result {
             assert!(message.contains("Invalid level jump") || message.contains("Orphaned"));
@@ -506,7 +515,7 @@ mod tests {
                      0       string    PK\\x03\\x04      ZIP archive\n\
                      >4      leshort   0x0014          version 2.0";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].message, "ELF");
         assert_eq!(rules[1].message, "ZIP archive");
@@ -530,7 +539,7 @@ mod tests {
                      # JPEG images\n\
                      0\tstring\t\\xff\\xd8\\xff\tJPEG image data";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 4); // ELF, 2 ZIP variants, JPEG
         assert_eq!(rules[0].message, "ELF");
         assert_eq!(rules[0].children.len(), 4); // 32-bit, 64-bit, LSB, MSB
@@ -540,7 +549,7 @@ mod tests {
     fn test_parse_with_no_message() {
         let input = "0 byte 0x7f";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].message, "");
     }
@@ -549,7 +558,7 @@ mod tests {
     fn test_parse_with_hex_offset() {
         let input = "0x10 lelong 0x12345678 Test data";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].offset, OffsetSpec::Absolute(16));
         assert_eq!(rules[0].message, "Test data");
@@ -562,7 +571,7 @@ mod tests {
 >0 lelong != 0 Non-zero
         ";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].message, "MIPS-II");
         assert!(matches!(rules[0].op, Operator::BitwiseAndMask(_)));
@@ -574,7 +583,7 @@ mod tests {
     fn test_parse_empty_file() {
         let input = "";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 0);
     }
 
@@ -586,7 +595,7 @@ mod tests {
 # Comment line 3
         ";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 0);
     }
 
@@ -599,7 +608,7 @@ mod tests {
 >12 byte 3 Child 3
         ";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].children.len(), 3);
         assert_eq!(rules[0].children[0].message, "Child 1");
@@ -619,7 +628,7 @@ mod tests {
 0 string \x42 Top 2
         ";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].message, "Top 1");
         assert_eq!(rules[1].message, "Top 2");
@@ -632,7 +641,7 @@ mod tests {
     fn test_error_invalid_syntax() {
         let input = "invalid syntax here";
         let result = parse_text_magic_file(input);
-        
+
         assert!(result.is_err());
         assert!(matches!(result, Err(ParseError::InvalidSyntax { .. })));
     }
@@ -641,7 +650,7 @@ mod tests {
     fn test_continuation_across_multiple_lines() {
         let input = "0 string \\x7f First line \\\nsecond line \\\nthird line";
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 1);
         assert!(rules[0].message.contains("First line"));
         assert!(rules[0].message.contains("second line"));
@@ -652,7 +661,7 @@ mod tests {
     fn test_parse_string_with_escapes() {
         let input = r#"0 string "Hello\nWorld" Text with newline"#;
         let rules = parse_text_magic_file(input).unwrap();
-        
+
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].message, "Text with newline");
     }
@@ -667,7 +676,7 @@ mod tests {
 >4 byte 1 Child
         ";
         let lines = preprocess_lines(input).unwrap();
-        
+
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].line_number, 4); // "0 string \x7f Test 1" is on line 4 (after empty line 1, comment line 2, empty line 3)
         assert_eq!(lines[1].line_number, 6); // ">4 byte 1 Child" is on line 6
