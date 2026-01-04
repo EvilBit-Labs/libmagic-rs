@@ -239,6 +239,17 @@ fn parse_magic_rule_line(line: &LineInfo) -> Result<MagicRule, ParseError> {
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 fn build_rule_hierarchy(lines: Vec<LineInfo>) -> Result<Vec<MagicRule>, ParseError> {
+    /// Helper to pop a rule from the stack and attach it to its parent or roots
+    fn pop_and_attach(stack: &mut Vec<MagicRule>, roots: &mut Vec<MagicRule>) {
+        if let Some(completed) = stack.pop() {
+            if let Some(parent) = stack.last_mut() {
+                parent.children.push(completed);
+            } else {
+                roots.push(completed);
+            }
+        }
+    }
+
     let mut stack: Vec<MagicRule> = Vec::new();
     let mut roots: Vec<MagicRule> = Vec::new();
 
@@ -248,28 +259,17 @@ fn build_rule_hierarchy(lines: Vec<LineInfo>) -> Result<Vec<MagicRule>, ParseErr
         }
         let rule = parse_magic_rule_line(&line)?;
 
-        while let Some(top) = stack.last() {
-            if top.level >= rule.level {
-                let completed = stack.pop().unwrap();
-                if let Some(parent) = stack.last_mut() {
-                    parent.children.push(completed);
-                } else {
-                    roots.push(completed);
-                }
-            } else {
-                break;
-            }
+        // Unwind stack until we find a parent with lower level
+        while stack.last().is_some_and(|top| top.level >= rule.level) {
+            pop_and_attach(&mut stack, &mut roots);
         }
 
         stack.push(rule);
     }
 
-    while let Some(rule) = stack.pop() {
-        if let Some(parent) = stack.last_mut() {
-            parent.children.push(rule);
-        } else {
-            roots.push(rule);
-        }
+    // Unwind remaining stack
+    while !stack.is_empty() {
+        pop_and_attach(&mut stack, &mut roots);
     }
 
     Ok(roots)
@@ -806,6 +806,132 @@ continued"#;
 "#;
         let rules = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 2);
+    }
+
+    // ============================================================
+    // Overflow protection tests (from pr-test-analyzer)
+    // ============================================================
+
+    #[test]
+    fn test_overflow_decimal_too_many_digits() {
+        use crate::parser::grammar::parse_number;
+        // Test exactly 20 digits (should fail - over i64 max)
+        let result = parse_number("12345678901234567890");
+        assert!(result.is_err(), "Should reject 20+ decimal digits");
+    }
+
+    #[test]
+    fn test_overflow_hex_too_many_digits() {
+        use crate::parser::grammar::parse_number;
+        // Test 17 hex digits (should fail)
+        let result = parse_number("0x10000000000000000");
+        assert!(result.is_err(), "Should reject 17+ hex digits");
+    }
+
+    #[test]
+    fn test_overflow_i64_max() {
+        use crate::parser::grammar::parse_number;
+        // i64::MAX = 9223372036854775807
+        let result = parse_number("9223372036854775807");
+        assert!(result.is_ok(), "Should accept i64::MAX");
+    }
+
+    #[test]
+    fn test_overflow_i64_max_plus_one() {
+        use crate::parser::grammar::parse_number;
+        // i64::MAX + 1 should fail
+        let result = parse_number("9223372036854775808");
+        assert!(result.is_err(), "Should reject i64::MAX + 1");
+    }
+
+    // ============================================================
+    // Continuation edge case tests (from pr-test-analyzer)
+    // ============================================================
+
+    #[test]
+    fn test_continuation_at_eof() {
+        // Continuation on last line with no following line - should error
+        let input = "0 string 0 Test \\";
+        let result = preprocess_lines(input);
+        assert!(
+            result.is_err(),
+            "Should error on unterminated continuation at EOF"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            format!("{:?}", err).contains("Unterminated"),
+            "Error should mention unterminated continuation"
+        );
+    }
+
+    #[test]
+    fn test_continuation_with_empty_next() {
+        // Empty line after continuation causes unterminated continuation
+        // (empty lines are skipped but continuation state persists)
+        let input = "0 string 0 Test \\\n\n0 byte 1 Next";
+        let lines = preprocess_lines(input).unwrap();
+        // The continuation carries through the empty line, so "Next" gets appended
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].content, "0 string 0 Test 0 byte 1 Next");
+    }
+
+    #[test]
+    fn test_continuation_into_empty_then_rule() {
+        let input = "0 string 0 First \\\n\ncontinued";
+        let lines = preprocess_lines(input).unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].content, "0 string 0 First continued");
+    }
+
+    // ============================================================
+    // Line number accuracy tests (from pr-test-analyzer)
+    // ============================================================
+
+    #[test]
+    fn test_line_numbers_with_continuations() {
+        let input = "0 string 0 test1\n0 string 0 multi \\\nline \\\ntest\n0 string 0 test2";
+        let lines = preprocess_lines(input).unwrap();
+
+        // Line 1: "0 string 0 test1" should report line 1
+        assert_eq!(lines[0].line_number, 1);
+
+        // Line 2-4 continuation should report line 2 (first line of continuation)
+        assert_eq!(lines[1].line_number, 2);
+
+        // Line 5: "0 string 0 test2" should report line 5
+        assert_eq!(lines[2].line_number, 5);
+    }
+
+    #[test]
+    fn test_error_reports_correct_line_for_continuation() {
+        // When a continued rule fails to parse, error should show the starting line
+        let input = "0 string 0 valid\n0 invalid \\\nsyntax here\n0 string 0 valid2";
+        let result = parse_text_magic_file(input);
+
+        match result {
+            Err(ref e) => {
+                // Error should mention line 2 (start of the bad rule), not line 3
+                let error_str = format!("{:?}", e);
+                assert!(
+                    error_str.contains("line 2") || error_str.contains("line: 2"),
+                    "Error should reference line 2, got: {}",
+                    error_str
+                );
+            }
+            Ok(_) => panic!("Expected InvalidSyntax error"),
+        }
+    }
+
+    #[test]
+    fn test_line_numbers_with_mixed_content() {
+        let input = "# Comment line 1\n0 string 0 rule1\n\n# Another comment\n0 string 0 rule2 \\\ncontinued";
+        let lines = preprocess_lines(input).unwrap();
+
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0].line_number, 1); // Comment
+        assert_eq!(lines[1].line_number, 2); // rule1
+        assert_eq!(lines[2].line_number, 4); // Another comment
+        assert_eq!(lines[3].line_number, 5); // rule2 (continued on line 6)
     }
 
     // ============================================================
