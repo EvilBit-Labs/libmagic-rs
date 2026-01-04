@@ -74,7 +74,8 @@ impl LineInfo {
 /// - Handles comment lines (lines starting with '#')
 /// - Processes line continuations (lines ending with '\')
 /// - Concatenates continued lines into single entries
-/// - Preserves original line numbers for error reporting
+/// - Preserves original line numbers for error reporting (continued lines
+///   are assigned the line number of the first line in the continuation sequence)
 ///
 /// # Arguments
 ///
