@@ -87,7 +87,10 @@ impl LineInfo {
 ///
 /// # Errors
 ///
-/// Returns an error if comment lines cannot be parsed or if the input is malformed.
+/// Returns an error if:
+/// - Comment lines cannot be parsed
+/// - Input ends with an unterminated line continuation
+/// - The input is malformed
 ///
 /// # Examples
 ///
