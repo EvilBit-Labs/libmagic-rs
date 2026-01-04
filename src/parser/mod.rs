@@ -671,11 +671,11 @@ mod unit_tests {
 
     #[test]
     fn test_parse_text_magic_file_hierarchical_rules() {
-        let input = r#"
+        let input = r"
 0 string 0 ELF
 >4 byte 1 32-bit
 >4 byte 2 64-bit
-"#;
+";
         let rules = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].children.len(), 2);
@@ -683,11 +683,11 @@ mod unit_tests {
 
     #[test]
     fn test_parse_text_magic_file_with_comments() {
-        let input = r#"
+        let input = r"
 # ELF file format
 0 string 0 ELF
 >4 byte 1 32-bit
-"#;
+";
         let rules = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].children.len(), 1);
@@ -695,13 +695,13 @@ mod unit_tests {
 
     #[test]
     fn test_parse_text_magic_file_multiple_roots() {
-        let input = r#"
+        let input = r"
 0 byte 1 ELF
 >4 byte 1 32-bit
 
 0 byte 2 PDF
 >5 byte 1 v1
-"#;
+";
         let rules = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 2);
     }
@@ -715,24 +715,24 @@ mod unit_tests {
 
     #[test]
     fn test_parse_text_magic_file_only_comments() {
-        let input = r#"
+        let input = r"
 # Comment 1
 # Comment 2
 # Comment 3
-"#;
+";
         let rules = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 0);
     }
 
     #[test]
     fn test_parse_text_magic_file_empty_lines_only() {
-        let input = r#"
+        let input = r"
 
 
 0 string 0 Test file
 
 
-"#;
+";
         let rules = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 1);
     }
@@ -746,7 +746,7 @@ mod unit_tests {
 
     #[test]
     fn test_parse_text_magic_file_mixed_indentation() {
-        let input = r#"
+        let input = r"
 0 byte 1 Root1
 >4 byte 1 Child1
 >4 byte 2 Child2
@@ -754,7 +754,7 @@ mod unit_tests {
 
 0 byte 2 Root2
 >4 byte 4 Child3
-"#;
+";
         let rules = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].children.len(), 2);
@@ -764,7 +764,7 @@ mod unit_tests {
 
     #[test]
     fn test_parse_text_magic_file_complex_real_world() {
-        let input = r#"
+        let input = r"
 # Magic file for common formats
 
 # ELF binaries
@@ -779,7 +779,7 @@ mod unit_tests {
 >5 byte 0x31 version 1.0
 >5 byte 0x34 version 1.4
 >5 byte 0x32 version 2.0
-"#;
+";
         let rules = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].message, "ELF executable");
@@ -792,18 +792,18 @@ mod unit_tests {
 
     #[test]
     fn test_continuation_with_indentation() {
-        let input = r#">4 byte 1 Message \
-continued"#;
+        let input = r">4 byte 1 Message \
+continued";
         let rules = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 1);
     }
 
     #[test]
     fn test_multiple_hex_offsets() {
-        let input = r#"
+        let input = r"
 0x100 string 0 At 256
 0x200 string 0 At 512
-"#;
+";
         let rules = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 2);
     }
@@ -859,7 +859,7 @@ continued"#;
         );
         let err = result.unwrap_err();
         assert!(
-            format!("{:?}", err).contains("Unterminated"),
+            format!("{err:?}").contains("Unterminated"),
             "Error should mention unterminated continuation"
         );
     }
@@ -911,11 +911,10 @@ continued"#;
         match result {
             Err(ref e) => {
                 // Error should mention line 2 (start of the bad rule), not line 3
-                let error_str = format!("{:?}", e);
+                let error_str = format!("{e:?}");
                 assert!(
                     error_str.contains("line 2") || error_str.contains("line: 2"),
-                    "Error should reference line 2, got: {}",
-                    error_str
+                    "Error should reference line 2, got: {error_str}"
                 );
             }
             Ok(_) => panic!("Expected InvalidSyntax error"),
@@ -989,7 +988,7 @@ mod output_test {
 
     #[test]
     fn demo_show_all_parser_outputs() {
-        let input = r#"
+        let input = r"
 # ELF file
 0 string 0 ELF
 >4 byte 1 32-bit
@@ -997,7 +996,7 @@ mod output_test {
 
 0 string 0 ZIP
 >0 byte 3 zipped
-"#;
+";
 
         println!("\n================ RAW INPUT ================\n");
         println!("{input}");
@@ -1024,7 +1023,7 @@ mod output_test {
         let rules = parse_text_magic_file(input).expect("parse_text_magic_file failed");
 
         for (i, rule) in rules.iter().enumerate() {
-            println!("ROOT RULE [{}]:", i);
+            println!("ROOT RULE [{i}]:");
             print_rule(rule, 1);
         }
 
@@ -1036,7 +1035,7 @@ mod output_test {
         let rebuilt = build_rule_hierarchy(lines).expect("build_rule_hierarchy failed");
 
         for (i, rule) in rebuilt.iter().enumerate() {
-            println!("ROOT [{}]:", i);
+            println!("ROOT [{i}]:");
             print_rule(rule, 1);
         }
     }
