@@ -130,10 +130,23 @@ fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError> {
         }
         // Bug 2 fix: Use the stored starting line number instead of calculating from cont_ctr
         let rule_line_number = start_line_number.unwrap_or(i + 1);
-        lines_info.push(LineInfo::new(line_buf.clone(), rule_line_number, false));
-        line_buf.clear();
+        lines_info.push(LineInfo::new(
+            std::mem::take(&mut line_buf),
+            rule_line_number,
+            false,
+        ));
         start_line_number = None;
     }
+
+    // Handle unterminated continuation at end of input
+    if !line_buf.is_empty() {
+        let last_line = input.lines().count();
+        return Err(ParseError::invalid_syntax(
+            last_line,
+            "Unterminated line continuation",
+        ));
+    }
+
     Ok(lines_info)
 }
 
