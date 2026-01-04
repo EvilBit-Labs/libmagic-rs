@@ -19,7 +19,7 @@
 //! use libmagic_rs::parser::parse_text_magic_file;
 //!
 //! let magic_content = r#"
-//! 0 string 0x7fELF ELF executable
+//! 0 string \x7fELF ELF executable
 //! >4 byte 1 32-bit
 //! >4 byte 2 64-bit
 //! "#;
@@ -100,31 +100,39 @@ impl LineInfo {
 fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError> {
     let mut lines_info: Vec<LineInfo> = Vec::new();
     let mut line_buf = String::new();
-    let mut cont_ctr: usize = 0;
+    let mut start_line_number: Option<usize> = None;
     for (i, mut line) in input.lines().enumerate() {
         if is_empty_line(line) {
             continue;
         }
         if is_comment_line(line) {
+            // Bug 1 fix: If we have an ongoing continuation, discard it before processing comment
+            if !line_buf.is_empty() {
+                line_buf.clear();
+                start_line_number = None;
+            }
             let parsed_comment = parse_comment(line)
                 .map_err(|_| ParseError::invalid_syntax(i + 1, "Unable to parse comment"))?;
             line = parsed_comment.1.as_str();
-            line_buf.push_str(line.trim());
-            lines_info.push(LineInfo::new(line_buf.clone(), i + 1, true));
-            line_buf.clear();
+            lines_info.push(LineInfo::new(line.trim().to_string(), i + 1, true));
             continue;
+        }
+        // Track the starting line number when we begin accumulating a rule
+        if start_line_number.is_none() {
+            start_line_number = Some(i + 1);
         }
         line_buf.push_str(line.trim());
         if has_continuation(line) {
             if let Some(stripped) = line_buf.strip_suffix('\\') {
                 line_buf = stripped.to_string();
             }
-            cont_ctr += 1;
             continue;
         }
-        lines_info.push(LineInfo::new(line_buf.clone(), (i + 1) - cont_ctr, false));
+        // Bug 2 fix: Use the stored starting line number instead of calculating from cont_ctr
+        let rule_line_number = start_line_number.unwrap_or(i + 1);
+        lines_info.push(LineInfo::new(line_buf.clone(), rule_line_number, false));
         line_buf.clear();
-        cont_ctr = 0;
+        start_line_number = None;
     }
     Ok(lines_info)
 }
@@ -268,7 +276,7 @@ fn build_rule_hierarchy(lines: Vec<LineInfo>) -> Result<Vec<MagicRule>, ParseErr
 /// ```ignore
 /// use libmagic_rs::parser::parse_text_magic_file;
 ///
-/// let magic = r#"0 string 0x7fELF ELF file
+/// let magic = r#"0 string \x7fELF ELF file
 /// >4 byte 1 32-bit
 /// >4 byte 2 64-bit"#;
 ///
@@ -773,6 +781,54 @@ continued"#;
 "#;
         let rules = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 2);
+    }
+
+    // ============================================================
+    // Bug reproduction tests
+    // ============================================================
+
+    #[test]
+    fn test_bug1_comment_during_continuation() {
+        // Bug 1: Comment during continuation should not corrupt line_buf
+        // The partial rule should be discarded, leaving only the comment and new rule
+        let input = "0 string 0 Partial rule \\\n# This is a comment\n0 byte 1 New rule";
+        let lines = preprocess_lines(input).unwrap();
+
+        // The partial rule is discarded, so we should have 2 lines: comment and new rule
+        assert_eq!(lines.len(), 2);
+        // The comment should be separate and not contain rule content
+        let comment_line = lines.iter().find(|l| l.is_comment).unwrap();
+        assert!(!comment_line.content.contains("Partial rule"));
+        assert_eq!(comment_line.content, "This is a comment");
+        // The new rule should be intact
+        let rule_line = lines
+            .iter()
+            .find(|l| !l.is_comment && l.content.contains("New rule"))
+            .unwrap();
+        assert_eq!(rule_line.content, "0 byte 1 New rule");
+    }
+
+    #[test]
+    fn test_bug2_empty_line_in_continuation() {
+        // Bug 2: Empty line in continuation should not break line number calculation
+        let input = "0 string 0 Test \\\n\ncontinued here";
+        let lines = preprocess_lines(input).unwrap();
+
+        assert_eq!(lines.len(), 1);
+        // Line number should point to line 1 (where the rule started), not line 3
+        assert_eq!(lines[0].line_number, 1);
+        assert_eq!(lines[0].content, "0 string 0 Test continued here");
+    }
+
+    #[test]
+    fn test_bug2_multiple_empty_lines_in_continuation() {
+        // Multiple empty lines in continuation
+        let input = "0 string 0 Test \\\n\n\ncontinued here";
+        let lines = preprocess_lines(input).unwrap();
+
+        assert_eq!(lines.len(), 1);
+        // Line number should still point to line 1
+        assert_eq!(lines[0].line_number, 1);
     }
 }
 
