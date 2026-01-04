@@ -218,6 +218,14 @@ fn parse_magic_rule_line(line: &LineInfo) -> Result<MagicRule, ParseError> {
 /// - Rules with `level=1` become children of the most recent `level=0` rule
 /// - Rules with `level=2` become children of the most recent `level=1` rule
 /// - When indentation decreases, the stack is unwound and completed rules are attached
+/// - Orphaned child rules (starting with '>' but with no preceding parent) are
+///   added to the root list with their hierarchy level preserved
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Any line contains invalid magic rule syntax
+/// - Rule parsing fails (propagated from `parse_magic_rule_line`)
 ///
 /// # Examples
 ///
