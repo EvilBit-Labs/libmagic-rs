@@ -101,51 +101,43 @@ fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError> {
     let mut lines_info: Vec<LineInfo> = Vec::new();
     let mut line_buf = String::new();
     let mut cont_ctr: usize = 0;
-    let mut empty_line_nos: Vec<usize> = Vec::new();
     for (i, mut line) in input.lines().enumerate() {
         if is_empty_line(line) {
-            empty_line_nos.push(i + 1);
             continue;
         }
         if is_comment_line(line) {
-            let parsed_comment = parse_comment(line).map_err(|_| {
-                ParseError::invalid_syntax(i + 1, "Unable to Parse Comment".to_string())
-            })?;
+            let parsed_comment = parse_comment(line)
+                .map_err(|_| ParseError::invalid_syntax(i + 1, "Unable to parse comment"))?;
             line = parsed_comment.1.as_str();
             line_buf.push_str(line.trim());
-            lines_info.push(LineInfo::new(line_buf.to_owned(), i + 1, true));
+            lines_info.push(LineInfo::new(line_buf.clone(), i + 1, true));
             line_buf.clear();
             continue;
         }
         line_buf.push_str(line.trim());
         if has_continuation(line) {
-            line_buf = match line_buf.strip_suffix("\\") {
-                Some(line_cont) => line_cont.to_string(),
-                None => line_buf,
-            };
+            if let Some(stripped) = line_buf.strip_suffix('\\') {
+                line_buf = stripped.to_string();
+            }
             cont_ctr += 1;
             continue;
         }
-        lines_info.push(LineInfo::new(
-            line_buf.to_owned(),
-            (i + 1) - cont_ctr,
-            false,
-        ));
+        lines_info.push(LineInfo::new(line_buf.clone(), (i + 1) - cont_ctr, false));
         line_buf.clear();
         cont_ctr = 0;
     }
     Ok(lines_info)
 }
 
-/// Parses a single magic rule line into a MagicRule AST node.
+/// Parses a single magic rule line into a `MagicRule` AST node.
 ///
-/// This function takes a preprocessed LineInfo and converts it into a MagicRule
+/// This function takes a preprocessed `LineInfo` and converts it into a `MagicRule`
 /// by delegating to the grammar parser. It handles error mapping to include
 /// context about which line failed.
 ///
 /// # Arguments
 ///
-/// * `line` - The LineInfo struct containing the rule text and metadata
+/// * `line` - The `LineInfo` struct containing the rule text and metadata
 ///
 /// # Returns
 ///
@@ -176,7 +168,7 @@ fn parse_magic_rule_line(line: &LineInfo) -> Result<MagicRule, ParseError> {
     }
     parse_magic_rule(&line.content)
         .map_err(|e| {
-            ParseError::invalid_syntax(line.line_number, format!("Failed to parse rule: {}", e))
+            ParseError::invalid_syntax(line.line_number, format!("Failed to parse rule: {e}"))
         })
         .map(|(_, rule)| rule)
 }
@@ -189,7 +181,7 @@ fn parse_magic_rule_line(line: &LineInfo) -> Result<MagicRule, ParseError> {
 ///
 /// # Arguments
 ///
-/// * `lines` - A vector of preprocessed LineInfo structs
+/// * `lines` - A vector of preprocessed `LineInfo` structs
 ///
 /// # Returns
 ///
@@ -285,7 +277,7 @@ fn build_rule_hierarchy(lines: Vec<LineInfo>) -> Result<Vec<MagicRule>, ParseErr
 /// assert_eq!(rules[0].message, "ELF file");
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-fn parse_text_magic_file(input: &str) -> Result<Vec<MagicRule>, ParseError> {
+pub fn parse_text_magic_file(input: &str) -> Result<Vec<MagicRule>, ParseError> {
     let lines = preprocess_lines(input)?;
     build_rule_hierarchy(lines)
 }
