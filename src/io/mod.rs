@@ -634,9 +634,11 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let file_path = temp_dir.join(format!("test_file_{}", rand::random::<u32>()));
 
-        let mut file = File::create(&file_path).expect("Failed to create temp file");
-        file.write_all(content).expect("Failed to write temp file");
-        file.sync_all().expect("Failed to sync temp file");
+        {
+            let mut file = File::create(&file_path).expect("Failed to create temp file");
+            file.write_all(content).expect("Failed to write temp file");
+            file.sync_all().expect("Failed to sync temp file");
+        } // File is closed here when it goes out of scope
 
         file_path
     }
