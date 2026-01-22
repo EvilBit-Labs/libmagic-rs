@@ -14,32 +14,33 @@ libmagic-rs is a clean-room implementation of the libmagic library, written enti
 
 ## Project Status
 
-🚧 **Early Development Phase** - The project is currently in active development with core components being implemented.
+🚀 **Active Development** - Core components are complete with ongoing feature additions.
 
 ### What's Complete
 
 - ✅ **Core AST Structures**: Complete data model for magic rules with full serialization
-- ✅ **Parser Components**: Numbers, offsets, operators, and values parsing with nom
+- ✅ **Magic File Parser**: Full rule parsing with hierarchical structure, comments, and continuations
+- ✅ **Rule Evaluation Engine**: Offset resolution, type interpretation, and comparison operators
 - ✅ **Memory-Mapped I/O**: FileBuffer implementation with memmap2 and comprehensive safety
 - ✅ **CLI Framework**: Command-line interface with clap and basic file handling
 - ✅ **Project Infrastructure**: Build system, strict linting, and comprehensive testing
-- ✅ **Extensive Test Coverage**: 98 comprehensive unit tests covering parser, AST, and I/O
+- ✅ **Extensive Test Coverage**: 200+ comprehensive unit tests covering all modules
 - ✅ **Memory Safety**: Zero unsafe code with comprehensive bounds checking
-- ✅ **Error Handling**: Structured error types with proper propagation and context
+- ✅ **Error Handling**: Structured error types with graceful degradation
 - ✅ **Code Quality**: Strict clippy linting with zero-warnings policy
 
 ### What's In Progress
 
-- 🔄 **Complete Magic File Parser**: Full rule parsing with hierarchical structure support
-- 🔄 **Rule Evaluation Engine**: Offset resolution, type interpretation, and operators
+- 🔄 **Indirect Offset Support**: Complex offset indirection patterns
 - 🔄 **Output Formatters**: Text and JSON result formatting with metadata
+- 🔄 **MIME Type Mapping**: Standard MIME type detection
 
 ### Next Milestones
 
-- 📋 **Parser Integration**: Combine parsing components into complete magic file parser
-- 📋 **Basic Evaluator**: Simple rule evaluation against file buffers
-- 📋 **Result Formatting**: Human-readable and structured output generation
-- 📋 **Integration Testing**: End-to-end workflow validation
+- 📋 **Rule Caching**: Pre-compiled magic database support
+- 📋 **Parallel Evaluation**: Multi-file processing support
+- 📋 **Extended Type Support**: Additional magic types (regex, date, etc.)
+- 📋 **Integration Testing**: End-to-end workflow validation with canonical tests
 
 ## Why Rust?
 
@@ -55,10 +56,19 @@ The choice of Rust for this implementation provides several key advantages:
 
 The library follows a clean parser-evaluator architecture:
 
-```text
-Magic File → Parser → AST → Evaluator → Results → Formatter
-                              ↓
-                        Target File Buffer
+```mermaid
+flowchart LR
+    MF[Magic File] --> P[Parser]
+    P --> AST[AST]
+    AST --> E[Evaluator]
+    TF[Target File] --> FB[File Buffer]
+    FB --> E
+    E --> R[Results]
+    R --> F[Formatter]
+
+    style MF fill:#e3f2fd
+    style TF fill:#e3f2fd
+    style F fill:#c8e6c9
 ```
 
 This separation allows for:
@@ -91,7 +101,7 @@ The appendices provide quick reference materials for commands, examples, and com
 
 ## Contributing
 
-We welcome contributions! See the [Development Setup](./development.md) and [Contributing Guidelines](./testing-guidelines.md) for information on how to get started.
+We welcome contributions! See the [CONTRIBUTING.md](https://github.com/EvilBit-Labs/libmagic-rs/blob/main/CONTRIBUTING.md) file in the repository root and the [Development Setup](./development.md) guide for information on how to get started.
 
 ## License
 
