@@ -7,6 +7,7 @@ Implement magic file loading in `MagicDatabase::load_from_file()` by integrating
 ## Scope
 
 **In Scope:**
+
 - Format detection (text file, directory, binary .mgc)
 - Text magic file parsing integration (parser already complete)
 - Directory loading (Magdir pattern) - read all files, merge rules
@@ -17,6 +18,7 @@ Implement magic file loading in `MagicDatabase::load_from_file()` by integrating
   - Non-critical errors (individual rule syntax): warn and continue
 
 **Out of Scope:**
+
 - Binary .mgc parsing (deferred to Phase 2)
 - Strength calculation (separate ticket)
 - Built-in rules compilation (separate ticket)
@@ -39,6 +41,7 @@ pub fn detect_format<P: AsRef<Path>>(path: P) -> Result<MagicFileFormat>
 ```
 
 **Logic:**
+
 - Check if path is directory → `Directory`
 - Read first 4 bytes, check for binary magic number `0xF11E041C` → `Binary`
 - Otherwise → `Text`
@@ -52,6 +55,7 @@ pub fn load_magic_directory<P: AsRef<Path>>(dir: P) -> Result<Vec<MagicRule>>
 ```
 
 **Logic:**
+
 - Iterate through directory entries
 - Parse each file with existing `parse_text_magic_file()`
 - Collect critical errors (return immediately)

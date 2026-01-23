@@ -7,6 +7,7 @@ Create comprehensive documentation for Phase 1 MVP including rustdoc for all pub
 ## Scope
 
 **In Scope:**
+
 - Rustdoc for all public APIs with examples
 - mdbook documentation site structure
 - Getting started guide
@@ -17,6 +18,7 @@ Create comprehensive documentation for Phase 1 MVP including rustdoc for all pub
 - Examples for common use cases
 
 **Out of Scope:**
+
 - Advanced tutorials (deferred to Phase 2)
 - Video tutorials
 - API reference beyond rustdoc
@@ -29,6 +31,7 @@ Create comprehensive documentation for Phase 1 MVP including rustdoc for all pub
 Ensure all public APIs have comprehensive rustdoc:
 
 **file:src/lib.rs:**
+
 - `MagicDatabase` struct and all methods
 - `EvaluationConfig` struct and presets
 - `EvaluationResult` and `EvaluationMetadata` structs
@@ -36,13 +39,16 @@ Ensure all public APIs have comprehensive rustdoc:
 - All error types
 
 **file:src/parser/mod.rs:**
+
 - `load_magic_file()` function
 - Public parsing functions
 
 **file:src/evaluator/mod.rs:**
+
 - Public evaluation functions
 
 **Example Rustdoc Pattern:**
+
 ```rust
 /// Load magic rules from a file or directory
 ///
@@ -83,6 +89,7 @@ pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self>
 Create `file:docs/book/` with mdbook configuration:
 
 **file:docs/book/book.toml:**
+
 ```toml
 [book]
 title = "libmagic-rs Documentation"
@@ -100,6 +107,7 @@ git-repository-url = "https://github.com/yourusername/libmagic-rs"
 ```
 
 **Documentation Structure:**
+
 ```
 docs/book/src/
 ├── SUMMARY.md
@@ -120,6 +128,7 @@ docs/book/src/
 **file:docs/book/src/getting-started.md:**
 
 Content should cover:
+
 - Installation instructions
 - Quick start with CLI
 - Quick start with library API
@@ -131,6 +140,7 @@ Content should cover:
 **file:docs/book/src/library-api.md:**
 
 Content should cover:
+
 - Simple API usage (`load_from_file()`)
 - Builder pattern for advanced configuration
 - Evaluating files vs buffers
@@ -143,6 +153,7 @@ Content should cover:
 **file:docs/book/src/cli-reference.md:**
 
 Content should cover:
+
 - All CLI flags and arguments
 - Output formats (text vs JSON)
 - Magic file discovery
@@ -155,6 +166,7 @@ Content should cover:
 **file:docs/book/src/migration-guide.md:**
 
 Content should cover:
+
 - Differences from C libmagic
 - API mapping (C functions → Rust methods)
 - Configuration migration
@@ -167,6 +179,7 @@ Content should cover:
 **file:docs/book/src/architecture.md:**
 
 Content should cover:
+
 - OpenBSD-inspired approach
 - Parser-evaluator pipeline
 - Module organization
@@ -176,16 +189,19 @@ Content should cover:
 ### 8. Examples
 
 **file:docs/book/src/examples/basic-usage.md:**
+
 - Simple file type detection
 - Batch processing
 - Stdin processing
 
 **file:docs/book/src/examples/advanced-config.md:**
+
 - Custom configuration
 - Timeout handling
 - MIME type mapping
 
 **file:docs/book/src/examples/custom-rules.md:**
+
 - Writing magic rules
 - Testing custom rules
 - Debugging rules
@@ -193,6 +209,7 @@ Content should cover:
 ## Acceptance Criteria
 
 ### Rustdoc
+
 - [ ] All public APIs have rustdoc comments
 - [ ] All rustdoc includes examples
 - [ ] All rustdoc examples compile and run
@@ -200,6 +217,7 @@ Content should cover:
 - [ ] `cargo test --doc` passes all doc tests
 
 ### mdbook Site
+
 - [ ] mdbook site builds successfully
 - [ ] All pages render correctly
 - [ ] Navigation structure is clear
@@ -208,6 +226,7 @@ Content should cover:
 - [ ] External links are valid
 
 ### Content Quality
+
 - [ ] Getting started guide covers installation and first use
 - [ ] Library API guide covers all major use cases
 - [ ] CLI reference documents all flags
@@ -216,6 +235,7 @@ Content should cover:
 - [ ] Examples are practical and tested
 
 ### Integration
+
 - [ ] Documentation builds in CI/CD
 - [ ] Documentation published to GitHub Pages or similar
 - [ ] README links to documentation

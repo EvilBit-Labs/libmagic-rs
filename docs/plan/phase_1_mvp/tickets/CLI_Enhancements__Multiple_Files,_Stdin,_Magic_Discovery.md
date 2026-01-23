@@ -29,6 +29,7 @@ Enhance the CLI to support multiple file arguments, stdin input, improved magic 
 ## Scope
 
 **In Scope:**
+
 - Multiple file argument support (sequential processing)
 - Stdin input support (using clap-stdin crate with `-` as file argument)
 - Text-first magic file search paths (Magdir directories before .mgc files)
@@ -39,6 +40,7 @@ Enhance the CLI to support multiple file arguments, stdin input, improved magic 
 - Error handling per file (continue on failure)
 
 **Out of Scope:**
+
 - Progress indicators (deferred to Phase 2)
 - Batch optimization (deferred to Phase 2)
 - Advanced CLI features (deferred to Phase 2)
@@ -57,9 +59,9 @@ struct Args {
     /// File to analyze (use '-' for stdin)
     #[arg(value_name = "FILE")]
     pub files: Vec<FileOrStdin>,
-    
+
     // ... existing flags ...
-    
+
     /// Exit with non-zero code if any file fails
     #[arg(long)]
     pub strict: bool,
@@ -67,6 +69,7 @@ struct Args {
 ```
 
 **Processing Logic:**
+
 ```rust
 let mut exit_code = 0;
 for file in &args.files {
@@ -94,15 +97,15 @@ for file_or_stdin in &args.files {
         FileOrStdin::Stdin => {
     let mut buffer = Vec::new();
     let max_size = config.max_string_length;
-    
+
     io::stdin()
         .take(max_size as u64)
         .read_to_end(&mut buffer)?;
-    
+
     if buffer.len() >= max_size {
         eprintln!("Warning: Stdin truncated at {} bytes", max_size);
     }
-    
+
     let result = db.evaluate_buffer(&buffer)?;
     output_result("stdin", &result, &args)?;
     return Ok(());
@@ -119,7 +122,7 @@ let candidates = [
     "/usr/share/file/magic/Magdir",
     "/usr/share/misc/magic",
     "/usr/local/share/misc/magic",
-    
+
     // Binary .mgc files LAST (show helpful error)
     "/usr/share/file/magic.mgc",
     "/usr/local/share/misc/magic.mgc",

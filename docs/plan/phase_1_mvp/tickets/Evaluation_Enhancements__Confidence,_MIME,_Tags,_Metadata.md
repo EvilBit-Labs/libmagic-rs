@@ -41,6 +41,7 @@ Enhance evaluation results with confidence scoring, MIME type mapping, tag extra
 ## Scope
 
 **In Scope:**
+
 - Confidence scoring based on match depth
 - MIME type mapping (hardcoded + optional file loading)
 - Tag extraction from descriptions
@@ -50,6 +51,7 @@ Enhance evaluation results with confidence scoring, MIME type mapping, tag extra
 - Builder pattern API for `MagicDatabase`
 
 **Out of Scope:**
+
 - Strength calculation (separate ticket)
 - Advanced MIME database parsing
 - Machine learning-based confidence
@@ -109,7 +111,7 @@ pub struct MimeMapper {
 impl MimeMapper {
     pub fn new() -> Self {
         let mut mapper = Self::with_hardcoded_mappings();
-        
+
         // Try to load system MIME database (optional)
         for path in ["/usr/share/file/magic.mime", "/usr/local/share/misc/magic.mime"] {
             if let Ok(mime_db) = Self::load_mime_database(path) {
@@ -117,14 +119,14 @@ impl MimeMapper {
                 break;
             }
         }
-        
+
         mapper
     }
-    
+
     pub fn get_mime_type(&self, description: &str) -> Option<String> {
         // Try exact match, then prefix matching
     }
-    
+
     fn with_hardcoded_mappings() -> Self {
         // ELF, PE, ZIP, JPEG, PNG, PDF, GIF mappings
     }
@@ -146,10 +148,10 @@ impl TagExtractor {
             "executable", "archive", "image", "video", "audio",
             "document", "compressed", "encrypted", "text", "binary",
         ].into_iter().map(String::from).collect();
-        
+
         Self { keywords }
     }
-    
+
     pub fn extract_tags(&self, description: &str) -> Vec<String> {
         let lower = description.to_lowercase();
         self.keywords.iter()
@@ -157,7 +159,7 @@ impl TagExtractor {
             .cloned()
             .collect()
     }
-    
+
     pub fn extract_rule_path(&self, matches: &[MatchResult]) -> Vec<String> {
         // Normalize messages to lowercase identifiers
         matches.iter()
@@ -179,18 +181,18 @@ impl MagicDatabase {
             config: EvaluationConfig::default(),
         }
     }
-    
+
     pub fn with_config(mut self, config: EvaluationConfig) -> Self {
         config.validate().expect("Invalid configuration");
         self.config = config;
         self
     }
-    
+
     pub fn load<P: AsRef<Path>>(mut self, path: P) -> Result<Self> {
         self.rules = parser::load_magic_file(path)?;
         Ok(self)
     }
-    
+
     // Convenience method
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::new().load(path)
@@ -207,16 +209,16 @@ pub fn evaluate_file<P: AsRef<Path>>(&self, path: P) -> Result<EvaluationResult>
     let start_time = Instant::now();
     let file_buffer = FileBuffer::new(path.as_ref())?;
     let buffer = file_buffer.as_slice();
-    
+
     let matches = evaluate_rules_with_config(&self.rules, buffer, self.config.clone())?;
-    
+
     // Concatenate hierarchical messages (libmagic behavior)
     let description = if matches.is_empty() {
         "data".to_string()
     } else {
         concatenate_messages(&matches)
     };
-        
+
     fn concatenate_messages(matches: &[MatchResult]) -> String {
         let mut result = String::new();
         for m in matches {
@@ -231,17 +233,17 @@ pub fn evaluate_file<P: AsRef<Path>>(&self, path: P) -> Result<EvaluationResult>
         }
         result
     }
-    
+
     let confidence = matches.first()
         .map(|m| m.confidence)
         .unwrap_or(0.0);
-    
+
     let mime_type = if self.config.enable_mime_types {
         MimeMapper::new().get_mime_type(&description)
     } else {
         None
     };
-    
+
     Ok(EvaluationResult {
         description,
         mime_type,
@@ -264,7 +266,7 @@ Update `file:src/main.rs`:
 ```rust
 fn output_json(filename: &str, result: &EvaluationResult) -> Result<()> {
     let tags = TagExtractor::new().extract_tags(&result.description);
-    
+
     let json = serde_json::json!({
         "filename": filename,
         "matches": result.matches.iter().map(|m| {
@@ -282,7 +284,7 @@ fn output_json(filename: &str, result: &EvaluationResult) -> Result<()> {
             "rules_evaluated": result.metadata.rules_evaluated,
         }
     });
-    
+
     println!("{}", serde_json::to_string(&json)?);
     Ok(())
 }

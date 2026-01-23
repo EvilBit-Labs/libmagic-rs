@@ -7,6 +7,7 @@ Implement comprehensive test infrastructure including compatibility tests agains
 ## Scope
 
 **In Scope:**
+
 - Compatibility tests using `file:third_party/tests/` corpus
 - Comparison with GNU file output
 - Unit tests for all new components
@@ -15,6 +16,7 @@ Implement comprehensive test infrastructure including compatibility tests agains
 - CI/CD integration
 
 **Out of Scope:**
+
 - Performance benchmarks (deferred to Phase 3)
 - Fuzzing infrastructure (deferred to Phase 2)
 - Property-based testing (deferred to Phase 2)
@@ -34,25 +36,25 @@ use std::path::PathBuf;
 fn test_compatibility_with_gnu_file() {
     let test_files = discover_test_files("third_party/tests/");
     let db = MagicDatabase::load_from_file("/usr/share/file/magic")?;
-    
+
     let mut passed = 0;
     let mut failed = 0;
     let mut common_type_results = HashMap::new();
-    
+
     for file in test_files {
         // Get GNU file output
         let gnu_output = Command::new("file")
             .arg("-b") // Brief mode
             .arg(&file)
             .output()?;
-        
+
         // Get libmagic-rs output
         let result = db.evaluate_file(&file)?;
-        
+
         // Compare outputs
         if outputs_match(&gnu_output, &result.description) {
             passed += 1;
-            
+
             // Track common file types separately
             if is_common_type(&file) {
                 common_type_results.insert(file.clone(), true);
@@ -60,38 +62,38 @@ fn test_compatibility_with_gnu_file() {
         } else {
             failed += 1;
             eprintln!("Mismatch for {}: GNU='{}', ours='{}'",
-                     file.display(), 
+                     file.display(),
                      String::from_utf8_lossy(&gnu_output.stdout),
                      result.description);
-            
+
             if is_common_type(&file) {
                 common_type_results.insert(file.clone(), false);
             }
         }
     }
-    
+
     let compatibility = (passed as f64 / (passed + failed) as f64) * 100.0;
     let common_compatibility = calculate_common_type_compatibility(&common_type_results);
-    
+
     println!("Overall compatibility: {:.1}%", compatibility);
     println!("Common types compatibility: {:.1}%", common_compatibility);
-    
-    assert!(common_compatibility >= 100.0, 
-            "Common types compatibility: {:.1}% (target: 100%)", 
+
+    assert!(common_compatibility >= 100.0,
+            "Common types compatibility: {:.1}% (target: 100%)",
             common_compatibility);
-    assert!(compatibility >= 95.0, 
-            "Overall compatibility: {:.1}% (target: 95%)", 
+    assert!(compatibility >= 95.0,
+            "Overall compatibility: {:.1}% (target: 95%)",
             compatibility);
 }
 
 fn is_common_type(path: &Path) -> bool {
     // Check if file is ELF, PE, ZIP, JPEG, PNG, PDF
     let filename = path.file_name().unwrap().to_str().unwrap();
-    filename.contains("elf") || 
-    filename.contains("pe") || 
-    filename.contains("zip") || 
-    filename.contains("jpeg") || 
-    filename.contains("png") || 
+    filename.contains("elf") ||
+    filename.contains("pe") ||
+    filename.contains("zip") ||
+    filename.contains("jpeg") ||
+    filename.contains("png") ||
     filename.contains("pdf")
 }
 ```
@@ -101,22 +103,26 @@ fn is_common_type(path: &Path) -> bool {
 Add comprehensive unit tests to each module:
 
 **Parser Tests** (`file:tests/parser_tests.rs`):
+
 - Format detection
 - Directory loading
 - Strength parsing
 - Error handling
 
 **Evaluator Tests** (`file:tests/evaluator_tests.rs`):
+
 - Confidence calculation
 - Rule ordering
 - Timeout handling
 
 **MIME Tests** (`file:tests/mime_tests.rs`):
+
 - Hardcoded mappings
 - File loading
 - Prefix matching
 
 **Tag Tests** (`file:tests/tags_tests.rs`):
+
 - Keyword extraction
 - Case insensitivity
 
@@ -159,7 +165,7 @@ Add to `file:.github/workflows/ci.yml`:
   run: |
     cargo install cargo-llvm-cov
     cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
-    
+
 - name: Upload Coverage
   uses: codecov/codecov-action@v3
   with:

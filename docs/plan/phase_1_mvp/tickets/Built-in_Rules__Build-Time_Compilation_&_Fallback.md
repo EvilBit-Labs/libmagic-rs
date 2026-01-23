@@ -7,12 +7,14 @@ Implement build-time compilation of built-in magic rules using `build.rs`, provi
 ## Scope
 
 **In Scope:**
+
 - Create `file:src/builtin_rules.magic` with common file type patterns
 - Build script (`build.rs`) to parse and compile rules at build time
 - Build-time validation with clear error messages
 - `MagicDatabase::with_builtin_rules()` API
 
 **Out of Scope:**
+
 - Comprehensive magic rules (only common types)
 - Runtime rule compilation
 - Dynamic rule loading
@@ -65,7 +67,7 @@ use std::path::Path;
 
 fn main() {
     let magic_text = include_str!("src/builtin_rules.magic");
-    
+
     // Parse at build time
     match parse_magic_text(magic_text) {
         Ok(rules) => {
@@ -113,7 +115,6 @@ impl MagicDatabase {
     }
 }
 ```
-
 
 ## Acceptance Criteria
 

@@ -7,6 +7,7 @@ Implement libmagic's `apprentice_magic_strength` algorithm with `!:strength` mod
 ## Scope
 
 **In Scope:**
+
 - Port `apprentice_magic_strength` algorithm from libmagic
 - Parse `!:strength` modifiers from magic files
 - Calculate default strength based on rule specificity
@@ -14,6 +15,7 @@ Implement libmagic's `apprentice_magic_strength` algorithm with `!:strength` mod
 - Use strength for rule ordering and confidence scoring
 
 **Out of Scope:**
+
 - Advanced strength heuristics
 - Machine learning-based strength
 - Performance optimization
@@ -67,9 +69,9 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
     // - Operator specificity (= > &)
     // - Offset type (absolute > indirect)
     // - Value length (longer strings = higher strength)
-    
+
     let mut strength = 0;
-    
+
     // Type contribution
     strength += match rule.type_kind {
         TypeKind::String => 20,
@@ -78,7 +80,7 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
         TypeKind::Byte => 5,
         _ => 10,
     };
-    
+
     // Operator contribution
     strength += match rule.operator {
         Operator::Equal => 10,
@@ -86,19 +88,19 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
         Operator::And => 3,
         _ => 5,
     };
-    
+
     // Offset contribution
     strength += match rule.offset {
         OffsetSpec::Absolute(_) => 10,
         OffsetSpec::Indirect { .. } => 5,
         OffsetSpec::Relative(_) => 3,
     };
-    
+
     // Value length contribution (for strings)
     if let TypeKind::String = rule.type_kind {
         strength += (rule.value.len() as i32).min(20);
     }
-    
+
     strength
 }
 ```
