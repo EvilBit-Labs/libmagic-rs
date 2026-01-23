@@ -1556,7 +1556,7 @@ mod format_detection_tests {
             ParseError::IoError(e) => {
                 assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
             }
-            other => panic!("Expected IoError, got: {:?}", other),
+            other => panic!("Expected IoError, got: {other:?}"),
         }
     }
 
