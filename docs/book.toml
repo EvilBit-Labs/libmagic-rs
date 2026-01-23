@@ -39,9 +39,6 @@ renderer = [ "html" ]
 [preprocessor.tabs]
 command = "mdbook-tabs"
 
-[preprocessor.yml-header]
-command = "mdbook-yml-header"
-
 [preprocessor.links]
 
 [output.html.search]
