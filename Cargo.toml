@@ -147,22 +147,22 @@ path = "src/main.rs"
 
 [dependencies]
 byteorder = "1.5.0"
-cfg-if = "1.0.3"
-clap = { version = "4.5.48", features = ["derive"] }
-memmap2 = "0.9.8"
+cfg-if = "1.0.4"
+clap = { version = "4.5.54", features = ["derive"] }
+memmap2 = "0.9.9"
 nom = "8.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
-thiserror = "2.0.17"
+serde_json = "1.0.149"
+thiserror = "2.0.18"
 
 [dev-dependencies]
 criterion = "0.8.1"
-insta = { version = "1.39.0", features = ["json"] }
-nix = { version = "0.30", features = ["fs"] }
-proptest = "1.8.0"
-regex = "1.11.0"
+insta = { version = "1.46.1", features = ["json"] }
+nix = { version = "0.31.0", features = ["fs"] }
+proptest = "1.9.0"
+regex = "1.12.2"
 temp-env = "0.3.6"
-tempfile = "3.8.1"
+tempfile = "3.24.0"
 
 # The profile that 'dist' will build with
 [profile.dist]

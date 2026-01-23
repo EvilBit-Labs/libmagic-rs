@@ -10,7 +10,7 @@ cargo-insta                 = "1.46.1"
 "cargo:mdbook-linkcheck"    = "0.7.7"
 just                        = "latest"
 python                      = "3.13.11"
-rust                        = { version = "1.90.0", components = "llvm-tools-preview" }
+rust                        = { version = "stable", components = "llvm-tools-preview" }
 "cargo:mdbook-tabs"         = "0.3.4"
 "cargo:mdbook-mermaid"      = "0.17.0"
 "cargo:mdbook-toc"          = "0.15.3"
