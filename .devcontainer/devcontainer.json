@@ -1,0 +1,97 @@
+{
+    "name": "Rust",
+    "image": "mcr.microsoft.com/devcontainers/rust:2-1-trixie",
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:2": {
+            "installZsh": true,
+            "configureZshAsDefaultShell": true,
+            "installOhMyZsh": true,
+            "installOhMyZshConfig": true,
+            "upgradePackages": true,
+            "nonFreePackages": true,
+            "installSsl": true,
+            "username": "automatic",
+            "userUid": "automatic",
+            "userGid": "automatic"
+        },
+        "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+            "installDockerBuildx": true,
+            "version": "latest",
+            "dockerDashComposeVersion": "v2",
+            "moby": false
+        },
+        "ghcr.io/devcontainers-extra/features/mise:1": {
+            "version": "latest"
+        },
+        "ghcr.io/devcontainer-config/features/dot-config:3": {},
+        "ghcr.io/devcontainers-extra/features/claude-code:1": {}
+    },
+    "mounts": [
+        {
+            "source": "devcontainer-cargo-cache-${devcontainerId}",
+            "target": "/usr/local/cargo",
+            "type": "volume"
+        }
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "rust-lang.rust-analyzer",
+                "vadimcn.vscode-lldb",
+                "ms-vscode.vscode-json",
+                "yzhang.markdown-all-in-one",
+                "bierner.markdown-mermaid",
+                "esbenp.prettier-vscode",
+                "tamasfe.even-better-toml",
+                "fill-labs.dependi",
+                "usernamehw.errorlens",
+                "ms-python.python",
+                "github.vscode-github-actions",
+                "ms-vscode.makefile-tools",
+                "EditorConfig.EditorConfig",
+                "skellock.just",
+                "bierner.markdown-emoji",
+                "bierner.markdown-footnotes",
+                "charliermarsh.ruff",
+                "foxundermoon.shell-format",
+                "redhat.vscode-yaml",
+                "codezombiech.gitignore",
+                "eamodio.gitlens",
+                "ms-vscode-remote.remote-containers",
+                "mikestead.dotenv",
+                "bierner.github-markdown-preview",
+                "bierner.markdown-checkbox"
+            ],
+            "settings": {
+                "rust-analyzer.check.command": "clippy",
+                "rust-analyzer.check.extraArgs": [
+                    "--all-targets",
+                    "--all-features"
+                ],
+                "rust-analyzer.cargo.features": "all",
+                "rust-analyzer.rustfmt.extraArgs": [
+                    "--edition",
+                    "2024"
+                ],
+                "editor.formatOnSave": true,
+                "editor.codeActionsOnSave": {
+                    "source.fixAll": "explicit"
+                },
+                "files.watcherExclude": {
+                    "**/target/**": true,
+                    "**/.git/objects/**": true,
+                    "**/.git/subtree-cache/**": true
+                },
+                "search.exclude": {
+                    "**/target": true,
+                    "**/Cargo.lock": true
+                },
+                "terminal.integrated.defaultProfile.linux": "zsh",
+                "rust-analyzer.lens.enable": true,
+                "rust-analyzer.completion.addCallParentheses": false,
+                "rust-analyzer.completion.addCallArgumentSnippets": false,
+                "rust-analyzer.inlayHints.parameterHints.enable": false
+            }
+        }
+    }
+}
