@@ -85,6 +85,17 @@ pub enum ParseError {
         /// The invalid value specification
         value: String,
     },
+
+    /// Unsupported magic file format.
+    #[error("Unsupported format at line {line}: {format_type}\n{message}")]
+    UnsupportedFormat {
+        /// The line number where the error occurred
+        line: usize,
+        /// The type of unsupported format
+        format_type: String,
+        /// Detailed message with guidance
+        message: String,
+    },
 }
 
 /// Errors that can occur during rule evaluation.
@@ -198,6 +209,20 @@ impl ParseError {
         Self::InvalidValue {
             line,
             value: value.into(),
+        }
+    }
+
+    /// Create a new `UnsupportedFormat` error.
+    #[must_use]
+    pub fn unsupported_format(
+        line: usize,
+        format_type: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::UnsupportedFormat {
+            line,
+            format_type: format_type.into(),
+            message: message.into(),
         }
     }
 }
@@ -455,5 +480,36 @@ mod tests {
             error6,
             EvaluationError::InvalidStringEncoding { .. }
         ));
+    }
+
+    #[test]
+    fn test_parse_error_unsupported_format() {
+        let error = ParseError::unsupported_format(
+            0,
+            "binary .mgc",
+            "Binary files not supported. Use --use-builtin option.",
+        );
+        let display = format!("{error}");
+        assert!(display.contains("Unsupported format"));
+        assert!(display.contains("binary .mgc"));
+        assert!(display.contains("--use-builtin"));
+    }
+
+    #[test]
+    fn test_parse_error_unsupported_format_constructor() {
+        let error = ParseError::unsupported_format(5, "test_format", "test message");
+
+        match error {
+            ParseError::UnsupportedFormat {
+                line,
+                format_type,
+                message,
+            } => {
+                assert_eq!(line, 5);
+                assert_eq!(format_type, "test_format");
+                assert_eq!(message, "test message");
+            }
+            _ => panic!("Expected UnsupportedFormat variant"),
+        }
     }
 }
