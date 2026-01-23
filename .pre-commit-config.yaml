@@ -64,7 +64,7 @@ repos:
     #             - mdformat-admon
     #             - mdformat-config
     #             - mdformat-footnote
-    #             - mdformat-frontmatter
+    #             - mdformat-front-matters
     #             - mdformat-simple-breaks
     #             - mdformat-tables
     #             - mdformat-web
@@ -73,16 +73,6 @@ repos:
     #             - mdformat-toc
     #         files: \.(md|mdx)$
     #         exclude: ^target/|
-
-    # Security audit for Rust dependencies (moved to CI)
-    - repo: local
-      hooks:
-          - id: cargo-audit
-            name: cargo-audit
-            entry: cargo audit
-            language: system
-            pass_filenames: false
-            always_run: true
 
     - repo: https://github.com/DevinR528/cargo-sort
       rev: v2.0.2
