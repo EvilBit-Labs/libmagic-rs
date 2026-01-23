@@ -159,6 +159,13 @@ pub enum EvaluationError {
     /// Type reading error during evaluation.
     #[error("Type reading error: {0}")]
     TypeReadError(#[from] crate::evaluator::types::TypeReadError),
+
+    /// Internal error indicating a bug in the evaluation logic.
+    #[error("Internal error: {message}")]
+    InternalError {
+        /// Description of the internal error
+        message: String,
+    },
 }
 
 impl ParseError {
@@ -274,6 +281,14 @@ impl EvaluationError {
     #[must_use]
     pub fn timeout(timeout_ms: u64) -> Self {
         Self::Timeout { timeout_ms }
+    }
+
+    /// Create a new `InternalError` error.
+    #[must_use]
+    pub fn internal_error(message: impl Into<String>) -> Self {
+        Self::InternalError {
+            message: message.into(),
+        }
     }
 }
 
@@ -403,6 +418,13 @@ mod tests {
         let error = EvaluationError::invalid_string_encoding(512);
         let display = format!("{error}");
         assert_eq!(display, "Invalid string encoding at offset 512");
+    }
+
+    #[test]
+    fn test_evaluation_error_internal_error() {
+        let error = EvaluationError::internal_error("recursion depth underflow");
+        let display = format!("{error}");
+        assert_eq!(display, "Internal error: recursion depth underflow");
     }
 
     #[test]

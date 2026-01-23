@@ -118,16 +118,20 @@ impl EvaluationContext {
 
     /// Decrement the recursion depth
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the recursion depth is already 0, as this indicates
-    /// a programming error in the evaluation logic.
-    pub fn decrement_recursion_depth(&mut self) {
-        assert!(
-            self.recursion_depth != 0,
-            "Attempted to decrement recursion depth below 0"
-        );
+    /// Returns an error if the recursion depth is already 0, as this indicates
+    /// a programming error in the evaluation logic (mismatched increment/decrement calls).
+    pub fn decrement_recursion_depth(&mut self) -> Result<(), LibmagicError> {
+        if self.recursion_depth == 0 {
+            return Err(LibmagicError::EvaluationError(
+                crate::error::EvaluationError::internal_error(
+                    "Attempted to decrement recursion depth below 0",
+                ),
+            ));
+        }
         self.recursion_depth -= 1;
+        Ok(())
     }
 
     /// Get a reference to the evaluation configuration
@@ -412,7 +416,7 @@ pub fn evaluate_rules(
                     }
                     Err(LibmagicError::Timeout { .. }) => {
                         // Timeout is critical, propagate it up
-                        context.decrement_recursion_depth();
+                        context.decrement_recursion_depth()?;
                         return Err(LibmagicError::Timeout {
                             timeout_ms: context.timeout_ms().unwrap_or(0),
                         });
@@ -421,7 +425,7 @@ pub fn evaluate_rules(
                         crate::error::EvaluationError::RecursionLimitExceeded { .. },
                     )) => {
                         // Recursion limit is critical, propagate it up
-                        context.decrement_recursion_depth();
+                        context.decrement_recursion_depth()?;
                         return Err(LibmagicError::EvaluationError(
                             crate::error::EvaluationError::RecursionLimitExceeded {
                                 depth: context.recursion_depth(),
@@ -438,7 +442,7 @@ pub fn evaluate_rules(
                 }
 
                 // Restore recursion depth
-                context.decrement_recursion_depth();
+                context.decrement_recursion_depth()?;
             }
 
             // Stop at first match if configured to do so
@@ -1240,10 +1244,10 @@ fn test_evaluation_context_recursion_depth_management() {
     assert_eq!(context.recursion_depth(), 2);
 
     // Test decrementing recursion depth
-    context.decrement_recursion_depth();
+    context.decrement_recursion_depth().unwrap();
     assert_eq!(context.recursion_depth(), 1);
 
-    context.decrement_recursion_depth();
+    context.decrement_recursion_depth().unwrap();
     assert_eq!(context.recursion_depth(), 0);
 }
 
@@ -1277,13 +1281,20 @@ fn test_evaluation_context_recursion_depth_limit() {
 }
 
 #[test]
-#[should_panic(expected = "Attempted to decrement recursion depth below 0")]
 fn test_evaluation_context_recursion_depth_underflow() {
     let config = EvaluationConfig::default();
     let mut context = EvaluationContext::new(config);
 
-    // Should panic when trying to decrement below 0
-    context.decrement_recursion_depth();
+    // Should return an error when trying to decrement below 0
+    let result = context.decrement_recursion_depth();
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("decrement recursion depth below 0"),
+        "Expected error about decrementing below 0, got: {err_msg}"
+    );
 }
 
 #[test]
@@ -2052,7 +2063,7 @@ fn test_evaluation_context_state_management_sequence() {
     assert_eq!(context.recursion_depth(), 2);
 
     // Exit nested evaluation
-    context.decrement_recursion_depth();
+    context.decrement_recursion_depth().unwrap();
     assert_eq!(context.recursion_depth(), 1);
 
     // Continue evaluation at different offset
@@ -2060,7 +2071,7 @@ fn test_evaluation_context_state_management_sequence() {
     assert_eq!(context.current_offset(), 50);
 
     // Exit all nesting
-    context.decrement_recursion_depth();
+    context.decrement_recursion_depth().unwrap();
     assert_eq!(context.recursion_depth(), 0);
 
     // Final state check
