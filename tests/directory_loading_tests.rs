@@ -379,3 +379,49 @@ fn test_load_directory_mixed_extensions() {
     assert!(messages.contains(&"txt ext"));
     assert!(messages.contains(&"no ext"));
 }
+
+#[test]
+fn test_load_directory_all_files_fail_to_parse() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    // Create files with invalid magic syntax
+    create_test_magic_file(
+        temp_dir.path(),
+        "bad1",
+        "this is not valid magic file syntax at all",
+    );
+
+    create_test_magic_file(temp_dir.path(), "bad2", "also invalid\nno proper format\n");
+
+    // When all files fail to parse, we should get an error
+    let result = load_magic_directory(temp_dir.path());
+
+    assert!(
+        result.is_err(),
+        "Should return error when all files fail to parse"
+    );
+
+    let err = result.unwrap_err();
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("All") && err_msg.contains("failed to parse"),
+        "Error message should indicate all files failed: {err_msg}"
+    );
+}
+
+#[test]
+fn test_load_directory_partial_failure_succeeds() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    // One valid file
+    create_test_magic_file(temp_dir.path(), "good", "0 string \\x00 valid rule\n");
+
+    // One invalid file
+    create_test_magic_file(temp_dir.path(), "bad", "not valid magic syntax");
+
+    // Should succeed because at least one file parsed
+    let rules = load_magic_directory(temp_dir.path()).expect("Should succeed with partial failure");
+
+    assert_eq!(rules.len(), 1, "Should have one rule from the valid file");
+    assert_eq!(rules[0].message, "valid rule");
+}

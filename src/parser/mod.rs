@@ -143,7 +143,7 @@ use crate::{
     },
 };
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Represents the format of a magic file or directory
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -606,6 +606,8 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
 
     // Accumulate rules from all files
     let mut all_rules = Vec::new();
+    let mut parse_failures: Vec<(PathBuf, ParseError)> = Vec::new();
+    let file_count = file_paths.len();
 
     for path in file_paths {
         // Read file contents
@@ -627,10 +629,39 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
                 all_rules.extend(rules);
             }
             Err(e) => {
-                // Parse errors are non-critical - log and continue
-                eprintln!("Warning: Failed to parse '{}': {}", path.display(), e);
+                // Track parse failures for reporting
+                parse_failures.push((path, e));
             }
         }
+    }
+
+    // If all files failed to parse, return an error
+    if all_rules.is_empty() && !parse_failures.is_empty() {
+        use std::fmt::Write;
+
+        let failure_details: Vec<String> = parse_failures
+            .iter()
+            .take(3) // Limit to first 3 failures for brevity
+            .map(|(path, e)| format!("  - {}: {}", path.display(), e))
+            .collect();
+
+        let mut message = format!("All {file_count} magic file(s) in directory failed to parse");
+        if !failure_details.is_empty() {
+            message.push_str(":\n");
+            message.push_str(&failure_details.join("\n"));
+            if parse_failures.len() > 3 {
+                let _ = write!(message, "\n  ... and {} more", parse_failures.len() - 3);
+            }
+        }
+
+        return Err(ParseError::invalid_syntax(0, message));
+    }
+
+    // Log warnings for partial failures (some files parsed, some failed)
+    // Note: Using eprintln for now; consider a logging framework in the future
+    #[allow(clippy::print_stderr)]
+    for (path, e) in &parse_failures {
+        eprintln!("Warning: Failed to parse '{}': {}", path.display(), e);
     }
 
     Ok(all_rules)
@@ -712,13 +743,15 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
 ///
 /// # Security
 ///
-/// This function performs validation and applies resource limits during parsing:
+/// This function delegates to [`parse_text_magic_file()`] or [`load_magic_directory()`]
+/// based on format detection. Security considerations are handled by those functions:
 ///
-/// - File size limits to prevent memory exhaustion
-/// - Nesting depth limits to prevent stack overflow
-/// - Input sanitization to prevent injection attacks
+/// - Rule hierarchy depth is bounded during parsing
+/// - Invalid syntax is rejected with descriptive errors
+/// - Binary `.mgc` files are rejected (not parsed)
 ///
-/// See [`parse_text_magic_file()`] and [`load_magic_directory()`] for specific limits.
+/// Note: File size limits and memory exhaustion protection are not currently implemented.
+/// Large magic files will be loaded entirely into memory.
 ///
 /// # See Also
 ///

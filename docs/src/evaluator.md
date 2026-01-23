@@ -30,15 +30,15 @@ Maintains state during rule processing:
 ```rust
 pub struct EvaluationContext {
     /// Current offset position for relative calculations
-    pub current_offset: usize,
+    current_offset: usize,
     /// Current recursion depth for safety limits
-    pub recursion_depth: u32,
+    recursion_depth: u32,
     /// Configuration for evaluation behavior
-    pub config: EvaluationConfig,
-    /// Start time for timeout checking
-    pub start_time: std::time::Instant,
+    config: EvaluationConfig,
 }
 ```
+
+Note: Fields are private; use accessor methods like `current_offset()`, `recursion_depth()`, and `config()`.
 
 **Key Methods:**
 
@@ -59,10 +59,12 @@ pub struct MatchResult {
     pub offset: usize,
     /// Depth in the rule hierarchy (0 = root rule)
     pub level: u32,
-    /// The actual bytes that matched
-    pub value: Vec<u8>,
+    /// The matched value (parsed according to rule type)
+    pub value: Value,
 }
 ```
+
+The `Value` type is from `parser::ast::Value` and represents the actual matched content according to the rule's type specification.
 
 ### Offset Resolution (`evaluator/offset.rs`)
 

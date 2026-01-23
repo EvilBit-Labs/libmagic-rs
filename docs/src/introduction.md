@@ -25,7 +25,7 @@ libmagic-rs is a clean-room implementation of the libmagic library, written enti
 - ✅ **Memory-Mapped I/O**: FileBuffer implementation with memmap2 and comprehensive safety
 - ✅ **CLI Framework**: Command-line interface with clap, multiple output formats, and magic file discovery
 - ✅ **Project Infrastructure**: Build system, strict linting, and comprehensive testing
-- ✅ **Extensive Test Coverage**: 200+ comprehensive unit tests covering all modules
+- ✅ **Extensive Test Coverage**: 650+ comprehensive tests covering all modules
 - ✅ **Memory Safety**: Zero unsafe code with comprehensive bounds checking
 - ✅ **Error Handling**: Structured error types with graceful degradation
 - ✅ **Code Quality**: Strict clippy linting with zero-warnings policy

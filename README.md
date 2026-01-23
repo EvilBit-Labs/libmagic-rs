@@ -12,7 +12,7 @@ A pure-Rust implementation of libmagic, the library that powers the `file` comma
 **Current Metrics:**
 
 - 17,000+ lines of Rust code
-- 745+ tests with comprehensive coverage
+- 650+ tests with comprehensive coverage
 - Zero unsafe code with memory safety guarantees
 - Zero warnings with strict clippy linting
 
@@ -244,7 +244,7 @@ cargo check
 ### Testing
 
 ```bash
-# Run all tests (745+ tests)
+# Run all tests (650+ tests)
 cargo test
 
 # Run with nextest (faster test runner)
@@ -263,7 +263,7 @@ cargo test --test compatibility
 
 **Current Test Coverage:**
 
-- 745+ tests covering parser, evaluator, I/O, and CLI components
+- 650+ tests covering parser, evaluator, I/O, and CLI components
 - Parser testing for numbers, offsets, operators, values, and rule hierarchies
 - Evaluator testing for rule matching and confidence scoring
 - I/O testing for FileBuffer, memory mapping, and error handling
