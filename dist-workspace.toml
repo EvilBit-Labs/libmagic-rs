@@ -8,7 +8,7 @@ cargo-dist-version = "0.30.3"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
-installers = [  ]
+installers = [ "shell", "homebrew" ]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = [
     "aarch64-apple-darwin",
@@ -43,10 +43,14 @@ msvc-crt-static = true
 cargo-auditable = true
 # Whether to use cargo-cyclonedx to generate an SBOM
 cargo-cyclonedx = true
+# A GitHub repo to push Homebrew formulas to
+tap = "EvilBit-Labs/homebrew-tap"
+# Publish jobs to run in CI
+publish-jobs = [ "homebrew" ]
 
 # GitHub release configuration
 [dist.github-action-commits]
-"actions/checkout"                = "v5"
-"actions/download-artifact"       = "v5"
+"actions/checkout"                = "v6"
+"actions/download-artifact"       = "v7"
 "actions/attest-build-provenance" = "v3"
-"actions/upload-artifact"         = "v4"
+"actions/upload-artifact"         = "v6"
