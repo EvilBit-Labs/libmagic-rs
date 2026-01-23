@@ -67,7 +67,7 @@ jobs:
 
     test:
         runs-on: ubuntu-latest
-        needs: changes
+        needs: [changes, quality]
         if: needs.changes.outputs.rust == 'true'
         steps:
             - uses: actions/checkout@v6
@@ -101,7 +101,7 @@ jobs:
                       platform: "Windows"
 
         runs-on: ${{ matrix.os }}
-        needs: changes
+        needs: [changes, test]
         if: needs.changes.outputs.rust == 'true'
         steps:
             - uses: actions/checkout@v6

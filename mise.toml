@@ -1,5 +1,5 @@
 [tools]
-cargo-binstall              = "1.16.7"
+cargo-binstall              = "latest"
 cargo-insta                 = "1.46.1"
 "cargo:cargo-audit"         = "0.22.0"
 "cargo:cargo-deny"          = "0.19.0"
@@ -17,10 +17,10 @@ rust                        = { version = "stable", components = "llvm-tools-pre
 "cargo:mdbook-admonish"     = "1.20.0"
 "cargo:mdbook-open-on-gh"   = "3.0.0"
 "cargo:mdbook-i18n-helpers" = "0.4.0"
-"cargo:mdbook-yml-header"   = "0.1.5"
 "cargo:cargo-outdated"      = "0.17.0"
 "cargo:cargo-release"       = "0.25.22"
 "cargo:cargo-auditable"     = "0.7.2"
 "cargo:cargo-cyclonedx"     = "0.5.7"
 "pipx:mdformat"             = { version = "0.7.21", uvx_args = "--with mdformat-gfm --with mdformat-frontmatter --with mdformat-footnote --with mdformat-simple-breaks --with mdformat-gfm-alerts --with mdformat-toc --with mdformat-wikilink --with mdformat-tables" }
 prettier                    = "3.8.1"
+"cargo:mdbook-yml-header"   = "0.1.5"
