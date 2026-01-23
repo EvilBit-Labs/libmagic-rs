@@ -115,7 +115,7 @@ pub fn apply_strength_modifier(base_strength: i32, modifier: &StrengthModifier) 
         StrengthModifier::Add(n) => base_strength + n,
         StrengthModifier::Subtract(n) => base_strength - n,
         StrengthModifier::Multiply(n) => base_strength * n,
-        StrengthModifier::Divide(n) => base_strength / n,
+        StrengthModifier::Divide(n) => base_strength.checked_div(*n).unwrap_or(base_strength),
         StrengthModifier::Set(n) => *n,
     }
 }

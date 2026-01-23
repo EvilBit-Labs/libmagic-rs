@@ -30,7 +30,7 @@ This project follows the [Rust Code of Conduct](https://www.rust-lang.org/polici
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/libmagic-rs.git
+git clone https://github.com/EvilBit-Labs/libmagic-rs.git
 cd libmagic-rs
 
 # Build the project

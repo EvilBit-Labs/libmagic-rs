@@ -20,14 +20,12 @@ This validates three critical insights:
 
 All successful independent reimplementations parse text format only:
 
-
 | Implementation   | Language | Approach               | Status                                 |
 | ---------------- | -------- | ---------------------- | -------------------------------------- |
 | **OpenBSD file** | C        | Text parsing, RB-trees | Production (major BSD distribution)    |
 | **PolyFile**     | Python   | Text parsing           | Production (Trail of Bits, 365+ stars) |
 | **arcana**       | Ruby     | Text parsing           | Experimental                           |
 | **libmagic-rs**  | Rust     | Text parsing           | Phase 1 MVP (this plan)                |
-
 
 ### OpenBSD's Architecture Lessons
 
@@ -53,7 +51,6 @@ OpenBSD's implementation demonstrates key design principles we adopt:
 
 **4. Performance Trade-offs**
 
-
 | Aspect        | libmagic (binary .mgc) | OpenBSD / libmagic-rs (text) |
 | ------------- | ---------------------- | ---------------------------- |
 | Startup       | Fast (mmap binary)     | Slower (parse text)          |
@@ -61,7 +58,6 @@ OpenBSD's implementation demonstrates key design principles we adopt:
 | Complexity    | High (~3,000 lines)    | Low (~1,500 lines)           |
 | Maintenance   | Version-coupled        | Format-stable                |
 | Debuggability | Difficult (binary)     | Easy (text source)           |
-
 
 ### Why Binary .mgc is Deferred
 
@@ -108,7 +104,7 @@ graph TD
     G --> H[Match Results]
     H --> I[Output Formatters]
     I --> J[Text/JSON Output]
-    
+
     K[Built-in Rules] --> B
     L[Magdir Directory] --> B
     M[Single Text File] --> B
@@ -120,7 +116,7 @@ graph TD
 
 **Decision**: Search for text magic files BEFORE binary .mgc files
 
-**Rationale**: 
+**Rationale**:
 
 - OpenBSD proves text parsing is production-viable
 - Text format is stable across libmagic versions
@@ -129,7 +125,7 @@ graph TD
 
 **Implementation**:
 
-```
+```text
 Search Order:
 1. /usr/share/file/magic/Magdir/* (text directory)
 2. /usr/share/file/magic/* (alternate text directory)
@@ -140,7 +136,7 @@ Search Order:
 
 **Error Message for Binary .mgc**:
 
-```
+```text
 Error: Binary magic file format not supported in Phase 1 MVP
 
 Found: /usr/share/file/magic.mgc (binary format)
@@ -177,7 +173,7 @@ Example: rmagic --use-builtin sample.bin
 // build.rs
 fn main() {
     let magic_text = include_str!("src/builtin_rules.magic");
-    
+
     match parse_text_magic_file(magic_text) {
         Ok(rules) => {
             // Generate Rust code with AST structures
@@ -251,7 +247,7 @@ impl MagicDatabase {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::new().load(path)
     }
-    
+
     // Builder API - chainable methods
     pub fn new() -> Self {
         Self {
@@ -260,12 +256,13 @@ impl MagicDatabase {
             magic_file_path: None,
         }
     }
-    
-    pub fn with_config(mut self, config: EvaluationConfig) -> Self {
+
+    pub fn with_config(mut self, config: EvaluationConfig) -> Result<Self> {
+        config.validate()?;
         self.config = config;
-        self
+        Ok(self)
     }
-    
+
     pub fn load<P: AsRef<Path>>(mut self, path: P) -> Result<Self> {
         let path_ref = path.as_ref();
         self.rules = parser::load_magic_file(path_ref)?;
@@ -328,15 +325,15 @@ pub struct MimeMapper {
 impl MimeMapper {
     pub fn new() -> Self {
         let mut mapper = Self::with_hardcoded_mappings();
-        
+
         // Try to load system MIME database
         if let Ok(mime_db) = Self::load_mime_database() {
             mapper.merge(mime_db);
         }
-        
+
         mapper
     }
-    
+
     fn with_hardcoded_mappings() -> Self {
         // Common file types
         let mappings = hashmap! {
@@ -371,15 +368,15 @@ impl MimeMapper {
 if args.file == "-" || args.stdin {
     let mut buffer = Vec::new();
     let max_size = config.max_string_length;
-    
+
     io::stdin()
         .take(max_size as u64)
         .read_to_end(&mut buffer)?;
-    
+
     if buffer.len() >= max_size {
         eprintln!("Warning: Stdin truncated at {} bytes", max_size);
     }
-    
+
     let result = db.evaluate_buffer(&buffer)?;
     // ... output result
 }
@@ -498,10 +495,10 @@ pub struct MatchResult {
     pub value: Vec<u8>,
     pub message: String,
     pub level: usize,
-    
+
     // NEW: Strength from magic file or calculated
     pub strength: i32,
-    
+
     // NEW: Confidence based on match depth
     pub confidence: f64,
 }
@@ -551,7 +548,7 @@ pub enum StrengthModifier {
 ```rust
 pub struct MagicRule {
     // ... existing fields ...
-    
+
     // NEW: Optional strength override from !:strength
     pub strength_modifier: Option<StrengthModifier>,
 }
@@ -581,25 +578,25 @@ sequenceDiagram
     participant MimeMapper
     participant TagExtractor
     participant Output
-    
+
     CLI->>Parser: load_magic_file(path)
     Parser->>Parser: Detect format (file/dir/binary)
     Parser->>Parser: Parse text magic file(s)
     Parser->>Parser: Calculate default strength
     Parser-->>MagicDatabase: Vec<MagicRule>
-    
+
     CLI->>MagicDatabase: evaluate_file(target)
     MagicDatabase->>Evaluator: evaluate_rules(rules, buffer)
     Evaluator->>Evaluator: Hierarchical matching
     Evaluator->>Evaluator: Calculate confidence
     Evaluator-->>MagicDatabase: Vec<MatchResult>
-    
+
     MagicDatabase->>MimeMapper: get_mime_type(description)
     MimeMapper-->>MagicDatabase: Option<String>
-    
+
     MagicDatabase->>TagExtractor: extract_tags(description)
     TagExtractor-->>MagicDatabase: Vec<String>
-    
+
     MagicDatabase-->>CLI: EvaluationResult
     CLI->>Output: format_output(result, format)
     Output-->>CLI: Formatted string
@@ -620,18 +617,18 @@ impl MagicFilePaths {
             PathBuf::from("/usr/share/file/magic/Magdir"),
             PathBuf::from("/usr/share/misc/magic"),
             PathBuf::from("/usr/local/share/misc/magic"),
-            
+
             // Binary .mgc files LAST (show helpful error)
             PathBuf::from("/usr/share/file/magic.mgc"),
             PathBuf::from("/usr/local/share/misc/magic.mgc"),
         ];
-        
+
         #[cfg(windows)]
         let paths = vec![
             PathBuf::from("%APPDATA%\\Magic\\magic"),
             PathBuf::from("C:\\Program Files\\Magic\\magic"),
         ];
-        
+
         Self { search_paths: paths }
     }
 }
@@ -660,21 +657,29 @@ pub enum MagicFileFormat {
 
 pub fn detect_format<P: AsRef<Path>>(path: P) -> Result<MagicFileFormat> {
     let path = path.as_ref();
-    
+
     if path.is_dir() {
         return Ok(MagicFileFormat::Directory);
     }
-    
+
     let mut file = File::open(path)?;
     let mut header = [0u8; 4];
     file.read_exact(&mut header)?;
-    
+
     // Check for binary .mgc magic number
-    if u32::from_ne_bytes(header) == 0xF11E041C {
-        return Ok(MagicFileFormat::Binary);
-    }
-    
-    Ok(MagicFileFormat::Text)
+    let magic_native = u32::from_ne_bytes(header);
+    let magic_swapped = magic_native.swap_bytes();
+    let is_swapped = if magic_native == 0xF11E041C {
+        false
+    } else if magic_swapped == 0xF11E041C {
+        true
+    } else {
+        return Ok(MagicFileFormat::Text);
+    };
+
+    // Track endianness for subsequent reads
+    let _is_swapped = is_swapped;
+    Ok(MagicFileFormat::Binary)
 }
 ```
 
@@ -684,11 +689,11 @@ pub fn detect_format<P: AsRef<Path>>(path: P) -> Result<MagicFileFormat> {
 pub fn load_magic_directory<P: AsRef<Path>>(dir: P) -> Result<Vec<MagicRule>> {
     let mut all_rules = Vec::new();
     let mut errors = Vec::new();
-    
+
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        
+
         if path.is_file() {
             match parse_text_magic_file(&path) {
                 Ok(rules) => all_rules.extend(rules),
@@ -702,12 +707,12 @@ pub fn load_magic_directory<P: AsRef<Path>>(dir: P) -> Result<Vec<MagicRule>> {
             }
         }
     }
-    
+
     // Warn about non-critical errors
     for (path, error) in errors {
         eprintln!("Warning: Skipped {:?}: {}", path, error);
     }
-    
+
     Ok(all_rules)
 }
 ```
@@ -740,7 +745,7 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
 ```rust
 pub fn load_magic_file<P: AsRef<Path>>(path: P) -> Result<Vec<MagicRule>> {
     let format = detect_format(&path)?;
-    
+
     match format {
         MagicFileFormat::Text => parse_text_magic_file(path),
         MagicFileFormat::Directory => load_magic_directory(path),
@@ -806,7 +811,7 @@ use std::path::Path;
 
 fn main() {
     let magic_text = include_str!("src/builtin_rules.magic");
-    
+
     // Parse at build time
     match libmagic_rs::parser::parse_text_magic_file_from_str(magic_text) {
         Ok(rules) => {
@@ -860,28 +865,25 @@ impl MagicDatabase {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::new().load(path)
     }
-    
+
     pub fn new() -> Self {
         Self {
             rules: Vec::new(),
             config: EvaluationConfig::default(),
         }
     }
-    
-    pub fn with_config(mut self, config: EvaluationConfig) -> Self {
-        // Validate config immediately
-        if let Err(e) = config.validate() {
-            panic!("Invalid configuration: {}", e);
-        }
+
+    pub fn with_config(mut self, config: EvaluationConfig) -> Result<Self> {
+        config.validate()?;
         self.config = config;
-        self
+        Ok(self)
     }
-    
+
     pub fn load<P: AsRef<Path>>(mut self, path: P) -> Result<Self> {
         self.rules = parser::load_magic_file(path)?;
         Ok(self)
     }
-    
+
     pub fn with_builtin_rules() -> Self {
         Self {
             rules: builtin_rules::get_builtin_rules(),
@@ -900,28 +902,28 @@ impl MagicDatabase {
         let buffer = FileBuffer::open(path)?;
         self.evaluate(&buffer)
     }
-    
+
     pub fn evaluate_buffer(&self, buffer: &[u8]) -> Result<EvaluationResult> {
         self.evaluate(buffer)
     }
-    
+
     fn evaluate(&self, buffer: &[u8]) -> Result<EvaluationResult> {
         let start_time = Instant::now();
         let mut matches = Vec::new();
         let mut rules_evaluated = 0;
-        
+
         // Evaluate rules hierarchically
         for rule in &self.rules {
             rules_evaluated += 1;
-            
+
             if let Some(result) = evaluator::evaluate_rule(rule, buffer, &self.config)? {
                 matches.push(result);
-                
+
                 if self.config.stop_at_first_match {
                     break;
                 }
             }
-            
+
             // Check timeout
             if let Some(timeout) = self.config.timeout_ms {
                 if start_time.elapsed().as_millis() > timeout as u128 {
@@ -939,22 +941,22 @@ impl MagicDatabase {
                 }
             }
         }
-        
+
         // Build result
         let description = matches.first()
             .map(|m| m.message.clone())
             .unwrap_or_else(|| "data".to_string());
-        
+
         let confidence = matches.first()
             .map(|m| m.confidence)
             .unwrap_or(0.0);
-        
+
         let mime_type = if self.config.enable_mime_types {
             MimeMapper::new().get_mime_type(&description)
         } else {
             None
         };
-        
+
         Ok(EvaluationResult {
             description,
             confidence,
@@ -990,42 +992,42 @@ pub struct MimeMapper {
 impl MimeMapper {
     pub fn new() -> Self {
         let mut mapper = Self::with_hardcoded_mappings();
-        
+
         // Try to load system MIME database (optional)
         let mime_paths = vec![
             "/usr/share/file/magic.mime",
             "/usr/local/share/misc/magic.mime",
         ];
-        
+
         for path in mime_paths {
             if let Ok(mime_db) = Self::load_mime_database(path) {
                 mapper.merge(mime_db);
                 break;
             }
         }
-        
+
         mapper
     }
-    
+
     pub fn get_mime_type(&self, description: &str) -> Option<String> {
         // Try exact match first
         if let Some(mime) = self.mappings.get(description) {
             return Some(mime.clone());
         }
-        
+
         // Try prefix matching
         for (pattern, mime) in &self.mappings {
             if description.starts_with(pattern) {
                 return Some(mime.clone());
             }
         }
-        
+
         None
     }
-    
+
     fn with_hardcoded_mappings() -> Self {
         let mut mappings = HashMap::new();
-        
+
         // Common file types
         mappings.insert("ELF".to_string(), "application/x-executable".to_string());
         mappings.insert("PE32".to_string(), "application/x-dosexec".to_string());
@@ -1035,30 +1037,30 @@ impl MimeMapper {
         mappings.insert("PDF".to_string(), "application/pdf".to_string());
         mappings.insert("GIF".to_string(), "image/gif".to_string());
         // ... more mappings
-        
+
         Self { mappings }
     }
-    
+
     fn load_mime_database<P: AsRef<Path>>(path: P) -> Result<HashMap<String, String>> {
         // Parse libmagic's MIME database format
         // Format: pattern\tmime/type
         let content = fs::read_to_string(path)?;
         let mut mappings = HashMap::new();
-        
+
         for line in content.lines() {
             if line.starts_with('#') || line.trim().is_empty() {
                 continue;
             }
-            
+
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() >= 2 {
                 mappings.insert(parts[0].to_string(), parts[1].to_string());
             }
         }
-        
+
         Ok(mappings)
     }
-    
+
     fn merge(&mut self, other: HashMap<String, String>) {
         self.mappings.extend(other);
     }
@@ -1081,7 +1083,7 @@ impl MatchResult {
         strength: i32,
     ) -> Self {
         let confidence = Self::calculate_confidence(level);
-        
+
         Self {
             offset,
             value,
@@ -1091,7 +1093,7 @@ impl MatchResult {
             confidence,
         }
     }
-    
+
     fn calculate_confidence(depth: usize) -> f64 {
         // Formula: confidence = min(1.0, 0.3 + (depth * 0.2))
         // Level 0: 0.3 (30%)
@@ -1115,7 +1117,7 @@ impl MatchResult {
 ```rust
 fn main() -> Result<()> {
     let args = Args::parse();
-    
+
     // Load magic database
     let db = if args.use_builtin {
         MagicDatabase::with_builtin_rules()
@@ -1124,25 +1126,25 @@ fn main() -> Result<()> {
     } else {
         discover_and_load_magic_database()?
     };
-    
+
     // Handle stdin
     if args.file == "-" || args.stdin {
         let mut buffer = Vec::new();
         let max_size = args.config.max_string_length;
-        
+
         io::stdin()
             .take(max_size as u64)
             .read_to_end(&mut buffer)?;
-        
+
         if buffer.len() >= max_size {
             eprintln!("Warning: Stdin truncated at {} bytes", max_size);
         }
-        
+
         let result = db.evaluate_buffer(&buffer)?;
         output_result("stdin", &result, &args)?;
         return Ok(());
     }
-    
+
     // Handle file(s)
     let mut exit_code = 0;
     for file in &args.files {
@@ -1153,14 +1155,14 @@ fn main() -> Result<()> {
             Err(e) => {
                 eprintln!("{}: Error: {}", file, e);
                 exit_code = 3;
-                
+
                 if args.strict {
                     std::process::exit(exit_code);
                 }
             }
         }
     }
-    
+
     std::process::exit(exit_code);
 }
 ```
@@ -1170,7 +1172,7 @@ fn main() -> Result<()> {
 ```rust
 fn discover_and_load_magic_database() -> Result<MagicDatabase> {
     let search_paths = MagicFilePaths::platform_default();
-    
+
     for path in search_paths.search_paths {
         if path.exists() {
             match MagicDatabase::load_from_file(&path) {
@@ -1187,7 +1189,7 @@ fn discover_and_load_magic_database() -> Result<MagicDatabase> {
             }
         }
     }
-    
+
     // No magic file found
     eprintln!("Error: Magic file not found");
     eprintln!("No magic file found at standard locations.");
@@ -1220,7 +1222,7 @@ fn output_text(filename: &str, result: &EvaluationResult) -> Result<()> {
 fn output_json(filename: &str, result: &EvaluationResult) -> Result<()> {
     let tags = TagExtractor::new().extract_tags(&result.description);
     let rule_path = extract_rule_path(&result.matches);
-    
+
     let json = serde_json::json!({
         "filename": filename,
         "matches": result.matches.iter().map(|m| {
@@ -1240,7 +1242,7 @@ fn output_json(filename: &str, result: &EvaluationResult) -> Result<()> {
             "rules_evaluated": result.metadata.rules_evaluated,
         }
     });
-    
+
     println!("{}", serde_json::to_string(&json)?);
     Ok(())
 }
@@ -1268,20 +1270,20 @@ impl TagExtractor {
         .into_iter()
         .map(String::from)
         .collect();
-        
+
         Self { keywords }
     }
-    
+
     pub fn extract_tags(&self, description: &str) -> Vec<String> {
         let lower = description.to_lowercase();
         let mut tags = Vec::new();
-        
+
         for keyword in &self.keywords {
             if lower.contains(keyword) {
                 tags.push(keyword.clone());
             }
         }
-        
+
         tags
     }
 }
@@ -1304,19 +1306,19 @@ use std::process::Command;
 fn test_compatibility_with_gnu_file() {
     let test_files = discover_test_files("third_party/tests/");
     let db = MagicDatabase::load_from_file("/usr/share/file/magic")?;
-    
+
     let mut passed = 0;
     let mut failed = 0;
-    
+
     for file in test_files {
         // Get GNU file output
         let gnu_output = Command::new("file")
             .arg(&file)
             .output()?;
-        
+
         // Get libmagic-rs output
         let result = db.evaluate_file(&file)?;
-        
+
         // Compare outputs
         if outputs_match(&gnu_output, &result.description) {
             passed += 1;
@@ -1326,7 +1328,7 @@ fn test_compatibility_with_gnu_file() {
                      file, gnu_output, result.description);
         }
     }
-    
+
     let compatibility = (passed as f64 / (passed + failed) as f64) * 100.0;
     assert!(compatibility >= 95.0, "Compatibility: {:.1}%", compatibility);
 }
@@ -1343,7 +1345,7 @@ fn test_parse_text_magic_file() {
 >4      byte    1               32-bit
 >4      byte    2               64-bit
     "#;
-    
+
     let rules = parse_text_magic_file_from_str(magic_text)?;
     assert_eq!(rules.len(), 1);
     assert_eq!(rules[0].children.len(), 2);
@@ -1361,7 +1363,7 @@ fn test_strength_calculation() {
         children: vec![],
         strength_modifier: None,
     };
-    
+
     let strength = calculate_default_strength(&rule);
     assert!(strength > 0);
 }
@@ -1425,29 +1427,41 @@ graph LR
 ### Technical Risks
 
 1. **Binary .mgc Complexity**
-  - **Mitigation**: Deferred to Phase 2, text-only for MVP
-  - **Fallback**: Clear error message directing to text sources
+
+- **Mitigation**: Deferred to Phase 2, text-only for MVP
+- **Fallback**: Clear error message directing to text sources
+
 2. **Strength Calculation Accuracy**
-  - **Mitigation**: Port exact algorithm from libmagic
-  - **Validation**: Compare with GNU file output in tests
+
+- **Mitigation**: Port exact algorithm from libmagic
+- **Validation**: Compare with GNU file output in tests
+
 3. **Performance Concerns**
-  - **Mitigation**: No performance targets for MVP
-  - **Future**: Optimize in Phase 3 if needed
+
+- **Mitigation**: No performance targets for MVP
+- **Future**: Optimize in Phase 3 if needed
+
 4. **Test Corpus Coverage**
-  - **Mitigation**: Use existing `third_party/tests/` corpus
-  - **Target**: 95%+ compatibility with GNU file
+
+- **Mitigation**: Use existing `third_party/tests/` corpus
+- **Target**: 95%+ compatibility with GNU file
 
 ### Implementation Risks
 
 1. **Build-Time Parsing Failures**
-  - **Mitigation**: Clear error messages in build.rs
-  - **Validation**: CI checks for build success
+
+- **Mitigation**: Clear error messages in build.rs
+- **Validation**: CI checks for build success
+
 2. **Magdir Directory Complexity**
-  - **Mitigation**: Per-file error handling
-  - **Validation**: Test with real system Magdir
+
+- **Mitigation**: Per-file error handling
+- **Validation**: Test with real system Magdir
+
 3. **MIME Database Availability**
-  - **Mitigation**: Hardcoded fallback mappings
-  - **Validation**: Silent fallback, no errors
+
+- **Mitigation**: Hardcoded fallback mappings
+- **Validation**: Silent fallback, no errors
 
 ---
 
@@ -1457,4 +1471,3 @@ graph LR
 - See spec:75a688c2-0ac4-489a-a35d-6e824c94c153/36539700-862d-4fdf-9c79-3c36390f6aa8 for Core Flows
 - See file:docs/research/magic-mgc-format-analysis.md for binary format analysis and OpenBSD research
 - See file:.kiro/specs/rust-libmagic-implementation/ for original design documentation
-

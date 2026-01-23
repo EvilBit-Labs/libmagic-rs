@@ -67,21 +67,26 @@ sequenceDiagram
 2. System validates each file path
 3. System discovers and loads magic file once (shared across all files)
 4. For each file in sequence:
-  - Load file into memory
-  - Evaluate against magic rules
-  - Output result immediately
-  - Continue to next file even if current file fails
+
+- Load file into memory
+- Evaluate against magic rules
+- Output result immediately
+- Continue to next file even if current file fails
+
 5. System exits with code 0 (default behavior, GNU file compatible) or non-zero if any failed (with --strict flag)
 
 **Output Format**:
 
 - Text mode: One result per line
-  ```
+
+  ```text
   file1.bin: ELF 64-bit LSB executable
   file2.exe: PE32 executable
   file3.pdf: PDF document, version 1.4
   ```
+
 - JSON mode: JSON Lines format (one object per line for streaming)
+
   ```json
   {"filename":"file1.bin","matches":[...],"metadata":{...}}
   {"filename":"file2.exe","matches":[...],"metadata":{...}}
@@ -108,13 +113,16 @@ sequenceDiagram
 **Steps**:
 
 1. System searches platform-specific locations in order (text-first, OpenBSD approach):
-  - Unix: `/usr/share/file/magic/Magdir/` (directory), `/usr/share/misc/magic` (text file), `/usr/local/share/misc/magic` (text file), then `/usr/share/file/magic.mgc` (binary - shows error)
-  - Windows: `%APPDATA%\Magic\magic`, fallback to bundled file
+
+- Unix: `/usr/share/file/magic/Magdir/` (directory), `/usr/share/misc/magic` (text file), `/usr/local/share/misc/magic` (text file)
+- Windows: `%APPDATA%\Magic\magic`, fallback to bundled file
+
 2. If magic file found: Load and proceed with evaluation
 3. If no magic file found: Fail with error message suggesting options
 4. User can retry with explicit flags:
-  - `--use-builtin`: Use built-in fallback rules without creating files
-  - `--magic-file <path>`: Specify custom magic file location
+
+- `--use-builtin`: Use built-in fallback rules without creating files
+- `--magic-file <path>`: Specify custom magic file location
 
 **Fallback Behavior**:
 
@@ -123,7 +131,7 @@ sequenceDiagram
 
 **Error Messages**:
 
-```
+```text
 Error: Magic file not found
 No magic file found at standard locations.
 
@@ -162,10 +170,14 @@ flowchart TD
 1. Developer adds dependency: `libmagic-rs = "0.1"`
 2. Developer imports library: `use libmagic_rs::MagicDatabase;`
 3. Developer loads magic database: `let db = MagicDatabase::load_from_file("magic.db")?;`
-  - `load_from_file()` is a convenience method using default `EvaluationConfig`
+
+- `load_from_file()` is a convenience method using default `EvaluationConfig`
+
 4. Developer evaluates file or buffer:
-  - `let result = db.evaluate_file("sample.bin")?;` for files
-  - `let result = db.evaluate_buffer(&buffer)?;` for byte buffers
+
+- `let result = db.evaluate_file("sample.bin")?;` for files
+- `let result = db.evaluate_buffer(&buffer)?;` for byte buffers
+
 5. Developer accesses result: `println!("Type: {}", result.description);`
 
 **API Example**:
@@ -174,7 +186,7 @@ flowchart TD
 use libmagic_rs::MagicDatabase;
 
 // Simple usage with default configuration
-let db = MagicDatabase::load_from_file("/usr/share/file/magic.mgc")?;
+let db = MagicDatabase::load_from_file("/usr/share/misc/magic")?;
 
 // Evaluate file
 let result = db.evaluate_file("sample.bin")?;
@@ -224,12 +236,9 @@ let config = EvaluationConfig {
     timeout_ms: Some(5000),
 };
 
-// Validate config immediately - fails if invalid
-config.validate()?;
-
 let db = MagicDatabase::new()
-    .with_config(config)
-    .load("/usr/share/file/magic.mgc")?;
+  .with_config(config)?
+  .load("/usr/share/file/magic/Magdir/")?;
 
 // Evaluate file
 let result = db.evaluate_file("sample.bin")?;
@@ -241,9 +250,9 @@ let result = db.evaluate_buffer(&buffer)?;
 
 **Configuration Validation**:
 
-- Validation occurs when config is created via `validate()` method
-- Returns error immediately if values are invalid (e.g., zero recursion depth, excessive limits)
-- Prevents security issues from malicious configurations
+- Validation occurs when config is applied via `with_config()`
+- `with_config()` returns an error immediately if values are invalid (e.g., zero recursion depth, excessive limits)
+- `validate()` remains available for optional preflight checks
 
 **Configuration Options**:
 
@@ -281,7 +290,7 @@ impl MagicDatabase {
         // Load file via memory-mapped I/O
         // Call internal evaluate()
     }
-    
+
     pub fn evaluate_buffer(&self, buffer: &[u8]) -> Result<EvaluationResult> {
         // Use buffer directly
         // Call internal evaluate()
@@ -310,7 +319,7 @@ let result2 = db.evaluate_buffer(&buffer)?;         // Byte buffer
 
 **File Not Found**:
 
-```
+```text
 Error: File not found
 The specified file does not exist or cannot be accessed.
 Please check the file path and try again.
@@ -320,7 +329,7 @@ File: sample.bin
 
 **Permission Denied**:
 
-```
+```text
 Error: Permission denied
 You do not have permission to access the specified file.
 Please check file permissions or run with appropriate privileges.
@@ -330,7 +339,7 @@ File: /root/protected.bin
 
 **Magic File Parse Error**:
 
-```
+```text
 Error: Magic file parse error
 The magic file contains invalid syntax or formatting.
 Please check the magic file format or try a different magic file.
@@ -396,7 +405,7 @@ pub struct ParseError {
     "file_size": 8192,
     "evaluation_time_ms": 2.3,
     "rules_evaluated": 45,
-    "magic_file": "/usr/share/file/magic.mgc"
+    "magic_file": "/usr/share/file/magic/Magdir/"
   }
 }
 ```
@@ -415,7 +424,7 @@ pub struct ParseError {
 - `score`: Confidence value 0-100, calculated based on match depth in hierarchy
 - `mime_type`: Looked up from libmagic's MIME database if available and `enable_mime_types` is true, otherwise None
 
-**Multiple Files (JSON Lines)**:  
+**Multiple Files (JSON Lines)**:
 Each file gets one JSON object per line for streaming:
 
 ```json
@@ -438,7 +447,7 @@ Each file gets one JSON object per line for streaming:
 
 **Example Rule Hierarchy**:
 
-```
+```text
 0  string  \x7fELF         ELF
 >4 byte    1               32-bit
 >4 byte    2               64-bit
@@ -557,13 +566,13 @@ Each file gets one JSON object per line for streaming:
 
 **Error Messages**:
 
-```
+```text
 Warning: Skipped 3 invalid rules in magic file
 Line 42: Invalid offset specification
 Line 58: Unknown type 'qword'
 Line 103: Malformed operator
 
-Loaded 1,247 valid rules from /usr/share/file/magic.mgc
+Loaded 1,247 valid rules from /usr/share/file/magic/Magdir/
 ```
 
 **Exit Behavior**:
@@ -622,4 +631,3 @@ if result.metadata.timed_out {
 
 - See spec:75a688c2-0ac4-489a-a35d-6e824c94c153/3ce0475b-153d-487f-bc0d-47d0a8f6708a for Epic Brief
 - See existing implementation in file:src/main.rs and file:src/lib.rs
-

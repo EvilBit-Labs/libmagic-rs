@@ -103,13 +103,13 @@ build-dir = "book"
 
 [output.html]
 default-theme = "light"
-git-repository-url = "https://github.com/yourusername/libmagic-rs"
+git-repository-url = "https://github.com/EvilBit-Labs/libmagic-rs"
 ```
 
 **Documentation Structure:**
 
 ```
-docs/book/src/
+docs/src/
 ├── SUMMARY.md
 ├── introduction.md
 ├── getting-started.md
@@ -125,7 +125,7 @@ docs/book/src/
 
 ### 3. Getting Started Guide
 
-**file:docs/book/src/getting-started.md:**
+**file:docs/src/getting-started.md:**
 
 Content should cover:
 
@@ -137,7 +137,7 @@ Content should cover:
 
 ### 4. Library API Guide
 
-**file:docs/book/src/library-api.md:**
+**file:docs/src/library-api.md:**
 
 Content should cover:
 
@@ -150,7 +150,7 @@ Content should cover:
 
 ### 5. CLI Reference
 
-**file:docs/book/src/cli-reference.md:**
+**file:docs/src/cli-reference.md:**
 
 Content should cover:
 
@@ -163,7 +163,7 @@ Content should cover:
 
 ### 6. Migration Guide
 
-**file:docs/book/src/migration-guide.md:**
+**file:docs/src/migration-guide.md:**
 
 Content should cover:
 
@@ -176,7 +176,7 @@ Content should cover:
 
 ### 7. Architecture Overview
 
-**file:docs/book/src/architecture.md:**
+**file:docs/src/architecture.md:**
 
 Content should cover:
 
@@ -188,19 +188,19 @@ Content should cover:
 
 ### 8. Examples
 
-**file:docs/book/src/examples/basic-usage.md:**
+**file:docs/src/examples/basic-usage.md:**
 
 - Simple file type detection
 - Batch processing
 - Stdin processing
 
-**file:docs/book/src/examples/advanced-config.md:**
+**file:docs/src/examples/advanced-config.md:**
 
 - Custom configuration
 - Timeout handling
 - MIME type mapping
 
-**file:docs/book/src/examples/custom-rules.md:**
+**file:docs/src/examples/custom-rules.md:**
 
 - Writing magic rules
 - Testing custom rules

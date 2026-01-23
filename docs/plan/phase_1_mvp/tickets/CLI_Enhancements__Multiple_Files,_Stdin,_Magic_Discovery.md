@@ -172,23 +172,9 @@ std::process::exit(0); // Default: exit 0 even if some failed
 
 ### 6. Removed: Create Magic Flag
 
-```rust
-#[arg(long)]
-pub create_magic: bool,
+The `--create-magic` flag was removed from scope. Users should either provide a text-format magic file via `--magic-file` or use `--use-builtin` for the built-in rules.
 
-// In discover_and_load_magic_database():
-if args.create_magic {
-    let magic_path = default_magic_file_path();
-    if let Err(e) = create_basic_magic_file(&magic_path) {
-        eprintln!("Failed to create magic file: {}", e);
-        eprintln!("Suggestion: Use --use-builtin instead");
-        std::process::exit(4);
-    }
-    return MagicDatabase::load_from_file(&magic_path);
-}
-```
-
-### 6. JSON Lines Output
+### 7. JSON Lines Output
 
 ```rust
 fn output_json(filename: &str, result: &EvaluationResult) -> Result<()> {

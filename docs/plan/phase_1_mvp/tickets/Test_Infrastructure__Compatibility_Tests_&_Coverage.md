@@ -33,7 +33,7 @@ use std::process::Command;
 use std::path::PathBuf;
 
 #[test]
-fn test_compatibility_with_gnu_file() {
+fn test_compatibility_with_gnu_file() -> Result<(), Box<dyn std::error::Error>> {
     let test_files = discover_test_files("third_party/tests/");
     let db = MagicDatabase::load_from_file("/usr/share/file/magic")?;
 
@@ -84,6 +84,8 @@ fn test_compatibility_with_gnu_file() {
     assert!(compatibility >= 95.0,
             "Overall compatibility: {:.1}% (target: 95%)",
             compatibility);
+
+    Ok(())
 }
 
 fn is_common_type(path: &Path) -> bool {

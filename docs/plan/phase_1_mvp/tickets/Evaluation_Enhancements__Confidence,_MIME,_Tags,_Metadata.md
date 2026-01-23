@@ -10,7 +10,7 @@ Enhance evaluation results with confidence scoring, MIME type mapping, tag extra
 
 1. **EDGE CASE: No builder pattern API** (`file:src/lib.rs`)
    - Current: Only `load_from_file()` exists
-   - Required: `MagicDatabase::new().with_config(config).load(path)`
+   - Required: `MagicDatabase::new().with_config(config)?.load(path)`
    - Impact: Advanced users cannot customize configuration before loading
    - Fix: Implement builder pattern with `new()`, `with_config()`, and `load()` methods
 
@@ -182,10 +182,10 @@ impl MagicDatabase {
         }
     }
 
-    pub fn with_config(mut self, config: EvaluationConfig) -> Self {
-        config.validate().expect("Invalid configuration");
+    pub fn with_config(mut self, config: EvaluationConfig) -> Result<Self> {
+        config.validate()?;
         self.config = config;
-        self
+        Ok(self)
     }
 
     pub fn load<P: AsRef<Path>>(mut self, path: P) -> Result<Self> {
@@ -297,7 +297,7 @@ fn output_json(filename: &str, result: &EvaluationResult) -> Result<()> {
 - [ ] MIME database loaded if available (optional)
 - [ ] Tags extracted from descriptions
 - [ ] Evaluation metadata includes timing and counts
-- [ ] Builder pattern API works: `MagicDatabase::new().with_config(config).load(path)`
+- [ ] Builder pattern API works: `MagicDatabase::new().with_config(config)?.load(path)`
 - [ ] `load_from_file()` convenience method works
 - [ ] JSON output includes all metadata fields
 - [ ] metadata.magic_file populated correctly (Some for loaded files, None for built-in)
