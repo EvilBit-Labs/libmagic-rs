@@ -87,6 +87,10 @@ evaluator/
 - Split larger files into focused modules
 - Use clear, descriptive module names
 
+### Emoji Usage
+
+- Avoid using emojis and other non-ASCII characters in code, comments, or documentation, except when the code is handling non-plaintext characters (for example: em dash, en dash, or other non-ASCII symbols).
+
 ### Error Handling Patterns
 
 ```rust
