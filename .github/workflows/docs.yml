@@ -24,13 +24,12 @@ jobs:
     build:
         runs-on: ubuntu-latest
         steps:
-            - name: Checkout
-              uses: actions/checkout@v5
-
-            - name: Setup Rust
-              uses: dtolnay/rust-toolchain@1.90
+            - uses: actions/checkout@v6
+            - uses: jdx/mise-action@v3
               with:
-                  components: rustfmt, clippy
+                  install: true
+                  cache: true
+                  github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Setup mdBook
               uses: jontze/action-mdbook@v4
@@ -40,10 +39,6 @@ jobs:
                   use-mermaid: true
                   use-toc: true
                   use-admonish: true
-
-            - name: Install cargo-binstall
-              uses: cargo-bins/cargo-binstall@main
-
             - name: Install mdbook plugins
               run: cargo binstall mdbook-tabs mdbook-i18n-helpers mdbook-alerts mdbook-yml-header mdbook-image-size --no-confirm
 
