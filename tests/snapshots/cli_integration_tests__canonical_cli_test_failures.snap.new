@@ -1,0 +1,735 @@
+---
+source: tests/cli_integration_tests.rs
+assertion_line: 149
+expression: normalized_summary
+---
+Found 81 test failures out of 81 canonical tests:
+
+CVE-2014-1943.testfile
+  CLI error: CLI failed:    Compiling libmagic-rs v0.1.0 (/Volumes/Projects/Projects/libmagic-rs)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.38s
+     Running `target/debug/rmagic CVE-2014-1943.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+HWP2016.hwp.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic HWP2016.hwp.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+HWP2016.hwpx.zip.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/rmagic HWP2016.hwpx.zip.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+HWP97.hwp.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic HWP97.hwp.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+JW07022A.mp3.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic JW07022A.mp3.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+android-vdex-1.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic android-vdex-1.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+android-vdex-2.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/rmagic android-vdex-2.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+arj.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic arj.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+bcachefs.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic bcachefs.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+bcachefs2.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic bcachefs2.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+cl8m8ocofedso.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/rmagic cl8m8ocofedso.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+cmd1.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic cmd1.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+cmd2.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic cmd2.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+cmd3.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic cmd3.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+cmd4.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/rmagic cmd4.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+dsd64-dff.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic dsd64-dff.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+dsd64-dsf.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic dsd64-dsf.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+escapevel.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running `target/debug/rmagic escapevel.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+ext4.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running `target/debug/rmagic ext4.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+fit-map-data.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.36s
+     Running `target/debug/rmagic fit-map-data.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+gedcom.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running `target/debug/rmagic gedcom.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+gpkg-1-zst.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running `target/debug/rmagic gpkg-1-zst.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+hddrawcopytool.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running `target/debug/rmagic hddrawcopytool.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+hello-racket_rkt.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running `target/debug/rmagic hello-racket_rkt.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+issue311docx.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/rmagic issue311docx.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+issue359xlsx.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic issue359xlsx.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+jpeg-text.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic jpeg-text.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+json1.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic json1.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+json2.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/rmagic json2.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+json3.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/rmagic json3.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+json4.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running `target/debug/rmagic json4.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+json5.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running `target/debug/rmagic json5.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+json6.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running `target/debug/rmagic json6.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+json7.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic json7.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+json8.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/rmagic json8.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+jsonlines1.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/rmagic jsonlines1.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+keyman-0.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running `target/debug/rmagic keyman-0.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+keyman-1.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/rmagic keyman-1.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+keyman-2.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/rmagic keyman-2.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+matilde.arm.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/rmagic matilde.arm.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+multiple.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic multiple.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+pcjr.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/rmagic pcjr.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+pgp-binary-key-v2-phil.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running `target/debug/rmagic pgp-binary-key-v2-phil.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+pgp-binary-key-v3-lutz.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic pgp-binary-key-v3-lutz.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+pgp-binary-key-v4-dsa.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic pgp-binary-key-v4-dsa.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+pgp-binary-key-v4-ecc-no-userid-secret.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic pgp-binary-key-v4-ecc-no-userid-secret.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+pgp-binary-key-v4-ecc-secret-key.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic pgp-binary-key-v4-ecc-secret-key.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+pgp-binary-key-v4-rsa-key.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic pgp-binary-key-v4-rsa-key.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+pgp-binary-key-v4-rsa-no-userid-secret.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic pgp-binary-key-v4-rsa-no-userid-secret.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+pgp-binary-key-v4-rsa-secret-key.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic pgp-binary-key-v4-rsa-secret-key.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+pnm1.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic pnm1.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+pnm2.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic pnm2.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+pnm3.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/rmagic pnm3.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+regex-eol.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic regex-eol.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+registry-pol.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic registry-pol.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+rpm-v3.0-bin-aarch64.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running `target/debug/rmagic rpm-v3.0-bin-aarch64.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+rpm-v3.0-bin-powerpc64.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic rpm-v3.0-bin-powerpc64.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+rpm-v3.0-bin-s390x.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic rpm-v3.0-bin-s390x.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+rpm-v3.0-bin-x86_64.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic rpm-v3.0-bin-x86_64.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+rpm-v3.0-src.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/rmagic rpm-v3.0-src.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+searchbug.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic searchbug.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+uf2.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running `target/debug/rmagic uf2.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+utf16xmlsvg.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running `target/debug/rmagic utf16xmlsvg.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+xclbin.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic xclbin.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.2-FF.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/rmagic zstd-v0.2-FF.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.3-FF.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic zstd-v0.3-FF.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.4-FF.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic zstd-v0.4-FF.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.5-FF.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic zstd-v0.5-FF.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.6-FF.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic zstd-v0.6-FF.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.7-21.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic zstd-v0.7-21.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.7-22.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic zstd-v0.7-22.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.8-01.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic zstd-v0.8-01.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.8-02.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic zstd-v0.8-02.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.8-03.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic zstd-v0.8-03.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.8-16.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic zstd-v0.8-16.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.8-20.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic zstd-v0.8-20.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.8-21.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic zstd-v0.8-21.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.8-22.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic zstd-v0.8-22.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.8-23.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/rmagic zstd-v0.8-23.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.8-F4.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic zstd-v0.8-F4.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.
+
+
+zstd-v0.8-FF.testfile
+  CLI error: CLI failed:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `target/debug/rmagic zstd-v0.8-FF.testfile`
+Error: Magic file parse error
+Invalid syntax at line 12: Failed to parse rule: Parsing Error: Error { input: "MZ\tMS-DOS executable", code: Digit }
+The magic file contains invalid syntax or formatting.
+Please check the magic file format or try a different magic file.

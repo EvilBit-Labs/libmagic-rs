@@ -1,0 +1,376 @@
+//! End-to-end integration tests for magic file parser and database integration.
+//!
+//! These tests validate the complete flow from file/directory loading through
+//! rule evaluation, ensuring all components work together correctly.
+
+use libmagic_rs::MagicDatabase;
+use libmagic_rs::parser::load_magic_file;
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use tempfile::TempDir;
+
+// ============================================================
+// Test Helper Functions
+// ============================================================
+
+/// Creates a test magic file with the given content in the specified directory.
+fn create_test_magic_file(dir: &Path, name: &str, content: &str) -> PathBuf {
+    let file_path = dir.join(name);
+    let mut file = fs::File::create(&file_path).expect("Failed to create test magic file");
+    file.write_all(content.as_bytes())
+        .expect("Failed to write test magic file");
+    file_path
+}
+
+/// Creates a test binary file with the given magic bytes.
+fn create_test_binary_file(dir: &Path, name: &str, magic_bytes: &[u8]) -> PathBuf {
+    let file_path = dir.join(name);
+    let mut file = fs::File::create(&file_path).expect("Failed to create test binary file");
+    file.write_all(magic_bytes)
+        .expect("Failed to write test binary file");
+    file_path
+}
+
+/// Creates a test file with ELF magic bytes.
+fn create_elf_test_file(dir: &Path) -> PathBuf {
+    create_test_binary_file(dir, "test.elf", b"\x7fELF\x02\x01\x01\x00")
+}
+
+/// Creates a test file with ZIP magic bytes.
+fn create_zip_test_file(dir: &Path) -> PathBuf {
+    create_test_binary_file(dir, "test.zip", b"PK\x03\x04")
+}
+
+/// Creates a test file with PDF magic bytes.
+fn create_pdf_test_file(dir: &Path) -> PathBuf {
+    create_test_binary_file(dir, "test.pdf", b"%PDF-1.4")
+}
+
+// ============================================================
+// Tests for load_magic_file() Function
+// ============================================================
+
+#[test]
+fn test_load_text_magic_file_success() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let magic_content = "\
+# Test magic file
+0 string \\x7fELF ELF executable
+>4 byte 1 32-bit
+>4 byte 2 64-bit
+0 string \\x50\\x4b\\x03\\x04 ZIP archive
+";
+    let magic_file = create_test_magic_file(temp_dir.path(), "magic", magic_content);
+
+    let rules = load_magic_file(&magic_file).expect("Failed to load magic file");
+
+    // Verify rules loaded correctly - should have 2 top-level rules
+    assert_eq!(rules.len(), 2, "Should have 2 top-level rules");
+
+    // Check first rule (ELF) and its children
+    assert_eq!(rules[0].level, 0);
+    assert_eq!(rules[0].message, "ELF executable");
+    assert_eq!(
+        rules[0].children.len(),
+        2,
+        "ELF rule should have 2 children"
+    );
+    assert_eq!(rules[0].children[0].message, "32-bit");
+    assert_eq!(rules[0].children[1].message, "64-bit");
+
+    // Check second top-level rule (ZIP)
+    assert_eq!(rules[1].level, 0);
+    assert_eq!(rules[1].message, "ZIP archive");
+    assert_eq!(
+        rules[1].children.len(),
+        0,
+        "ZIP rule should have no children"
+    );
+}
+
+#[test]
+fn test_load_directory_magic_file_success() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    // Create magic directory with multiple files
+    let magic_dir = temp_dir.path().join("magic.d");
+    fs::create_dir(&magic_dir).expect("Failed to create magic directory");
+
+    // Create multiple magic files (should be loaded alphabetically)
+    create_test_magic_file(&magic_dir, "00_elf", "0 string \\x7fELF ELF executable\n");
+    create_test_magic_file(
+        &magic_dir,
+        "01_zip",
+        "0 string \\x50\\x4b\\x03\\x04 ZIP archive\n",
+    );
+    create_test_magic_file(&magic_dir, "02_pdf", "0 string \\x25PDF- PDF document\n");
+
+    let rules = load_magic_file(&magic_dir).expect("Failed to load directory");
+
+    // Verify all files merged correctly in alphabetical order
+    assert_eq!(rules.len(), 3, "Should have 3 rules from 3 files");
+    assert_eq!(rules[0].message, "ELF executable");
+    assert_eq!(rules[1].message, "ZIP archive");
+    assert_eq!(rules[2].message, "PDF document");
+}
+
+#[test]
+fn test_load_binary_magic_file_error() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    // Create a binary .mgc file with magic number
+    let binary_magic_number: [u8; 4] = [0x1C, 0x04, 0x1E, 0xF1]; // Little-endian 0xF11E041C
+    let mgc_file = create_test_binary_file(temp_dir.path(), "magic.mgc", &binary_magic_number);
+
+    let result = load_magic_file(&mgc_file);
+
+    // Should return UnsupportedFormat error
+    assert!(result.is_err(), "Should fail to load binary magic file");
+
+    let error = result.unwrap_err();
+    let error_message = error.to_string();
+
+    // Verify error message contains --use-builtin guidance
+    assert!(
+        error_message.contains("--use-builtin") || error_message.contains("Binary"),
+        "Error message should mention binary format or --use-builtin option: {}",
+        error_message
+    );
+}
+
+#[test]
+fn test_load_nonexistent_file_error() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let nonexistent_file = temp_dir.path().join("does_not_exist.magic");
+
+    let result = load_magic_file(&nonexistent_file);
+
+    // Should return error for nonexistent file
+    assert!(result.is_err(), "Should fail to load nonexistent file");
+}
+
+#[test]
+fn test_load_empty_directory() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let empty_dir = temp_dir.path().join("empty_magic.d");
+    fs::create_dir(&empty_dir).expect("Failed to create empty directory");
+
+    let rules = load_magic_file(&empty_dir).expect("Failed to load empty directory");
+
+    // Should return empty rules vector (not error)
+    assert_eq!(rules.len(), 0, "Empty directory should return empty rules");
+}
+
+// ============================================================
+// Tests for MagicDatabase Integration
+// ============================================================
+
+#[test]
+fn test_magic_database_load_text_file() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let magic_content = "0 string \\x7fELF ELF executable\n";
+    let magic_file = create_test_magic_file(temp_dir.path(), "magic", magic_content);
+
+    let db =
+        MagicDatabase::load_from_file(&magic_file).expect("Failed to load database from text file");
+
+    // Verify database contains rules
+    // Note: We can't directly inspect rules as they're private, but we can check source_path
+    assert!(
+        db.source_path().is_some(),
+        "Database should have source path"
+    );
+    assert_eq!(
+        db.source_path().unwrap(),
+        magic_file.as_path(),
+        "Source path should match loaded file"
+    );
+}
+
+#[test]
+fn test_magic_database_load_directory() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let magic_dir = temp_dir.path().join("magic.d");
+    fs::create_dir(&magic_dir).expect("Failed to create magic directory");
+
+    create_test_magic_file(&magic_dir, "elf", "0 string \\x7fELF ELF executable\n");
+    create_test_magic_file(
+        &magic_dir,
+        "zip",
+        "0 string \\x50\\x4b\\x03\\x04 ZIP archive\n",
+    );
+
+    let db =
+        MagicDatabase::load_from_file(&magic_dir).expect("Failed to load database from directory");
+
+    // Verify source path stored correctly
+    assert_eq!(
+        db.source_path().unwrap(),
+        magic_dir.as_path(),
+        "Source path should match loaded directory"
+    );
+}
+
+#[test]
+#[ignore = "Evaluator not fully implemented - TODO: Enable once evaluator correctly matches rules"]
+fn test_magic_database_evaluate_after_load() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    // Create magic file with ELF detection rule
+    let magic_content = "0 string \\x7fELF ELF executable\n";
+    let magic_file = create_test_magic_file(temp_dir.path(), "magic", magic_content);
+
+    // Create test file with ELF magic bytes
+    let elf_file = create_elf_test_file(temp_dir.path());
+
+    // Load database and evaluate
+    let db = MagicDatabase::load_from_file(&magic_file).expect("Failed to load database");
+    let result = db
+        .evaluate_file(&elf_file)
+        .expect("Failed to evaluate file");
+
+    // Verify correct rule evaluation
+    assert!(
+        result.description.contains("ELF"),
+        "Should detect ELF file, got: {}",
+        result.description
+    );
+}
+
+#[test]
+fn test_magic_database_source_path_metadata() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let magic_content = "0 string \\x48\\x65\\x6c\\x6c\\x6f Hello file\n";
+    let magic_file = create_test_magic_file(temp_dir.path(), "magic", magic_content);
+
+    let db = MagicDatabase::load_from_file(&magic_file).expect("Failed to load database");
+
+    // Verify source_path metadata is preserved
+    assert!(db.source_path().is_some());
+    assert_eq!(db.source_path().unwrap(), magic_file.as_path());
+
+    // Verify path persists across operations (evaluate_file doesn't clear it)
+    let test_file = create_test_binary_file(temp_dir.path(), "test.bin", b"test data");
+    let _result = db.evaluate_file(&test_file);
+
+    assert!(
+        db.source_path().is_some(),
+        "Source path should persist after evaluation"
+    );
+}
+
+#[test]
+fn test_binary_format_error_message_quality() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    // Create binary .mgc file
+    let binary_magic_number: [u8; 4] = [0x1C, 0x04, 0x1E, 0xF1];
+    let mgc_file = create_test_binary_file(temp_dir.path(), "magic.mgc", &binary_magic_number);
+
+    let result = MagicDatabase::load_from_file(&mgc_file);
+
+    assert!(result.is_err(), "Should fail to load binary file");
+
+    let error = result.unwrap_err();
+    let error_message = error.to_string();
+
+    // Verify error message is user-friendly and actionable
+    assert!(
+        error_message.contains("Binary") || error_message.contains("binary"),
+        "Error should mention binary format: {}",
+        error_message
+    );
+
+    // Should suggest using built-in rules
+    assert!(
+        error_message.contains("--use-builtin") || error_message.contains("built-in"),
+        "Error should suggest --use-builtin option: {}",
+        error_message
+    );
+}
+
+// ============================================================
+// End-to-End Integration Tests
+// ============================================================
+
+#[test]
+#[ignore = "Evaluator not fully implemented - TODO: Enable once evaluator correctly matches rules"]
+fn test_end_to_end_text_file_to_evaluation() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    // Create magic file with ZIP detection
+    let magic_content = "0 string \\x50\\x4b\\x03\\x04 ZIP archive\n";
+    let magic_file = create_test_magic_file(temp_dir.path(), "magic", magic_content);
+
+    // Create test file with ZIP magic bytes
+    let zip_file = create_zip_test_file(temp_dir.path());
+
+    // Complete workflow: load → evaluate → output
+    let db = MagicDatabase::load_from_file(&magic_file).expect("Failed to load database");
+    let result = db
+        .evaluate_file(&zip_file)
+        .expect("Failed to evaluate file");
+
+    // Verify correct rule evaluation
+    assert!(
+        result.description.contains("ZIP"),
+        "Should detect ZIP archive, got: {}",
+        result.description
+    );
+}
+
+#[test]
+#[ignore = "Evaluator not fully implemented - TODO: Enable once evaluator correctly matches rules"]
+fn test_end_to_end_directory_to_evaluation() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    // Create directory with multiple magic files
+    let magic_dir = temp_dir.path().join("magic.d");
+    fs::create_dir(&magic_dir).expect("Failed to create magic directory");
+
+    create_test_magic_file(&magic_dir, "elf", "0 string \\x7fELF ELF executable\n");
+    create_test_magic_file(
+        &magic_dir,
+        "zip",
+        "0 string \\x50\\x4b\\x03\\x04 ZIP archive\n",
+    );
+    create_test_magic_file(&magic_dir, "pdf", "0 string \\x25PDF- PDF document\n");
+
+    // Create test files for each format
+    let elf_file = create_elf_test_file(temp_dir.path());
+    let zip_file = create_zip_test_file(temp_dir.path());
+    let pdf_file = create_pdf_test_file(temp_dir.path());
+
+    // Load database from directory
+    let db =
+        MagicDatabase::load_from_file(&magic_dir).expect("Failed to load database from directory");
+
+    // Evaluate each file and verify correct detection
+    let elf_result = db
+        .evaluate_file(&elf_file)
+        .expect("Failed to evaluate ELF file");
+    assert!(
+        elf_result.description.contains("ELF"),
+        "Should detect ELF executable, got: {}",
+        elf_result.description
+    );
+
+    let zip_result = db
+        .evaluate_file(&zip_file)
+        .expect("Failed to evaluate ZIP file");
+    assert!(
+        zip_result.description.contains("ZIP"),
+        "Should detect ZIP archive, got: {}",
+        zip_result.description
+    );
+
+    let pdf_result = db
+        .evaluate_file(&pdf_file)
+        .expect("Failed to evaluate PDF file");
+    assert!(
+        pdf_result.description.contains("PDF"),
+        "Should detect PDF document, got: {}",
+        pdf_result.description
+    );
+}

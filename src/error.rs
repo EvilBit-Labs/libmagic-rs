@@ -96,6 +96,10 @@ pub enum ParseError {
         /// Detailed message with guidance
         message: String,
     },
+
+    /// I/O error occurred during file operations.
+    #[error("I/O error: {0}")]
+    IoError(#[from] std::io::Error),
 }
 
 /// Errors that can occur during rule evaluation.

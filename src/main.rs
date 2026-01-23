@@ -7,6 +7,7 @@ use clap::Parser;
 use libmagic_rs::output::MatchResult;
 use libmagic_rs::output::json::format_json_output;
 use libmagic_rs::parser::ast::Value;
+use libmagic_rs::parser::{MagicFileFormat, detect_format};
 use libmagic_rs::{LibmagicError, MagicDatabase};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -77,18 +78,31 @@ impl Args {
 
             for candidate in &candidates {
                 let path = PathBuf::from(candidate);
-                if path.exists() && !path.is_dir() {
-                    return path;
+                if !path.exists() {
+                    continue;
+                }
+
+                if let Ok(format) = detect_format(&path) {
+                    match format {
+                        MagicFileFormat::Binary | MagicFileFormat::Directory => continue,
+                        MagicFileFormat::Text => return path,
+                    }
                 }
             }
 
-            // Fallback to third_party if in development environment
+            // Fallback to repo-provided text magic file if present
+            let repo_magic = PathBuf::from("missing.magic");
+            if repo_magic.exists() {
+                return repo_magic;
+            }
+
+            // Fallback to third_party binary magic file for compatibility hints
             let dev_magic = PathBuf::from("third_party/magic.mgc");
             if dev_magic.exists() {
                 return dev_magic;
             }
 
-            // Fallback to test files if in CI/CD environment
+            // CI/CD fallback
             if std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok() {
                 return PathBuf::from("third_party/magic.mgc");
             }
@@ -352,17 +366,9 @@ fn validate_magic_file(magic_file_path: &Path) -> Result<(), LibmagicError> {
         ));
     }
 
-    // Check if it's a directory
+    // Directories are supported via load_magic_file
     if magic_file_path.is_dir() {
-        return Err(LibmagicError::ParseError(
-            libmagic_rs::ParseError::invalid_syntax(
-                0,
-                format!(
-                    "Magic file path is a directory, not a file: {}",
-                    magic_file_path.display()
-                ),
-            ),
-        ));
+        return Ok(());
     }
 
     // Try to read the magic file to check permissions and basic format
@@ -622,6 +628,7 @@ mod tests {
                 "/usr/share/misc/magic",
                 "/opt/local/share/file/magic",
                 "/usr/local/share/misc/magic",
+                "missing.magic",
                 "third_party/magic.mgc", // Development/CI fallback
             ];
             // Should be one of the standard Unix magic file locations or fallback
@@ -658,6 +665,7 @@ mod tests {
                 "/usr/share/misc/magic",
                 "/opt/local/share/file/magic",
                 "/usr/local/share/misc/magic",
+                "missing.magic",
                 "third_party/magic.mgc", // Development/CI fallback
             ];
             // Should be one of the standard Unix magic file locations or fallback
@@ -867,14 +875,7 @@ mod tests {
         fs::create_dir_all(&temp_dir).unwrap();
 
         let result = validate_magic_file(&temp_dir);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            LibmagicError::ParseError(parse_err) => {
-                let msg = parse_err.to_string();
-                assert!(msg.contains("Magic file path is a directory"));
-            }
-            _ => panic!("Expected ParseError"),
-        }
+        assert!(result.is_ok());
 
         // Clean up
         fs::remove_dir_all(&temp_dir).unwrap();
