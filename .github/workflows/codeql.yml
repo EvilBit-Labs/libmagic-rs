@@ -19,10 +19,12 @@ jobs:
         name: CodeQL Analyze
         runs-on: ubuntu-22.04
         steps:
-            - uses: actions/checkout@v5
-
-            - name: Setup Rust
-              uses: dtolnay/rust-toolchain@1.90
+            - uses: actions/checkout@v6
+            - uses: jdx/mise-action@v3
+              with:
+                  install: true
+                  cache: true
+                  github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - uses: github/codeql-action/init@v3
               with:

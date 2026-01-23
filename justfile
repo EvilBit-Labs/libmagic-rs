@@ -11,38 +11,25 @@ root := justfile_dir()
 # =============================================================================
 
 default:
-    @just --choose
-
-help:
     @just --list
 
 # =============================================================================
-# CROSS-PLATFORM HELPERS
+# CROSS-PLATFORM HELPERS (private)
 # =============================================================================
-# Cross-platform helpers using OS annotations
-# Each helper has Windows and Unix variants
 
-[windows]
-cd-root:
-    Set-Location "{{ root }}"
-
-[unix]
-cd-root:
-    cd "{{ root }}"
-
-[windows]
+[private, windows]
 ensure-dir dir:
     New-Item -ItemType Directory -Force -Path "{{ dir }}" | Out-Null
 
-[unix]
+[private, unix]
 ensure-dir dir:
     /bin/mkdir -p "{{ dir }}"
 
-[windows]
+[private, windows]
 rmrf path:
     if (Test-Path "{{ path }}") { Remove-Item "{{ path }}" -Recurse -Force }
 
-[unix]
+[private, unix]
 rmrf path:
     /bin/rm -rf "{{ path }}"
 
@@ -50,73 +37,9 @@ rmrf path:
 # SETUP AND INITIALIZATION
 # =============================================================================
 
-# Development setup
-[windows]
+# Development setup - mise handles all tool installation via mise.toml
 setup:
-    Set-Location "{{ root }}"
-    rustup component add rustfmt clippy llvm-tools-preview
-    cargo install cargo-binstall --locked
-    @just mdformat-install
-    Write-Host "Note: You may need to restart your shell for pipx PATH changes to take effect"
-
-[unix]
-setup:
-    cd "{{ root }}"
-    rustup component add rustfmt clippy llvm-tools-preview
-    cargo install cargo-binstall --locked
-    @just mdformat-install
-    echo "Note: You may need to restart your shell for pipx PATH changes to take effect"
-
-# Install development tools (extended setup)
-[windows]
-install-tools:
-    cargo binstall --disable-telemetry cargo-llvm-cov cargo-audit cargo-deny cargo-dist cargo-release cargo-cyclonedx cargo-auditable cargo-nextest --locked
-
-[unix]
-install-tools:
-    cargo binstall --disable-telemetry cargo-llvm-cov cargo-audit cargo-deny cargo-dist cargo-release cargo-cyclonedx cargo-auditable cargo-nextest --locked
-
-# Install mdBook and plugins for documentation
-[windows]
-docs-install:
-    cargo binstall mdbook mdbook-admonish mdbook-mermaid mdbook-linkcheck mdbook-toc mdbook-open-on-gh mdbook-tabs mdbook-i18n-helpers
-
-[unix]
-docs-install:
-    cargo binstall mdbook mdbook-admonish mdbook-mermaid mdbook-linkcheck mdbook-toc mdbook-open-on-gh mdbook-tabs mdbook-i18n-helpers
-
-# Install pipx for Python tool management
-[windows]
-pipx-install:
-    python -m pip install --user pipx
-    python -m pipx ensurepath
-
-[unix]
-pipx-install:
-    #!/bin/bash
-    set -e
-    set -u
-    set -o pipefail
-
-    if command -v pipx >/dev/null 2>&1; then
-        echo "pipx already installed"
-    else
-        echo "Installing pipx..."
-        python3 -m pip install --user pipx
-        python3 -m pipx ensurepath
-    fi
-
-# Install mdformat and extensions for markdown formatting
-[windows]
-mdformat-install: pipx-install
-    pipx install mdformat
-    pipx inject mdformat mdformat-gfm mdformat-frontmatter mdformat-footnote mdformat-simple-breaks mdformat-gfm-alerts mdformat-toc mdformat-wikilink mdformat-tables
-
-[unix]
-mdformat-install:
-    @just pipx-install
-    pipx install mdformat
-    pipx inject mdformat mdformat-gfm mdformat-frontmatter mdformat-footnote mdformat-simple-breaks mdformat-gfm-alerts mdformat-toc mdformat-wikilink mdformat-tables
+    mise install
 
 # =============================================================================
 # FORMATTING AND LINTING
@@ -134,14 +57,8 @@ format: fmt format-json-yaml format-docs fmt-justfile
 format-json-yaml:
     npx prettier --write "**/*.{json,yaml,yml}"
 
-[windows]
 format-docs:
-    @if (Get-Command mdformat -ErrorAction SilentlyContinue) { Get-ChildItem -Recurse -Filter "*.md" | Where-Object { $_.FullName -notmatch "\\target\\" -and $_.FullName -notmatch "\\node_modules\\" } | ForEach-Object { mdformat $_.FullName } } else { Write-Host "mdformat not found. Run 'just mdformat-install' first." }
-
-[unix]
-format-docs:
-    cd "{{ root }}"
-    @if command -v mdformat >/dev/null 2>&1; then find . -type f -name "*.md" -not -path "./target/*" -not -path "./node_modules/*" -exec mdformat {} + ; else echo "mdformat not found. Run 'just mdformat-install' first."; fi
+    mdformat --exclude "target/*" --exclude "node_modules/*" .
 
 fmt:
     @cargo fmt --all
@@ -183,15 +100,15 @@ fix:
 # Quick development check
 check: pre-commit-run lint
 
+[private]
 pre-commit-run:
     pre-commit run -a
 
 # Format a single file (for pre-commit hooks)
 format-files +FILES:
-    npx prettier --write --config .prettierrc.json {{ FILES }}
+    prettier --write --config .prettierrc.json {{ FILES }}
 
 megalinter:
-    cd "{{ root }}"
     npx mega-linter-runner --flavor rust
 
 # =============================================================================
@@ -230,33 +147,6 @@ test-compatibility-full:
     @cargo build --release
     @cargo test test_compatibility_with_original_libmagic -- --ignored
 
-# Test justfile cross-platform functionality
-[windows]
-test-justfile:
-    Set-Location "{{ root }}"
-    $p = (Get-Location).Path; Write-Host "Current directory: $p"; Write-Host "Expected directory: {{ root }}"
-
-[unix]
-test-justfile:
-    cd "{{ root }}"
-    /bin/echo "Current directory: $(pwd -P)"
-    /bin/echo "Expected directory: {{ root }}"
-
-# Test cross-platform file system helpers
-[windows]
-test-fs:
-    Set-Location "{{ root }}"
-    @just rmrf tmp/xfstest
-    @just ensure-dir tmp/xfstest/sub
-    @just rmrf tmp/xfstest
-
-[unix]
-test-fs:
-    cd "{{ root }}"
-    @just rmrf tmp/xfstest
-    @just ensure-dir tmp/xfstest/sub
-    @just rmrf tmp/xfstest
-
 test-ci:
     cargo nextest run --workspace --no-capture
 
@@ -286,39 +176,24 @@ deny:
 # CI AND QUALITY ASSURANCE
 # =============================================================================
 
-# Generate coverage report
-[unix]
-coverage:
+# Private helper: run cargo llvm-cov with proper setup
+[private, unix]
+_coverage +args:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Clean any existing coverage artifacts
     rm -rf target/llvm-cov-target
-    # Generate coverage with proper environment setup
-    RUSTFLAGS="--cfg coverage" cargo llvm-cov --workspace --lcov --output-path lcov.info
+    RUSTFLAGS="--cfg coverage" cargo llvm-cov --workspace --lcov --output-path lcov.info {{ args }}
 
-[windows]
+[private, windows]
+_coverage +args:
+    Remove-Item -Recurse -Force target/llvm-cov-target -ErrorAction SilentlyContinue
+    $env:RUSTFLAGS = "--cfg coverage"; cargo llvm-cov --workspace --lcov --output-path lcov.info {{ args }}
+
 coverage:
-    # Clean any existing coverage artifacts
-    Remove-Item -Recurse -Force target/llvm-cov-target -ErrorAction SilentlyContinue
-    # Generate coverage with proper environment setup
-    $env:RUSTFLAGS = "--cfg coverage"; cargo llvm-cov --workspace --lcov --output-path lcov.info
+    @just _coverage
 
-# Check coverage thresholds
-[unix]
 coverage-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # Clean any existing coverage artifacts
-    rm -rf target/llvm-cov-target
-    # Generate coverage with threshold check and proper environment setup
-    RUSTFLAGS="--cfg coverage" cargo llvm-cov --workspace --lcov --output-path lcov.info --fail-under-lines 9.7
-
-[windows]
-coverage-check:
-    # Clean any existing coverage artifacts
-    Remove-Item -Recurse -Force target/llvm-cov-target -ErrorAction SilentlyContinue
-    # Generate coverage with threshold check and proper environment setup
-    $env:RUSTFLAGS = "--cfg coverage"; cargo llvm-cov --workspace --lcov --output-path lcov.info --fail-under-lines 9.7
+    @just _coverage --fail-under-lines 9.7
 
 # Full local CI parity check
 ci-check: pre-commit-run fmt-check lint-rust lint-rust-min test-ci build-release audit coverage-check dist-plan
@@ -401,72 +276,35 @@ docs:
 # GORELEASER TESTING
 # =============================================================================
 
-# Test GoReleaser configuration
+# Private helper: run goreleaser with macOS SDK env configured (no-op on non-mac)
+[private, unix]
+_goreleaser +args:
+    #!/bin/bash
+    set -euo pipefail
+    if command -v xcrun >/dev/null 2>&1; then
+        SDKROOT_PATH=$(xcrun --sdk macosx --show-sdk-path)
+        export SDKROOT="${SDKROOT_PATH}"
+        export MACOSX_DEPLOYMENT_TARGET="11.0"
+        export CARGO_ZIGBUILD_SYSROOT="${SDKROOT_PATH}"
+        export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-syslibroot,${SDKROOT_PATH} -C link-arg=-F${SDKROOT_PATH}/System/Library/Frameworks"
+    fi
+    goreleaser {{ args }}
+
+[private, windows]
+_goreleaser +args:
+    @goreleaser {{ args }}
+
 goreleaser-check:
     @goreleaser check
 
-# Build binaries locally with GoReleaser (test build process)
-[windows]
 goreleaser-build:
-    @goreleaser build --clean
+    @just _goreleaser build --clean
 
-[unix]
-goreleaser-build:
-    #!/bin/bash
-    set -euo pipefail
-    # Compute and export SDK-related env for macOS; no-ops on non-mac Unix
-    if command -v xcrun >/dev/null 2>&1; then
-        SDKROOT_PATH=$(xcrun --sdk macosx --show-sdk-path)
-        export SDKROOT="${SDKROOT_PATH}"
-        export MACOSX_DEPLOYMENT_TARGET="11.0"
-        # Help cargo-zigbuild/zig locate Apple SDK frameworks
-        export CARGO_ZIGBUILD_SYSROOT="${SDKROOT_PATH}"
-        # Ensure the system linker sees the correct syslibroot and frameworks
-        export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-syslibroot,${SDKROOT_PATH} -C link-arg=-F${SDKROOT_PATH}/System/Library/Frameworks"
-    fi
-    goreleaser build --clean
-
-# Run snapshot release (test full pipeline without publishing)
-[windows]
 goreleaser-snapshot:
-    @goreleaser release --snapshot --clean
+    @just _goreleaser release --snapshot --clean
 
-[unix]
-goreleaser-snapshot:
-    #!/bin/bash
-    set -euo pipefail
-    # Compute and export SDK-related env for macOS; no-ops on non-mac Unix
-    if command -v xcrun >/dev/null 2>&1; then
-        SDKROOT_PATH=$(xcrun --sdk macosx --show-sdk-path)
-        export SDKROOT="${SDKROOT_PATH}"
-        export MACOSX_DEPLOYMENT_TARGET="11.0"
-        # Help cargo-zigbuild/zig locate Apple SDK frameworks
-        export CARGO_ZIGBUILD_SYSROOT="${SDKROOT_PATH}"
-        # Ensure the system linker sees the correct syslibroot and frameworks
-        export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-syslibroot,${SDKROOT_PATH} -C link-arg=-F${SDKROOT_PATH}/System/Library/Frameworks"
-    fi
-    goreleaser release --snapshot --clean
-
-# Test GoReleaser with specific target
-[windows]
 goreleaser-build-target target:
-    @goreleaser build --clean --single-target {{ target }}
-
-[unix]
-goreleaser-build-target target:
-    #!/bin/bash
-    set -euo pipefail
-    # Compute and export SDK-related env for macOS; no-ops on non-mac Unix
-    if command -v xcrun >/dev/null 2>&1; then
-        SDKROOT_PATH=$(xcrun --sdk macosx --show-sdk-path)
-        export SDKROOT="${SDKROOT_PATH}"
-        export MACOSX_DEPLOYMENT_TARGET="11.0"
-        # Help cargo-zigbuild/zig locate Apple SDK frameworks
-        export CARGO_ZIGBUILD_SYSROOT="${SDKROOT_PATH}"
-        # Ensure the system linker sees the correct syslibroot and frameworks
-        export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-syslibroot,${SDKROOT_PATH} -C link-arg=-F${SDKROOT_PATH}/System/Library/Frameworks"
-    fi
-    goreleaser build --clean --single-target {{ target }}
+    @just _goreleaser build --clean --single-target {{ target }}
 
 # Clean GoReleaser artifacts
 goreleaser-clean:

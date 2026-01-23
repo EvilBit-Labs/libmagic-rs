@@ -1,5 +1,5 @@
 [workspace]
-members = ["cargo:."]
+members = [ "cargo:." ]
 
 # Config for 'dist'
 [dist]
@@ -8,7 +8,7 @@ cargo-dist-version = "0.30.3"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
-installers = []
+installers = [  ]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = [
     "aarch64-apple-darwin",
@@ -44,10 +44,9 @@ cargo-auditable = true
 # Whether to use cargo-cyclonedx to generate an SBOM
 cargo-cyclonedx = true
 
-
 # GitHub release configuration
 [dist.github-action-commits]
-"actions/checkout" = "v5"
-"actions/download-artifact" = "v5"
+"actions/checkout"                = "v5"
+"actions/download-artifact"       = "v5"
 "actions/attest-build-provenance" = "v3"
-"actions/upload-artifact" = "v4"
+"actions/upload-artifact"         = "v4"

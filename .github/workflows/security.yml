@@ -24,14 +24,12 @@ jobs:
     audit:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v5
-
-            - name: Setup Rust
-              uses: dtolnay/rust-toolchain@1.90
-
-            - uses: taiki-e/install-action@v2
+            - uses: actions/checkout@v6
+            - uses: jdx/mise-action@v3
               with:
-                  tool: cargo-deny,cargo-outdated,cargo-dist
+                  install: true
+                  cache: true
+                  github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Run cargo deny check
               run: cargo deny check --config deny.ci.toml

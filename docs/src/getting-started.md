@@ -108,18 +108,24 @@ Understanding the project layout will help you navigate the codebase:
 ```text
 libmagic-rs/
 ├── Cargo.toml              # Project configuration
+├── CONTRIBUTING.md         # Contribution guidelines
 ├── src/
-│   ├── lib.rs              # Library API (placeholder)
+│   ├── lib.rs              # Library API with EvaluationConfig
 │   ├── main.rs             # CLI implementation (basic)
+│   ├── error.rs            # Error types (ParseError, EvaluationError, etc.)
 │   ├── parser/
-│   │   ├── mod.rs          # Parser module (placeholder)
-│   │   └── ast.rs          # AST data structures (complete)
+│   │   ├── mod.rs          # Magic file parser ✅ Complete
+│   │   ├── ast.rs          # AST data structures ✅ Complete
+│   │   └── grammar.rs      # nom-based parsing combinators ✅ Complete
 │   ├── evaluator/
-│   │   └── mod.rs          # Evaluation engine (placeholder)
+│   │   ├── mod.rs          # Evaluation engine ✅ Complete
+│   │   ├── offset.rs       # Offset resolution ✅ Complete
+│   │   ├── operators.rs    # Comparison operators ✅ Complete
+│   │   └── types.rs        # Type interpretation ✅ Complete
 │   ├── output/
 │   │   └── mod.rs          # Output formatting (placeholder)
 │   └── io/
-│       └── mod.rs          # I/O utilities (placeholder)
+│       └── mod.rs          # Memory-mapped I/O ✅ Complete
 ├── tests/                  # Integration tests
 ├── third_party/            # Canonical libmagic tests and magic files
 └── docs/                   # This documentation
@@ -177,21 +183,44 @@ cargo watch -x "test ast_structures"
 ### What Works Now
 
 - ✅ **AST Data Structures**: Complete implementation with full serialization
+- ✅ **Magic File Parser**: nom-based parser for magic file DSL with hierarchical rules
+- ✅ **Rule Evaluator**: Engine for executing rules against files with graceful error handling
+- ✅ **Memory-Mapped I/O**: Efficient file access with comprehensive bounds checking
 - ✅ **CLI Framework**: Basic argument parsing and structure
 - ✅ **Build System**: Cargo configuration with strict linting
-- ✅ **Testing**: Comprehensive unit tests for AST components
-- ✅ **Documentation**: This guide and API documentation
+- ✅ **Testing**: Comprehensive unit tests for all modules
+- ✅ **Documentation**: This guide, API documentation, and architecture docs
 
 ### What's Coming Soon
 
-- 🔄 **Magic File Parser**: nom-based parser for magic file DSL
-- 🔄 **Rule Evaluator**: Engine for executing rules against files
-- 🔄 **File I/O**: Memory-mapped file access
+- 🔄 **Indirect Offsets**: Support for offset indirection in magic rules
 - 🔄 **Output Formatters**: Text and JSON result formatting
+- 🔄 **MIME Type Mapping**: Automatic MIME type detection
+- 🔄 **Rule Caching**: Pre-compiled rule database support
 
 ## Example Magic Rules
 
-While the parser isn't implemented yet, you can work with AST structures directly:
+You can parse magic rules from text or work with AST structures directly:
+
+### Parsing Magic Files
+
+```rust
+use libmagic_rs::parser::parse_text_magic_file;
+
+// Parse a simple magic file
+let magic_content = r#"
+# ELF file format
+0 string \x7fELF ELF executable
+>4 byte 1 32-bit
+>4 byte 2 64-bit
+"#;
+
+let rules = parse_text_magic_file(magic_content)?;
+assert_eq!(rules.len(), 1);
+assert_eq!(rules[0].children.len(), 2);
+```
+
+### Working with AST Directly
 
 ```rust
 use libmagic_rs::parser::ast::*;
@@ -199,12 +228,9 @@ use libmagic_rs::parser::ast::*;
 // Create a simple ELF detection rule
 let elf_rule = MagicRule {
     offset: OffsetSpec::Absolute(0),
-    typ: TypeKind::Long {
-        endian: Endianness::Little,
-        signed: false,
-    },
+    typ: TypeKind::Byte,
     op: Operator::Equal,
-    value: Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]), // "\x7fELF"
+    value: Value::Uint(0x7f), // First byte of ELF magic
     message: "ELF executable".to_string(),
     children: vec![],
     level: 0,
@@ -213,6 +239,33 @@ let elf_rule = MagicRule {
 // Serialize to JSON for inspection
 let json = serde_json::to_string_pretty(&elf_rule)?;
 println!("{}", json);
+```
+
+### Evaluating Rules
+
+```rust
+use libmagic_rs::evaluator::{evaluate_rules_with_config, EvaluationContext};
+use libmagic_rs::parser::ast::*;
+use libmagic_rs::EvaluationConfig;
+
+// Create a rule to detect ELF files
+let rule = MagicRule {
+    offset: OffsetSpec::Absolute(0),
+    typ: TypeKind::Byte,
+    op: Operator::Equal,
+    value: Value::Uint(0x7f),
+    message: "ELF magic".to_string(),
+    children: vec![],
+    level: 0,
+};
+
+// Evaluate against a buffer
+let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
+let config = EvaluationConfig::default();
+let matches = evaluate_rules_with_config(&[rule], buffer, config)?;
+
+assert_eq!(matches.len(), 1);
+assert_eq!(matches[0].message, "ELF magic");
 ```
 
 ## Testing Your Setup

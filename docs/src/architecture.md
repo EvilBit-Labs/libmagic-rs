@@ -4,18 +4,39 @@ The libmagic-rs library is designed around a clean separation of concerns, follo
 
 ## High-Level Architecture
 
-```text
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│ Magic File  │───▶│   Parser    │───▶│     AST     │───▶│  Evaluator  │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
-                                                                  │
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐            │
-│   Output    │◀───│  Formatter  │◀───│   Results   │◀───────────┘
-└─────────────┘    └─────────────┘    └─────────────┘
+```mermaid
+flowchart LR
+    subgraph Input
+        MF[Magic File]
+        TF[Target File]
+    end
 
-┌─────────────┐    ┌─────────────┐                               │
-│ Target File │───▶│ File Buffer │───────────────────────────────┘
-└─────────────┘    └─────────────┘
+    subgraph Processing
+        P[Parser]
+        AST[AST]
+        FB[File Buffer]
+        E[Evaluator]
+    end
+
+    subgraph Output
+        R[Results]
+        F[Formatter]
+        O[Output]
+    end
+
+    MF --> P --> AST --> E
+    TF --> FB --> E
+    E --> R --> F --> O
+
+    style MF fill:#e1f5fe
+    style TF fill:#e1f5fe
+    style P fill:#fff3e0
+    style AST fill:#fff3e0
+    style FB fill:#fff3e0
+    style E fill:#fff3e0
+    style R fill:#e8f5e9
+    style F fill:#e8f5e9
+    style O fill:#e8f5e9
 ```
 
 ## Core Components
@@ -130,8 +151,15 @@ Formats evaluation results into different output formats.
 
 ### 1. Magic File Loading
 
-```text
-Magic File (text) → Parser → AST → Validation → Cached Rules
+```mermaid
+flowchart LR
+    A[Magic File\ntext] --> B[Parser]
+    B --> C[AST]
+    C --> D[Validation]
+    D --> E[Cached Rules]
+
+    style A fill:#e3f2fd
+    style E fill:#c8e6c9
 ```
 
 1. **Parsing**: Convert text DSL to structured AST
@@ -141,8 +169,16 @@ Magic File (text) → Parser → AST → Validation → Cached Rules
 
 ### 2. File Evaluation
 
-```text
-Target File → Memory Map → Buffer → Rule Evaluation → Results → Formatting
+```mermaid
+flowchart LR
+    A[Target File] --> B[Memory Map]
+    B --> C[Buffer]
+    C --> D[Rule Evaluation]
+    D --> E[Results]
+    E --> F[Formatting]
+
+    style A fill:#e3f2fd
+    style F fill:#c8e6c9
 ```
 
 1. **File Access**: Create memory-mapped buffer
@@ -169,6 +205,21 @@ Magic rules form a tree structure where:
 - **Child rules** provide specific details and variants
 - **Evaluation stops** when a definitive match is found
 - **Context flows** from parent to child evaluations
+
+```mermaid
+flowchart TD
+    R[Root Rule<br/>e.g., "0 string PK"]
+    R -->|match| C1[Child Rule 1<br/>e.g., ">4 byte 0x14"]
+    R -->|match| C2[Child Rule 2<br/>e.g., ">4 byte 0x06"]
+    C1 -->|match| G1[Grandchild<br/>ZIP archive v2.0]
+    C2 -->|match| G2[Grandchild<br/>ZIP archive v1.0]
+
+    style R fill:#e3f2fd
+    style C1 fill:#fff3e0
+    style C2 fill:#fff3e0
+    style G1 fill:#c8e6c9
+    style G2 fill:#c8e6c9
+```
 
 ### Memory-Safe Buffer Access
 
@@ -226,16 +277,27 @@ pub enum LibmagicError {
 
 ## Module Dependencies
 
-```text
-┌─────────────┐
-│    lib.rs   │ ← Public API and coordination
-└─────────────┘
-       │
-       ├─ parser/     ← Magic file parsing
-       ├─ evaluator/  ← Rule evaluation engine
-       ├─ output/     ← Result formatting
-       ├─ io/         ← File I/O utilities
-       └─ error.rs    ← Error types
+```mermaid
+flowchart TD
+    L[lib.rs<br/>Public API and coordination]
+    L --> P[parser/<br/>Magic file parsing]
+    L --> E[evaluator/<br/>Rule evaluation engine]
+    L --> O[output/<br/>Result formatting]
+    L --> I[io/<br/>File I/O utilities]
+    L --> ER[error.rs<br/>Error types]
+
+    P --> ER
+    E --> P
+    E --> I
+    E --> ER
+    O --> ER
+
+    style L fill:#e8eaf6
+    style P fill:#fff8e1
+    style E fill:#fff8e1
+    style O fill:#fff8e1
+    style I fill:#e8f5e9
+    style ER fill:#ffebee
 ```
 
 **Dependency Rules:**
