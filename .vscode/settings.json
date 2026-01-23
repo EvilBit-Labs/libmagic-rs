@@ -20,5 +20,12 @@
     "git.pullBeforeCheckout": true,
     "git.rebaseWhenSync": true,
     "git.replaceTagsWhenPull": true,
-    "githubPullRequests.codingAgent.uiIntegration": true
+    "githubPullRequests.codingAgent.uiIntegration": true,
+    "ruff.path": [
+        "${workspaceFolder}/.vscode/mise-tools/ruff"
+    ],
+    "ruff.interpreter": [
+        "${workspaceFolder}/.vscode/mise-tools/python"
+    ],
+    "python.defaultInterpreterPath": "${workspaceFolder}/.vscode/mise-tools/python"
 }

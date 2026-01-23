@@ -129,3 +129,6 @@ megalinter-reports/
 .intentionally-empty-file.o
 
 # Files for validating the tooling
+
+# megalinter crud
+undefined/
