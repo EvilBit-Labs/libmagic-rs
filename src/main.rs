@@ -6,7 +6,7 @@
 use clap::Parser;
 use clap_stdin::FileOrStdin;
 use libmagic_rs::output::MatchResult;
-use libmagic_rs::output::json::format_json_output;
+use libmagic_rs::output::json::{format_json_line_output, format_json_output};
 use libmagic_rs::parser::ast::Value;
 use libmagic_rs::parser::{MagicFileFormat, detect_format};
 use libmagic_rs::{LibmagicError, MagicDatabase};
@@ -19,9 +19,15 @@ use std::process;
 /// Supports analyzing multiple files in a single invocation. Each file is
 /// processed sequentially with independent error handling.
 ///
+/// Output formats:
+/// - Text (default): One line per file in format "filename: description"
+/// - JSON (single file): Pretty-printed JSON with matches array
+/// - JSON (multiple files): JSON Lines format with compact output per file
+///
 /// Examples:
 ///   rmagic file1.bin file2.txt file3.dat
-///   rmagic --json *.bin
+///   rmagic --json file.bin              # Single file: pretty-printed JSON
+///   rmagic --json file1.bin file2.txt   # Multiple files: JSON Lines format
 ///   rmagic --strict --magic-file custom.magic file1 file2
 ///   rmagic --use-builtin file.bin
 ///   rmagic --use-builtin --strict --json *.bin
@@ -335,11 +341,20 @@ fn load_magic_database(args: &Args) -> Result<MagicDatabase, LibmagicError> {
 /// Output analysis result based on format
 ///
 /// Handles output formatting for both JSON and text formats.
+/// For multiple files with JSON format, outputs JSON Lines (compact, one per line).
+/// For single file with JSON format, outputs pretty-printed JSON.
+///
+/// Flushes stdout after each write to ensure results appear immediately when piped.
 fn output_result(
     file_path: &Path,
     result: &libmagic_rs::EvaluationResult,
     args: &Args,
+    is_multiple_files: bool,
 ) -> Result<(), LibmagicError> {
+    use std::io::Write;
+
+    let mut stdout = std::io::stdout();
+
     match args.output_format() {
         OutputFormat::Json => {
             // Convert to MatchResult for JSON formatting
@@ -357,8 +372,18 @@ fn output_result(
                 )]
             };
 
-            match format_json_output(&match_results) {
-                Ok(json_str) => println!("{}", json_str),
+            // Use JSON Lines format for multiple files, pretty JSON for single file
+            let json_result = if is_multiple_files {
+                format_json_line_output(file_path, &match_results)
+            } else {
+                format_json_output(&match_results)
+            };
+
+            match json_result {
+                Ok(json_str) => {
+                    writeln!(stdout, "{}", json_str).map_err(LibmagicError::IoError)?;
+                    stdout.flush().map_err(LibmagicError::IoError)?;
+                }
                 Err(e) => {
                     return Err(LibmagicError::EvaluationError(
                         libmagic_rs::EvaluationError::unsupported_type(format!(
@@ -370,7 +395,9 @@ fn output_result(
             }
         }
         OutputFormat::Text => {
-            println!("{}: {}", file_path.display(), result.description);
+            writeln!(stdout, "{}: {}", file_path.display(), result.description)
+                .map_err(LibmagicError::IoError)?;
+            stdout.flush().map_err(LibmagicError::IoError)?;
         }
     }
     Ok(())
@@ -416,7 +443,8 @@ fn process_file(
 
         let result = db.evaluate_buffer(&buffer)?;
         let stdin_path = PathBuf::from("stdin");
-        output_result(&stdin_path, &result, args)?;
+        let is_multiple_files = args.files.len() > 1;
+        output_result(&stdin_path, &result, args, is_multiple_files)?;
         return Ok(());
     }
 
@@ -431,7 +459,8 @@ fn process_file(
     let result = db.evaluate_file(&file_path)?;
 
     // Output results based on format
-    output_result(&file_path, &result, args)?;
+    let is_multiple_files = args.files.len() > 1;
+    output_result(&file_path, &result, args, is_multiple_files)?;
 
     Ok(())
 }
@@ -450,8 +479,8 @@ fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
         match process_file(file_or_stdin, &db, args) {
             Ok(()) => {} // Success, continue
             Err(e) => {
-                // Print error but continue processing other files
-                eprintln!("Error processing file: {}", e);
+                // Print error with filename context but continue processing other files
+                eprintln!("Error processing {}: {}", file_or_stdin.filename(), e);
                 // Store first error for strict mode
                 if first_error.is_none() {
                     first_error = Some(e);

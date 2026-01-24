@@ -9,6 +9,7 @@
 //! human-readable text output format.
 
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 use crate::output::{EvaluationResult, MatchResult};
 use crate::parser::ast::Value;
@@ -577,6 +578,173 @@ pub fn format_json_output_compact(
         .collect();
 
     let output = JsonOutput::new(json_matches);
+    serde_json::to_string(&output)
+}
+
+/// JSON Lines output structure with filename and matches
+///
+/// This structure is used for multi-file JSON output, where each line
+/// represents one file's results. It includes the filename alongside the
+/// match results to provide context in a streaming format.
+///
+/// JSON Lines format is used when processing multiple files to provide
+/// immediate per-file output and clear filename association.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::output::json::{JsonLineOutput, JsonMatchResult};
+/// use std::path::PathBuf;
+///
+/// let matches = vec![
+///     JsonMatchResult::new(
+///         "ELF executable".to_string(),
+///         0,
+///         "7f454c46".to_string(),
+///         vec!["executable".to_string()],
+///         90
+///     )
+/// ];
+///
+/// let output = JsonLineOutput::new("file.bin".to_string(), matches);
+/// assert_eq!(output.filename, "file.bin");
+/// assert_eq!(output.matches.len(), 1);
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonLineOutput {
+    /// Filename or path of the analyzed file
+    pub filename: String,
+    /// Array of match results found during evaluation
+    pub matches: Vec<JsonMatchResult>,
+}
+
+impl JsonLineOutput {
+    /// Create a new JSON Lines output structure
+    ///
+    /// # Arguments
+    ///
+    /// * `filename` - The filename or path as a string
+    /// * `matches` - Vector of JSON match results
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::output::json::{JsonLineOutput, JsonMatchResult};
+    ///
+    /// let matches = vec![
+    ///     JsonMatchResult::new(
+    ///         "Text file".to_string(),
+    ///         0,
+    ///         "48656c6c6f".to_string(),
+    ///         vec!["text".to_string()],
+    ///         60
+    ///     )
+    /// ];
+    ///
+    /// let output = JsonLineOutput::new("test.txt".to_string(), matches);
+    /// assert_eq!(output.filename, "test.txt");
+    /// assert_eq!(output.matches.len(), 1);
+    /// ```
+    #[must_use]
+    pub fn new(filename: String, matches: Vec<JsonMatchResult>) -> Self {
+        Self { filename, matches }
+    }
+
+    /// Create JSON Lines output from match results and filename
+    ///
+    /// # Arguments
+    ///
+    /// * `filename` - Path to the analyzed file
+    /// * `match_results` - Vector of match results to convert
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::output::{MatchResult, json::JsonLineOutput};
+    /// use libmagic_rs::parser::ast::Value;
+    /// use std::path::Path;
+    ///
+    /// let match_results = vec![
+    ///     MatchResult::with_metadata(
+    ///         "Binary data".to_string(),
+    ///         0,
+    ///         4,
+    ///         Value::Bytes(vec![0xde, 0xad, 0xbe, 0xef]),
+    ///         vec!["binary".to_string()],
+    ///         70,
+    ///         None
+    ///     )
+    /// ];
+    ///
+    /// let output = JsonLineOutput::from_match_results(Path::new("test.bin"), &match_results);
+    /// assert_eq!(output.filename, "test.bin");
+    /// assert_eq!(output.matches.len(), 1);
+    /// ```
+    #[must_use]
+    pub fn from_match_results(filename: &Path, match_results: &[MatchResult]) -> Self {
+        let json_matches: Vec<JsonMatchResult> = match_results
+            .iter()
+            .map(JsonMatchResult::from_match_result)
+            .collect();
+
+        Self {
+            filename: filename.display().to_string(),
+            matches: json_matches,
+        }
+    }
+}
+
+/// Format match results as JSON Lines output string
+///
+/// Produces compact single-line JSON output suitable for JSON Lines format.
+/// This is used when processing multiple files to provide immediate per-file
+/// output with filename context. Unlike `format_json_output`, this function
+/// produces compact JSON without pretty-printing.
+///
+/// # Arguments
+///
+/// * `filename` - Path to the analyzed file
+/// * `match_results` - Vector of match results to format
+///
+/// # Returns
+///
+/// A compact JSON string containing the filename and formatted match results,
+/// or an error if serialization fails.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::output::{MatchResult, json::format_json_line_output};
+/// use libmagic_rs::parser::ast::Value;
+/// use std::path::Path;
+///
+/// let match_results = vec![
+///     MatchResult::with_metadata(
+///         "ELF 64-bit LSB executable".to_string(),
+///         0,
+///         4,
+///         Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
+///         vec!["executable".to_string(), "elf".to_string()],
+///         90,
+///         Some("application/x-executable".to_string())
+///     )
+/// ];
+///
+/// let json_line = format_json_line_output(Path::new("file.bin"), &match_results).unwrap();
+/// assert!(json_line.contains("\"filename\":\"file.bin\""));
+/// assert!(json_line.contains("\"text\":\"ELF 64-bit LSB executable\""));
+/// assert!(!json_line.contains('\n')); // Compact format, no newlines
+/// ```
+///
+/// # Errors
+///
+/// Returns a `serde_json::Error` if the match results cannot be serialized
+/// to JSON, which should be rare in practice since all fields are serializable.
+pub fn format_json_line_output(
+    filename: &Path,
+    match_results: &[MatchResult],
+) -> Result<String, serde_json::Error> {
+    let output = JsonLineOutput::from_match_results(filename, match_results);
     serde_json::to_string(&output)
 }
 
