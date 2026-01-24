@@ -61,7 +61,8 @@ jobs:
                   cache: true
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
-            - uses: actions-rust-lang/rustfmt@v1
+            - name: Check formatting
+              run: cargo fmt --check
 
             - name: Run clippy (all features)
               run: cargo clippy --all-targets --all-features -- -D warnings
