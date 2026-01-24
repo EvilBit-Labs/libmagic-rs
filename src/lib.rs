@@ -512,6 +512,68 @@ impl MagicDatabase {
         }
     }
 
+    /// Evaluate magic rules against an in-memory buffer
+    ///
+    /// This method evaluates a byte buffer directly without reading from disk,
+    /// which is useful for stdin input or pre-loaded data.
+    ///
+    /// # Arguments
+    ///
+    /// * `buffer` - Byte buffer to evaluate
+    ///
+    /// # Errors
+    ///
+    /// Returns `LibmagicError::EvaluationError` if rule evaluation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use libmagic_rs::MagicDatabase;
+    ///
+    /// let db = MagicDatabase::load_from_file("/usr/share/misc/magic")?;
+    /// let buffer = b"test data";
+    /// let result = db.evaluate_buffer(buffer)?;
+    /// println!("Buffer type: {}", result.description);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn evaluate_buffer(&self, buffer: &[u8]) -> Result<EvaluationResult> {
+        use crate::evaluator::evaluate_rules_with_config;
+
+        if self.rules.is_empty() {
+            return Ok(EvaluationResult {
+                description: "data".to_string(),
+                mime_type: None,
+                confidence: 0.0,
+            });
+        }
+
+        let matches = evaluate_rules_with_config(&self.rules, buffer, self.config.clone())?;
+
+        if matches.is_empty() {
+            Ok(EvaluationResult {
+                description: "data".to_string(),
+                mime_type: None,
+                confidence: 0.0,
+            })
+        } else {
+            let primary_match = &matches[0];
+            Ok(EvaluationResult {
+                description: primary_match.message.clone(),
+                mime_type: None,
+                confidence: 1.0,
+            })
+        }
+    }
+
+    /// Returns the evaluation configuration used by this database.
+    ///
+    /// This provides read-only access to the evaluation configuration for
+    /// callers that need to inspect resource limits or evaluation options.
+    #[must_use]
+    pub fn config(&self) -> &EvaluationConfig {
+        &self.config
+    }
+
     /// Returns the path from which magic rules were loaded.
     ///
     /// This method returns the source path that was used to load the magic rules

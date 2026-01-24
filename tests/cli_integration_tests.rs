@@ -5,11 +5,14 @@
 //! Each test consists of a .testfile (input) and .result (expected output) pair.
 
 use insta::assert_snapshot;
+use libmagic_rs::EvaluationConfig;
 use libmagic_rs::parser::load_magic_file;
 use std::ffi::OsStr;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::process::Stdio;
 
 mod common;
 use common::{normalize_paths_in_text, normalize_testfile_path};
@@ -195,6 +198,28 @@ fn resolve_magic_file_for_cli() -> Option<PathBuf> {
     None
 }
 
+fn resolve_magic_file_for_stdin_tests() -> Option<PathBuf> {
+    resolve_magic_file_for_cli()
+}
+
+fn run_cli_with_stdin(
+    args: &[&str],
+    input: &[u8],
+) -> Result<std::process::Output, Box<dyn std::error::Error>> {
+    let mut command = Command::new("cargo");
+    command.args(["run", "--quiet", "--"]);
+    command.args(args);
+    command.stdin(Stdio::piped());
+
+    let mut child = command.spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(input)?;
+    }
+
+    let output = child.wait_with_output()?;
+    Ok(output)
+}
+
 /// Test that we can discover canonical test files
 #[test]
 fn test_canonical_test_discovery() {
@@ -230,4 +255,131 @@ fn test_canonical_test_discovery() {
             "Result file should have .result extension"
         );
     }
+}
+
+#[test]
+fn test_basic_stdin_input() {
+    let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+        eprintln!("Skipping stdin test: no compatible text magic file available");
+        return;
+    };
+    let output =
+        run_cli_with_stdin(&["--magic-file", magic_file.to_str().unwrap(), "-"], b"").unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("stdin: data"));
+}
+
+#[test]
+fn test_stdin_dash_argument() {
+    let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+        eprintln!("Skipping stdin test: no compatible text magic file available");
+        return;
+    };
+    let output = run_cli_with_stdin(
+        &["--magic-file", magic_file.to_str().unwrap(), "-"],
+        b"test",
+    )
+    .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("stdin:"));
+}
+
+#[test]
+fn test_stdin_with_multiple_files() {
+    let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+        eprintln!("Skipping stdin test: no compatible text magic file available");
+        return;
+    };
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file1_path = temp_dir.path().join("file1.bin");
+    let file2_path = temp_dir.path().join("file2.bin");
+
+    fs::write(&file1_path, b"file-one").unwrap();
+    fs::write(&file2_path, b"file-two").unwrap();
+
+    let output = run_cli_with_stdin(
+        &[
+            "--magic-file",
+            magic_file.to_str().unwrap(),
+            file1_path.to_str().unwrap(),
+            "-",
+            file2_path.to_str().unwrap(),
+        ],
+        b"stdin-input",
+    )
+    .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    assert_eq!(lines.len(), 3);
+    assert!(stdout.contains(file1_path.to_string_lossy().as_ref()));
+    assert!(stdout.contains("stdin:"));
+    assert!(stdout.contains(file2_path.to_string_lossy().as_ref()));
+}
+
+#[test]
+fn test_stdin_truncation_warning() {
+    let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+        eprintln!("Skipping stdin test: no compatible text magic file available");
+        return;
+    };
+    let max_string_length = EvaluationConfig::default().max_string_length;
+    let input = vec![b'a'; max_string_length + 10];
+
+    let output =
+        run_cli_with_stdin(&["--magic-file", magic_file.to_str().unwrap(), "-"], &input).unwrap();
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(&format!(
+        "Warning: stdin input truncated to {} bytes",
+        max_string_length
+    )));
+}
+
+#[test]
+fn test_stdin_no_false_truncation_warning() {
+    let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+        eprintln!("Skipping stdin test: no compatible text magic file available");
+        return;
+    };
+    let max_string_length = EvaluationConfig::default().max_string_length;
+    // Input is exactly max_string_length bytes - should NOT trigger warning
+    let input = vec![b'a'; max_string_length];
+
+    let output =
+        run_cli_with_stdin(&["--magic-file", magic_file.to_str().unwrap(), "-"], &input).unwrap();
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("Warning: stdin input truncated"),
+        "Should not show truncation warning when input equals max_string_length"
+    );
+}
+
+#[test]
+fn test_stdin_json_output() {
+    let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+        eprintln!("Skipping stdin test: no compatible text magic file available");
+        return;
+    };
+    let output = run_cli_with_stdin(
+        &["--magic-file", magic_file.to_str().unwrap(), "--json", "-"],
+        b"",
+    )
+    .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(parsed.get("matches").is_some());
 }

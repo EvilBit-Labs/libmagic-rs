@@ -23,7 +23,7 @@ use std::process;
 ///   rmagic file1.bin file2.txt file3.dat
 ///   rmagic --json *.bin
 ///   rmagic --strict --magic-file custom.magic file1 file2
-///   rmagic - < input.dat  # Read from stdin (requires subsequent phase)
+///   rmagic - < input.dat  # Read from stdin
 #[derive(Parser, Debug)]
 #[command(
     name = "rmagic",
@@ -364,15 +364,39 @@ fn process_file(
     db: &MagicDatabase,
     args: &Args,
 ) -> Result<(), LibmagicError> {
-    // For this phase, only handle File variant
-    // Stdin handling will be implemented in subsequent phase
-
-    // Check if this is stdin (deferred to next phase)
     if file_or_stdin.is_stdin() {
-        return Err(LibmagicError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "Stdin input not yet supported",
-        )));
+        use std::io::Read;
+
+        let max_string_length = db.config().max_string_length;
+        let mut buffer = Vec::with_capacity(max_string_length + 1);
+
+        let reader = file_or_stdin.clone().into_reader().map_err(|e| {
+            LibmagicError::IoError(std::io::Error::other(format!("Failed to open stdin: {e}")))
+        })?;
+
+        // Read one extra byte to detect true truncation
+        let mut limited_reader = reader.take((max_string_length + 1) as u64);
+        limited_reader.read_to_end(&mut buffer).map_err(|e| {
+            LibmagicError::IoError(std::io::Error::new(
+                e.kind(),
+                format!("Failed to read stdin: {e}"),
+            ))
+        })?;
+
+        // Warn only if we actually read more than max_string_length bytes
+        if buffer.len() > max_string_length {
+            eprintln!(
+                "Warning: stdin input truncated to {} bytes",
+                max_string_length
+            );
+            // Truncate the buffer back to max_string_length
+            buffer.truncate(max_string_length);
+        }
+
+        let result = db.evaluate_buffer(&buffer)?;
+        let stdin_path = PathBuf::from("stdin");
+        output_result(&stdin_path, &result, args)?;
+        return Ok(());
     }
 
     // Extract file path from FileOrStdin
@@ -529,7 +553,131 @@ fn validate_magic_file(magic_file_path: &Path) -> Result<(), LibmagicError> {
 mod tests {
     use super::*;
     use clap::Parser;
+    use libmagic_rs::parser::load_magic_file;
+    #[cfg(unix)]
+    use nix::unistd::{dup, dup2_stderr, dup2_stdin, dup2_stdout, pipe, read, write};
     use std::fs;
+
+    #[cfg(unix)]
+    fn capture_stdout<F>(f: F) -> (Result<(), LibmagicError>, String)
+    where
+        F: FnOnce() -> Result<(), LibmagicError>,
+    {
+        let saved_stdout = dup(std::io::stdout()).unwrap();
+        let (read_fd, write_fd) = pipe().unwrap();
+
+        dup2_stdout(write_fd).unwrap();
+
+        let result = f();
+
+        dup2_stdout(saved_stdout).unwrap();
+
+        let mut output = Vec::new();
+        let mut buffer = [0u8; 1024];
+        loop {
+            match read(&read_fd, &mut buffer) {
+                Ok(0) => break,
+                Ok(count) => output.extend_from_slice(&buffer[..count]),
+                Err(_) => break,
+            }
+        }
+        drop(read_fd);
+
+        let output_str = String::from_utf8_lossy(&output).to_string();
+        (result, output_str)
+    }
+
+    #[cfg(unix)]
+    fn capture_stderr<F>(f: F) -> (Result<(), LibmagicError>, String)
+    where
+        F: FnOnce() -> Result<(), LibmagicError>,
+    {
+        let saved_stderr = dup(std::io::stderr()).unwrap();
+        let (read_fd, write_fd) = pipe().unwrap();
+
+        dup2_stderr(write_fd).unwrap();
+
+        let result = f();
+
+        dup2_stderr(saved_stderr).unwrap();
+
+        let mut output = Vec::new();
+        let mut buffer = [0u8; 1024];
+        loop {
+            match read(&read_fd, &mut buffer) {
+                Ok(0) => break,
+                Ok(count) => output.extend_from_slice(&buffer[..count]),
+                Err(_) => break,
+            }
+        }
+        drop(read_fd);
+
+        let output_str = String::from_utf8_lossy(&output).to_string();
+        (result, output_str)
+    }
+
+    #[cfg(unix)]
+    fn with_mocked_stdin<F>(input: &[u8], f: F) -> Result<(), LibmagicError>
+    where
+        F: FnOnce() -> Result<(), LibmagicError>,
+    {
+        let saved_stdin = dup(std::io::stdin()).unwrap();
+        let (read_fd, write_fd) = pipe().unwrap();
+
+        let _ = write(&write_fd, input).unwrap();
+        drop(write_fd);
+        dup2_stdin(read_fd).unwrap();
+
+        let result = f();
+
+        dup2_stdin(saved_stdin).unwrap();
+
+        result
+    }
+
+    #[cfg(unix)]
+    fn with_invalid_stdin<F>(f: F) -> Result<(), LibmagicError>
+    where
+        F: FnOnce() -> Result<(), LibmagicError>,
+    {
+        let saved_stdin = dup(std::io::stdin()).unwrap();
+        let temp_dir = std::env::temp_dir().join("rmagic_stdin_invalid");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let dir_handle = fs::File::open(&temp_dir).unwrap();
+
+        dup2_stdin(&dir_handle).unwrap();
+        let result = f();
+
+        dup2_stdin(saved_stdin).unwrap();
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        result
+    }
+
+    fn resolve_magic_file_for_stdin_tests() -> Option<PathBuf> {
+        let repo_magic = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("missing.magic");
+        let candidates = [
+            "/usr/share/misc/magic",
+            "/etc/magic",
+            "/usr/local/share/misc/magic",
+            "/opt/local/share/file/magic",
+            "/usr/share/file/magic",
+            repo_magic.to_str().unwrap(),
+        ];
+
+        for candidate in &candidates {
+            let path = PathBuf::from(candidate);
+            if !path.exists() || path.is_dir() {
+                continue;
+            }
+
+            if load_magic_file(&path).is_ok() {
+                return Some(path);
+            }
+        }
+
+        None
+    }
 
     #[test]
     fn test_basic_file_argument() {
@@ -1201,5 +1349,128 @@ mod tests {
         // Test that strict defaults to false
         let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
         assert!(!args.strict);
+    }
+
+    #[test]
+    fn test_stdin_detection() {
+        let args = Args::try_parse_from(["rmagic", "-"]).unwrap();
+        assert!(args.files[0].is_stdin());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_stdin_truncation_warning() {
+        let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+            eprintln!("Skipping stdin test: no compatible text magic file available");
+            return;
+        };
+        let args =
+            Args::try_parse_from(["rmagic", "--magic-file", magic_file.to_str().unwrap(), "-"])
+                .unwrap();
+        let db = MagicDatabase::load_from_file(&magic_file).unwrap();
+        let max_string_length = db.config().max_string_length;
+        let input = vec![b'a'; max_string_length + 10];
+
+        let (result, stderr_output) = capture_stderr(|| {
+            with_mocked_stdin(&input, || process_file(&args.files[0], &db, &args))
+        });
+
+        assert!(result.is_ok());
+        assert!(stderr_output.contains(&format!(
+            "Warning: stdin input truncated to {} bytes",
+            max_string_length
+        )));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_stdin_no_false_truncation_warning() {
+        let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+            eprintln!("Skipping stdin test: no compatible text magic file available");
+            return;
+        };
+        let args =
+            Args::try_parse_from(["rmagic", "--magic-file", magic_file.to_str().unwrap(), "-"])
+                .unwrap();
+        let db = MagicDatabase::load_from_file(&magic_file).unwrap();
+        let max_string_length = db.config().max_string_length;
+        // Input is exactly max_string_length bytes - should NOT trigger warning
+        let input = vec![b'a'; max_string_length];
+
+        let (result, stderr_output) = capture_stderr(|| {
+            with_mocked_stdin(&input, || process_file(&args.files[0], &db, &args))
+        });
+
+        assert!(result.is_ok());
+        assert!(
+            !stderr_output.contains("Warning: stdin input truncated"),
+            "Should not show truncation warning when input equals max_string_length"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_stdin_empty_returns_data() {
+        let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+            eprintln!("Skipping stdin test: no compatible text magic file available");
+            return;
+        };
+        let args =
+            Args::try_parse_from(["rmagic", "--magic-file", magic_file.to_str().unwrap(), "-"])
+                .unwrap();
+        let db = MagicDatabase::load_from_file(&magic_file).unwrap();
+
+        let (result, stdout_output) =
+            capture_stdout(|| with_mocked_stdin(&[], || process_file(&args.files[0], &db, &args)));
+
+        assert!(result.is_ok());
+        assert!(stdout_output.contains("stdin: data"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_stdin_output_format() {
+        let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+            eprintln!("Skipping stdin test: no compatible text magic file available");
+            return;
+        };
+        let args =
+            Args::try_parse_from(["rmagic", "--magic-file", magic_file.to_str().unwrap(), "-"])
+                .unwrap();
+        let db = MagicDatabase::load_from_file(&magic_file).unwrap();
+
+        let (result, stdout_output) = capture_stdout(|| {
+            with_mocked_stdin(b"sample", || process_file(&args.files[0], &db, &args))
+        });
+
+        assert!(result.is_ok());
+        assert!(stdout_output.contains("stdin:"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_stdin_strict_mode_errors() {
+        let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+            eprintln!("Skipping stdin test: no compatible text magic file available");
+            return;
+        };
+        let args_strict = Args::try_parse_from([
+            "rmagic",
+            "--strict",
+            "--magic-file",
+            magic_file.to_str().unwrap(),
+            "-",
+        ])
+        .unwrap();
+
+        let args_non_strict =
+            Args::try_parse_from(["rmagic", "--magic-file", magic_file.to_str().unwrap(), "-"])
+                .unwrap();
+
+        let strict_result = with_invalid_stdin(|| run_analysis(&args_strict));
+        assert!(strict_result.is_err());
+
+        let non_strict_result = with_invalid_stdin(|| run_analysis(&args_non_strict));
+        assert!(non_strict_result.is_ok());
     }
 }
