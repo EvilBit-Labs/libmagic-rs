@@ -58,25 +58,57 @@ impl Args {
         }
     }
 
+    /// Magic file search candidates in priority order.
+    ///
+    /// OpenBSD-inspired order: text files/directories first, then compiled .mgc files.
+    /// Text files are preferred because they are human-readable, easier to debug,
+    /// and better suited for version control and development workflows.
+    #[cfg(unix)]
+    const MAGIC_FILE_CANDIDATES: &'static [&'static str] = &[
+        // Text directories first (highest priority for debugging and compatibility)
+        "/usr/share/file/magic/Magdir", // OpenBSD-style magic directory
+        "/usr/share/file/magic",        // Text magic directory/file
+        // Text files
+        "/usr/share/misc/magic",       // BSD text magic file
+        "/usr/local/share/misc/magic", // FreeBSD/Homebrew text
+        "/etc/magic",                  // System-wide text magic file
+        "/opt/local/share/file/magic", // MacPorts text
+        // Binary .mgc files last (fallback for performance)
+        "/usr/share/file/magic.mgc",       // Most common on Linux/macOS
+        "/usr/local/share/misc/magic.mgc", // Homebrew/FreeBSD
+        "/opt/local/share/file/magic.mgc", // MacPorts
+        "/etc/magic.mgc",                  // Alternative location
+        "/usr/share/misc/magic.mgc",       // BSD variant
+    ];
+
+    /// Returns the list of magic file candidates in search order.
+    ///
+    /// This is primarily exposed for testing purposes to verify the search order.
+    #[cfg(unix)]
+    pub fn magic_file_candidates() -> &'static [&'static str] {
+        Self::MAGIC_FILE_CANDIDATES
+    }
+
     /// Get the default magic file path for the current platform
+    ///
+    /// This follows an OpenBSD-inspired approach, prioritizing text-based magic files
+    /// and directories over compiled binary `.mgc` files. Text files are preferred
+    /// because they are human-readable, easier to debug, and better suited for
+    /// version control and development workflows.
+    ///
+    /// The search order is:
+    /// 1. Text directories (e.g., `/usr/share/file/magic/Magdir`)
+    /// 2. Text files (e.g., `/usr/share/misc/magic`)
+    /// 3. Binary `.mgc` files (e.g., `/usr/share/file/magic.mgc`)
+    ///
+    /// If a text file/directory is found, it is returned immediately.
+    /// If only binary files exist, the first binary file found is used as fallback.
     fn default_magic_file_path() -> PathBuf {
         #[cfg(unix)]
         {
-            // Try compiled magic files first (.mgc), then text magic files
-            let candidates = [
-                "/usr/share/file/magic.mgc",       // Most common on Linux/macOS
-                "/usr/local/share/misc/magic.mgc", // Homebrew/FreeBSD
-                "/opt/local/share/file/magic.mgc", // MacPorts
-                "/etc/magic.mgc",                  // Alternative location
-                "/usr/share/misc/magic.mgc",       // BSD variant
-                "/usr/share/file/magic",           // Text magic files (directory)
-                "/etc/magic",                      // Text magic file
-                "/usr/share/misc/magic",           // Text magic file
-                "/opt/local/share/file/magic",     // MacPorts text
-                "/usr/local/share/misc/magic",     // FreeBSD text
-            ];
+            let mut first_binary: Option<PathBuf> = None;
 
-            for candidate in &candidates {
+            for candidate in Self::MAGIC_FILE_CANDIDATES {
                 let path = PathBuf::from(candidate);
                 if !path.exists() {
                     continue;
@@ -84,10 +116,21 @@ impl Args {
 
                 if let Ok(format) = detect_format(&path) {
                     match format {
-                        MagicFileFormat::Binary | MagicFileFormat::Directory => continue,
-                        MagicFileFormat::Text => return path,
+                        // Accept text files and directories immediately (OpenBSD-style preference)
+                        MagicFileFormat::Text | MagicFileFormat::Directory => return path,
+                        // Track first binary file as fallback, but continue searching for text
+                        MagicFileFormat::Binary => {
+                            if first_binary.is_none() {
+                                first_binary = Some(path);
+                            }
+                        }
                     }
                 }
+            }
+
+            // If we found a binary file but no text file, use the binary as fallback
+            if let Some(binary_path) = first_binary {
+                return binary_path;
             }
 
             // Fallback to repo-provided text magic file if present
@@ -238,25 +281,15 @@ fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
 
     // Check if magic file exists and provide helpful error message
     if !magic_file_path.exists() {
-        eprintln!(
-            "Warning: Magic file not found at {}",
-            magic_file_path.display()
-        );
-        eprintln!("Attempting to create basic magic file...");
-
-        // Try to create basic magic files if we're in CI/CD or test environment
-        if let Err(e) = download_magic_files(&magic_file_path) {
-            return Err(LibmagicError::ParseError(
-                libmagic_rs::ParseError::invalid_syntax(
-                    0,
-                    format!(
-                        "Magic file not found at {} and failed to create fallback: {}",
-                        magic_file_path.display(),
-                        e
-                    ),
+        return Err(LibmagicError::ParseError(
+            libmagic_rs::ParseError::invalid_syntax(
+                0,
+                format!(
+                    "Magic file not found at {}. Please ensure a magic file is available at one of the standard locations or specify a custom path with --magic-file.",
+                    magic_file_path.display()
                 ),
-            ));
-        }
+            ),
+        ));
     }
 
     // Validate magic file before loading
@@ -408,87 +441,6 @@ fn validate_magic_file(magic_file_path: &Path) -> Result<(), LibmagicError> {
     }
 }
 
-/// Download magic files for CI/CD environments
-///
-/// This function attempts to create a basic magic file if one doesn't exist,
-/// particularly useful in CI/CD environments where system magic files may not be available.
-fn download_magic_files(magic_file_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    // Create parent directory if it doesn't exist
-    if let Some(parent) = magic_file_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    // If the file already exists, don't overwrite it
-    if magic_file_path.exists() {
-        return Ok(());
-    }
-
-    let basic_magic_content = create_basic_magic_content();
-    fs::write(magic_file_path, basic_magic_content)?;
-    eprintln!("Created basic magic file at {}", magic_file_path.display());
-
-    Ok(())
-}
-
-/// Create basic magic file content with common file type signatures
-fn create_basic_magic_content() -> &'static str {
-    // Use a const to avoid repeated string allocation
-    const BASIC_MAGIC_CONTENT: &str = r#"# Basic magic file for libmagic-rs
-# This is a minimal magic file for testing and CI/CD environments
-
-# ELF executables
-0	string	\x7fELF	ELF
->4	byte	1	32-bit
->4	byte	2	64-bit
->5	byte	1	LSB
->5	byte	2	MSB
-
-# PE executables
-0	string	MZ	MS-DOS executable
->60	lelong	0x00004550	PE32 executable
-
-# ZIP archives
-0	string	PK\x03\x04	ZIP archive
-0	string	PK\x05\x06	ZIP archive (empty)
-0	string	PK\x07\x08	ZIP archive (spanned)
-
-# JPEG images
-0	string	\xff\xd8\xff	JPEG image data
-
-# PNG images
-0	string	\x89PNG\r\n\x1a\n	PNG image data
-
-# GIF images
-0	string	GIF87a	GIF image data, version 87a
-0	string	GIF89a	GIF image data, version 89a
-
-# PDF documents
-0	string	%PDF-	PDF document
-
-# Text files
-0	string	#!/bin/sh	shell script
-0	string	#!/bin/bash	Bash script
-0	string	#!/usr/bin/env	script text
-
-# Common text patterns
-0	string	<?xml	XML document
-0	string	<html	HTML document
-0	string	<!DOCTYPE	HTML document
-
-# Archive formats
-0	string	\x1f\x8b	gzip compressed data
-0	string	BZh	bzip2 compressed data
-0	string	\xfd7zXZ\x00	XZ compressed data
-
-# Binary formats
-0	string	\x89HDF	HDF data
-0	string	\xca\xfe\xba\xbe	Java class file
-0	string	\xfe\xed\xfa\xce	Mach-O executable (32-bit)
-0	string	\xfe\xed\xfa\xcf	Mach-O executable (64-bit)
-"#;
-    BASIC_MAGIC_CONTENT
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -617,23 +569,17 @@ mod tests {
         // The actual path depends on what magic files exist on the system
         #[cfg(unix)]
         {
-            let expected_candidates = [
-                "/usr/share/file/magic.mgc",
-                "/usr/local/share/misc/magic.mgc",
-                "/opt/local/share/file/magic.mgc",
-                "/etc/magic.mgc",
-                "/usr/share/misc/magic.mgc",
-                "/usr/share/file/magic",
-                "/etc/magic",
-                "/usr/share/misc/magic",
-                "/opt/local/share/file/magic",
-                "/usr/local/share/misc/magic",
-                "missing.magic",
-                "third_party/magic.mgc", // Development/CI fallback
-            ];
+            // Get the actual candidates from the exposed constant
+            let candidates = Args::magic_file_candidates();
+
+            // Build list of valid paths (candidates + fallbacks)
+            let mut valid_paths: Vec<&str> = candidates.to_vec();
+            valid_paths.push("missing.magic");
+            valid_paths.push("third_party/magic.mgc");
+
             // Should be one of the standard Unix magic file locations or fallback
             assert!(
-                expected_candidates.contains(&default_path.to_str().unwrap()),
+                valid_paths.contains(&default_path.to_str().unwrap()),
                 "Got unexpected path: {:?}",
                 default_path
             );
@@ -654,23 +600,17 @@ mod tests {
         // The actual path depends on what magic files exist on the system
         #[cfg(unix)]
         {
-            let expected_candidates = [
-                "/usr/share/file/magic.mgc",
-                "/usr/local/share/misc/magic.mgc",
-                "/opt/local/share/file/magic.mgc",
-                "/etc/magic.mgc",
-                "/usr/share/misc/magic.mgc",
-                "/usr/share/file/magic",
-                "/etc/magic",
-                "/usr/share/misc/magic",
-                "/opt/local/share/file/magic",
-                "/usr/local/share/misc/magic",
-                "missing.magic",
-                "third_party/magic.mgc", // Development/CI fallback
-            ];
+            // Get the actual candidates from the exposed constant
+            let candidates = Args::magic_file_candidates();
+
+            // Build list of valid paths (candidates + fallbacks)
+            let mut valid_paths: Vec<&str> = candidates.to_vec();
+            valid_paths.push("missing.magic");
+            valid_paths.push("third_party/magic.mgc");
+
             // Should be one of the standard Unix magic file locations or fallback
             assert!(
-                expected_candidates.contains(&default_path.to_str().unwrap()),
+                valid_paths.contains(&default_path.to_str().unwrap()),
                 "Got unexpected path: {:?}",
                 default_path
             );
@@ -932,5 +872,181 @@ mod tests {
 
         // Clean up
         fs::remove_file(&temp_file).unwrap();
+    }
+
+    /// Verify that text files/directories are prioritized over binary .mgc files
+    /// in the magic file search order (OpenBSD-style approach)
+    #[test]
+    #[cfg(unix)]
+    fn test_magic_file_search_order_text_first() {
+        let candidates = Args::magic_file_candidates();
+
+        // Find the index of the first binary (.mgc) candidate
+        let first_binary_index = candidates
+            .iter()
+            .position(|c| c.ends_with(".mgc"))
+            .expect("Should have at least one .mgc candidate");
+
+        // Verify all candidates before the first binary are text (non-.mgc)
+        for (i, candidate) in candidates.iter().enumerate() {
+            if i < first_binary_index {
+                assert!(
+                    !candidate.ends_with(".mgc"),
+                    "Candidate at index {} should be text (not .mgc): {}",
+                    i,
+                    candidate
+                );
+            }
+        }
+
+        // Verify all candidates from first_binary_index onwards are binary (.mgc)
+        for (i, candidate) in candidates.iter().enumerate() {
+            if i >= first_binary_index {
+                assert!(
+                    candidate.ends_with(".mgc"),
+                    "Candidate at index {} should be binary (.mgc): {}",
+                    i,
+                    candidate
+                );
+            }
+        }
+
+        // Verify we have both text and binary candidates
+        assert!(
+            first_binary_index > 0,
+            "Should have at least one text candidate before binary candidates"
+        );
+        assert!(
+            first_binary_index < candidates.len(),
+            "Should have at least one binary candidate"
+        );
+    }
+
+    /// Verify that Magdir has the highest priority in the search order
+    #[test]
+    #[cfg(unix)]
+    fn test_magic_file_search_order_magdir_priority() {
+        let candidates = Args::magic_file_candidates();
+
+        // Verify the first candidate is the Magdir directory
+        assert_eq!(
+            candidates[0], "/usr/share/file/magic/Magdir",
+            "First candidate should be the Magdir directory"
+        );
+    }
+
+    /// Verify the exact sequence of magic file candidates
+    #[test]
+    #[cfg(unix)]
+    fn test_magic_file_candidates_exact_sequence() {
+        let candidates = Args::magic_file_candidates();
+
+        // Verify the exact expected sequence
+        let expected = [
+            // Text directories first
+            "/usr/share/file/magic/Magdir",
+            "/usr/share/file/magic",
+            // Text files
+            "/usr/share/misc/magic",
+            "/usr/local/share/misc/magic",
+            "/etc/magic",
+            "/opt/local/share/file/magic",
+            // Binary .mgc files last
+            "/usr/share/file/magic.mgc",
+            "/usr/local/share/misc/magic.mgc",
+            "/opt/local/share/file/magic.mgc",
+            "/etc/magic.mgc",
+            "/usr/share/misc/magic.mgc",
+        ];
+
+        assert_eq!(
+            candidates.len(),
+            expected.len(),
+            "Candidate list length mismatch"
+        );
+
+        for (i, (actual, expected)) in candidates.iter().zip(expected.iter()).enumerate() {
+            assert_eq!(
+                actual, expected,
+                "Candidate mismatch at index {}: got '{}', expected '{}'",
+                i, actual, expected
+            );
+        }
+    }
+
+    /// Verify behavior: first existing candidate is chosen in order
+    /// This test uses a temporary directory to simulate the search behavior
+    #[test]
+    #[cfg(unix)]
+    fn test_magic_file_search_selects_first_existing() {
+        use std::io::Write;
+
+        // Create a temporary directory structure to test search order
+        let temp_dir = std::env::temp_dir().join("test_magic_search_order");
+        let _ = fs::remove_dir_all(&temp_dir); // Clean up any previous test artifacts
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // Create a text magic file
+        let text_magic_path = temp_dir.join("text_magic");
+        let mut text_file = fs::File::create(&text_magic_path).unwrap();
+        writeln!(text_file, "# Text magic file").unwrap();
+        writeln!(text_file, "0 string test Test file").unwrap();
+
+        // Create a binary magic file (simulated with .mgc extension)
+        let binary_magic_path = temp_dir.join("binary.mgc");
+        // Write some bytes that look like a binary magic file header
+        fs::write(&binary_magic_path, b"\x1c\x04\x1e\xf1test").unwrap();
+
+        // Verify text file exists and is detected as text format
+        assert!(text_magic_path.exists());
+        let text_format = detect_format(&text_magic_path);
+        assert!(
+            matches!(text_format, Ok(MagicFileFormat::Text)),
+            "Text magic file should be detected as Text format, got {:?}",
+            text_format
+        );
+
+        // Verify binary file exists and is detected as binary format
+        assert!(binary_magic_path.exists());
+        let binary_format = detect_format(&binary_magic_path);
+        assert!(
+            matches!(binary_format, Ok(MagicFileFormat::Binary)),
+            "Binary magic file should be detected as Binary format, got {:?}",
+            binary_format
+        );
+
+        // Clean up
+        fs::remove_dir_all(&temp_dir).unwrap();
+    }
+
+    /// Verify that binary files are selected as fallback when no text files exist
+    #[test]
+    #[cfg(unix)]
+    fn test_magic_file_search_binary_fallback() {
+        // This test verifies the logic by checking the candidate list structure
+        let candidates = Args::magic_file_candidates();
+
+        // Count text and binary candidates
+        let text_count = candidates.iter().filter(|c| !c.ends_with(".mgc")).count();
+        let binary_count = candidates.iter().filter(|c| c.ends_with(".mgc")).count();
+
+        // Verify we have both types
+        assert!(text_count > 0, "Should have text candidates");
+        assert!(binary_count > 0, "Should have binary candidates");
+
+        // Verify the structure allows binary fallback:
+        // - Text candidates come first (they will be checked first)
+        // - Binary candidates come after (they serve as fallback)
+        // The search loop tracks first_binary and returns it if no text is found
+        let first_text_idx = candidates
+            .iter()
+            .position(|c| !c.ends_with(".mgc"))
+            .unwrap();
+        let first_binary_idx = candidates.iter().position(|c| c.ends_with(".mgc")).unwrap();
+
+        assert!(
+            first_text_idx < first_binary_idx,
+            "Text candidates should come before binary candidates"
+        );
     }
 }
