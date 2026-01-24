@@ -16,10 +16,13 @@ cargo-insta                 = "1.46.1"
 "cargo:mdbook-i18n-helpers" = "0.4.0"
 just                        = "latest"
 python                      = "3.13.11"
-rust                        = { version = "1.91.0", components = "llvm-tools,cargo-fmt", profile = "default" }
+rust                        = { version = "1.91.0", components = "llvm-tools,cargo,rustfmt,clippy", profile = "default" }
 "cargo:cargo-outdated"      = "0.17.0"
 "cargo:cargo-release"       = "0.25.22"
 "cargo:cargo-auditable"     = "0.7.2"
 "cargo:cargo-cyclonedx"     = "0.5.7"
 "pipx:mdformat"             = { version = "0.7.21", uvx_args = "--with mdformat-gfm --with mdformat-frontmatter --with mdformat-footnote --with mdformat-simple-breaks --with mdformat-gfm-alerts --with mdformat-toc --with mdformat-wikilink --with mdformat-tables" }
 prettier                    = "3.8.1"
+actionlint = "1.7.10"
+lychee = "0.22.0"
+markdownlint-cli2 = "0.20.0"

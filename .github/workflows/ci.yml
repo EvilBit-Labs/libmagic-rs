@@ -62,10 +62,7 @@ jobs:
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Check formatting
-              run: cargo fmt --check
-
-            - name: Run clippy (all features)
-              run: cargo clippy --all-targets --all-features -- -D warnings
+              run: just lint-rust
 
     test:
         runs-on: ubuntu-latest

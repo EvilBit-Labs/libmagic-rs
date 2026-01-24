@@ -1,8 +1,14 @@
 # Cross-platform justfile using OS annotations
 # Windows uses PowerShell, Unix uses bash
 
-set shell := ["bash", "-c"]
+set shell := ["bash", "-cu"]
 set windows-shell := ["powershell", "-NoProfile", "-Command"]
+set dotenv-load := true
+set ignore-comments := true
+
+# Use mise to manage all dev tools (go, pre-commit, uv, etc.)
+# See mise.toml for tool versions
+mise_exec := "mise exec --"
 
 root := justfile_dir()
 
@@ -55,74 +61,71 @@ format: fmt format-json-yaml format-docs fmt-justfile
 # Individual format recipes
 
 format-json-yaml:
-    npx prettier --write "**/*.{json,yaml,yml}"
+    @{{ mise_exec }} prettier --write "**/*.{json,yaml,yml}"
 
 format-docs:
-    mdformat --exclude "target/*" --exclude "node_modules/*" .
+    @{{ mise_exec }} mdformat --exclude "target/*" --exclude "node_modules/*" .
 
 fmt:
-    @cargo fmt --all
+    @{{ mise_exec }} cargo fmt --all
 
 fmt-check:
-    @cargo fmt --all --check
+    @{{ mise_exec }} cargo fmt --all --check
 
 lint-rust: fmt-check
-    @cargo clippy --workspace --all-targets --all-features -- -D warnings
+    @{{ mise_exec }} cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 lint-rust-min:
-    @cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+    @{{ mise_exec }} cargo clippy --workspace --all-targets --no-default-features -- -D warnings
 
 # Format justfile
 fmt-justfile:
-    @just --fmt --unstable
+    @{{ mise_exec }} just --fmt --unstable
 
 # Lint justfile formatting
 lint-justfile:
-    @just --fmt --check --unstable
-
+    @{{ mise_exec }} just --fmt --check --unstable
 # Main lint recipe - calls all sub-linters
 lint: lint-rust lint-actions lint-docs lint-justfile
 
 # Individual lint recipes
 lint-actions:
-    actionlint .github/workflows/audit.yml .github/workflows/ci.yml .github/workflows/codeql.yml .github/workflows/compatibility.yml .github/workflows/copilot-setup-steps.yml .github/workflows/docs.yml .github/workflows/release.yml .github/workflows/security.yml
+    @{{ mise_exec }} actionlint .github/workflows/audit.yml .github/workflows/ci.yml .github/workflows/codeql.yml .github/workflows/compatibility.yml .github/workflows/copilot-setup-steps.yml .github/workflows/docs.yml .github/workflows/release.yml .github/workflows/security.yml
 
 lint-docs:
-    markdownlint docs/**/*.md README.md
-    lychee docs/**/*.md README.md
+    @{{ mise_exec }} markdownlint-cli2 docs/**/*.md README.md
+    @{{ mise_exec }} lychee docs/**/*.md README.md
 
 alias lint-just := lint-justfile
 
 # Run clippy with fixes
 fix:
-    cargo clippy --fix --allow-dirty --allow-staged
+    @{{ mise_exec }} cargo clippy --fix --allow-dirty --allow-staged
 
 # Quick development check
 check: pre-commit-run lint
 
 [private]
 pre-commit-run:
-    pre-commit run -a
+    @{{ mise_exec }} pre-commit run -a
 
 # Format a single file (for pre-commit hooks)
 format-files +FILES:
-    prettier --write --config .prettierrc.json {{ FILES }}
+    @{{ mise_exec }} prettier --write --config .prettierrc.json {{ FILES }}
 
-megalinter:
-    npx mega-linter-runner --flavor rust
 
 # =============================================================================
 # BUILDING AND TESTING
 # =============================================================================
 
 build:
-    @cargo build --workspace
+    @{{ mise_exec }} cargo build --workspace
 
 build-release:
-    @cargo build --workspace --release
+    @{{ mise_exec }} cargo build --workspace --release
 
 test:
-    @cargo nextest run --workspace --no-capture
+    @{{ mise_exec }} cargo nextest run --workspace --no-capture
 
 # Verify compatibility test files are available
 [windows]
@@ -139,20 +142,19 @@ verify-compatibility-tests:
 
 # Run compatibility tests against original libmagic test suite
 test-compatibility:
-    @cargo test test_compatibility_with_original_libmagic -- --ignored
+    @{{ mise_exec }} cargo test test_compatibility_with_original_libmagic -- --ignored
 
 # Run all compatibility tests (including setup)
-test-compatibility-full:
-    @just verify-compatibility-tests
-    @cargo build --release
-    @cargo test test_compatibility_with_original_libmagic -- --ignored
+test-compatibility-full: verify-compatibility-tests
+    @{{ mise_exec }} cargo build --release
+    @{{ mise_exec }} cargo test test_compatibility_with_original_libmagic -- --ignored
 
 test-ci:
-    cargo nextest run --workspace --no-capture
+    @{{ mise_exec }} cargo nextest run --workspace --no-capture
 
 # Run all tests including ignored/slow tests across workspace
 test-all:
-    cargo nextest run --workspace --no-capture -- --ignored
+    @{{ mise_exec }} cargo nextest run --workspace --no-capture -- --ignored
 
 # =============================================================================
 # BENCHMARKING
@@ -160,17 +162,17 @@ test-all:
 
 # Run all benchmarks
 bench:
-    @cargo bench --workspace
+    @{{ mise_exec }} cargo bench --workspace
 
 # =============================================================================
 # SECURITY AND AUDITING
 # =============================================================================
 
 audit:
-    cargo audit
+    @{{ mise_exec }} cargo audit
 
 deny:
-    cargo deny check
+    @{{ mise_exec }} cargo deny check
 
 # =============================================================================
 # CI AND QUALITY ASSURANCE
@@ -182,18 +184,18 @@ _coverage +args:
     #!/usr/bin/env bash
     set -euo pipefail
     rm -rf target/llvm-cov-target
-    RUSTFLAGS="--cfg coverage" cargo llvm-cov --workspace --lcov --output-path lcov.info {{ args }}
+    RUSTFLAGS="--cfg coverage" {{ mise_exec }} cargo llvm-cov --workspace --lcov --output-path lcov.info {{ args }}
 
 [private, windows]
 _coverage +args:
     Remove-Item -Recurse -Force target/llvm-cov-target -ErrorAction SilentlyContinue
-    $env:RUSTFLAGS = "--cfg coverage"; cargo llvm-cov --workspace --lcov --output-path lcov.info {{ args }}
+    $env:RUSTFLAGS = "--cfg coverage"; {{ mise_exec }} cargo llvm-cov --workspace --lcov --output-path lcov.info {{ args }}
 
 coverage:
-    @just _coverage
+    @{{ mise_exec }} just _coverage
 
 coverage-check:
-    @just _coverage --fail-under-lines 9.7
+    @{{ mise_exec }} just _coverage --fail-under-lines 9.7
 
 # Full local CI parity check
 ci-check: pre-commit-run fmt-check lint-rust lint-rust-min test-ci build-release audit coverage-check dist-plan
@@ -202,33 +204,26 @@ ci-check: pre-commit-run fmt-check lint-rust lint-rust-min test-ci build-release
 ci-check-compatibility: pre-commit-run fmt-check lint-rust lint-rust-min test-ci build-release audit coverage-check test-compatibility dist-plan
 
 # =============================================================================
-# DEVELOPMENT AND EXECUTION
-# =============================================================================
-
-run *args:
-    @cargo run -p stringy -- {{ args }}
-
-# =============================================================================
 # DISTRIBUTION AND PACKAGING
 # =============================================================================
 
 dist:
-    @dist build
+    @{{ mise_exec }} dist build
 
 dist-check:
-    @dist check
+    @{{ mise_exec }} dist check
 
 dist-plan:
-    @dist plan
+    @{{ mise_exec }} dist plan
 
 # Regenerate cargo-dist CI workflow safely
 dist-generate-ci:
-    dist generate --ci github
+    {{ mise_exec }} dist generate --ci github
     @echo "Generated CI workflow. Remember to fix any expression errors if they exist."
     @echo "Run 'just lint:actions' to validate the generated workflow."
 
 install:
-    @cargo install --path .
+    @{{ mise_exec }} cargo install --path .
 
 # =============================================================================
 # DOCUMENTATION
@@ -240,18 +235,18 @@ docs-build:
     #!/usr/bin/env bash
     set -euo pipefail
     # Build rustdoc
-    cargo doc --no-deps --document-private-items --target-dir docs/book/api-temp
+    {{ mise_exec }} cargo doc --no-deps --document-private-items --target-dir docs/book/api-temp
     # Move rustdoc output to final location
     mkdir -p docs/book/api
     cp -r docs/book/api-temp/doc/* docs/book/api/
     rm -rf docs/book/api-temp
     # Build mdBook
-    cd docs && mdbook build
+    cd docs && {{ mise_exec }} mdbook build
 
 # Serve documentation locally with live reload
 [unix]
 docs-serve:
-    cd docs && mdbook serve --open
+    cd docs && {{ mise_exec }} mdbook serve --open
 
 # Clean documentation artifacts
 [unix]
@@ -261,8 +256,8 @@ docs-clean:
 # Check documentation (build + link validation + formatting)
 [unix]
 docs-check:
-    cd docs && mdbook build
-    @just fmt-check
+    cd docs && {{ mise_exec }} mdbook build
+    @{{ mise_exec }} just fmt-check
 
 # Generate and serve documentation
 [unix]
@@ -292,10 +287,10 @@ _goreleaser +args:
 
 [private, windows]
 _goreleaser +args:
-    @goreleaser {{ args }}
+    @{{ mise_exec }} goreleaser {{ args }}
 
 goreleaser-check:
-    @goreleaser check
+    @{{ mise_exec }} goreleaser check
 
 goreleaser-build:
     @just _goreleaser build --clean
@@ -315,16 +310,16 @@ goreleaser-clean:
 # =============================================================================
 
 release:
-    @cargo release
+    @{{ mise_exec }} cargo release
 
 release-dry-run:
-    @cargo release --dry-run
+    @{{ mise_exec }} cargo release --dry-run
 
 release-patch:
-    @cargo release patch
+    @{{ mise_exec }} cargo release patch
 
 release-minor:
-    @cargo release minor
+    @{{ mise_exec }} cargo release minor
 
 release-major:
-    @cargo release major
+    @{{ mise_exec }} cargo release major
