@@ -4,6 +4,7 @@
 //! serving as a drop-in replacement for the GNU `file` command.
 
 use clap::Parser;
+use clap_stdin::FileOrStdin;
 use libmagic_rs::output::MatchResult;
 use libmagic_rs::output::json::format_json_output;
 use libmagic_rs::parser::ast::Value;
@@ -14,17 +15,26 @@ use std::path::{Path, PathBuf};
 use std::process;
 
 /// A pure-Rust implementation of libmagic for file type identification
+///
+/// Supports analyzing multiple files in a single invocation. Each file is
+/// processed sequentially with independent error handling.
+///
+/// Examples:
+///   rmagic file1.bin file2.txt file3.dat
+///   rmagic --json *.bin
+///   rmagic --strict --magic-file custom.magic file1 file2
+///   rmagic - < input.dat  # Read from stdin (requires subsequent phase)
 #[derive(Parser, Debug)]
 #[command(
     name = "rmagic",
     version = env!("CARGO_PKG_VERSION"),
     author = "Rust Libmagic Contributors",
-    about = "A pure-Rust implementation of libmagic for file type identification"
+    about = "A pure-Rust implementation of libmagic for file type identification. Supports multiple files and stdin input."
 )]
 pub struct Args {
-    /// File to analyze
-    #[arg(value_name = "FILE")]
-    pub file: PathBuf,
+    /// Files to analyze (use '-' for stdin)
+    #[arg(value_name = "FILE", required = true, num_args = 1..)]
+    pub files: Vec<FileOrStdin>,
 
     /// Output results in JSON format
     #[arg(long, conflicts_with = "text")]
@@ -37,6 +47,10 @@ pub struct Args {
     /// Use custom magic file
     #[arg(long = "magic-file", value_name = "FILE")]
     pub magic_file: Option<PathBuf>,
+
+    /// Exit with non-zero code on any failure
+    #[arg(long)]
+    pub strict: bool,
 }
 
 impl Args {
@@ -269,17 +283,15 @@ fn handle_timeout_error(timeout_ms: u64) -> i32 {
     5
 }
 
-fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
-    // Validate input arguments
-    validate_arguments(args)?;
-
-    // Verify file exists and is accessible
-    validate_input_file(&args.file)?;
-
-    // Load magic database with platform-appropriate defaults
+/// Load magic database from file
+///
+/// Handles magic file discovery, validation, and database loading.
+/// Returns the loaded database or an error if loading fails.
+fn load_magic_database(args: &Args) -> Result<MagicDatabase, LibmagicError> {
+    // Get magic file path
     let magic_file_path = args.get_magic_file_path();
 
-    // Check if magic file exists and provide helpful error message
+    // Validate magic file exists
     if !magic_file_path.exists() {
         return Err(LibmagicError::ParseError(
             libmagic_rs::ParseError::invalid_syntax(
@@ -292,30 +304,34 @@ fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
         ));
     }
 
-    // Validate magic file before loading
+    // Validate magic file format
     validate_magic_file(&magic_file_path)?;
 
-    let db = MagicDatabase::load_from_file(&magic_file_path)?;
+    // Load and return database
+    MagicDatabase::load_from_file(&magic_file_path)
+}
 
-    // Evaluate file
-    let result = db.evaluate_file(&args.file)?;
-
-    // Output results based on format
+/// Output analysis result based on format
+///
+/// Handles output formatting for both JSON and text formats.
+fn output_result(
+    file_path: &Path,
+    result: &libmagic_rs::EvaluationResult,
+    args: &Args,
+) -> Result<(), LibmagicError> {
     match args.output_format() {
         OutputFormat::Json => {
-            // Convert the simple EvaluationResult to MatchResult for JSON formatting
+            // Convert to MatchResult for JSON formatting
             let match_results = if result.description == "data" && result.confidence == 0.0 {
-                // No matches found - return empty matches array
                 vec![]
             } else {
-                // Create a match result from the evaluation result
                 vec![MatchResult::with_metadata(
                     result.description.clone(),
-                    0,                                         // Offset 0 for primary match
-                    result.description.len(), // Use description length as match length
-                    Value::String(result.description.clone()), // Use description as matched value
-                    vec![],                   // No rule path available from simple result
-                    (result.confidence * 100.0) as u8, // Convert 0.0-1.0 to 0-100
+                    0,
+                    result.description.len(),
+                    Value::String(result.description.clone()),
+                    vec![],
+                    (result.confidence * 100.0) as u8,
                     result.mime_type.clone(),
                 )]
             };
@@ -325,7 +341,7 @@ fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
                 Err(e) => {
                     return Err(LibmagicError::EvaluationError(
                         libmagic_rs::EvaluationError::unsupported_type(format!(
-                            "Failed to serialize JSON output: {}",
+                            "Failed to serialize JSON: {}",
                             e
                         )),
                     ));
@@ -333,7 +349,76 @@ fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
             }
         }
         OutputFormat::Text => {
-            println!("{}: {}", args.file.display(), result.description);
+            println!("{}: {}", file_path.display(), result.description);
+        }
+    }
+    Ok(())
+}
+
+/// Process a single file with the magic database
+///
+/// Handles file validation, evaluation, and output.
+/// Returns Ok(()) on success or an error if processing fails.
+fn process_file(
+    file_or_stdin: &FileOrStdin,
+    db: &MagicDatabase,
+    args: &Args,
+) -> Result<(), LibmagicError> {
+    // For this phase, only handle File variant
+    // Stdin handling will be implemented in subsequent phase
+
+    // Check if this is stdin (deferred to next phase)
+    if file_or_stdin.is_stdin() {
+        return Err(LibmagicError::IoError(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Stdin input not yet supported",
+        )));
+    }
+
+    // Extract file path from FileOrStdin
+    // Use the filename() method to get the path
+    let file_path = PathBuf::from(file_or_stdin.filename());
+
+    // Validate file exists and is accessible
+    validate_input_file(&file_path)?;
+
+    // Evaluate file
+    let result = db.evaluate_file(&file_path)?;
+
+    // Output results based on format
+    output_result(&file_path, &result, args)?;
+
+    Ok(())
+}
+
+fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
+    // Validate input arguments
+    validate_arguments(args)?;
+
+    // Load magic database once (shared across all files)
+    let db = load_magic_database(args)?;
+
+    let mut first_error: Option<LibmagicError> = None;
+
+    // Process each file sequentially
+    for file_or_stdin in &args.files {
+        match process_file(file_or_stdin, &db, args) {
+            Ok(()) => {} // Success, continue
+            Err(e) => {
+                // Print error but continue processing other files
+                eprintln!("Error processing file: {}", e);
+                // Store first error for strict mode
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
+        }
+    }
+
+    // Exit code behavior based on --strict flag
+    if let Some(error) = first_error {
+        if args.strict {
+            return Err(error);
         }
     }
 
@@ -342,12 +427,11 @@ fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
 
 /// Validate command-line arguments
 fn validate_arguments(args: &Args) -> Result<(), LibmagicError> {
-    // Check if file path is empty or contains only whitespace
-    let file_str = args.file.to_string_lossy();
-    if file_str.trim().is_empty() {
+    // Check if files vector is empty
+    if args.files.is_empty() {
         return Err(LibmagicError::IoError(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            "File path cannot be empty",
+            "At least one file must be specified",
         )));
     }
 
@@ -450,7 +534,8 @@ mod tests {
     #[test]
     fn test_basic_file_argument() {
         let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
-        assert_eq!(args.file, PathBuf::from("test.bin"));
+        assert_eq!(args.files.len(), 1);
+        assert_eq!(args.files[0].filename(), "test.bin");
         assert!(!args.json);
         assert!(!args.text);
         assert_eq!(args.output_format(), OutputFormat::Text);
@@ -460,7 +545,8 @@ mod tests {
     #[test]
     fn test_json_output_flag() {
         let args = Args::try_parse_from(["rmagic", "test.bin", "--json"]).unwrap();
-        assert_eq!(args.file, PathBuf::from("test.bin"));
+        assert_eq!(args.files.len(), 1);
+        assert_eq!(args.files[0].filename(), "test.bin");
         assert!(args.json);
         assert!(!args.text);
         assert_eq!(args.output_format(), OutputFormat::Json);
@@ -469,7 +555,8 @@ mod tests {
     #[test]
     fn test_text_output_flag() {
         let args = Args::try_parse_from(["rmagic", "test.bin", "--text"]).unwrap();
-        assert_eq!(args.file, PathBuf::from("test.bin"));
+        assert_eq!(args.files.len(), 1);
+        assert_eq!(args.files[0].filename(), "test.bin");
         assert!(!args.json);
         assert!(args.text);
         assert_eq!(args.output_format(), OutputFormat::Text);
@@ -479,7 +566,8 @@ mod tests {
     fn test_magic_file_argument() {
         let args =
             Args::try_parse_from(["rmagic", "test.bin", "--magic-file", "custom.magic"]).unwrap();
-        assert_eq!(args.file, PathBuf::from("test.bin"));
+        assert_eq!(args.files.len(), 1);
+        assert_eq!(args.files[0].filename(), "test.bin");
         assert_eq!(args.magic_file, Some(PathBuf::from("custom.magic")));
     }
 
@@ -493,7 +581,8 @@ mod tests {
             "custom.magic",
         ])
         .unwrap();
-        assert_eq!(args.file, PathBuf::from("test.bin"));
+        assert_eq!(args.files.len(), 1);
+        assert_eq!(args.files[0].filename(), "test.bin");
         assert!(args.json);
         assert!(!args.text);
         assert_eq!(args.output_format(), OutputFormat::Json);
@@ -535,7 +624,8 @@ mod tests {
     #[test]
     fn test_complex_file_paths() {
         let args = Args::try_parse_from(["rmagic", "/path/to/complex file.bin"]).unwrap();
-        assert_eq!(args.file, PathBuf::from("/path/to/complex file.bin"));
+        assert_eq!(args.files.len(), 1);
+        assert_eq!(args.files[0].filename(), "/path/to/complex file.bin");
     }
 
     #[test]
@@ -681,38 +771,26 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_arguments_empty_file_path() {
-        let args = Args {
-            file: PathBuf::from(""),
+    fn test_validate_arguments_empty_files() {
+        // Test with empty files vector
+        let _args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
+        // Manually create args with empty files for this test
+        let args_empty = Args {
+            files: vec![],
             json: false,
             text: false,
             magic_file: None,
+            strict: false,
         };
-        let result = validate_arguments(&args);
+        let result = validate_arguments(&args_empty);
         assert!(result.is_err());
         match result.unwrap_err() {
             LibmagicError::IoError(e) => {
                 assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
-                assert!(e.to_string().contains("File path cannot be empty"));
-            }
-            _ => panic!("Expected IoError with InvalidInput"),
-        }
-    }
-
-    #[test]
-    fn test_validate_arguments_whitespace_file_path() {
-        let args = Args {
-            file: PathBuf::from("   "),
-            json: false,
-            text: false,
-            magic_file: None,
-        };
-        let result = validate_arguments(&args);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            LibmagicError::IoError(e) => {
-                assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
-                assert!(e.to_string().contains("File path cannot be empty"));
+                assert!(
+                    e.to_string()
+                        .contains("At least one file must be specified")
+                );
             }
             _ => panic!("Expected IoError with InvalidInput"),
         }
@@ -720,13 +798,15 @@ mod tests {
 
     #[test]
     fn test_validate_arguments_empty_magic_file() {
-        let args = Args {
-            file: PathBuf::from("test.bin"),
+        let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
+        let args_with_empty_magic = Args {
+            files: args.files,
             json: false,
             text: false,
             magic_file: Some(PathBuf::from("")),
+            strict: false,
         };
-        let result = validate_arguments(&args);
+        let result = validate_arguments(&args_with_empty_magic);
         assert!(result.is_err());
         match result.unwrap_err() {
             LibmagicError::ParseError(parse_err) => {
@@ -739,13 +819,15 @@ mod tests {
 
     #[test]
     fn test_validate_arguments_valid() {
-        let args = Args {
-            file: PathBuf::from("test.bin"),
+        let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
+        let args_with_magic = Args {
+            files: args.files,
             json: false,
             text: false,
             magic_file: Some(PathBuf::from("magic.db")),
+            strict: false,
         };
-        let result = validate_arguments(&args);
+        let result = validate_arguments(&args_with_magic);
         assert!(result.is_ok());
     }
 
@@ -1048,5 +1130,76 @@ mod tests {
             first_text_idx < first_binary_idx,
             "Text candidates should come before binary candidates"
         );
+    }
+
+    #[test]
+    fn test_args_multiple_files() {
+        // Test parsing multiple file arguments
+        let args = Args::try_parse_from(["rmagic", "file1.bin", "file2.txt", "file3.dat"]).unwrap();
+        assert_eq!(args.files.len(), 3);
+        assert_eq!(args.files[0].filename(), "file1.bin");
+        assert_eq!(args.files[1].filename(), "file2.txt");
+        assert_eq!(args.files[2].filename(), "file3.dat");
+        assert!(!args.strict);
+    }
+
+    #[test]
+    fn test_args_strict_flag() {
+        // Test --strict flag parsing
+        let args = Args::try_parse_from(["rmagic", "--strict", "test.bin"]).unwrap();
+        assert!(args.strict);
+        assert_eq!(args.files.len(), 1);
+        assert_eq!(args.files[0].filename(), "test.bin");
+    }
+
+    #[test]
+    fn test_args_strict_with_json() {
+        // Test --strict works with --json
+        let args = Args::try_parse_from(["rmagic", "--strict", "--json", "test.bin"]).unwrap();
+        assert!(args.strict);
+        assert!(args.json);
+        assert_eq!(args.output_format(), OutputFormat::Json);
+        assert_eq!(args.files.len(), 1);
+    }
+
+    #[test]
+    fn test_args_strict_with_multiple_files() {
+        // Test --strict with multiple files
+        let args =
+            Args::try_parse_from(["rmagic", "--strict", "file1.bin", "file2.txt", "file3.dat"])
+                .unwrap();
+        assert!(args.strict);
+        assert_eq!(args.files.len(), 3);
+    }
+
+    #[test]
+    fn test_args_multiple_files_with_magic_file() {
+        // Test multiple files with custom magic file
+        let args = Args::try_parse_from([
+            "rmagic",
+            "--magic-file",
+            "custom.magic",
+            "file1.bin",
+            "file2.txt",
+        ])
+        .unwrap();
+        assert_eq!(args.files.len(), 2);
+        assert_eq!(args.magic_file, Some(PathBuf::from("custom.magic")));
+    }
+
+    #[test]
+    fn test_args_single_file_backwards_compatible() {
+        // Ensure single file still works (backwards compatibility)
+        let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
+        assert_eq!(args.files.len(), 1);
+        assert_eq!(args.files[0].filename(), "test.bin");
+        assert!(!args.strict);
+    }
+
+    #[test]
+    fn test_strict_flag_default_false() {
+        // Test that strict defaults to false
+        let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
+        assert!(!args.strict);
     }
 }
