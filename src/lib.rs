@@ -420,6 +420,36 @@ pub struct MagicDatabase {
 }
 
 impl MagicDatabase {
+    /// Create a database using built-in magic rules.
+    ///
+    /// This is a stub implementation to support the CLI --use-builtin flag.
+    /// It currently returns an empty rule set, which results in a "data" output
+    /// for all files and buffers. A full built-in rules implementation is
+    /// tracked separately and will embed compiled rules at build time.
+    ///
+    /// # Errors
+    ///
+    /// Currently always returns `Ok`. In future implementations, this may return
+    /// an error if the built-in rules fail to load or validate.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use libmagic_rs::MagicDatabase;
+    ///
+    /// let db = MagicDatabase::with_builtin_rules()?;
+    /// let result = db.evaluate_buffer(b"example")?;
+    /// assert_eq!(result.description, "data");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn with_builtin_rules() -> Result<Self> {
+        Ok(Self {
+            rules: Vec::new(),
+            config: EvaluationConfig::default(),
+            source_path: None,
+        })
+    }
+
     /// Load magic rules from a file
     ///
     /// # Arguments
@@ -618,6 +648,7 @@ pub struct EvaluationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn test_evaluation_config_default() {
@@ -887,5 +918,27 @@ mod tests {
             LibmagicError::EvaluationError(_) => (),
             _ => panic!("Expected EvaluationError variant"),
         }
+    }
+
+    #[test]
+    fn test_with_builtin_rules_stub() {
+        let db = MagicDatabase::with_builtin_rules().expect("builtin rules stub should load");
+        assert!(db.rules.is_empty());
+        assert!(db.source_path().is_none());
+
+        let temp_file = tempfile::Builder::new()
+            .prefix("libmagic_builtin_stub_test")
+            .suffix(".bin")
+            .tempfile()
+            .expect("failed to create temp file");
+        fs::write(temp_file.path(), b"sample").unwrap();
+
+        let file_result = db.evaluate_file(temp_file.path()).unwrap();
+        assert_eq!(file_result.description, "data");
+
+        let buffer_result = db.evaluate_buffer(b"buffer").unwrap();
+        assert_eq!(buffer_result.description, "data");
+
+        // temp_file is automatically cleaned up when it goes out of scope
     }
 }

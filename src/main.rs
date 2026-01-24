@@ -23,7 +23,12 @@ use std::process;
 ///   rmagic file1.bin file2.txt file3.dat
 ///   rmagic --json *.bin
 ///   rmagic --strict --magic-file custom.magic file1 file2
+///   rmagic --use-builtin file.bin
+///   rmagic --use-builtin --strict --json *.bin
 ///   rmagic - < input.dat  # Read from stdin
+///
+/// Note: The built-in rules implementation is currently a stub and will
+/// return "data" for all files until full built-in rules are added.
 #[derive(Parser, Debug)]
 #[command(
     name = "rmagic",
@@ -48,9 +53,21 @@ pub struct Args {
     #[arg(long = "magic-file", value_name = "FILE")]
     pub magic_file: Option<PathBuf>,
 
-    /// Exit with non-zero code on any failure
+    /// Exit with non-zero code on failures (I/O, parse, or evaluation errors).
+    ///
+    /// A "data" result is not considered an error and will not cause a non-zero
+    /// exit code. When using --use-builtin with the stub implementation, "data"
+    /// results are expected and remain success.
     #[arg(long)]
     pub strict: bool,
+
+    /// Use built-in magic rules instead of loading from file.
+    ///
+    /// Note: Built-in rules are currently a stub implementation that returns
+    /// "data" for all files. Full implementation is planned for a future release.
+    /// When provided alongside --magic-file, --use-builtin takes precedence.
+    #[arg(long)]
+    pub use_builtin: bool,
 }
 
 impl Args {
@@ -288,6 +305,10 @@ fn handle_timeout_error(timeout_ms: u64) -> i32 {
 /// Handles magic file discovery, validation, and database loading.
 /// Returns the loaded database or an error if loading fails.
 fn load_magic_database(args: &Args) -> Result<MagicDatabase, LibmagicError> {
+    if args.use_builtin {
+        return MagicDatabase::with_builtin_rules();
+    }
+
     // Get magic file path
     let magic_file_path = args.get_magic_file_path();
 
@@ -459,13 +480,15 @@ fn validate_arguments(args: &Args) -> Result<(), LibmagicError> {
         )));
     }
 
-    // Validate custom magic file path if provided
-    if let Some(ref magic_file) = args.magic_file {
-        let magic_str = magic_file.to_string_lossy();
-        if magic_str.trim().is_empty() {
-            return Err(LibmagicError::ParseError(
-                libmagic_rs::ParseError::invalid_syntax(0, "Magic file path cannot be empty"),
-            ));
+    // Validate custom magic file path if provided and not using built-in rules
+    if !args.use_builtin {
+        if let Some(ref magic_file) = args.magic_file {
+            let magic_str = magic_file.to_string_lossy();
+            if magic_str.trim().is_empty() {
+                return Err(LibmagicError::ParseError(
+                    libmagic_rs::ParseError::invalid_syntax(0, "Magic file path cannot be empty"),
+                ));
+            }
         }
     }
 
@@ -929,6 +952,7 @@ mod tests {
             text: false,
             magic_file: None,
             strict: false,
+            use_builtin: false,
         };
         let result = validate_arguments(&args_empty);
         assert!(result.is_err());
@@ -953,6 +977,7 @@ mod tests {
             text: false,
             magic_file: Some(PathBuf::from("")),
             strict: false,
+            use_builtin: false,
         };
         let result = validate_arguments(&args_with_empty_magic);
         assert!(result.is_err());
@@ -974,6 +999,7 @@ mod tests {
             text: false,
             magic_file: Some(PathBuf::from("magic.db")),
             strict: false,
+            use_builtin: false,
         };
         let result = validate_arguments(&args_with_magic);
         assert!(result.is_ok());
@@ -1298,6 +1324,51 @@ mod tests {
         assert!(args.strict);
         assert_eq!(args.files.len(), 1);
         assert_eq!(args.files[0].filename(), "test.bin");
+    }
+
+    #[test]
+    fn test_use_builtin_flag_parsing() {
+        let args = Args::try_parse_from(["rmagic", "--use-builtin", "test.bin"]).unwrap();
+        assert!(args.use_builtin);
+        assert_eq!(args.files.len(), 1);
+        assert_eq!(args.files[0].filename(), "test.bin");
+    }
+
+    #[test]
+    fn test_use_builtin_with_strict() {
+        let args =
+            Args::try_parse_from(["rmagic", "--use-builtin", "--strict", "test.bin"]).unwrap();
+        assert!(args.use_builtin);
+        assert!(args.strict);
+        assert_eq!(args.files.len(), 1);
+    }
+
+    #[test]
+    fn test_use_builtin_with_json() {
+        let args = Args::try_parse_from(["rmagic", "--use-builtin", "--json", "test.bin"]).unwrap();
+        assert!(args.use_builtin);
+        assert!(args.json);
+        assert_eq!(args.output_format(), OutputFormat::Json);
+    }
+
+    #[test]
+    fn test_use_builtin_with_magic_file() {
+        let args = Args::try_parse_from([
+            "rmagic",
+            "--use-builtin",
+            "--magic-file",
+            "custom.magic",
+            "test.bin",
+        ])
+        .unwrap();
+        assert!(args.use_builtin);
+        assert_eq!(args.magic_file, Some(PathBuf::from("custom.magic")));
+    }
+
+    #[test]
+    fn test_use_builtin_default_false() {
+        let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
+        assert!(!args.use_builtin);
     }
 
     #[test]
