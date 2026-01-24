@@ -19,28 +19,29 @@ libmagic-rs is a clean-room implementation of the libmagic library, written enti
 ### What's Complete
 
 - ✅ **Core AST Structures**: Complete data model for magic rules with full serialization
-- ✅ **Magic File Parser**: Full rule parsing with hierarchical structure, comments, and continuations
-- ✅ **Rule Evaluation Engine**: Offset resolution, type interpretation, and comparison operators
+- ✅ **Magic File Parser**: Full text magic file parsing with hierarchical structure, comments, continuations, and `parse_text_magic_file()` API
+- ✅ **Format Detection**: Automatic detection of text files, directories (Magdir), and binary .mgc files with helpful error messages
+- ✅ **Rule Evaluation Engine**: Complete hierarchical evaluation with offset resolution, type interpretation, comparison operators, and graceful error recovery
 - ✅ **Memory-Mapped I/O**: FileBuffer implementation with memmap2 and comprehensive safety
-- ✅ **CLI Framework**: Command-line interface with clap and basic file handling
+- ✅ **CLI Framework**: Command-line interface with clap, multiple output formats, and magic file discovery
 - ✅ **Project Infrastructure**: Build system, strict linting, and comprehensive testing
-- ✅ **Extensive Test Coverage**: 200+ comprehensive unit tests covering all modules
+- ✅ **Extensive Test Coverage**: 650+ comprehensive tests covering all modules
 - ✅ **Memory Safety**: Zero unsafe code with comprehensive bounds checking
 - ✅ **Error Handling**: Structured error types with graceful degradation
 - ✅ **Code Quality**: Strict clippy linting with zero-warnings policy
 
 ### What's In Progress
 
-- 🔄 **Indirect Offset Support**: Complex offset indirection patterns
-- 🔄 **Output Formatters**: Text and JSON result formatting with metadata
-- 🔄 **MIME Type Mapping**: Standard MIME type detection
+- 🔄 **Indirect Offset Support**: Complex offset indirection patterns (e.g., pointer dereferencing)
+- 🔄 **MIME Type Mapping**: Standard MIME type detection and mapping
+- 🔄 **Strength Calculation**: Rule priority scoring for match ordering
 
 ### Next Milestones
 
+- 📋 **Binary .mgc Support**: Compiled magic database format (Phase 2)
 - 📋 **Rule Caching**: Pre-compiled magic database support
 - 📋 **Parallel Evaluation**: Multi-file processing support
 - 📋 **Extended Type Support**: Additional magic types (regex, date, etc.)
-- 📋 **Integration Testing**: End-to-end workflow validation with canonical tests
 
 ## Why Rust?
 

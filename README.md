@@ -7,39 +7,37 @@ A pure-Rust implementation of libmagic, the library that powers the `file` comma
 
 ## Project Status
 
-🚧 **Active Development** - Core parsing infrastructure is complete with comprehensive testing. The project has a solid foundation with extensive test coverage and strict code quality enforcement.
+**Active Development (Phase 1 MVP)** - The core file identification pipeline is functional. You can identify common file types using text magic files today.
 
 **Current Metrics:**
 
-- 📊 **3,093 lines of Rust code** across 8 source files
-- ✅ **98 unit tests** with comprehensive coverage
-- 🔒 **Zero unsafe code** with memory safety guarantees
-- 📋 **Zero warnings** with strict clippy linting
+- 17,000+ lines of Rust code
+- 650+ tests with comprehensive coverage
+- Zero unsafe code with memory safety guarantees
+- Zero warnings with strict clippy linting
 
-### Completed Features
+### What Works Today
 
-- ✅ **Core AST data structures** (`OffsetSpec`, `TypeKind`, `Operator`, `Value`, `MagicRule`)
-- ✅ **Magic file parser components** (numbers, offsets, operators, values with nom)
-- ✅ **Memory-mapped file I/O** (FileBuffer with memmap2, bounds checking, error handling)
-- ✅ **Comprehensive serialization** support with serde for all data types
-- ✅ **CLI framework** with clap argument parsing and basic file handling
-- ✅ **Project infrastructure** with strict linting, formatting, and quality controls
-- ✅ **Extensive test coverage** for parser, AST, and I/O components
-- ✅ **Memory safety** with zero unsafe code and comprehensive bounds checking
-- ✅ **Error handling** with structured error types and proper propagation
+- **File type identification** - Identify files using text magic file databases
+- **Text and JSON output** - Both output formats supported via `--json` flag
+- **Custom magic files** - Use `--magic-file` to specify your own rules
+- **Memory-mapped I/O** - Efficient file reading with bounds checking
+- **Hierarchical rule matching** - Full nested rule evaluation
+- **Platform detection** - Automatic magic file discovery on Unix systems
 
-### In Progress
+### In Progress (Phase 1 Completion)
 
-- 🔄 **Complete magic file parser** (rule parsing and hierarchical structure)
-- 🔄 **Rule evaluation engine** (offset resolution, type interpretation, operators)
-- 🔄 **Output formatters** (text and JSON result formatting)
+- Multiple file support - Process multiple files in one command
+- Stdin input - Pipe data via `rmagic -`
+- Built-in fallback rules - Work without external magic files via `--use-builtin`
+- Magdir directory loading - Load all files from a magic directory
+- Compatibility testing - Validation against GNU `file` command output
 
-### Next Milestones
+### Phase 1 Goals
 
-- 📋 **Parser completion** - Full magic file syntax support with error handling
-- 📋 **Basic evaluator** - Simple rule evaluation against file buffers
-- 📋 **Output formatting** - Text and JSON formatters for evaluation results
-- 📋 **Integration testing** - End-to-end workflow validation
+- 95%+ compatibility with GNU `file` for common file types
+- >85% test coverage across all modules
+- Complete documentation with rustdoc and mdbook site
 
 ## Overview
 
@@ -55,12 +53,13 @@ libmagic-rs is designed to replace libmagic with a safe, efficient Rust implemen
 
 ### Core Capabilities
 
-- Parse magic files (DSL for byte-level file type detection)
+- Parse text magic files (DSL for byte-level file type detection)
 - Evaluate magic rules against file buffers to identify file types
-- Support for absolute, indirect, and relative offset specifications
-- Multiple data types: byte, short, long, string, regex patterns
+- Absolute offset specifications (indirect/relative in Phase 2)
+- Multiple data types: byte, short, long, quad, string
 - Hierarchical rule evaluation with proper nesting
 - Memory-mapped file I/O for efficient processing
+- Confidence scoring based on match depth
 
 ### Output Formats
 
@@ -102,7 +101,7 @@ ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/libmagic-rs.git
+git clone https://github.com/EvilBit-Labs/libmagic-rs.git
 cd libmagic-rs
 
 # Build the project
@@ -118,45 +117,39 @@ cargo test
 # Basic file identification
 ./target/release/rmagic file.bin
 
-# JSON output
+# JSON output with metadata
 ./target/release/rmagic file.bin --json
 
 # Use custom magic file
 ./target/release/rmagic file.bin --magic-file custom.magic
-
-# Multiple files
-./target/release/rmagic file1.bin file2.exe file3.pdf
 ```
+
+> [!NOTE]
+> Multiple file support (`rmagic file1.bin file2.bin`) and stdin input (`cat file | rmagic -`) are planned for Phase 1 completion.
 
 ### Library Usage
 
 ```rust
-use libmagic_rs::{MagicDatabase, EvaluationConfig};
+use libmagic_rs::MagicDatabase;
 
-// Load magic rules (API ready, implementation in progress)
-let db = MagicDatabase::load_from_file("magic/standard.magic")?;
+// Load magic rules from a text magic file
+let db = MagicDatabase::load_from_file("/usr/share/misc/magic")?;
 
-// Configure evaluation behavior
-let config = EvaluationConfig {
-    max_recursion_depth: 10,
-    max_string_length: 8192,
-    stop_at_first_match: true,
-};
-
-// Identify file type (API ready, implementation in progress)
+// Identify file type
 let result = db.evaluate_file("example.bin")?;
 println!("File type: {}", result.description);
+println!("Confidence: {:.0}%", result.confidence * 100.0);
 
-// Parse individual magic rule components (currently working)
-use libmagic_rs::parser::{parse_number, parse_offset, parse_value};
-
-let offset = parse_offset("0x10")?;  // OffsetSpec::Absolute(16)
-let value = parse_value("\"ELF\"")?;  // Value::String("ELF".to_string())
-let number = parse_number("-0xFF")?; // -255
+// Or evaluate an in-memory buffer
+let buffer = std::fs::read("example.bin")?;
+let result = db.evaluate_buffer(&buffer)?;
+if let Some(mime) = result.mime_type {
+    println!("MIME type: {}", mime);
+}
 ```
 
 > [!NOTE]
-> The high-level API is designed and ready, with core parsing components fully functional. File evaluation is the next major milestone.
+> The library currently supports text-format magic files. Binary `.mgc` format support is planned for Phase 2, following the proven OpenBSD approach of parsing text format directly.
 
 ## Architecture
 
@@ -171,17 +164,18 @@ Target File → Memory Mapper → File Buffer
 ### Core Modules
 
 - **Parser** (`src/parser/`): Magic file DSL parsing into Abstract Syntax Tree
-  - `ast.rs`: Core AST data structures (✅ Complete with comprehensive tests)
-  - `grammar.rs`: nom-based parsing components (✅ Numbers, offsets, operators, values)
-  - `mod.rs`: Parser interface and coordination (🔄 Rule parsing in progress)
-- **Evaluator** (`src/evaluator/`): Rule evaluation engine (📋 Planned)
-  - Offset resolution (absolute, indirect, relative)
+  - `ast.rs`: Core AST data structures
+  - `grammar.rs`: nom-based parsing components
+  - `mod.rs`: Parser interface with text magic file support
+- **Evaluator** (`src/evaluator/`): Rule evaluation engine
+  - Offset resolution (absolute offsets supported, indirect in Phase 2)
   - Type interpretation with endianness handling
   - Comparison and bitwise operations
-- **Output** (`src/output/`): Result formatting (📋 Planned)
+  - Confidence scoring based on match depth
+- **Output** (`src/output/`): Result formatting
   - Text formatter (GNU `file` compatible)
   - JSON formatter with metadata
-- **IO** (`src/io/`): File access utilities (✅ Complete)
+- **IO** (`src/io/`): File access utilities
   - Memory-mapped file buffers with FileBuffer
   - Safe bounds checking with comprehensive error handling
   - Resource management with RAII patterns
@@ -250,7 +244,7 @@ cargo check
 ### Testing
 
 ```bash
-# Run all tests (currently 79 passing unit tests)
+# Run all tests (650+ tests)
 cargo test
 
 # Run with nextest (faster test runner)
@@ -263,24 +257,19 @@ cargo test parser::ast::tests
 # Test with coverage reporting
 cargo llvm-cov --html
 
-# Run integration tests (planned)
-cargo test --test integration
-
-# Run compatibility tests against original file project (planned)
+# Run compatibility tests against GNU file
 cargo test --test compatibility
 ```
 
 **Current Test Coverage:**
 
-- ✅ **98 comprehensive unit tests** covering AST structures and parser components
-- ✅ **Parser component testing** for numbers, offsets, operators, values with escape sequences
-- ✅ **I/O module testing** for FileBuffer, bounds checking, and comprehensive error handling
-- ✅ **Serialization testing** for all data structures with edge cases
-- ✅ **Edge case handling** with boundary value testing and overflow protection
-- ✅ **Error handling validation** for all error types and failure scenarios
-- ✅ **Memory safety validation** with bounds checking and resource management
-- 📋 **Integration tests** planned for complete workflows
-- 📋 **Compatibility tests** planned against GNU `file` command
+- 650+ tests covering parser, evaluator, I/O, and CLI components
+- Parser testing for numbers, offsets, operators, values, and rule hierarchies
+- Evaluator testing for rule matching and confidence scoring
+- I/O testing for FileBuffer, memory mapping, and error handling
+- CLI testing for argument parsing and output formatting
+- Compatibility testing against GNU `file` command output
+- Target: >85% test coverage for Phase 1 completion
 
 ### Compatibility Testing
 
@@ -330,17 +319,21 @@ libmagic-rs/
 
 ## Performance
 
-The implementation is optimized for performance with:
+The implementation includes:
 
 - **Memory-mapped I/O**: Efficient file access without loading entire files
 - **Zero-copy operations**: Minimize allocations during evaluation
-- **Aho-Corasick indexing**: Fast multi-pattern string search
-- **Rule caching**: Compiled magic rules for repeated use
 - **Early termination**: Stop evaluation at first match when appropriate
+
+**Planned optimizations (Phase 2+):**
+
+- Aho-Corasick indexing for fast multi-pattern string search
+- Compiled rule caching for repeated use
+- Performance benchmarking against libmagic
 
 ### Benchmarks
 
-Performance targets:
+Performance targets (Phase 3):
 
 - Match or exceed libmagic performance within 10%
 - Memory usage comparable to libmagic
@@ -350,20 +343,40 @@ Performance targets:
 
 ### Magic File Support
 
-- Standard magic file syntax (offsets, types, operators)
-- Hierarchical rule nesting with indentation
+**Supported (Phase 1):**
+
+- Text magic file format (the stable, documented format)
+- Hierarchical rule nesting with indentation levels
+- Absolute offset specifications
+- Core types: byte, short, long, quad, string
+- Core operators: `=`, `!=`, `&`, `<`, `>`
 - Endianness handling for multi-byte types
-- String matching and regex patterns
+- Magdir-style directory loading
+
+**Phase 2:**
+
+- Binary `.mgc` compiled format
 - Indirect offset resolution
+- Regex patterns
+
+### Text-First Approach
+
+libmagic-rs follows the **OpenBSD approach**: parse text magic files directly, prioritizing simplicity and correctness over binary format complexity. This is the same strategy used by OpenBSD's `file` implementation and other successful reimplementations like PolyFile.
+
+**Why text format first?**
+
+- Text magic format is stable across libmagic versions
+- Binary `.mgc` has version lock-in issues (format changes between releases)
+- Simpler codebase (~1,500 lines vs ~3,000 for binary parsing)
+- Easier debugging and testing
 
 ### Migration from libmagic
 
 The library provides a migration path from C-based libmagic:
 
 - Similar API patterns where possible
-- Comprehensive migration guide in documentation
 - Compatibility testing with GNU `file` command results
-- Performance parity validation
+- Text magic files work unchanged from system installations
 
 ## Security
 
@@ -399,39 +412,53 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ### Phase 1: MVP (v0.1) - Current Focus
 
+**Core Infrastructure (Complete):**
+
 - [x] Core AST data structures with comprehensive serialization
-- [x] Parser components (numbers, offsets, operators, values)
-- [x] Memory-mapped file I/O with FileBuffer and safety guarantees
-- [x] Basic CLI interface framework with clap
-- [x] Project structure and build system with strict quality controls
-- [x] Comprehensive error handling with structured error types
-- [ ] Complete magic file parser (rule integration)
-- [ ] Basic rule evaluation engine
-- [ ] Text and JSON output formatters
+- [x] Magic file parser for text format with hierarchical rules
+- [x] Rule evaluation engine with confidence scoring
+- [x] Memory-mapped file I/O with FileBuffer
+- [x] Text and JSON output formatters
+- [x] CLI with `--json` and `--magic-file` flags
+- [x] Comprehensive error handling
+
+**In Progress:**
+
+- [ ] Multiple file support in CLI
+- [ ] Stdin input support (`rmagic -`)
+- [ ] Built-in fallback rules (`--use-builtin`)
+- [ ] Magdir directory loading (load all files from `/usr/share/file/magic/Magdir/`)
+- [ ] Strength calculation (libmagic's `!:strength` parsing)
+- [ ] Complete rustdoc and mdbook documentation
+
+**Success Criteria:**
+
+- 95%+ compatibility with GNU `file` for common types (ELF, PE, ZIP, JPEG, PNG, PDF)
+- >85% test coverage
 
 ### Phase 2: Enhanced Features (v0.2)
 
+- [ ] Binary `.mgc` format support (deferred per OpenBSD approach)
 - [ ] Indirect offset resolution
-- [ ] String type support with encoding
-- [ ] JSON output formatter
-- [ ] Compiled rule caching
+- [ ] Regex support with binary-safe matching
+- [ ] Compiled rule caching for faster startup
 - [ ] Additional operators and type support
+- [ ] Aho-Corasick string indexing
 
 ### Phase 3: Performance & Compatibility (v0.3)
 
-- [ ] Regex support with binary-safe matching
-- [ ] Performance optimizations
+- [ ] Performance optimizations and benchmarking
 - [ ] Full libmagic syntax compatibility
-- [ ] Comprehensive test suite
-- [ ] MIME type mapping
+- [ ] PE/Mach-O/ELF format-specific detection
+- [ ] Go build info extraction
 
 ### Phase 4: Production Ready (v1.0)
 
-- [ ] Stable API
-- [ ] Complete documentation
-- [ ] Migration guide
+- [ ] Stable API with semver guarantees
+- [ ] Migration guide from C libmagic
 - [ ] Performance parity validation
 - [ ] Fuzzing and security testing
+- [ ] crates.io publication
 
 ## Support
 

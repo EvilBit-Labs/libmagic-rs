@@ -45,11 +45,8 @@ cargo build
 
 ### CLI Usage
 
-> [!NOTE]
-> The CLI is currently a placeholder implementation. Full functionality is coming soon.
-
 ```bash
-# Basic file identification (placeholder output)
+# Basic file identification
 ./target/release/rmagic example.bin
 
 # JSON output format
@@ -68,9 +65,6 @@ README.md: data
 
 ### Library Usage
 
-> [!NOTE]
-> The library API is currently a placeholder. Full implementation is in progress.
-
 Add libmagic-rs to your `Cargo.toml`:
 
 ```toml
@@ -84,10 +78,10 @@ Basic usage example:
 use libmagic_rs::{EvaluationConfig, LibmagicError, MagicDatabase};
 
 fn main() -> Result<(), LibmagicError> {
-    // Load magic rules (placeholder - returns empty database)
+    // Load magic rules from a magic file or directory
     let db = MagicDatabase::load_from_file("magic.db")?;
 
-    // Evaluate a file (placeholder - returns "data")
+    // Evaluate a file against the loaded rules
     let result = db.evaluate_file("example.bin")?;
 
     println!("File type: {}", result.description);
@@ -123,7 +117,7 @@ libmagic-rs/
 │   │   ├── operators.rs    # Comparison operators ✅ Complete
 │   │   └── types.rs        # Type interpretation ✅ Complete
 │   ├── output/
-│   │   └── mod.rs          # Output formatting (placeholder)
+│   │   └── mod.rs          # Output formatting
 │   └── io/
 │       └── mod.rs          # Memory-mapped I/O ✅ Complete
 ├── tests/                  # Integration tests
@@ -285,7 +279,7 @@ cargo clippy -- -D warnings
 # Verify documentation builds
 cargo doc
 
-# Test CLI (placeholder functionality)
+# Test CLI
 cargo run -- README.md
 ```
 

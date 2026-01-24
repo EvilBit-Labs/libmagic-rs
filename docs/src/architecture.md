@@ -48,14 +48,15 @@ The parser is responsible for converting magic files (text-based DSL) into an Ab
 **Key Files:**
 
 - `ast.rs`: Core data structures representing magic rules (✅ Complete)
-- `grammar.rs`: nom-based parsing components for magic file syntax (✅ Partial)
-- `mod.rs`: Parser interface and coordination (🔄 In development)
+- `grammar.rs`: nom-based parsing components for magic file syntax (✅ Complete)
+- `mod.rs`: Parser interface, format detection, and hierarchical rule building (✅ Complete)
 
 **Responsibilities:**
 
-- Parse magic file syntax into structured data (✅ Components implemented)
-- Handle hierarchical rule relationships (🔄 In development)
-- Validate syntax and report meaningful errors (✅ Basic validation)
+- Parse magic file syntax into structured data (✅ Complete)
+- Handle hierarchical rule relationships (✅ Complete)
+- Validate syntax and report meaningful errors (✅ Complete)
+- Detect file format (text, directory, binary) (✅ Complete)
 - Support incremental parsing for large magic databases (📋 Planned)
 
 **Current Implementation Status:**
@@ -65,8 +66,11 @@ The parser is responsible for converting magic files (text-based DSL) into an Ab
 - ✅ **Operator parsing**: Equality, inequality, and bitwise AND operators
 - ✅ **Value parsing**: Strings, numbers, and hex byte sequences with escape sequences
 - ✅ **Error handling**: Comprehensive nom error handling with meaningful messages
-- 🔄 **Rule parsing**: Integration of components into complete rule parser
-- 📋 **File parsing**: Complete magic file parsing with hierarchical rules
+- ✅ **Rule parsing**: Complete rule parsing via `parse_magic_rule()`
+- ✅ **File parsing**: Complete magic file parsing with `parse_text_magic_file()`
+- ✅ **Hierarchy building**: Parent-child relationships via `build_rule_hierarchy()`
+- ✅ **Format detection**: Text, directory, and binary format detection
+- 📋 **Indirect offsets**: Pointer dereferencing patterns
 
 ### 2. AST Data Structures (`src/parser/ast.rs`)
 
@@ -95,21 +99,25 @@ pub struct MagicRule {
 
 ### 3. Evaluator Module (`src/evaluator/`)
 
-The evaluator executes magic rules against file buffers to identify file types.
+The evaluator executes magic rules against file buffers to identify file types. (✅ Complete)
 
-**Planned Structure:**
+**Structure:**
 
-- `mod.rs`: Main evaluation engine and coordination
-- `offset.rs`: Offset resolution (absolute, indirect, relative)
+- `mod.rs`: Main evaluation engine with `EvaluationContext` and `MatchResult`
+- `offset.rs`: Offset resolution (absolute, relative, from-end)
 - `types.rs`: Type interpretation with endianness handling
 - `operators.rs`: Comparison and bitwise operations
 
-**Key Features:**
+**Implemented Features:**
 
-- **Hierarchical Evaluation**: Parent rules must match before children
-- **Lazy Evaluation**: Only process rules when necessary
-- **Bounds Checking**: Safe buffer access with overflow protection
-- **Context Preservation**: Maintain state across rule evaluations
+- ✅ **Hierarchical Evaluation**: Parent rules must match before children
+- ✅ **Lazy Evaluation**: Only process rules when necessary
+- ✅ **Bounds Checking**: Safe buffer access with overflow protection
+- ✅ **Context Preservation**: Maintain state across rule evaluations
+- ✅ **Graceful Degradation**: Skip problematic rules, continue evaluation
+- ✅ **Timeout Protection**: Configurable time limits
+- ✅ **Recursion Limiting**: Prevent stack overflow from deep nesting
+- 📋 **Indirect Offsets**: Pointer dereferencing (planned)
 
 ### 4. I/O Module (`src/io/`)
 
@@ -234,21 +242,44 @@ fn read_bytes(buffer: &[u8], offset: usize, length: usize) -> Option<&[u8]> {
 
 ### Error Handling Strategy
 
-The library uses Result types throughout:
+The library uses Result types with nested error enums throughout:
 
 ```rust
 pub type Result<T> = std::result::Result<T, LibmagicError>;
 
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum LibmagicError {
-    #[error("Parse error at line {line}: {message}")]
-    ParseError { line: usize, message: String },
+    #[error("Parse error: {0}")]
+    ParseError(#[from] ParseError),
 
     #[error("Evaluation error: {0}")]
-    EvaluationError(String),
+    EvaluationError(#[from] EvaluationError),
 
-    #[error("IO error: {0}")]
+    #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
+
+    #[error("Evaluation timeout exceeded after {timeout_ms}ms")]
+    Timeout { timeout_ms: u64 },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ParseError {
+    #[error("Invalid syntax at line {line}: {message}")]
+    InvalidSyntax { line: usize, message: String },
+
+    #[error("Unsupported format at line {line}: {format_type}")]
+    UnsupportedFormat { line: usize, format_type: String, message: String },
+    // ... additional variants
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum EvaluationError {
+    #[error("Buffer overrun at offset {offset}")]
+    BufferOverrun { offset: usize },
+
+    #[error("Recursion limit exceeded (depth: {depth})")]
+    RecursionLimitExceeded { depth: u32 },
+    // ... additional variants
 }
 ```
 

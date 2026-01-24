@@ -1,105 +1,313 @@
 # Evaluator Engine
 
-> [!NOTE]
-> The evaluator is currently in development. This documentation describes the planned implementation.
-
-The evaluator engine executes magic rules against file buffers to identify file types. It's designed for safety, performance, and accuracy.
+The evaluator engine executes magic rules against file buffers to identify file types. It provides safe, efficient rule evaluation with hierarchical processing, graceful error recovery, and configurable resource limits.
 
 ## Overview
 
 The evaluator processes magic rules hierarchically:
 
 1. **Load file** into memory-mapped buffer
-2. **Resolve offsets** (absolute, indirect, relative)
+2. **Resolve offsets** (absolute, relative, from-end)
 3. **Read typed values** from buffer with bounds checking
 4. **Apply operators** for comparison
-5. **Collect results** and format output
+5. **Process children** if parent rule matches
+6. **Collect results** with match metadata
 
 ## Architecture
 
 ```text
 File Buffer → Offset Resolution → Type Reading → Operator Application → Results
-     ↑              ↑                  ↑              ↑
-Memory Map    Context State      Endian Handling   Match Logic
+     ↑              ↑                  ↑              ↑                    ↑
+Memory Map    Context State      Endian Handling   Match Logic      Hierarchical
 ```
 
-## Core Components (Planned)
+## Core Components
+
+### EvaluationContext (`evaluator/mod.rs`)
+
+Maintains state during rule processing:
+
+```rust
+pub struct EvaluationContext {
+    /// Current offset position for relative calculations
+    current_offset: usize,
+    /// Current recursion depth for safety limits
+    recursion_depth: u32,
+    /// Configuration for evaluation behavior
+    config: EvaluationConfig,
+}
+```
+
+Note: Fields are private; use accessor methods like `current_offset()`, `recursion_depth()`, and `config()`.
+
+**Key Methods:**
+
+- `new()` - Create context with default configuration
+- `with_config()` - Create context with custom configuration
+- `check_timeout()` - Verify evaluation hasn't exceeded time limit
+- `increment_depth()` / `decrement_depth()` - Track recursion safely
+
+### MatchResult (`evaluator/mod.rs`)
+
+Represents a successful rule match:
+
+```rust
+pub struct MatchResult {
+    /// Human-readable description from the matched rule
+    pub message: String,
+    /// Offset where the match occurred
+    pub offset: usize,
+    /// Depth in the rule hierarchy (0 = root rule)
+    pub level: u32,
+    /// The matched value (parsed according to rule type)
+    pub value: Value,
+}
+```
+
+The `Value` type is from `parser::ast::Value` and represents the actual matched content according to the rule's type specification.
 
 ### Offset Resolution (`evaluator/offset.rs`)
 
 Handles all offset types safely:
 
-- **Absolute offsets**: Direct file positions
-- **Indirect offsets**: Pointer dereferencing with bounds checking
-- **Relative offsets**: Based on previous match positions
-- **From-end offsets**: Calculated from file size
+- **Absolute offsets**: Direct file positions (`0`, `0x100`)
+- **Relative offsets**: Based on previous match positions (`&+4`)
+- **From-end offsets**: Calculated from file size (`-4` from end)
+- **Bounds checking**: All offset calculations are validated
+
+```rust
+pub fn resolve_offset(
+    spec: &OffsetSpec,
+    buffer: &[u8],
+    context: &EvaluationContext,
+) -> Result<usize, EvaluationError>
+```
 
 ### Type Reading (`evaluator/types.rs`)
 
 Interprets bytes according to type specifications:
 
-- **Numeric types**: Byte, short, long with endianness
-- **String types**: Null-terminated with length limits
-- **Binary data**: Raw byte sequences
+- **Byte**: Single byte values
+- **Short**: 16-bit integers with endianness
+- **Long**: 32-bit integers with endianness
+- **String**: Byte sequences with length limits
 - **Bounds checking**: Prevents buffer overruns
+
+```rust
+pub fn read_type_value(
+    buffer: &[u8],
+    offset: usize,
+    type_kind: &TypeKind,
+) -> Result<TypeValue, TypeReadError>
+```
 
 ### Operator Application (`evaluator/operators.rs`)
 
 Applies comparison operations:
 
-- **Equality**: Exact value matching
-- **Inequality**: Non-matching values
-- **Bitwise AND**: Pattern matching for flags
+- **Equal** (`=`, `==`): Exact value matching
+- **NotEqual** (`!=`, `<>`): Non-matching values
+- **BitwiseAnd** (`&`): Pattern matching for flags
+- **BitwiseAndMask**: AND with mask then compare
 
-### Evaluation Context
+```rust
+pub fn apply_operator(
+    op: &Operator,
+    actual: &TypeValue,
+    expected: &Value,
+) -> bool
+```
 
-Maintains state during rule processing:
+## Evaluation Algorithm
 
-- **Current position**: For relative offsets
-- **Recursion depth**: Prevents infinite loops
-- **Match history**: For debugging and optimization
+The evaluator uses a depth-first hierarchical algorithm:
+
+```rust
+pub fn evaluate_rules(
+    rules: &[MagicRule],
+    buffer: &[u8],
+) -> Result<Vec<MatchResult>, EvaluationError>
+```
+
+**Algorithm:**
+
+1. For each root rule:
+   - Resolve offset from buffer
+   - Read value at offset according to type
+   - Apply operator to compare actual vs expected
+   - If match: add to results, recursively evaluate children
+   - If no match: skip children, continue to next rule
+
+2. Child rules inherit context from parent match
+3. Results accumulate hierarchically (parent message + child details)
+
+### Hierarchical Processing
+
+```mermaid
+flowchart TD
+    R[Root Rule<br/>e.g., "0 string \x7fELF"]
+    R -->|match| C1[Child Rule 1<br/>e.g., ">4 byte 1"]
+    R -->|match| C2[Child Rule 2<br/>e.g., ">4 byte 2"]
+    C1 -->|match| G1[Result:<br/>ELF 32-bit]
+    C2 -->|match| G2[Result:<br/>ELF 64-bit]
+
+    style R fill:#e3f2fd
+    style C1 fill:#fff3e0
+    style C2 fill:#fff3e0
+    style G1 fill:#c8e6c9
+    style G2 fill:#c8e6c9
+```
+
+## Configuration
+
+Evaluation behavior is controlled via `EvaluationConfig`:
+
+```rust
+pub struct EvaluationConfig {
+    /// Maximum recursion depth for nested rules (default: 20)
+    pub max_recursion_depth: u32,
+    /// Maximum string length to read (default: 8192)
+    pub max_string_length: usize,
+    /// Stop at first match or continue for all matches (default: true)
+    pub stop_at_first_match: bool,
+    /// Enable MIME type mapping in results (default: false)
+    pub enable_mime_types: bool,
+    /// Timeout for evaluation in milliseconds (default: None)
+    pub timeout_ms: Option<u64>,
+}
+```
+
+**Preset Configurations:**
+
+```rust
+// Default balanced configuration
+let config = EvaluationConfig::default();
+
+// Optimized for speed
+let config = EvaluationConfig::performance();
+
+// Find all matches with full details
+let config = EvaluationConfig::comprehensive();
+```
 
 ## Safety Features
 
 ### Memory Safety
 
-- **Bounds checking**: All buffer access is validated
-- **Integer overflow protection**: Safe arithmetic operations
-- **Resource limits**: Prevent runaway evaluations
+- **Bounds checking**: All buffer access is validated before reading
+- **Integer overflow protection**: Safe arithmetic using `checked_*` and `saturating_*`
+- **Resource limits**: Configurable limits prevent resource exhaustion
 
 ### Error Handling
 
-- **Graceful degradation**: Skip problematic rules
-- **Detailed errors**: Specific failure reasons
-- **Recovery**: Continue evaluation after errors
+The evaluator uses graceful degradation:
 
-## Performance Optimizations
+- **Invalid offsets**: Skip rule, continue with others
+- **Type mismatches**: Skip rule, continue with others
+- **Timeout exceeded**: Return partial results collected so far
+- **Recursion limit**: Stop descent, continue siblings
+
+```rust
+pub enum EvaluationError {
+    BufferOverrun { offset: usize },
+    InvalidOffset { offset: i64 },
+    UnsupportedType { type_name: String },
+    RecursionLimitExceeded { depth: u32 },
+    StringLengthExceeded { length: usize, max_length: usize },
+    InvalidStringEncoding { offset: usize },
+    Timeout { timeout_ms: u64 },
+    TypeReadError(TypeReadError),
+}
+```
+
+### Timeout Protection
+
+```rust
+// With 5 second timeout
+let config = EvaluationConfig {
+    timeout_ms: Some(5000),
+    ..Default::default()
+};
+
+let result = evaluate_rules_with_config(&rules, buffer, config)?;
+```
+
+## API Reference
+
+### Primary Functions
+
+```rust
+/// Evaluate rules with default configuration
+pub fn evaluate_rules(
+    rules: &[MagicRule],
+    buffer: &[u8],
+) -> Result<Vec<MatchResult>, EvaluationError>;
+
+/// Evaluate rules with custom configuration
+pub fn evaluate_rules_with_config(
+    rules: &[MagicRule],
+    buffer: &[u8],
+    config: EvaluationConfig,
+) -> Result<Vec<MatchResult>, EvaluationError>;
+
+/// Evaluate a single rule (used internally and for testing)
+pub fn evaluate_single_rule(
+    rule: &MagicRule,
+    buffer: &[u8],
+    context: &mut EvaluationContext,
+) -> Result<Option<MatchResult>, EvaluationError>;
+```
+
+### Usage Example
+
+```rust
+use libmagic_rs::{evaluate_rules, EvaluationConfig};
+use libmagic_rs::parser::parse_text_magic_file;
+
+// Parse magic rules
+let magic_content = r#"
+0 string \x7fELF ELF executable
+>4 byte 1 32-bit
+>4 byte 2 64-bit
+"#;
+let rules = parse_text_magic_file(magic_content)?;
+
+// Read target file
+let buffer = std::fs::read("sample.bin")?;
+
+// Evaluate with default config
+let matches = evaluate_rules(&rules, &buffer)?;
+
+for m in matches {
+    println!("Match at offset {}: {}", m.offset, m.message);
+}
+```
+
+## Implementation Status
+
+- [x] Basic evaluation engine structure
+- [x] Offset resolution (absolute, relative, from-end)
+- [x] Type reading with endianness support (Byte, Short, Long, String)
+- [x] Operator application (Equal, NotEqual, BitwiseAnd)
+- [x] Hierarchical rule processing with child evaluation
+- [x] Error handling with graceful degradation
+- [x] Timeout protection
+- [x] Recursion depth limiting
+- [x] Comprehensive test coverage (100+ tests)
+- [ ] Indirect offset support (pointer dereferencing)
+- [ ] Regex type support
+- [ ] Performance optimizations (rule ordering, caching)
+
+## Performance Considerations
 
 ### Lazy Evaluation
 
 - **Parent-first**: Only evaluate children if parent matches
-- **Early termination**: Stop on definitive matches
-- **Rule ordering**: Most likely matches first
+- **Early termination**: Stop on first match when configured
+- **Skip on error**: Continue evaluation after non-fatal errors
 
 ### Memory Efficiency
 
-- **Memory mapping**: Avoid loading entire files
-- **Zero-copy**: Minimize data copying
-- **Efficient algorithms**: Optimized for common patterns
-
-## Implementation Status
-
-- [ ] Basic evaluation engine structure
-- [ ] Offset resolution (absolute, indirect, relative)
-- [ ] Type reading with endianness support
-- [ ] Operator application
-- [ ] Hierarchical rule processing
-- [ ] Error handling and recovery
-- [ ] Performance optimizations
-
-## Planned API
-
-```rust
-pub fn evaluate_rules(rules: &[MagicRule], buffer: &[u8]) -> Result<Vec<Match>>;
-pub fn evaluate_file<P: AsRef<Path>>(rules: &[MagicRule], path: P) -> Result<Vec<Match>>;
-```
+- **Memory mapping**: Files accessed via mmap, not loaded entirely
+- **Zero-copy reads**: Slice references where possible
+- **Bounded strings**: String reads limited to prevent memory exhaustion

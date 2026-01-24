@@ -5,6 +5,7 @@
 //! Each test consists of a .testfile (input) and .result (expected output) pair.
 
 use insta::assert_snapshot;
+use libmagic_rs::parser::load_magic_file;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -77,10 +78,18 @@ fn normalize_cli_output(out: &str, file_name: &str) -> String {
 }
 
 /// Run CLI with the given test file and return normalized output
-fn run_cli_on_testfile(testfile: &Path) -> Result<String, Box<dyn std::error::Error>> {
-    let output = Command::new("cargo")
-        .args(["run", "--", testfile.to_str().unwrap()])
-        .output()?;
+fn run_cli_on_testfile(
+    testfile: &Path,
+    magic_file: Option<&Path>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let mut args = vec!["run", "--"];
+    if let Some(magic_file) = magic_file {
+        args.push("--magic-file");
+        args.push(magic_file.to_str().unwrap());
+    }
+    args.push(testfile.to_str().unwrap());
+
+    let output = Command::new("cargo").args(args).output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -95,6 +104,14 @@ fn run_cli_on_testfile(testfile: &Path) -> Result<String, Box<dyn std::error::Er
 /// Main test function that runs all canonical libmagic tests
 #[test]
 fn cli_matches_canonical_libmagic_tests() {
+    let magic_file = match resolve_magic_file_for_cli() {
+        Some(path) => path,
+        None => {
+            eprintln!("Skipping canonical CLI tests: no compatible text magic file available");
+            return;
+        }
+    };
+
     let mut failures = Vec::new();
     let test_pairs = canonical_test_pairs();
 
@@ -109,7 +126,7 @@ fn cli_matches_canonical_libmagic_tests() {
         }
 
         // Run CLI on the test file
-        let actual_output = match run_cli_on_testfile(&testfile) {
+        let actual_output = match run_cli_on_testfile(&testfile, Some(&magic_file)) {
             Ok(output) => output,
             Err(e) => {
                 failures.push(format!(
@@ -148,6 +165,34 @@ fn cli_matches_canonical_libmagic_tests() {
         let normalized_summary = normalize_paths_in_text(&failure_summary);
         assert_snapshot!("canonical_cli_test_failures", normalized_summary);
     }
+}
+
+/// Resolve a usable text-based magic file for CLI tests.
+///
+/// Returns `None` if no compatible text magic file can be found and parsed.
+fn resolve_magic_file_for_cli() -> Option<PathBuf> {
+    let repo_magic = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("missing.magic");
+    let candidates = [
+        "/usr/share/misc/magic",
+        "/etc/magic",
+        "/usr/local/share/misc/magic",
+        "/opt/local/share/file/magic",
+        "/usr/share/file/magic",
+        repo_magic.to_str().unwrap(),
+    ];
+
+    for candidate in &candidates {
+        let path = PathBuf::from(candidate);
+        if !path.exists() || path.is_dir() {
+            continue;
+        }
+
+        if load_magic_file(&path).is_ok() {
+            return Some(path);
+        }
+    }
+
+    None
 }
 
 /// Test that we can discover canonical test files

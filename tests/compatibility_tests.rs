@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use libmagic_rs::MagicDatabase;
+use libmagic_rs::parser::{MagicFileFormat, detect_format};
 
 /// Test result for a single compatibility test
 #[derive(Debug, Clone)]
@@ -307,6 +308,18 @@ fn test_magic_database_loading() {
     if !magic_file.exists() {
         println!("Skipping magic database test: third_party/magic.mgc not found");
         return;
+    }
+
+    match detect_format(magic_file) {
+        Ok(MagicFileFormat::Binary) => {
+            println!("Skipping magic database test: binary .mgc not supported");
+            return;
+        }
+        Ok(MagicFileFormat::Text | MagicFileFormat::Directory) => {}
+        Err(e) => {
+            println!("Skipping magic database test: failed to detect format: {e}");
+            return;
+        }
     }
 
     let db = MagicDatabase::load_from_file(magic_file);

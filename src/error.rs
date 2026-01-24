@@ -85,6 +85,21 @@ pub enum ParseError {
         /// The invalid value specification
         value: String,
     },
+
+    /// Unsupported magic file format.
+    #[error("Unsupported format at line {line}: {format_type}\n{message}")]
+    UnsupportedFormat {
+        /// The line number where the error occurred
+        line: usize,
+        /// The type of unsupported format
+        format_type: String,
+        /// Detailed message with guidance
+        message: String,
+    },
+
+    /// I/O error occurred during file operations.
+    #[error("I/O error: {0}")]
+    IoError(#[from] std::io::Error),
 }
 
 /// Errors that can occur during rule evaluation.
@@ -144,6 +159,13 @@ pub enum EvaluationError {
     /// Type reading error during evaluation.
     #[error("Type reading error: {0}")]
     TypeReadError(#[from] crate::evaluator::types::TypeReadError),
+
+    /// Internal error indicating a bug in the evaluation logic.
+    #[error("Internal error: {message}")]
+    InternalError {
+        /// Description of the internal error
+        message: String,
+    },
 }
 
 impl ParseError {
@@ -200,6 +222,20 @@ impl ParseError {
             value: value.into(),
         }
     }
+
+    /// Create a new `UnsupportedFormat` error.
+    #[must_use]
+    pub fn unsupported_format(
+        line: usize,
+        format_type: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::UnsupportedFormat {
+            line,
+            format_type: format_type.into(),
+            message: message.into(),
+        }
+    }
 }
 
 impl EvaluationError {
@@ -245,6 +281,14 @@ impl EvaluationError {
     #[must_use]
     pub fn timeout(timeout_ms: u64) -> Self {
         Self::Timeout { timeout_ms }
+    }
+
+    /// Create a new `InternalError` error.
+    #[must_use]
+    pub fn internal_error(message: impl Into<String>) -> Self {
+        Self::InternalError {
+            message: message.into(),
+        }
     }
 }
 
@@ -377,6 +421,13 @@ mod tests {
     }
 
     #[test]
+    fn test_evaluation_error_internal_error() {
+        let error = EvaluationError::internal_error("recursion depth underflow");
+        let display = format!("{error}");
+        assert_eq!(display, "Internal error: recursion depth underflow");
+    }
+
+    #[test]
     fn test_libmagic_error_display_parse() {
         let parse_error = ParseError::invalid_syntax(10, "unexpected token");
         let libmagic_error = LibmagicError::from(parse_error);
@@ -455,5 +506,36 @@ mod tests {
             error6,
             EvaluationError::InvalidStringEncoding { .. }
         ));
+    }
+
+    #[test]
+    fn test_parse_error_unsupported_format() {
+        let error = ParseError::unsupported_format(
+            0,
+            "binary .mgc",
+            "Binary files not supported. Use --use-builtin option.",
+        );
+        let display = format!("{error}");
+        assert!(display.contains("Unsupported format"));
+        assert!(display.contains("binary .mgc"));
+        assert!(display.contains("--use-builtin"));
+    }
+
+    #[test]
+    fn test_parse_error_unsupported_format_constructor() {
+        let error = ParseError::unsupported_format(5, "test_format", "test message");
+
+        match error {
+            ParseError::UnsupportedFormat {
+                line,
+                format_type,
+                message,
+            } => {
+                assert_eq!(line, 5);
+                assert_eq!(format_type, "test_format");
+                assert_eq!(message, "test message");
+            }
+            _ => panic!("Expected UnsupportedFormat variant"),
+        }
     }
 }

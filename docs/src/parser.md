@@ -178,49 +178,75 @@ fn test_parse_number_edge_cases() {
 }
 ```
 
+## Complete Magic File Parsing
+
+The parser now provides complete magic file parsing through the `parse_text_magic_file()` function:
+
+```rust
+use libmagic_rs::parser::parse_text_magic_file;
+
+let magic_content = r#"
+# ELF file format
+0 string \x7fELF ELF executable
+>4 byte 1 32-bit
+>4 byte 2 64-bit
+"#;
+
+let rules = parse_text_magic_file(magic_content)?;
+assert_eq!(rules.len(), 1);           // One root rule
+assert_eq!(rules[0].children.len(), 2); // Two child rules
+```
+
+### Format Detection
+
+The parser automatically detects magic file formats:
+
+```rust
+use libmagic_rs::parser::{detect_format, MagicFileFormat};
+
+match detect_format(path)? {
+    MagicFileFormat::Text => // Parse as text magic file
+    MagicFileFormat::Directory => // Load all files from Magdir
+    MagicFileFormat::Binary => // Show helpful error (not yet supported)
+}
+```
+
 ## Current Limitations
 
 ### Not Yet Implemented
 
-- **Complete Rule Parsing**: Integration of components into full rule parser
-- **Hierarchical Structure**: Parent-child rule relationships
-- **Advanced Offsets**: Indirect and relative offset specifications
-- **Extended Operators**: Additional comparison and bitwise operators
-- **Type Specifications**: Parsing of type declarations (byte, short, long, string)
+- **Indirect Offsets**: Pointer dereferencing patterns (e.g., `(0x3c.l)`)
+- **Regex Support**: Regular expression matching in rules
+- **Binary .mgc Format**: Compiled magic database format
+- **Strength Modifiers**: `!:strength` parsing for rule priority
 
 ### Planned Enhancements
 
-- **Better Error Messages**: More descriptive error reporting with line numbers
+- **Better Error Messages**: More descriptive error reporting with source locations
 - **Performance Optimization**: Specialized parsers for common patterns
 - **Streaming Support**: Incremental parsing for large magic files
-- **Syntax Extensions**: Support for additional magic file syntax variants
 
 ## Integration Points
 
-The parser components are designed to integrate seamlessly:
+The parser provides a complete pipeline from text to AST:
 
 ```rust
-// Future complete rule parser will combine components:
-fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
-    let (input, offset) = parse_offset(input)?;
-    let (input, typ) = parse_type(input)?; // Not yet implemented
-    let (input, op) = parse_operator(input)?;
-    let (input, value) = parse_value(input)?;
-    let (input, message) = parse_message(input)?; // Not yet implemented
+use libmagic_rs::parser::{parse_text_magic_file, detect_format, MagicFileFormat};
 
-    Ok((
-        input,
-        MagicRule {
-            offset,
-            typ,
-            op,
-            value,
-            message,
-            children: vec![],
-            level: 0,
-        },
-    ))
-}
+// Detect format and parse accordingly
+let rules = match detect_format(path)? {
+    MagicFileFormat::Text => {
+        let content = std::fs::read_to_string(path)?;
+        parse_text_magic_file(&content)?
+    }
+    MagicFileFormat::Directory => {
+        // Load and merge all files in directory
+        load_magic_directory(path)?
+    }
+    MagicFileFormat::Binary => {
+        return Err(ParseError::UnsupportedFormat { ... });
+    }
+};
 ```
 
-This modular approach ensures each component is thoroughly tested and can be composed reliably into more complex parsers.
+The hierarchical structure is automatically built from indentation levels (`>` prefixes), enabling parent-child rule relationships for detailed file type identification.

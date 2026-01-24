@@ -17,7 +17,7 @@ fn test_cli_json_output_format() {
 
     // Create a basic magic file
     let magic_file = temp_dir.path().join("test.magic");
-    fs::write(&magic_file, "0 string Hello Hello file\n").expect("Failed to write magic file");
+    fs::write(&magic_file, "0 byte 72 Hello file\n").expect("Failed to write magic file");
 
     // Run the CLI with --json flag
     let output = Command::new("cargo")
@@ -112,7 +112,7 @@ fn test_cli_json_output_no_matches() {
 
     // Create a magic file that won't match
     let magic_file = temp_dir.path().join("test.magic");
-    fs::write(&magic_file, "0 string NOMATCH No match file\n").expect("Failed to write magic file");
+    fs::write(&magic_file, "0 byte 255 No match file\n").expect("Failed to write magic file");
 
     // Run the CLI with --json flag
     let output = Command::new("cargo")
@@ -178,8 +178,7 @@ fn test_cli_json_output_validity() {
 
     // Create a magic file that should match
     let magic_file = temp_dir.path().join("test.magic");
-    fs::write(&magic_file, "0 string #!/bin/bash Bash script\n")
-        .expect("Failed to write magic file");
+    fs::write(&magic_file, "0 byte 35 Bash script\n").expect("Failed to write magic file");
 
     // Run the CLI with --json flag
     let output = Command::new("cargo")
@@ -261,7 +260,7 @@ fn test_cli_json_vs_text_output() {
 
     // Create a basic magic file
     let magic_file = temp_dir.path().join("test.magic");
-    fs::write(&magic_file, "0 string Test Test file\n").expect("Failed to write magic file");
+    fs::write(&magic_file, "0 byte 84 Test file\n").expect("Failed to write magic file");
 
     // Run with JSON output
     let json_output = Command::new("cargo")

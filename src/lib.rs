@@ -16,16 +16,79 @@
 //!
 //! # Examples
 //!
+//! ## Complete Workflow: Load → Evaluate → Output
+//!
 //! ```rust,no_run
-//! use libmagic_rs::{MagicDatabase, EvaluationConfig};
+//! use libmagic_rs::MagicDatabase;
 //!
-//! // Load magic rules from file
-//! let db = MagicDatabase::load_from_file("magic.db")?;
+//! // Load magic rules from a text file
+//! let db = MagicDatabase::load_from_file("/usr/share/misc/magic")?;
 //!
-//! // Evaluate a file with security-conscious configuration
-//! let config = EvaluationConfig::performance(); // Uses conservative limits
+//! // Evaluate a file to determine its type
 //! let result = db.evaluate_file("sample.bin")?;
 //! println!("File type: {}", result.description);
+//!
+//! // Access metadata about loaded rules
+//! if let Some(path) = db.source_path() {
+//!     println!("Rules loaded from: {}", path.display());
+//! }
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! ## Loading from a Directory
+//!
+//! ```rust,no_run
+//! use libmagic_rs::MagicDatabase;
+//!
+//! // Load all magic files from a directory (Magdir pattern)
+//! let db = MagicDatabase::load_from_file("/usr/share/misc/magic.d")?;
+//!
+//! // Evaluate multiple files
+//! for file in &["file1.bin", "file2.bin", "file3.bin"] {
+//!     let result = db.evaluate_file(file)?;
+//!     println!("{}: {}", file, result.description);
+//! }
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! ## Error Handling for Binary Files
+//!
+//! ```rust,no_run
+//! use libmagic_rs::MagicDatabase;
+//!
+//! // Attempt to load a binary .mgc file
+//! match MagicDatabase::load_from_file("/usr/share/misc/magic.mgc") {
+//!     Ok(db) => {
+//!         let result = db.evaluate_file("sample.bin")?;
+//!         println!("File type: {}", result.description);
+//!     }
+//!     Err(e) => {
+//!         eprintln!("Error loading magic file: {}", e);
+//!         eprintln!("Hint: Binary .mgc files are not supported.");
+//!         eprintln!("Use --use-builtin option to use built-in rules,");
+//!         eprintln!("or provide a text-based magic file or directory.");
+//!     }
+//! }
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! ## Debugging with Source Path Metadata
+//!
+//! ```rust,no_run
+//! use libmagic_rs::MagicDatabase;
+//!
+//! let db = MagicDatabase::load_from_file("/usr/share/misc/magic")?;
+//!
+//! // Use source_path() for debugging and logging
+//! if let Some(source) = db.source_path() {
+//!     println!("Loaded {} from {}",
+//!              "magic rules",
+//!              source.display());
+//! }
+//!
+//! // Evaluate files with source tracking
+//! let result = db.evaluate_file("sample.bin")?;
+//! println!("Detection result: {}", result.description);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -34,7 +97,7 @@
 #![deny(clippy::all)]
 #![warn(clippy::pedantic)]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // Re-export modules
 pub mod error;
@@ -348,10 +411,12 @@ impl EvaluationConfig {
 
 /// Main interface for magic rule database
 #[derive(Debug)]
-#[allow(dead_code)] // Fields will be used in future implementation
 pub struct MagicDatabase {
     rules: Vec<MagicRule>,
     config: EvaluationConfig,
+    /// Optional path to the source magic file or directory from which rules were loaded.
+    /// This is used for debugging and logging purposes.
+    source_path: Option<PathBuf>,
 }
 
 impl MagicDatabase {
@@ -374,12 +439,17 @@ impl MagicDatabase {
     /// let db = MagicDatabase::load_from_file("magic.db")?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn load_from_file<P: AsRef<Path>>(_path: P) -> Result<Self> {
-        // For now, return empty rules - magic file parsing will be implemented later
-        // This allows the CLI to work without crashing
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
+        // Load magic rules using the unified parser API
+        let rules = parser::load_magic_file(path.as_ref()).map_err(|e| match e {
+            ParseError::IoError(io_err) => LibmagicError::IoError(io_err),
+            other => LibmagicError::ParseError(other),
+        })?;
+
         Ok(Self {
-            rules: Vec::new(),
+            rules,
             config: EvaluationConfig::default(),
+            source_path: Some(path.as_ref().to_path_buf()),
         })
     }
 
@@ -440,6 +510,35 @@ impl MagicDatabase {
                 confidence: 1.0, // TODO: Implement confidence scoring
             })
         }
+    }
+
+    /// Returns the path from which magic rules were loaded.
+    ///
+    /// This method returns the source path that was used to load the magic rules
+    /// into this database. It is useful for debugging, logging, and tracking the
+    /// origin of magic rules.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(&Path)` - If the database was loaded from a file or directory using
+    ///   [`load_from_file()`](Self::load_from_file)
+    /// - `None` - If the database was constructed programmatically or the source
+    ///   path was not recorded
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use libmagic_rs::MagicDatabase;
+    ///
+    /// let db = MagicDatabase::load_from_file("/usr/share/misc/magic")?;
+    /// if let Some(path) = db.source_path() {
+    ///     println!("Rules loaded from: {}", path.display());
+    /// }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn source_path(&self) -> Option<&Path> {
+        self.source_path.as_deref()
     }
 }
 

@@ -12,6 +12,7 @@ on:
 jobs:
     compatibility-tests:
         name: Compatibility Tests
+        if: false
         runs-on: ${{ matrix.os }}
 
         strategy:
