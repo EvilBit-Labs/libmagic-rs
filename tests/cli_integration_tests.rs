@@ -19,8 +19,9 @@
 //! - Validates error handling continues processing in non-strict mode
 //!
 //! ## Built-in Rules (`--use-builtin`)
-//! - Tests stub implementation that returns "data" for all files
+//! - Tests built-in rules for common file type detection
 //! - Validates flag precedence over `--magic-file`
+//! - Tests detection of ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, PDF
 //!
 //! ## JSON Lines Output
 //! - Tests JSON format output for multiple files
@@ -643,12 +644,14 @@ fn test_strict_mode_success_all_files() {
     assert_eq!(lines.len(), 3, "All files should produce output");
 }
 
-/// Test that "data" result is not considered an error in strict mode.
-/// The `--use-builtin` stub returns "data" which should be success.
+/// Test that "data" result for unknown files is not considered an error in strict mode.
+/// Files with random bytes that don't match any rule should return "data" as success.
 #[test]
-fn test_strict_mode_data_not_error() {
+fn test_strict_mode_unknown_file_not_error() {
     let temp_dir = tempfile::tempdir().unwrap();
-    let test_file = create_test_file_with_content(temp_dir.path(), "test.bin", b"binary content");
+    // Create file with random bytes that won't match any built-in rule
+    let random_bytes = b"\xAB\xCD\xEF\x12\x34\x56\x78\x90random binary content here";
+    let test_file = create_test_file_with_content(temp_dir.path(), "test.bin", random_bytes);
 
     let output =
         run_cli_with_args(&["--use-builtin", "--strict", test_file.to_str().unwrap()]).unwrap();
@@ -656,22 +659,28 @@ fn test_strict_mode_data_not_error() {
     assert_exit_code(
         &output,
         0,
-        "Data result should not be an error in strict mode",
+        "Unknown file (data result) should not be an error in strict mode",
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("data"), "Output should contain 'data'");
+    assert!(
+        stdout.contains("data"),
+        "Unknown file should return 'data', got: {}",
+        stdout
+    );
 }
 
 // =============================================================================
 // Built-in Rules (`--use-builtin`) Tests
 // =============================================================================
 
-/// Test that `--use-builtin` flag works and returns "data" (stub implementation).
+/// Test that `--use-builtin` flag works and detects ELF files.
 #[test]
 fn test_use_builtin_flag() {
     let temp_dir = tempfile::tempdir().unwrap();
-    let test_file = create_test_file_with_content(temp_dir.path(), "test.txt", b"test content");
+    // Create a test file with ELF magic bytes (64-bit LSB)
+    let elf_header = b"\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+    let test_file = create_test_file_with_content(temp_dir.path(), "test.elf", elf_header);
 
     let output = run_cli_with_args(&["--use-builtin", test_file.to_str().unwrap()]).unwrap();
 
@@ -679,8 +688,9 @@ fn test_use_builtin_flag() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("data"),
-        "Built-in stub should return 'data'"
+        stdout.contains("ELF"),
+        "Built-in rules should detect ELF file, got: {}",
+        stdout
     );
 }
 
@@ -712,13 +722,22 @@ fn test_use_builtin_with_magic_file_precedence() {
     );
 }
 
-/// Test that `--use-builtin` works with multiple files.
+/// Test that `--use-builtin` works with multiple files and detects different file types.
 #[test]
 fn test_use_builtin_with_multiple_files() {
     let temp_dir = tempfile::tempdir().unwrap();
-    let file1 = create_test_file_with_content(temp_dir.path(), "file1.txt", b"content 1");
-    let file2 = create_test_file_with_content(temp_dir.path(), "file2.txt", b"content 2");
-    let file3 = create_test_file_with_content(temp_dir.path(), "file3.txt", b"content 3");
+
+    // Create ELF file (magic: 0x7f454c46)
+    let elf_header = b"\x7fELF\x00\x00\x00\x00";
+    let file1 = create_test_file_with_content(temp_dir.path(), "file1.elf", elf_header);
+
+    // Create ZIP file (magic: 0x504b0304)
+    let zip_header = b"PK\x03\x04\x00\x00\x00\x00";
+    let file2 = create_test_file_with_content(temp_dir.path(), "file2.zip", zip_header);
+
+    // Create PNG file (magic: 0x89504e47)
+    let png_header = b"\x89PNG\x00\x00\x00\x00";
+    let file3 = create_test_file_with_content(temp_dir.path(), "file3.png", png_header);
 
     let output = run_cli_with_args(&[
         "--use-builtin",
@@ -739,22 +758,32 @@ fn test_use_builtin_with_multiple_files() {
 
     assert_eq!(lines.len(), 3, "Should have one line per file");
 
-    // All files should return "data"
-    for line in &lines {
-        assert!(
-            line.contains("data"),
-            "Each file should return 'data': {}",
-            line
-        );
-    }
+    // Verify each file is correctly identified
+    assert!(
+        stdout.contains("ELF"),
+        "Should detect ELF file, got: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("ZIP"),
+        "Should detect ZIP file, got: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("PNG"),
+        "Should detect PNG file, got: {}",
+        stdout
+    );
 }
 
-/// Test that `--use-builtin --json` produces valid JSON output.
+/// Test that `--use-builtin --json` produces valid JSON output with JPEG detection.
 /// Note: Single file JSON output only has "matches" field, not "filename".
 #[test]
 fn test_use_builtin_json_output() {
     let temp_dir = tempfile::tempdir().unwrap();
-    let test_file = create_test_file_with_content(temp_dir.path(), "test.bin", b"binary content");
+    // Create JPEG file (magic: 0xffd8)
+    let jpeg_header = b"\xff\xd8\x00\x00\x00\x00\x00\x00";
+    let test_file = create_test_file_with_content(temp_dir.path(), "test.jpg", jpeg_header);
 
     let output =
         run_cli_with_args(&["--use-builtin", "--json", test_file.to_str().unwrap()]).unwrap();
@@ -769,6 +798,227 @@ fn test_use_builtin_json_output() {
     assert!(
         parsed.get("matches").is_some(),
         "JSON should have matches array"
+    );
+
+    // Verify JPEG detection in matches
+    let matches = parsed.get("matches").unwrap().as_array().unwrap();
+    assert!(!matches.is_empty(), "Should have at least one match");
+
+    let first_match = &matches[0];
+    let text = first_match
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    assert!(
+        text.contains("JPEG") || text.contains("image"),
+        "Should detect JPEG file, got: {text}"
+    );
+}
+
+/// Test that built-in rules correctly detect ELF files.
+/// Note: Currently only tests basic ELF detection. Nested rule output
+/// (architecture/endianness) is a feature for future enhancement.
+#[test]
+fn test_builtin_detect_elf_files() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    // Create ELF 32-bit LSB file
+    let elf32_lsb = b"\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+    let file1 = create_test_file_with_content(temp_dir.path(), "elf32lsb.bin", elf32_lsb);
+
+    // Create ELF 64-bit MSB file
+    let elf64_msb = b"\x7fELF\x02\x02\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+    let file2 = create_test_file_with_content(temp_dir.path(), "elf64msb.bin", elf64_msb);
+
+    // Test 32-bit LSB - verify ELF is detected
+    let output1 = run_cli_with_args(&["--use-builtin", file1.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output1, 0, "ELF 32-bit detection should succeed");
+    let stdout1 = String::from_utf8_lossy(&output1.stdout);
+    assert!(
+        stdout1.contains("ELF"),
+        "Should detect ELF in 32-bit file, got: {stdout1}"
+    );
+
+    // Test 64-bit MSB - verify ELF is detected
+    let output2 = run_cli_with_args(&["--use-builtin", file2.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output2, 0, "ELF 64-bit detection should succeed");
+    let stdout2 = String::from_utf8_lossy(&output2.stdout);
+    assert!(
+        stdout2.contains("ELF"),
+        "Should detect ELF in 64-bit file, got: {stdout2}"
+    );
+}
+
+/// Test that built-in rules correctly detect PE/DOS executable files.
+#[test]
+fn test_builtin_detect_pe_dos_files() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    // Create DOS/PE file (magic: "MZ")
+    let dos_header = b"MZ\x00\x00\x00\x00";
+    let test_file = create_test_file_with_content(temp_dir.path(), "test.exe", dos_header);
+
+    let output = run_cli_with_args(&["--use-builtin", test_file.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output, 0, "PE/DOS detection should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("MS-DOS") || stdout.contains("executable"),
+        "Should detect MS-DOS executable, got: {}",
+        stdout
+    );
+}
+
+/// Test that built-in rules correctly detect archive formats.
+#[test]
+fn test_builtin_detect_archive_formats() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    // Create ZIP file
+    let zip_header = b"PK\x03\x04\x14\x00\x00\x00\x08\x00";
+    let zip_file = create_test_file_with_content(temp_dir.path(), "test.zip", zip_header);
+
+    // Create TAR file (512 bytes with "ustar" at offset 257)
+    let mut tar_data = vec![0u8; 512];
+    tar_data[257..262].copy_from_slice(b"ustar");
+    let tar_file = create_test_file_with_content(temp_dir.path(), "test.tar", &tar_data);
+
+    // Create GZIP file
+    let gzip_header = b"\x1f\x8b\x08\x00\x00\x00\x00\x00";
+    let gzip_file = create_test_file_with_content(temp_dir.path(), "test.gz", gzip_header);
+
+    // Test ZIP
+    let output1 = run_cli_with_args(&["--use-builtin", zip_file.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output1, 0, "ZIP detection should succeed");
+    let stdout1 = String::from_utf8_lossy(&output1.stdout);
+    assert!(
+        stdout1.contains("ZIP"),
+        "Should detect ZIP archive, got: {}",
+        stdout1
+    );
+
+    // Test TAR
+    let output2 = run_cli_with_args(&["--use-builtin", tar_file.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output2, 0, "TAR detection should succeed");
+    let stdout2 = String::from_utf8_lossy(&output2.stdout);
+    assert!(
+        stdout2.contains("tar"),
+        "Should detect TAR archive, got: {}",
+        stdout2
+    );
+
+    // Test GZIP
+    let output3 = run_cli_with_args(&["--use-builtin", gzip_file.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output3, 0, "GZIP detection should succeed");
+    let stdout3 = String::from_utf8_lossy(&output3.stdout);
+    assert!(
+        stdout3.contains("gzip"),
+        "Should detect GZIP archive, got: {}",
+        stdout3
+    );
+}
+
+/// Test that built-in rules correctly detect image formats.
+/// Note: Uses simplified headers that match the exact patterns in built-in rules.
+#[test]
+fn test_builtin_detect_image_formats() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    // Create JPEG file (magic: 0xffd8)
+    let jpeg_header = b"\xff\xd8\x00\x00\x00\x00\x00\x00";
+    let jpeg_file = create_test_file_with_content(temp_dir.path(), "test.jpg", jpeg_header);
+
+    // Create PNG file (magic: 0x89504e47)
+    let png_header = b"\x89PNG\x00\x00\x00\x00";
+    let png_file = create_test_file_with_content(temp_dir.path(), "test.png", png_header);
+
+    // Create GIF file (magic: "GIF8")
+    let gif_header = b"GIF8\x00\x00\x00\x00";
+    let gif_file = create_test_file_with_content(temp_dir.path(), "test.gif", gif_header);
+
+    // Create BMP file (magic: "BM")
+    let bmp_header = b"BM\x00\x00\x00\x00\x00\x00";
+    let bmp_file = create_test_file_with_content(temp_dir.path(), "test.bmp", bmp_header);
+
+    // Test JPEG
+    let output1 = run_cli_with_args(&["--use-builtin", jpeg_file.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output1, 0, "JPEG detection should succeed");
+    let stdout1 = String::from_utf8_lossy(&output1.stdout);
+    assert!(
+        stdout1.contains("JPEG") || stdout1.contains("JFIF"),
+        "Should detect JPEG image, got: {}",
+        stdout1
+    );
+
+    // Test PNG
+    let output2 = run_cli_with_args(&["--use-builtin", png_file.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output2, 0, "PNG detection should succeed");
+    let stdout2 = String::from_utf8_lossy(&output2.stdout);
+    assert!(
+        stdout2.contains("PNG"),
+        "Should detect PNG image, got: {}",
+        stdout2
+    );
+
+    // Test GIF
+    let output3 = run_cli_with_args(&["--use-builtin", gif_file.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output3, 0, "GIF detection should succeed");
+    let stdout3 = String::from_utf8_lossy(&output3.stdout);
+    assert!(
+        stdout3.contains("GIF"),
+        "Should detect GIF image, got: {}",
+        stdout3
+    );
+
+    // Test BMP
+    let output4 = run_cli_with_args(&["--use-builtin", bmp_file.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output4, 0, "BMP detection should succeed");
+    let stdout4 = String::from_utf8_lossy(&output4.stdout);
+    assert!(
+        stdout4.contains("BMP") || stdout4.contains("bitmap"),
+        "Should detect BMP image, got: {}",
+        stdout4
+    );
+}
+
+/// Test that built-in rules correctly detect PDF documents.
+#[test]
+fn test_builtin_detect_pdf_documents() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    // Create PDF file (magic: "%PDF-")
+    let pdf_header = b"%PDF-\x00\x00\x00";
+    let test_file = create_test_file_with_content(temp_dir.path(), "test.pdf", pdf_header);
+
+    let output = run_cli_with_args(&["--use-builtin", test_file.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output, 0, "PDF detection should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("PDF"),
+        "Should detect PDF document, got: {}",
+        stdout
+    );
+}
+
+/// Test that built-in rules return "data" for unknown file types.
+#[test]
+fn test_builtin_unknown_file_returns_data() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    // Create file with random bytes that don't match any pattern
+    let random_bytes = b"\xDE\xAD\xBE\xEF\x12\x34\x56\x78\x9A\xBC\xDE\xF0random content";
+    let test_file = create_test_file_with_content(temp_dir.path(), "unknown.bin", random_bytes);
+
+    let output = run_cli_with_args(&["--use-builtin", test_file.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output, 0, "Unknown file should not cause error");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("data"),
+        "Unknown file should return 'data', got: {}",
+        stdout
     );
 }
 

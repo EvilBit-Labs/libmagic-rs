@@ -107,6 +107,14 @@ pub mod io;
 pub mod output;
 pub mod parser;
 
+/// Build-time helpers for compiling magic rules.
+///
+/// This module contains functionality used by the build script to parse magic files
+/// and generate Rust code for built-in rules. It is only available during tests and
+/// documentation builds to enable comprehensive testing of the build process.
+#[cfg(any(test, doc))]
+pub mod build_helpers;
+
 // Re-export core AST types for convenience
 pub use parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, TypeKind, Value};
 
