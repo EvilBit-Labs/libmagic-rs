@@ -3,16 +3,95 @@
 //! These tests verify the command-line interface functionality by running against
 //! the canonical libmagic test suite from third_party/tests/.
 //! Each test consists of a .testfile (input) and .result (expected output) pair.
+//!
+//! # Test Categories
+//!
+//! ## Canonical Test Suite
+//! - Tests that run against the official libmagic test files
+//! - Validates compatibility with the C libmagic implementation
+//!
+//! ## Multiple File Processing
+//! - Tests for sequential processing of multiple files
+//! - Validates output order matches input argument order
+//!
+//! ## Strict Mode (`--strict`)
+//! - Tests exit code behavior with and without strict mode
+//! - Validates error handling continues processing in non-strict mode
+//!
+//! ## Built-in Rules (`--use-builtin`)
+//! - Tests stub implementation that returns "data" for all files
+//! - Validates flag precedence over `--magic-file`
+//!
+//! ## JSON Lines Output
+//! - Tests JSON format output for multiple files
+//! - Validates compact JSON Lines format vs pretty-printed single file
+//!
+//! ## Error Handling
+//! - Tests per-file error handling and continuation
+//! - Validates error messages include filename context
+//!
+//! ## Edge Cases
+//! - Empty files, large files, directories as input
+//! - Permission errors (Unix only)
+//! - Mixed stdin and file arguments
 
 use insta::assert_snapshot;
+use libmagic_rs::EvaluationConfig;
 use libmagic_rs::parser::load_magic_file;
 use std::ffi::OsStr;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
 
 mod common;
 use common::{normalize_paths_in_text, normalize_testfile_path};
+
+// =============================================================================
+// Test Helper Functions
+// =============================================================================
+
+/// Creates a file in the given directory with specified content.
+/// Returns the full path to the created file.
+fn create_test_file_with_content(dir: &Path, name: &str, content: &[u8]) -> PathBuf {
+    let path = dir.join(name);
+    fs::write(&path, content).expect("Failed to create test file");
+    path
+}
+
+/// Runs the CLI with given arguments and returns the full output.
+/// Uses the already-built test binary for better performance in parallel tests.
+fn run_cli_with_args(args: &[&str]) -> Result<Output, Box<dyn std::error::Error>> {
+    let output = Command::new(env!("CARGO_BIN_EXE_rmagic"))
+        .args(args)
+        .output()?;
+    Ok(output)
+}
+
+/// Parses JSON Lines output into a vector of JSON values.
+/// Each line is expected to be valid JSON.
+fn parse_json_lines(output: &str) -> Vec<serde_json::Value> {
+    output
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str(line).expect("Invalid JSON line"))
+        .collect()
+}
+
+/// Asserts the exit code matches expected value with a clear error message.
+fn assert_exit_code(output: &Output, expected: i32, message: &str) {
+    let actual = output.status.code().unwrap_or(-1);
+    assert_eq!(
+        actual,
+        expected,
+        "{}: expected exit code {}, got {}.\nstdout: {}\nstderr: {}",
+        message,
+        expected,
+        actual,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
 
 /// Get the root directory for canonical libmagic tests
 fn canonical_tests_root() -> PathBuf {
@@ -195,6 +274,30 @@ fn resolve_magic_file_for_cli() -> Option<PathBuf> {
     None
 }
 
+fn resolve_magic_file_for_stdin_tests() -> Option<PathBuf> {
+    resolve_magic_file_for_cli()
+}
+
+fn run_cli_with_stdin(
+    args: &[&str],
+    input: &[u8],
+) -> Result<std::process::Output, Box<dyn std::error::Error>> {
+    let mut command = Command::new("cargo");
+    command.args(["run", "--quiet", "--"]);
+    command.args(args);
+    command.stdin(Stdio::piped());
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+
+    let mut child = command.spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(input)?;
+    }
+
+    let output = child.wait_with_output()?;
+    Ok(output)
+}
+
 /// Test that we can discover canonical test files
 #[test]
 fn test_canonical_test_discovery() {
@@ -230,4 +333,1039 @@ fn test_canonical_test_discovery() {
             "Result file should have .result extension"
         );
     }
+}
+
+#[test]
+fn test_basic_stdin_input() {
+    let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+        eprintln!("Skipping stdin test: no compatible text magic file available");
+        return;
+    };
+    let output =
+        run_cli_with_stdin(&["--magic-file", magic_file.to_str().unwrap(), "-"], b"").unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("stdin: data"));
+}
+
+#[test]
+fn test_stdin_dash_argument() {
+    let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+        eprintln!("Skipping stdin test: no compatible text magic file available");
+        return;
+    };
+    let output = run_cli_with_stdin(
+        &["--magic-file", magic_file.to_str().unwrap(), "-"],
+        b"test",
+    )
+    .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("stdin:"));
+}
+
+#[test]
+fn test_stdin_with_multiple_files() {
+    let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+        eprintln!("Skipping stdin test: no compatible text magic file available");
+        return;
+    };
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file1_path = temp_dir.path().join("file1.bin");
+    let file2_path = temp_dir.path().join("file2.bin");
+
+    fs::write(&file1_path, b"file-one").unwrap();
+    fs::write(&file2_path, b"file-two").unwrap();
+
+    let output = run_cli_with_stdin(
+        &[
+            "--magic-file",
+            magic_file.to_str().unwrap(),
+            file1_path.to_str().unwrap(),
+            "-",
+            file2_path.to_str().unwrap(),
+        ],
+        b"stdin-input",
+    )
+    .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    assert_eq!(lines.len(), 3);
+    assert!(stdout.contains(file1_path.to_string_lossy().as_ref()));
+    assert!(stdout.contains("stdin:"));
+    assert!(stdout.contains(file2_path.to_string_lossy().as_ref()));
+}
+
+#[test]
+fn test_stdin_truncation_warning() {
+    let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+        eprintln!("Skipping stdin test: no compatible text magic file available");
+        return;
+    };
+    let max_string_length = EvaluationConfig::default().max_string_length;
+    let input = vec![b'a'; max_string_length + 10];
+
+    let output =
+        run_cli_with_stdin(&["--magic-file", magic_file.to_str().unwrap(), "-"], &input).unwrap();
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(&format!(
+        "Warning: stdin input truncated to {} bytes",
+        max_string_length
+    )));
+}
+
+#[test]
+fn test_stdin_no_false_truncation_warning() {
+    let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+        eprintln!("Skipping stdin test: no compatible text magic file available");
+        return;
+    };
+    let max_string_length = EvaluationConfig::default().max_string_length;
+    // Input is exactly max_string_length bytes - should NOT trigger warning
+    let input = vec![b'a'; max_string_length];
+
+    let output =
+        run_cli_with_stdin(&["--magic-file", magic_file.to_str().unwrap(), "-"], &input).unwrap();
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("Warning: stdin input truncated"),
+        "Should not show truncation warning when input equals max_string_length"
+    );
+}
+
+#[test]
+fn test_stdin_json_output() {
+    let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
+        eprintln!("Skipping stdin test: no compatible text magic file available");
+        return;
+    };
+    let output = run_cli_with_stdin(
+        &["--magic-file", magic_file.to_str().unwrap(), "--json", "-"],
+        b"",
+    )
+    .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(parsed.get("matches").is_some());
+}
+
+// =============================================================================
+// Multiple File Processing Tests
+// =============================================================================
+
+/// Test that multiple files are processed sequentially with proper text output format.
+/// Each file should produce one line of output in "filename: description" format.
+#[test]
+fn test_multiple_files_text_output() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file1 = create_test_file_with_content(temp_dir.path(), "file1.txt", b"Hello World");
+    let file2 =
+        create_test_file_with_content(temp_dir.path(), "file2.bin", &[0x7f, 0x45, 0x4c, 0x46]);
+    let file3 = create_test_file_with_content(temp_dir.path(), "file3.dat", b"random data here");
+
+    let output = run_cli_with_args(&[
+        "--use-builtin",
+        file1.to_str().unwrap(),
+        file2.to_str().unwrap(),
+        file3.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    assert_exit_code(&output, 0, "Multiple files should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+
+    // Should have exactly 3 lines, one per file
+    assert_eq!(lines.len(), 3, "Should have one output line per file");
+
+    // Each line should contain the filename
+    assert!(
+        lines[0].contains("file1.txt"),
+        "First line should reference file1.txt"
+    );
+    assert!(
+        lines[1].contains("file2.bin"),
+        "Second line should reference file2.bin"
+    );
+    assert!(
+        lines[2].contains("file3.dat"),
+        "Third line should reference file3.dat"
+    );
+}
+
+/// Test that output order matches input argument order.
+/// Files should be processed sequentially in the order specified.
+#[test]
+fn test_multiple_files_sequential_processing() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_a = create_test_file_with_content(temp_dir.path(), "aaa.txt", b"first file content");
+    let file_b = create_test_file_with_content(temp_dir.path(), "bbb.txt", b"second file content");
+    let file_c = create_test_file_with_content(temp_dir.path(), "ccc.txt", b"third file content");
+
+    // Pass files in specific order: b, c, a
+    let output = run_cli_with_args(&[
+        "--use-builtin",
+        file_b.to_str().unwrap(),
+        file_c.to_str().unwrap(),
+        file_a.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    assert_exit_code(&output, 0, "Sequential processing should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+
+    assert_eq!(lines.len(), 3, "Should have 3 output lines");
+
+    // Verify order matches argument order (b, c, a)
+    assert!(
+        lines[0].contains("bbb.txt"),
+        "First output should be bbb.txt"
+    );
+    assert!(
+        lines[1].contains("ccc.txt"),
+        "Second output should be ccc.txt"
+    );
+    assert!(
+        lines[2].contains("aaa.txt"),
+        "Third output should be aaa.txt"
+    );
+}
+
+// =============================================================================
+// Strict Mode (`--strict`) Tests
+// =============================================================================
+
+/// Test that `--strict` mode returns non-zero exit code on file not found error.
+#[test]
+fn test_strict_mode_exit_on_failure() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let valid_file = create_test_file_with_content(temp_dir.path(), "valid.txt", b"valid content");
+    let nonexistent = temp_dir.path().join("nonexistent.txt");
+
+    let output = run_cli_with_args(&[
+        "--use-builtin",
+        "--strict",
+        valid_file.to_str().unwrap(),
+        nonexistent.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    // Exit code should be non-zero (3 for I/O error)
+    assert!(
+        !output.status.success(),
+        "Strict mode should return non-zero exit code on failure"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("nonexistent.txt") || stderr.contains("Error"),
+        "Stderr should contain error message for missing file"
+    );
+}
+
+/// Test that non-strict mode returns success even when some files fail.
+#[test]
+fn test_non_strict_mode_continues_on_failure() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let valid_file = create_test_file_with_content(temp_dir.path(), "valid.txt", b"valid content");
+    let nonexistent = temp_dir.path().join("nonexistent.txt");
+
+    let output = run_cli_with_args(&[
+        "--use-builtin",
+        valid_file.to_str().unwrap(),
+        nonexistent.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    // Exit code should be 0 (success despite error)
+    assert_exit_code(
+        &output,
+        0,
+        "Non-strict mode should return success despite errors",
+    );
+
+    // Valid file should still produce output
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("valid.txt"),
+        "Valid file should still produce output"
+    );
+
+    // Error message should be in stderr
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("nonexistent.txt") || stderr.contains("Error"),
+        "Stderr should contain error message for missing file"
+    );
+}
+
+/// Test that `--strict` mode returns success when all files are valid.
+#[test]
+fn test_strict_mode_success_all_files() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file1 = create_test_file_with_content(temp_dir.path(), "file1.txt", b"content 1");
+    let file2 = create_test_file_with_content(temp_dir.path(), "file2.txt", b"content 2");
+    let file3 = create_test_file_with_content(temp_dir.path(), "file3.txt", b"content 3");
+
+    let output = run_cli_with_args(&[
+        "--use-builtin",
+        "--strict",
+        file1.to_str().unwrap(),
+        file2.to_str().unwrap(),
+        file3.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    assert_exit_code(
+        &output,
+        0,
+        "Strict mode should succeed when all files are valid",
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 3, "All files should produce output");
+}
+
+/// Test that "data" result is not considered an error in strict mode.
+/// The `--use-builtin` stub returns "data" which should be success.
+#[test]
+fn test_strict_mode_data_not_error() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let test_file = create_test_file_with_content(temp_dir.path(), "test.bin", b"binary content");
+
+    let output =
+        run_cli_with_args(&["--use-builtin", "--strict", test_file.to_str().unwrap()]).unwrap();
+
+    assert_exit_code(
+        &output,
+        0,
+        "Data result should not be an error in strict mode",
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("data"), "Output should contain 'data'");
+}
+
+// =============================================================================
+// Built-in Rules (`--use-builtin`) Tests
+// =============================================================================
+
+/// Test that `--use-builtin` flag works and returns "data" (stub implementation).
+#[test]
+fn test_use_builtin_flag() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let test_file = create_test_file_with_content(temp_dir.path(), "test.txt", b"test content");
+
+    let output = run_cli_with_args(&["--use-builtin", test_file.to_str().unwrap()]).unwrap();
+
+    assert_exit_code(&output, 0, "Built-in rules should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("data"),
+        "Built-in stub should return 'data'"
+    );
+}
+
+/// Test that `--use-builtin` takes precedence over `--magic-file`.
+#[test]
+fn test_use_builtin_with_magic_file_precedence() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let test_file = create_test_file_with_content(temp_dir.path(), "test.txt", b"test content");
+
+    // Use a non-existent magic file path - should still work because --use-builtin takes precedence
+    let output = run_cli_with_args(&[
+        "--use-builtin",
+        "--magic-file",
+        "/nonexistent/magic/file",
+        test_file.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    assert_exit_code(
+        &output,
+        0,
+        "--use-builtin should take precedence over --magic-file",
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("data"),
+        "Built-in stub should return 'data'"
+    );
+}
+
+/// Test that `--use-builtin` works with multiple files.
+#[test]
+fn test_use_builtin_with_multiple_files() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file1 = create_test_file_with_content(temp_dir.path(), "file1.txt", b"content 1");
+    let file2 = create_test_file_with_content(temp_dir.path(), "file2.txt", b"content 2");
+    let file3 = create_test_file_with_content(temp_dir.path(), "file3.txt", b"content 3");
+
+    let output = run_cli_with_args(&[
+        "--use-builtin",
+        file1.to_str().unwrap(),
+        file2.to_str().unwrap(),
+        file3.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    assert_exit_code(
+        &output,
+        0,
+        "Built-in rules with multiple files should succeed",
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+
+    assert_eq!(lines.len(), 3, "Should have one line per file");
+
+    // All files should return "data"
+    for line in &lines {
+        assert!(
+            line.contains("data"),
+            "Each file should return 'data': {}",
+            line
+        );
+    }
+}
+
+/// Test that `--use-builtin --json` produces valid JSON output.
+/// Note: Single file JSON output only has "matches" field, not "filename".
+#[test]
+fn test_use_builtin_json_output() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let test_file = create_test_file_with_content(temp_dir.path(), "test.bin", b"binary content");
+
+    let output =
+        run_cli_with_args(&["--use-builtin", "--json", test_file.to_str().unwrap()]).unwrap();
+
+    assert_exit_code(&output, 0, "Built-in JSON output should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+
+    // Verify JSON structure - single file mode only has "matches", not "filename"
+    assert!(
+        parsed.get("matches").is_some(),
+        "JSON should have matches array"
+    );
+}
+
+// =============================================================================
+// JSON Lines Output Tests
+// =============================================================================
+
+/// Test that JSON output with multiple files uses JSON Lines format (one JSON per line).
+#[test]
+fn test_json_lines_multiple_files() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file1 = create_test_file_with_content(temp_dir.path(), "file1.txt", b"content 1");
+    let file2 = create_test_file_with_content(temp_dir.path(), "file2.txt", b"content 2");
+    let file3 = create_test_file_with_content(temp_dir.path(), "file3.txt", b"content 3");
+
+    let output = run_cli_with_args(&[
+        "--use-builtin",
+        "--json",
+        file1.to_str().unwrap(),
+        file2.to_str().unwrap(),
+        file3.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    assert_exit_code(&output, 0, "JSON Lines output should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json_objects = parse_json_lines(&stdout);
+
+    assert_eq!(
+        json_objects.len(),
+        3,
+        "Should have one JSON object per file"
+    );
+
+    // Verify each JSON object has required fields
+    for (i, obj) in json_objects.iter().enumerate() {
+        assert!(
+            obj.get("filename").is_some(),
+            "JSON object {} should have filename",
+            i
+        );
+        assert!(
+            obj.get("matches").is_some(),
+            "JSON object {} should have matches",
+            i
+        );
+    }
+}
+
+/// Test that single file JSON output is pretty-printed.
+/// Note: Single file JSON output uses JsonOutput struct which only has "matches",
+/// not "filename" (which is only in JsonLineOutput for multi-file mode).
+#[test]
+fn test_json_single_file_pretty_print() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let test_file = create_test_file_with_content(temp_dir.path(), "test.txt", b"test content");
+
+    let output =
+        run_cli_with_args(&["--use-builtin", "--json", test_file.to_str().unwrap()]).unwrap();
+
+    assert_exit_code(&output, 0, "Single file JSON should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Pretty-printed JSON should contain newlines and indentation
+    assert!(
+        stdout.contains('\n'),
+        "Single file JSON should be pretty-printed with newlines"
+    );
+
+    // Verify it's still valid JSON with matches array
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
+    // Single file JSON has "matches" but not "filename" (that's only in multi-file mode)
+    assert!(
+        parsed.get("matches").is_some(),
+        "Single file JSON should have 'matches' field"
+    );
+}
+
+/// Test JSON Lines output with stdin included.
+#[test]
+fn test_json_lines_with_stdin() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file1 = create_test_file_with_content(temp_dir.path(), "file1.txt", b"file content");
+    let file2 = create_test_file_with_content(temp_dir.path(), "file2.txt", b"file content");
+
+    let output = run_cli_with_stdin(
+        &[
+            "--use-builtin",
+            "--json",
+            file1.to_str().unwrap(),
+            "-",
+            file2.to_str().unwrap(),
+        ],
+        b"stdin content",
+    )
+    .unwrap();
+
+    assert_exit_code(&output, 0, "JSON Lines with stdin should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Filter out empty lines and parse remaining JSON
+    let non_empty_lines: Vec<&str> = stdout
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+
+    assert_eq!(
+        non_empty_lines.len(),
+        3,
+        "Should have 3 JSON lines, got: {:?}",
+        non_empty_lines
+    );
+
+    let json_objects = parse_json_lines(&stdout);
+    assert_eq!(json_objects.len(), 3, "Should have 3 JSON objects");
+
+    // Find the stdin entry
+    let stdin_entry = json_objects
+        .iter()
+        .find(|obj| {
+            obj.get("filename")
+                .and_then(|f| f.as_str())
+                .map(|s| s == "stdin")
+                .unwrap_or(false)
+        })
+        .expect("Should have stdin entry");
+
+    assert_eq!(
+        stdin_entry.get("filename").and_then(|f| f.as_str()),
+        Some("stdin"),
+        "Stdin entry should have filename 'stdin'"
+    );
+}
+
+// =============================================================================
+// Per-File Error Handling Tests
+// =============================================================================
+
+/// Test that processing continues even when one file fails (non-strict mode).
+#[test]
+fn test_per_file_error_handling_continues() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file1 = create_test_file_with_content(temp_dir.path(), "file1.txt", b"content 1");
+    let invalid_dir = temp_dir.path().join("directory");
+    fs::create_dir(&invalid_dir).unwrap();
+    let file3 = create_test_file_with_content(temp_dir.path(), "file3.txt", b"content 3");
+
+    let output = run_cli_with_args(&[
+        "--use-builtin",
+        file1.to_str().unwrap(),
+        invalid_dir.to_str().unwrap(), // Directory, should fail
+        file3.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    // Non-strict mode should still succeed
+    assert_exit_code(
+        &output,
+        0,
+        "Non-strict should succeed despite directory error",
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // file1 and file3 should produce output
+    assert!(stdout.contains("file1.txt"), "file1 should produce output");
+    assert!(stdout.contains("file3.txt"), "file3 should produce output");
+
+    // Directory error should be in stderr
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("directory") || stderr.contains("Error"),
+        "Stderr should contain error for directory"
+    );
+}
+
+/// Test that strict mode sets non-zero exit code but still processes all files.
+#[test]
+fn test_per_file_error_with_strict_stops_exit_code() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file1 = create_test_file_with_content(temp_dir.path(), "file1.txt", b"content 1");
+    let nonexistent = temp_dir.path().join("nonexistent.txt");
+    let file3 = create_test_file_with_content(temp_dir.path(), "file3.txt", b"content 3");
+
+    let output = run_cli_with_args(&[
+        "--use-builtin",
+        "--strict",
+        file1.to_str().unwrap(),
+        nonexistent.to_str().unwrap(),
+        file3.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    // Strict mode should return non-zero
+    assert!(
+        !output.status.success(),
+        "Strict mode should return non-zero exit code"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // All valid files should still be processed
+    assert!(
+        stdout.contains("file1.txt"),
+        "file1 should produce output in strict mode"
+    );
+    assert!(
+        stdout.contains("file3.txt"),
+        "file3 should produce output in strict mode"
+    );
+
+    // Error should be in stderr
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("nonexistent") || stderr.contains("Error"),
+        "Stderr should contain error for nonexistent file"
+    );
+}
+
+/// Test that error messages include filename context.
+#[test]
+fn test_mixed_success_failure_output() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let valid_file = create_test_file_with_content(temp_dir.path(), "valid.txt", b"valid content");
+    let nonexistent = temp_dir.path().join("missing_file.txt");
+
+    let output = run_cli_with_args(&[
+        "--use-builtin",
+        valid_file.to_str().unwrap(),
+        nonexistent.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Valid file produces output
+    assert!(
+        stdout.contains("valid.txt"),
+        "Valid file should have output"
+    );
+
+    // Error message should contain filename context
+    assert!(
+        stderr.contains("missing_file.txt") || stderr.contains("Error"),
+        "Error message should include filename: {}",
+        stderr
+    );
+}
+
+// =============================================================================
+// Edge Case Tests
+// =============================================================================
+
+/// Test handling of empty files (0 bytes).
+/// Empty files are accepted and evaluated like any other file.
+/// They produce output with the filename and description (typically "data").
+#[test]
+fn test_empty_file_handling() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let empty_file = create_test_file_with_content(temp_dir.path(), "empty.txt", b"");
+
+    // Non-strict mode: should succeed and produce output
+    let output = run_cli_with_args(&["--use-builtin", empty_file.to_str().unwrap()]).unwrap();
+
+    assert_exit_code(&output, 0, "Non-strict mode should succeed with empty file");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Empty file should produce output with filename
+    assert!(
+        stdout.contains("empty.txt"),
+        "Output should contain filename: {}",
+        stdout
+    );
+    // When using --use-builtin, expect "data" as the description
+    assert!(
+        stdout.contains("data"),
+        "Output should contain 'data' description: {}",
+        stdout
+    );
+
+    // Strict mode should also succeed for empty files
+    let strict_output =
+        run_cli_with_args(&["--use-builtin", "--strict", empty_file.to_str().unwrap()]).unwrap();
+
+    assert_exit_code(
+        &strict_output,
+        0,
+        "Strict mode should succeed with empty file",
+    );
+
+    let strict_stdout = String::from_utf8_lossy(&strict_output.stdout);
+    assert!(
+        strict_stdout.contains("empty.txt"),
+        "Strict mode output should contain filename: {}",
+        strict_stdout
+    );
+    assert!(
+        strict_stdout.contains("data"),
+        "Strict mode output should contain 'data' description: {}",
+        strict_stdout
+    );
+}
+
+/// Test handling of large files.
+#[test]
+fn test_large_file_handling() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let max_len = EvaluationConfig::default().max_string_length;
+    let large_content = vec![b'X'; max_len + 1024];
+    let large_file = create_test_file_with_content(temp_dir.path(), "large.bin", &large_content);
+
+    let output = run_cli_with_args(&["--use-builtin", large_file.to_str().unwrap()]).unwrap();
+
+    assert_exit_code(&output, 0, "Large file should be handled without error");
+
+    // For files (not stdin), there should be no truncation warning
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("truncated"),
+        "File input should not show truncation warning (only stdin)"
+    );
+}
+
+/// Test that directories as input produce an error.
+#[test]
+fn test_directory_as_input_error() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let test_dir = temp_dir.path().join("test_directory");
+    fs::create_dir(&test_dir).unwrap();
+
+    let output = run_cli_with_args(&["--use-builtin", test_dir.to_str().unwrap()]).unwrap();
+
+    // Directory input should produce an error in strict mode
+    let output_strict =
+        run_cli_with_args(&["--use-builtin", "--strict", test_dir.to_str().unwrap()]).unwrap();
+
+    // In strict mode, should have non-zero exit code
+    assert!(
+        !output_strict.status.success(),
+        "Directory input should fail in strict mode"
+    );
+
+    let stderr = String::from_utf8_lossy(&output_strict.stderr);
+    assert!(
+        stderr.contains("directory")
+            || stderr.contains("Error")
+            || stderr.contains("Is a directory"),
+        "Error message should indicate directory issue: {}",
+        stderr
+    );
+
+    // In non-strict mode, should still succeed overall
+    assert_exit_code(
+        &output,
+        0,
+        "Directory error should not fail in non-strict mode",
+    );
+}
+
+/// Test error message for non-existent file.
+#[test]
+fn test_nonexistent_file_error_message() {
+    let nonexistent = PathBuf::from("/nonexistent/path/to/file.txt");
+
+    let output =
+        run_cli_with_args(&["--use-builtin", "--strict", nonexistent.to_str().unwrap()]).unwrap();
+
+    // Should have non-zero exit code
+    assert!(
+        !output.status.success(),
+        "Nonexistent file should fail in strict mode"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("file.txt") || stderr.contains("Error") || stderr.contains("No such file"),
+        "Error message should be clear about missing file: {}",
+        stderr
+    );
+}
+
+/// Test permission denied handling (Unix only).
+#[cfg(unix)]
+#[test]
+fn test_permission_denied_handling() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let restricted_file =
+        create_test_file_with_content(temp_dir.path(), "restricted.txt", b"secret content");
+
+    // Remove all permissions
+    let mut perms = fs::metadata(&restricted_file).unwrap().permissions();
+    perms.set_mode(0o000);
+    fs::set_permissions(&restricted_file, perms).unwrap();
+
+    let output = run_cli_with_args(&[
+        "--use-builtin",
+        "--strict",
+        restricted_file.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    // Restore permissions for cleanup
+    let mut perms = fs::metadata(&restricted_file).unwrap().permissions();
+    perms.set_mode(0o644);
+    fs::set_permissions(&restricted_file, perms).unwrap();
+
+    // Should have non-zero exit code
+    assert!(
+        !output.status.success(),
+        "Permission denied should fail in strict mode"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Permission") || stderr.contains("Error") || stderr.contains("denied"),
+        "Error message should indicate permission issue: {}",
+        stderr
+    );
+}
+
+/// Test mixed stdin and file arguments in correct order.
+#[test]
+fn test_mixed_stdin_and_files_order() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file1 = create_test_file_with_content(temp_dir.path(), "first.txt", b"first content");
+    let file2 = create_test_file_with_content(temp_dir.path(), "third.txt", b"third content");
+
+    // Order: file1, stdin, file2
+    let output = run_cli_with_stdin(
+        &[
+            "--use-builtin",
+            file1.to_str().unwrap(),
+            "-",
+            file2.to_str().unwrap(),
+        ],
+        b"stdin content",
+    )
+    .unwrap();
+
+    assert_exit_code(&output, 0, "Mixed stdin and files should succeed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
+
+    assert_eq!(
+        lines.len(),
+        3,
+        "Should have 3 output lines, got: {:?}",
+        lines
+    );
+
+    // Verify order: first.txt, stdin, third.txt
+    assert!(
+        lines[0].contains("first.txt"),
+        "First output should be first.txt, got: {}",
+        lines[0]
+    );
+    assert!(
+        lines[1].contains("stdin"),
+        "Second output should be stdin, got: {}",
+        lines[1]
+    );
+    assert!(
+        lines[2].contains("third.txt"),
+        "Third output should be third.txt, got: {}",
+        lines[2]
+    );
+}
+
+// =============================================================================
+// Timeout Behavior Tests
+// =============================================================================
+
+/// Test timeout behavior and per-file independence with a slow magic file.
+///
+/// This creates a magic file with repeated string rules that force full-buffer
+/// reads. A large input triggers the timeout while small inputs complete.
+#[test]
+fn test_timeout_per_file_independent() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let slow_magic_path = temp_dir.path().join("slow.magic");
+
+    let mut slow_rules = String::new();
+    for _ in 0..25 {
+        slow_rules.push_str("0 string \"b\" data slow\n");
+    }
+    fs::write(&slow_magic_path, slow_rules).unwrap();
+
+    let fast1 = create_test_file_with_content(temp_dir.path(), "fast1.txt", b"fast content");
+    let slow_trigger =
+        create_test_file_with_content(temp_dir.path(), "slow_trigger.txt", &vec![b'a'; 5_000_000]);
+    let fast2 = create_test_file_with_content(temp_dir.path(), "fast2.txt", b"fast content");
+
+    let output = run_cli_with_args(&[
+        "--timeout-ms",
+        "50",
+        "--magic-file",
+        slow_magic_path.to_str().unwrap(),
+        fast1.to_str().unwrap(),
+        slow_trigger.to_str().unwrap(),
+        fast2.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    assert_exit_code(
+        &output,
+        0,
+        "Non-strict timeout run should exit successfully",
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 2, "Only fast files should produce output");
+    assert!(
+        lines[0].contains("fast1.txt"),
+        "Output should start with fast1"
+    );
+    assert!(
+        lines[1].contains("fast2.txt"),
+        "Output should include fast2"
+    );
+    assert!(
+        !stdout.contains("slow_trigger.txt"),
+        "Timeout file should not produce stdout output"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("slow_trigger.txt"),
+        "Timeout error should include filename"
+    );
+    assert!(
+        stderr.contains("timeout") || stderr.contains("Timeout"),
+        "Timeout error should mention timeout"
+    );
+    assert!(stderr.contains("50ms"), "Timeout error should include 50ms");
+}
+
+/// Test that strict mode returns exit code 5 on timeout while still processing
+/// subsequent files.
+#[test]
+fn test_timeout_per_file_independent_strict() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let slow_magic_path = temp_dir.path().join("slow.magic");
+
+    let mut slow_rules = String::new();
+    for _ in 0..25 {
+        slow_rules.push_str("0 string \"b\" data slow\n");
+    }
+    fs::write(&slow_magic_path, slow_rules).unwrap();
+
+    let fast1 = create_test_file_with_content(temp_dir.path(), "fast1.txt", b"fast content");
+    let slow_trigger =
+        create_test_file_with_content(temp_dir.path(), "slow_trigger.txt", &vec![b'a'; 5_000_000]);
+    let fast2 = create_test_file_with_content(temp_dir.path(), "fast2.txt", b"fast content");
+
+    let output = run_cli_with_args(&[
+        "--timeout-ms",
+        "50",
+        "--magic-file",
+        slow_magic_path.to_str().unwrap(),
+        "--strict",
+        fast1.to_str().unwrap(),
+        slow_trigger.to_str().unwrap(),
+        fast2.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    assert_exit_code(&output, 5, "Strict timeout run should exit with code 5");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 2, "Strict mode should still output fast files");
+    assert!(
+        lines[0].contains("fast1.txt"),
+        "Output should start with fast1"
+    );
+    assert!(
+        lines[1].contains("fast2.txt"),
+        "Output should include fast2"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("slow_trigger.txt"),
+        "Timeout error should include filename"
+    );
+    assert!(
+        stderr.contains("timeout") || stderr.contains("Timeout"),
+        "Timeout error should mention timeout"
+    );
+    assert!(stderr.contains("50ms"), "Timeout error should include 50ms");
 }

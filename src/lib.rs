@@ -420,6 +420,46 @@ pub struct MagicDatabase {
 }
 
 impl MagicDatabase {
+    /// Create a database using built-in magic rules.
+    ///
+    /// This is a stub implementation to support the CLI --use-builtin flag.
+    /// It currently returns an empty rule set, which results in a "data" output
+    /// for all files and buffers. A full built-in rules implementation is
+    /// tracked separately and will embed compiled rules at build time.
+    ///
+    /// # Errors
+    ///
+    /// Currently always returns `Ok`. In future implementations, this may return
+    /// an error if the built-in rules fail to load or validate.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use libmagic_rs::MagicDatabase;
+    ///
+    /// let db = MagicDatabase::with_builtin_rules()?;
+    /// let result = db.evaluate_buffer(b"example")?;
+    /// assert_eq!(result.description, "data");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn with_builtin_rules() -> Result<Self> {
+        Self::with_builtin_rules_and_config(EvaluationConfig::default())
+    }
+
+    /// Create database with custom config (e.g., timeout)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if config is invalid
+    pub fn with_builtin_rules_and_config(config: EvaluationConfig) -> Result<Self> {
+        config.validate()?;
+        Ok(Self {
+            rules: Vec::new(),
+            config,
+            source_path: None,
+        })
+    }
+
     /// Load magic rules from a file
     ///
     /// # Arguments
@@ -440,7 +480,19 @@ impl MagicDatabase {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        // Load magic rules using the unified parser API
+        Self::load_from_file_with_config(path, EvaluationConfig::default())
+    }
+
+    /// Load from file with custom config (e.g., timeout)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if file cannot be read, parsed, or config is invalid
+    pub fn load_from_file_with_config<P: AsRef<Path>>(
+        path: P,
+        config: EvaluationConfig,
+    ) -> Result<Self> {
+        config.validate()?;
         let rules = parser::load_magic_file(path.as_ref()).map_err(|e| match e {
             ParseError::IoError(io_err) => LibmagicError::IoError(io_err),
             other => LibmagicError::ParseError(other),
@@ -448,7 +500,7 @@ impl MagicDatabase {
 
         Ok(Self {
             rules,
-            config: EvaluationConfig::default(),
+            config,
             source_path: Some(path.as_ref().to_path_buf()),
         })
     }
@@ -477,9 +529,20 @@ impl MagicDatabase {
     pub fn evaluate_file<P: AsRef<Path>>(&self, path: P) -> Result<EvaluationResult> {
         use crate::evaluator::evaluate_rules_with_config;
         use crate::io::FileBuffer;
+        use std::fs;
+
+        let path = path.as_ref();
+
+        // Check if file is empty - if so, evaluate as empty buffer
+        // This allows empty files to be processed like any other file
+        let metadata = fs::metadata(path)?;
+        if metadata.len() == 0 {
+            // Empty file - evaluate as empty buffer
+            return self.evaluate_buffer(b"");
+        }
 
         // Load the file into memory
-        let file_buffer = FileBuffer::new(path.as_ref())?;
+        let file_buffer = FileBuffer::new(path)?;
         let buffer = file_buffer.as_slice();
 
         // If we have no rules, return "data" as fallback
@@ -510,6 +573,68 @@ impl MagicDatabase {
                 confidence: 1.0, // TODO: Implement confidence scoring
             })
         }
+    }
+
+    /// Evaluate magic rules against an in-memory buffer
+    ///
+    /// This method evaluates a byte buffer directly without reading from disk,
+    /// which is useful for stdin input or pre-loaded data.
+    ///
+    /// # Arguments
+    ///
+    /// * `buffer` - Byte buffer to evaluate
+    ///
+    /// # Errors
+    ///
+    /// Returns `LibmagicError::EvaluationError` if rule evaluation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use libmagic_rs::MagicDatabase;
+    ///
+    /// let db = MagicDatabase::load_from_file("/usr/share/misc/magic")?;
+    /// let buffer = b"test data";
+    /// let result = db.evaluate_buffer(buffer)?;
+    /// println!("Buffer type: {}", result.description);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn evaluate_buffer(&self, buffer: &[u8]) -> Result<EvaluationResult> {
+        use crate::evaluator::evaluate_rules_with_config;
+
+        if self.rules.is_empty() {
+            return Ok(EvaluationResult {
+                description: "data".to_string(),
+                mime_type: None,
+                confidence: 0.0,
+            });
+        }
+
+        let matches = evaluate_rules_with_config(&self.rules, buffer, self.config.clone())?;
+
+        if matches.is_empty() {
+            Ok(EvaluationResult {
+                description: "data".to_string(),
+                mime_type: None,
+                confidence: 0.0,
+            })
+        } else {
+            let primary_match = &matches[0];
+            Ok(EvaluationResult {
+                description: primary_match.message.clone(),
+                mime_type: None,
+                confidence: 1.0,
+            })
+        }
+    }
+
+    /// Returns the evaluation configuration used by this database.
+    ///
+    /// This provides read-only access to the evaluation configuration for
+    /// callers that need to inspect resource limits or evaluation options.
+    #[must_use]
+    pub fn config(&self) -> &EvaluationConfig {
+        &self.config
     }
 
     /// Returns the path from which magic rules were loaded.
@@ -556,6 +681,7 @@ pub struct EvaluationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn test_evaluation_config_default() {
@@ -825,5 +951,27 @@ mod tests {
             LibmagicError::EvaluationError(_) => (),
             _ => panic!("Expected EvaluationError variant"),
         }
+    }
+
+    #[test]
+    fn test_with_builtin_rules_stub() {
+        let db = MagicDatabase::with_builtin_rules().expect("builtin rules stub should load");
+        assert!(db.rules.is_empty());
+        assert!(db.source_path().is_none());
+
+        let temp_file = tempfile::Builder::new()
+            .prefix("libmagic_builtin_stub_test")
+            .suffix(".bin")
+            .tempfile()
+            .expect("failed to create temp file");
+        fs::write(temp_file.path(), b"sample").unwrap();
+
+        let file_result = db.evaluate_file(temp_file.path()).unwrap();
+        assert_eq!(file_result.description, "data");
+
+        let buffer_result = db.evaluate_buffer(b"buffer").unwrap();
+        assert_eq!(buffer_result.description, "data");
+
+        // temp_file is automatically cleaned up when it goes out of scope
     }
 }
