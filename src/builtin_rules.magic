@@ -1,0 +1,65 @@
+# Built-in Magic Rules for libmagic-rs
+#
+# This file contains high-confidence file type detection patterns
+# for common file formats. Rules are organized by category and use
+# simple magic number checks at fixed offsets.
+#
+# Format: offset type value message
+# Hierarchical rules use > prefix for nesting
+#
+# Supported types: byte, short, long, leshort, beshort, lelong, belong, string
+# Escape sequences: octal escapes in quoted strings (e.g., "\177ELF")
+
+# ============================================================
+# Executable Formats
+# ============================================================
+
+# ELF Executables (magic: 0x7f 'E' 'L' 'F')
+0    belong    0x7f454c46      ELF
+>4   byte      1               32-bit
+>>5  byte      1               LSB
+>>5  byte      2               MSB
+>4   byte      2               64-bit
+>>5  byte      1               LSB
+>>5  byte      2               MSB
+
+# PE/DOS Executables
+0    string    "MZ"            MS-DOS executable
+>60  lelong    >0              Windows executable
+>60  lelong    <0x40000000     (valid PE offset)
+
+# ============================================================
+# Archive Formats
+# ============================================================
+
+# ZIP Archives (magic: 'P' 'K' 0x03 0x04)
+0    belong    0x504b0304      ZIP archive
+
+# TAR Archives
+257  string    "ustar"         POSIX tar archive
+
+# GZIP Archives (magic: 0x1f 0x8b)
+0    beshort   0x1f8b          gzip compressed data
+
+# ============================================================
+# Image Formats
+# ============================================================
+
+# JPEG Images (magic: 0xff 0xd8 0xff)
+0    beshort   0xffd8          JPEG image data
+
+# PNG Images (magic: 0x89 'P' 'N' 'G')
+0    belong    0x89504e47      PNG image data
+
+# GIF Images
+0    string    "GIF8"          GIF image data
+
+# BMP Images
+0    string    "BM"            BMP image data
+
+# ============================================================
+# Document Formats
+# ============================================================
+
+# PDF Documents
+0    string    "%PDF-"         PDF document
