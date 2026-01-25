@@ -5,6 +5,9 @@
 
 use crate::parser::ast::MagicRule;
 use crate::{EvaluationConfig, LibmagicError};
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 #[cfg(test)]
 use crate::parser::ast::{Endianness, OffsetSpec, Operator, TypeKind, Value};
@@ -506,8 +509,40 @@ pub fn evaluate_rules_with_config(
     buffer: &[u8],
     config: EvaluationConfig,
 ) -> Result<Vec<MatchResult>, LibmagicError> {
-    let mut context = EvaluationContext::new(config);
-    evaluate_rules(rules, buffer, &mut context)
+    // If no timeout is configured, evaluate normally
+    let Some(timeout_ms) = config.timeout_ms else {
+        let mut context = EvaluationContext::new(config);
+        return evaluate_rules(rules, buffer, &mut context);
+    };
+
+    // With timeout: spawn evaluation in a thread and wait with timeout
+    // Clone data needed for the thread
+    let rules_owned = rules.to_vec();
+    let buffer_owned = buffer.to_vec();
+    let config_clone = config.clone();
+
+    let (tx, rx) = mpsc::channel();
+
+    // Spawn evaluation in separate thread
+    thread::spawn(move || {
+        let mut context = EvaluationContext::new(config_clone);
+        let result = evaluate_rules(&rules_owned, &buffer_owned, &mut context);
+        let _ = tx.send(result);
+    });
+
+    // Wait for result with timeout
+    match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
+        Ok(result) => result,
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(LibmagicError::Timeout { timeout_ms }),
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            // Thread panicked or dropped sender
+            Err(LibmagicError::EvaluationError(
+                crate::error::EvaluationError::internal_error(
+                    "Evaluation thread terminated unexpectedly",
+                ),
+            ))
+        }
+    }
 }
 
 #[cfg(test)]

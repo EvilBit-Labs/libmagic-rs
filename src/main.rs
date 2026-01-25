@@ -74,6 +74,14 @@ pub struct Args {
     /// When provided alongside --magic-file, --use-builtin takes precedence.
     #[arg(long)]
     pub use_builtin: bool,
+
+    /// Timeout for evaluation in milliseconds (1-300000ms, 5 minutes max).
+    ///
+    /// Sets a per-file timeout for magic rule evaluation. If evaluation takes
+    /// longer than this duration, the file is skipped with a timeout error.
+    /// Each file gets its own independent timeout window.
+    #[arg(long = "timeout-ms", value_name = "MS")]
+    pub timeout_ms: Option<u64>,
 }
 
 impl Args {
@@ -92,6 +100,17 @@ impl Args {
             custom_path.clone()
         } else {
             Self::default_magic_file_path()
+        }
+    }
+
+    /// Create an EvaluationConfig from command-line arguments
+    ///
+    /// Uses the timeout value from --timeout-ms if provided, with validation
+    /// performed during config creation. Other config values use defaults.
+    pub fn to_evaluation_config(&self) -> libmagic_rs::EvaluationConfig {
+        libmagic_rs::EvaluationConfig {
+            timeout_ms: self.timeout_ms,
+            ..Default::default()
         }
     }
 
@@ -311,8 +330,10 @@ fn handle_timeout_error(timeout_ms: u64) -> i32 {
 /// Handles magic file discovery, validation, and database loading.
 /// Returns the loaded database or an error if loading fails.
 fn load_magic_database(args: &Args) -> Result<MagicDatabase, LibmagicError> {
+    let config = args.to_evaluation_config();
+
     if args.use_builtin {
-        return MagicDatabase::with_builtin_rules();
+        return MagicDatabase::with_builtin_rules_and_config(config);
     }
 
     // Get magic file path
@@ -334,8 +355,8 @@ fn load_magic_database(args: &Args) -> Result<MagicDatabase, LibmagicError> {
     // Validate magic file format
     validate_magic_file(&magic_file_path)?;
 
-    // Load and return database
-    MagicDatabase::load_from_file(&magic_file_path)
+    // Load and return database with custom config
+    MagicDatabase::load_from_file_with_config(&magic_file_path, config)
 }
 
 /// Output analysis result based on format
@@ -982,6 +1003,7 @@ mod tests {
             magic_file: None,
             strict: false,
             use_builtin: false,
+            timeout_ms: None,
         };
         let result = validate_arguments(&args_empty);
         assert!(result.is_err());
@@ -1007,6 +1029,7 @@ mod tests {
             magic_file: Some(PathBuf::from("")),
             strict: false,
             use_builtin: false,
+            timeout_ms: None,
         };
         let result = validate_arguments(&args_with_empty_magic);
         assert!(result.is_err());
@@ -1029,6 +1052,7 @@ mod tests {
             magic_file: Some(PathBuf::from("magic.db")),
             strict: false,
             use_builtin: false,
+            timeout_ms: None,
         };
         let result = validate_arguments(&args_with_magic);
         assert!(result.is_ok());

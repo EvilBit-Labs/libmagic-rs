@@ -443,9 +443,19 @@ impl MagicDatabase {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn with_builtin_rules() -> Result<Self> {
+        Self::with_builtin_rules_and_config(EvaluationConfig::default())
+    }
+
+    /// Create database with custom config (e.g., timeout)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if config is invalid
+    pub fn with_builtin_rules_and_config(config: EvaluationConfig) -> Result<Self> {
+        config.validate()?;
         Ok(Self {
             rules: Vec::new(),
-            config: EvaluationConfig::default(),
+            config,
             source_path: None,
         })
     }
@@ -470,7 +480,19 @@ impl MagicDatabase {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        // Load magic rules using the unified parser API
+        Self::load_from_file_with_config(path, EvaluationConfig::default())
+    }
+
+    /// Load from file with custom config (e.g., timeout)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if file cannot be read, parsed, or config is invalid
+    pub fn load_from_file_with_config<P: AsRef<Path>>(
+        path: P,
+        config: EvaluationConfig,
+    ) -> Result<Self> {
+        config.validate()?;
         let rules = parser::load_magic_file(path.as_ref()).map_err(|e| match e {
             ParseError::IoError(io_err) => LibmagicError::IoError(io_err),
             other => LibmagicError::ParseError(other),
@@ -478,7 +500,7 @@ impl MagicDatabase {
 
         Ok(Self {
             rules,
-            config: EvaluationConfig::default(),
+            config,
             source_path: Some(path.as_ref().to_path_buf()),
         })
     }
@@ -507,9 +529,20 @@ impl MagicDatabase {
     pub fn evaluate_file<P: AsRef<Path>>(&self, path: P) -> Result<EvaluationResult> {
         use crate::evaluator::evaluate_rules_with_config;
         use crate::io::FileBuffer;
+        use std::fs;
+
+        let path = path.as_ref();
+
+        // Check if file is empty - if so, evaluate as empty buffer
+        // This allows empty files to be processed like any other file
+        let metadata = fs::metadata(path)?;
+        if metadata.len() == 0 {
+            // Empty file - evaluate as empty buffer
+            return self.evaluate_buffer(b"");
+        }
 
         // Load the file into memory
-        let file_buffer = FileBuffer::new(path.as_ref())?;
+        let file_buffer = FileBuffer::new(path)?;
         let buffer = file_buffer.as_slice();
 
         // If we have no rules, return "data" as fallback
