@@ -117,6 +117,24 @@ fn generate_builtin_rules(rules: &[MagicRule]) -> String {
     push_line(&mut output, "");
     push_line(
         &mut output,
+        "/// Built-in magic rules compiled at build time.",
+    );
+    push_line(&mut output, "///");
+    push_line(
+        &mut output,
+        "/// This static contains magic rules parsed from `src/builtin_rules.magic` during",
+    );
+    push_line(
+        &mut output,
+        "/// the build process. The rules are lazily initialized on first access.",
+    );
+    push_line(&mut output, "///");
+    push_line(
+        &mut output,
+        "/// Use [`get_builtin_rules()`] to access these rules instead of using this static directly.",
+    );
+    push_line(
+        &mut output,
         "pub static BUILTIN_RULES: LazyLock<Vec<MagicRule>> = LazyLock::new(|| {",
     );
     push_line(&mut output, "    vec![");
@@ -258,13 +276,32 @@ fn serialize_operator(op: &Operator) -> String {
 
 fn serialize_value(value: &Value) -> String {
     match value {
-        Value::Uint(number) => format!("Value::Uint({number})"),
-        Value::Int(number) => format!("Value::Int({number})"),
+        Value::Uint(number) => format!("Value::Uint({})", format_number(*number)),
+        Value::Int(number) => format!("Value::Int({})", format_number(*number as u64)),
         Value::Bytes(bytes) => format!("Value::Bytes({})", format_byte_vec(bytes)),
         Value::String(text) => format!(
             "Value::String(String::from({}))",
             format_string_literal(text)
         ),
+    }
+}
+
+/// Format a number with underscores for readability (clippy::unreadable_literal)
+fn format_number(num: u64) -> String {
+    if num < 10000 {
+        num.to_string()
+    } else {
+        let num_str = num.to_string();
+        let mut result = String::new();
+        let len = num_str.len();
+
+        for (i, ch) in num_str.chars().enumerate() {
+            if i > 0 && (len - i) % 3 == 0 {
+                result.push('_');
+            }
+            result.push(ch);
+        }
+        result
     }
 }
 

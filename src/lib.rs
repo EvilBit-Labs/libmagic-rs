@@ -100,6 +100,7 @@
 use std::path::{Path, PathBuf};
 
 // Re-export modules
+pub mod builtin_rules;
 pub mod error;
 pub mod evaluator;
 pub mod io;
@@ -422,10 +423,10 @@ pub struct MagicDatabase {
 impl MagicDatabase {
     /// Create a database using built-in magic rules.
     ///
-    /// This is a stub implementation to support the CLI --use-builtin flag.
-    /// It currently returns an empty rule set, which results in a "data" output
-    /// for all files and buffers. A full built-in rules implementation is
-    /// tracked separately and will embed compiled rules at build time.
+    /// Loads magic rules that are compiled into the library binary at build time
+    /// from `src/builtin_rules.magic`. These rules provide high-confidence detection
+    /// for common file types including executables (ELF, PE/DOS), archives (ZIP, TAR,
+    /// GZIP), images (JPEG, PNG, GIF, BMP), and documents (PDF).
     ///
     /// # Errors
     ///
@@ -438,23 +439,40 @@ impl MagicDatabase {
     /// use libmagic_rs::MagicDatabase;
     ///
     /// let db = MagicDatabase::with_builtin_rules()?;
-    /// let result = db.evaluate_buffer(b"example")?;
-    /// assert_eq!(result.description, "data");
+    /// let result = db.evaluate_buffer(b"\x7fELF")?;
+    /// // Returns actual file type detection (e.g., "ELF")
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn with_builtin_rules() -> Result<Self> {
         Self::with_builtin_rules_and_config(EvaluationConfig::default())
     }
 
-    /// Create database with custom config (e.g., timeout)
+    /// Create database with built-in rules and custom configuration.
+    ///
+    /// Loads built-in magic rules compiled at build time and applies the specified
+    /// evaluation configuration (e.g., custom timeout settings).
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Custom evaluation configuration to use with the built-in rules
     ///
     /// # Errors
     ///
-    /// Returns error if config is invalid
+    /// Returns `LibmagicError` if the configuration is invalid (e.g., timeout is zero).
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use libmagic_rs::{MagicDatabase, EvaluationConfig};
+    ///
+    /// let config = EvaluationConfig::with_timeout(5000)?; // 5 second timeout
+    /// let db = MagicDatabase::with_builtin_rules_and_config(config)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn with_builtin_rules_and_config(config: EvaluationConfig) -> Result<Self> {
         config.validate()?;
         Ok(Self {
-            rules: Vec::new(),
+            rules: crate::builtin_rules::get_builtin_rules(),
             config,
             source_path: None,
         })
@@ -681,7 +699,6 @@ pub struct EvaluationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
 
     #[test]
     fn test_evaluation_config_default() {
@@ -954,24 +971,35 @@ mod tests {
     }
 
     #[test]
-    fn test_with_builtin_rules_stub() {
-        let db = MagicDatabase::with_builtin_rules().expect("builtin rules stub should load");
-        assert!(db.rules.is_empty());
+    fn test_with_builtin_rules() {
+        let db = MagicDatabase::with_builtin_rules().expect("builtin rules should load");
+
+        // Verify built-in rules are loaded
+        assert!(!db.rules.is_empty(), "Built-in rules should not be empty");
+
+        // Verify source_path is None for built-in rules
         assert!(db.source_path().is_none());
 
-        let temp_file = tempfile::Builder::new()
-            .prefix("libmagic_builtin_stub_test")
-            .suffix(".bin")
-            .tempfile()
-            .expect("failed to create temp file");
-        fs::write(temp_file.path(), b"sample").unwrap();
+        // Test ELF detection with built-in rules
+        let elf_header = b"\x7fELF\x02\x01\x01\x00";
+        let elf_result = db.evaluate_buffer(elf_header).unwrap();
+        assert!(
+            elf_result.description.contains("ELF"),
+            "Expected ELF detection, got: {}",
+            elf_result.description
+        );
 
-        let file_result = db.evaluate_file(temp_file.path()).unwrap();
-        assert_eq!(file_result.description, "data");
+        // Test ZIP detection with built-in rules
+        let zip_header = b"PK\x03\x04";
+        let zip_result = db.evaluate_buffer(zip_header).unwrap();
+        assert!(
+            zip_result.description.contains("ZIP"),
+            "Expected ZIP detection, got: {}",
+            zip_result.description
+        );
 
-        let buffer_result = db.evaluate_buffer(b"buffer").unwrap();
-        assert_eq!(buffer_result.description, "data");
-
-        // temp_file is automatically cleaned up when it goes out of scope
+        // Test unknown data falls back to "data"
+        let unknown_result = db.evaluate_buffer(b"random unknown content").unwrap();
+        assert_eq!(unknown_result.description, "data");
     }
 }

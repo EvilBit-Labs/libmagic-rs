@@ -274,6 +274,26 @@ pub fn evaluate_single_rule(rule: &MagicRule, buffer: &[u8]) -> Result<bool, Lib
     Ok(matches)
 }
 
+/// Helper function to determine if an error is a buffer overrun
+///
+/// Buffer overruns are expected when evaluating rules against short buffers, and should
+/// be silently skipped rather than logged as warnings.
+fn is_buffer_overrun_error(error: &LibmagicError) -> bool {
+    match error {
+        LibmagicError::EvaluationError(eval_error) => match eval_error {
+            crate::error::EvaluationError::BufferOverrun { .. } => true,
+            crate::error::EvaluationError::TypeReadError(type_error) => {
+                matches!(
+                    type_error,
+                    crate::evaluator::types::TypeReadError::BufferOverrun { .. }
+                )
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 /// Evaluate a list of magic rules against a file buffer with hierarchical processing
 ///
 /// This function implements the core hierarchical rule evaluation algorithm with graceful
@@ -366,11 +386,14 @@ pub fn evaluate_rules(
         let rule_matches = match evaluate_single_rule(rule, buffer) {
             Ok(matches) => matches,
             Err(e) => {
-                // Log the error and continue with next rule (graceful degradation)
-                eprintln!(
-                    "Warning: Skipping rule '{}' due to error: {}",
-                    rule.message, e
-                );
+                // Skip buffer overruns silently (expected for short buffers)
+                // Log other errors and continue with next rule (graceful degradation)
+                if !is_buffer_overrun_error(&e) {
+                    eprintln!(
+                        "Warning: Skipping rule '{}' due to error: {}",
+                        rule.message, e
+                    );
+                }
                 continue;
             }
         };
@@ -380,10 +403,13 @@ pub fn evaluate_rules(
             let absolute_offset = match offset::resolve_offset(&rule.offset, buffer) {
                 Ok(offset) => offset,
                 Err(e) => {
-                    eprintln!(
-                        "Warning: Skipping rule '{}' due to offset resolution error: {}",
-                        rule.message, e
-                    );
+                    // Skip buffer overruns silently (expected for short buffers)
+                    if !is_buffer_overrun_error(&e) {
+                        eprintln!(
+                            "Warning: Skipping rule '{}' due to offset resolution error: {}",
+                            rule.message, e
+                        );
+                    }
                     continue;
                 }
             };
@@ -391,10 +417,15 @@ pub fn evaluate_rules(
             let read_value = match types::read_typed_value(buffer, absolute_offset, &rule.typ) {
                 Ok(value) => value,
                 Err(e) => {
-                    eprintln!(
-                        "Warning: Skipping rule '{}' due to type reading error: {}",
-                        rule.message, e
-                    );
+                    // Skip buffer overruns silently (expected for short buffers)
+                    let eval_error: crate::error::EvaluationError = e.into();
+                    let lib_error: LibmagicError = eval_error.into();
+                    if !is_buffer_overrun_error(&lib_error) {
+                        eprintln!(
+                            "Warning: Skipping rule '{}' due to type reading error: {}",
+                            rule.message, lib_error
+                        );
+                    }
                     continue;
                 }
             };
@@ -436,11 +467,14 @@ pub fn evaluate_rules(
                         ));
                     }
                     Err(e) => {
+                        // Skip buffer overruns silently (expected for short buffers)
                         // Other errors in child evaluation are logged but don't stop parent evaluation
-                        eprintln!(
-                            "Warning: Error evaluating children of rule '{}': {}",
-                            rule.message, e
-                        );
+                        if !is_buffer_overrun_error(&e) {
+                            eprintln!(
+                                "Warning: Error evaluating children of rule '{}': {}",
+                                rule.message, e
+                            );
+                        }
                     }
                 }
 
