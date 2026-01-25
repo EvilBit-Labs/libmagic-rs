@@ -639,11 +639,15 @@ mod tests {
         let saved_stdout = dup(std::io::stdout()).unwrap();
         let (read_fd, write_fd) = pipe().unwrap();
 
-        dup2_stdout(write_fd).unwrap();
+        dup2_stdout(&write_fd).unwrap();
+        // Close the original write_fd after dup2 - stdout now owns a copy
+        drop(write_fd);
 
         let result = f();
 
-        dup2_stdout(saved_stdout).unwrap();
+        dup2_stdout(&saved_stdout).unwrap();
+        // Close the saved fd after restoring
+        drop(saved_stdout);
 
         let mut output = Vec::new();
         let mut buffer = [0u8; 1024];
@@ -668,11 +672,15 @@ mod tests {
         let saved_stderr = dup(std::io::stderr()).unwrap();
         let (read_fd, write_fd) = pipe().unwrap();
 
-        dup2_stderr(write_fd).unwrap();
+        dup2_stderr(&write_fd).unwrap();
+        // Close the original write_fd after dup2 - stderr now owns a copy
+        drop(write_fd);
 
         let result = f();
 
-        dup2_stderr(saved_stderr).unwrap();
+        dup2_stderr(&saved_stderr).unwrap();
+        // Close the saved fd after restoring
+        drop(saved_stderr);
 
         let mut output = Vec::new();
         let mut buffer = [0u8; 1024];
@@ -714,7 +722,15 @@ mod tests {
         F: FnOnce() -> Result<(), LibmagicError>,
     {
         let saved_stdin = dup(std::io::stdin()).unwrap();
-        let temp_dir = std::env::temp_dir().join("rmagic_stdin_invalid");
+        // Use unique temp directory with PID to avoid race conditions in parallel tests
+        let temp_dir = std::env::temp_dir().join(format!(
+            "rmagic_stdin_invalid_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         fs::create_dir_all(&temp_dir).unwrap();
         let dir_handle = fs::File::open(&temp_dir).unwrap();
 

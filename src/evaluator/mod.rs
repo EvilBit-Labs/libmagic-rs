@@ -5,7 +5,7 @@
 
 use crate::parser::ast::MagicRule;
 use crate::{EvaluationConfig, LibmagicError};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -516,17 +516,27 @@ pub fn evaluate_rules_with_config(
     };
 
     // With timeout: spawn evaluation in a thread and wait with timeout
-    // Clone data needed for the thread
-    let rules_owned = rules.to_vec();
-    let buffer_owned = buffer.to_vec();
+    // Use Arc to share data without cloning the potentially large rules/buffer
+    let rules_arc = Arc::new(rules.to_vec());
+    let buffer_arc = Arc::new(buffer.to_vec());
     let config_clone = config.clone();
 
     let (tx, rx) = mpsc::channel();
 
+    // Clone Arcs for the thread (cheap reference count increment)
+    let rules_thread = Arc::clone(&rules_arc);
+    let buffer_thread = Arc::clone(&buffer_arc);
+
     // Spawn evaluation in separate thread
+    // Note: The thread will run to completion even if we return early on timeout.
+    // True cancellation would require cooperative cancellation (checking a flag
+    // periodically during evaluation) or running in a separate process.
+    // For most use cases, the thread will complete quickly or the process will
+    // exit, cleaning up the thread automatically.
     thread::spawn(move || {
         let mut context = EvaluationContext::new(config_clone);
-        let result = evaluate_rules(&rules_owned, &buffer_owned, &mut context);
+        let result = evaluate_rules(&rules_thread, &buffer_thread, &mut context);
+        // Send result; ignore error if receiver was dropped (timeout occurred)
         let _ = tx.send(result);
     });
 

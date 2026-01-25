@@ -60,10 +60,9 @@ fn create_test_file_with_content(dir: &Path, name: &str, content: &[u8]) -> Path
 }
 
 /// Runs the CLI with given arguments and returns the full output.
-/// This is a convenience wrapper around Command::new("cargo").
+/// Uses the already-built test binary for better performance in parallel tests.
 fn run_cli_with_args(args: &[&str]) -> Result<Output, Box<dyn std::error::Error>> {
-    let output = Command::new("cargo")
-        .args(["run", "--quiet", "--"])
+    let output = Command::new(env!("CARGO_BIN_EXE_rmagic"))
         .args(args)
         .output()?;
     Ok(output)
