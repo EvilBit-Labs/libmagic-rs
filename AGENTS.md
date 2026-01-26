@@ -135,6 +135,7 @@ cargo build        # Build project
 cargo test         # Run all tests
 cargo clippy       # Linting with strict warnings
 cargo fmt          # Format code
+just ci-check      # Run complete CI suite locally (pre-commit validation)
 
 # Performance and quality
 cargo bench        # Run benchmarks
@@ -256,6 +257,17 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 3. Implement caching for compiled rules
 4. Use Aho-Corasick for multi-pattern searches
 5. Minimize allocations in hot paths
+
+### Testing Build Scripts
+
+Build scripts (`build.rs`) cannot import the crate being built, which makes them difficult to test. To enable comprehensive testing of build script logic:
+
+1. Extract build logic into a library module with `#[cfg(any(test, doc))]`
+2. Keep build.rs minimal, calling functions from the testable module
+3. Write unit tests in the library module to verify all code paths
+4. Example: `src/build_helpers.rs` provides testable parsing and code generation
+
+This pattern ensures build-time failures (e.g., invalid magic files) are properly tested and produce clear error messages.
 
 ## Error Recovery Strategy
 

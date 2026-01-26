@@ -23,10 +23,5 @@ jobs:
             issues: write
         steps:
             - uses: actions/checkout@v6
-            - uses: jdx/mise-action@v3
-              with:
-                  install: true
-                  cache: true
-                  github_token: ${{ secrets.GITHUB_TOKEN }}
             - uses: actions-rust-lang/audit@v1
               name: Audit Rust Dependencies

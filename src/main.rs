@@ -32,9 +32,6 @@ use std::process;
 ///   rmagic --use-builtin file.bin
 ///   rmagic --use-builtin --strict --json *.bin
 ///   rmagic - < input.dat  # Read from stdin
-///
-/// Note: The built-in rules implementation is currently a stub and will
-/// return "data" for all files until full built-in rules are added.
 #[derive(Parser, Debug)]
 #[command(
     name = "rmagic",
@@ -61,17 +58,18 @@ pub struct Args {
 
     /// Exit with non-zero code on failures (I/O, parse, or evaluation errors).
     ///
-    /// A "data" result is not considered an error and will not cause a non-zero
-    /// exit code. When using --use-builtin with the stub implementation, "data"
-    /// results are expected and remain success.
+    /// A "data" result (unknown file type) is not considered an error and will
+    /// not cause a non-zero exit code, even in strict mode.
     #[arg(long)]
     pub strict: bool,
 
     /// Use built-in magic rules instead of loading from file.
     ///
-    /// Note: Built-in rules are currently a stub implementation that returns
-    /// "data" for all files. Full implementation is planned for a future release.
-    /// When provided alongside --magic-file, --use-builtin takes precedence.
+    /// Loads pre-compiled built-in rules for common file types (ELF, PE/DOS,
+    /// ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, PDF). These rules are compiled
+    /// at build time and provide basic file type detection without requiring
+    /// external magic files. When provided alongside --magic-file, --use-builtin
+    /// takes precedence.
     #[arg(long)]
     pub use_builtin: bool,
 
