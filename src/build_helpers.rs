@@ -229,7 +229,7 @@ fn serialize_operator(op: &Operator) -> String {
 fn serialize_value(value: &Value) -> String {
     match value {
         Value::Uint(number) => format!("Value::Uint({})", format_number(*number)),
-        Value::Int(number) => format!("Value::Int({number})"),
+        Value::Int(number) => format!("Value::Int({})", format_signed_number(*number)),
         Value::Bytes(bytes) => format!("Value::Bytes({})", format_byte_vec(bytes)),
         Value::String(text) => format!(
             "Value::String(String::from({}))",
@@ -238,7 +238,7 @@ fn serialize_value(value: &Value) -> String {
     }
 }
 
-/// Format a number with underscores for readability (`clippy::unreadable_literal`)
+/// Format an unsigned number with underscores for readability (`clippy::unreadable_literal`)
 fn format_number(num: u64) -> String {
     if num < 10000 {
         num.to_string()
@@ -254,6 +254,17 @@ fn format_number(num: u64) -> String {
             result.push(ch);
         }
         result
+    }
+}
+
+/// Format a signed number with underscores for readability (`clippy::unreadable_literal`)
+fn format_signed_number(num: i64) -> String {
+    if num < 0 {
+        let abs = num.unsigned_abs();
+        format!("-{}", format_number(abs))
+    } else {
+        // Safe: num >= 0, so the cast cannot lose the sign
+        format_number(num.unsigned_abs())
     }
 }
 

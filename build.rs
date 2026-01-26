@@ -236,7 +236,7 @@ fn serialize_offset_spec(offset: &OffsetSpec) -> String {
         } => format!(
             "OffsetSpec::Indirect {{ base_offset: {base_offset}, pointer_type: {}, adjustment: {adjustment}, endian: {} }}",
             serialize_type_kind(pointer_type),
-            serialize_endianness(endian)
+            serialize_endianness(*endian)
         ),
         OffsetSpec::Relative(value) => format!("OffsetSpec::Relative({value})"),
         OffsetSpec::FromEnd(value) => format!("OffsetSpec::FromEnd({value})"),
@@ -248,12 +248,12 @@ fn serialize_type_kind(typ: &TypeKind) -> String {
         TypeKind::Byte => "TypeKind::Byte".to_string(),
         TypeKind::Short { endian, signed } => format!(
             "TypeKind::Short {{ endian: {}, signed: {} }}",
-            serialize_endianness(endian),
+            serialize_endianness(*endian),
             signed
         ),
         TypeKind::Long { endian, signed } => format!(
             "TypeKind::Long {{ endian: {}, signed: {} }}",
-            serialize_endianness(endian),
+            serialize_endianness(*endian),
             signed
         ),
         TypeKind::String { max_length } => match max_length {
@@ -305,7 +305,7 @@ fn format_number(num: u64) -> String {
     }
 }
 
-fn serialize_endianness(endian: &Endianness) -> String {
+fn serialize_endianness(endian: Endianness) -> String {
     match endian {
         Endianness::Little => "Endianness::Little".to_string(),
         Endianness::Big => "Endianness::Big".to_string(),

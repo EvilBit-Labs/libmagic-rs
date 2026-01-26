@@ -43,7 +43,7 @@
 # Image Formats
 # ============================================================
 
-# JPEG Images (magic: 0xff 0xd8 0xff)
+# JPEG Images (magic: 0xff 0xd8)
 0    beshort   0xffd8          JPEG image data
 
 # PNG Images (magic: 0x89 'P' 'N' 'G')
