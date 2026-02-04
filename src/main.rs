@@ -9,6 +9,7 @@ use libmagic_rs::output::MatchResult;
 use libmagic_rs::output::json::{format_json_line_output, format_json_output};
 use libmagic_rs::parser::ast::Value;
 use libmagic_rs::parser::{MagicFileFormat, detect_format};
+use libmagic_rs::tags::TagExtractor;
 use libmagic_rs::{LibmagicError, MagicDatabase};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -376,19 +377,65 @@ fn output_result(
 
     match args.output_format() {
         OutputFormat::Json => {
-            // Convert to MatchResult for JSON formatting
-            let match_results = if result.description == "data" && result.confidence == 0.0 {
+            // Extract tags from the description
+            let tag_extractor = TagExtractor::new();
+            let tags = tag_extractor.extract_tags(&result.description);
+
+            // Convert evaluator::MatchResult to output::MatchResult
+            let match_results: Vec<MatchResult> = if result.matches.is_empty() {
                 vec![]
             } else {
-                vec![MatchResult::with_metadata(
-                    result.description.clone(),
-                    0,
-                    result.description.len(),
-                    Value::String(result.description.clone()),
-                    vec![],
-                    (result.confidence * 100.0) as u8,
-                    result.mime_type.clone(),
-                )]
+                result
+                    .matches
+                    .iter()
+                    .map(|m| {
+                        // Build rule_path from match messages
+                        let rule_path =
+                            tag_extractor.extract_rule_path(std::iter::once(m.message.as_str()));
+
+                        // Convert confidence from 0.0-1.0 to 0-100 scale
+                        let confidence_score = (m.confidence * 100.0).min(100.0) as u8;
+
+                        // Estimate length from value type
+                        let length = match &m.value {
+                            Value::Bytes(b) => b.len(),
+                            Value::String(s) => s.len(),
+                            _ => 4, // Default for numeric types
+                        };
+
+                        MatchResult::with_metadata(
+                            m.message.clone(),
+                            m.offset,
+                            length,
+                            m.value.clone(),
+                            rule_path,
+                            confidence_score,
+                            result.mime_type.clone(),
+                        )
+                    })
+                    .collect()
+            };
+
+            // Add tags to the first match if present
+            let match_results = if !match_results.is_empty() && !tags.is_empty() {
+                let mut results = match_results;
+                // Tags are extracted from description, associate with primary result
+                results[0] = MatchResult::with_metadata(
+                    results[0].message.clone(),
+                    results[0].offset,
+                    results[0].length,
+                    results[0].value.clone(),
+                    if results[0].rule_path.is_empty() {
+                        tags
+                    } else {
+                        results[0].rule_path.clone()
+                    },
+                    results[0].confidence,
+                    results[0].mime_type.clone(),
+                );
+                results
+            } else {
+                match_results
             };
 
             // Use JSON Lines format for multiple files, pretty JSON for single file
@@ -400,14 +447,13 @@ fn output_result(
 
             match json_result {
                 Ok(json_str) => {
-                    writeln!(stdout, "{}", json_str).map_err(LibmagicError::IoError)?;
+                    writeln!(stdout, "{json_str}").map_err(LibmagicError::IoError)?;
                     stdout.flush().map_err(LibmagicError::IoError)?;
                 }
                 Err(e) => {
                     return Err(LibmagicError::EvaluationError(
                         libmagic_rs::EvaluationError::unsupported_type(format!(
-                            "Failed to serialize JSON: {}",
-                            e
+                            "Failed to serialize JSON: {e}"
                         )),
                     ));
                 }

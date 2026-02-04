@@ -99,13 +99,17 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 // Re-export modules
 pub mod builtin_rules;
 pub mod error;
 pub mod evaluator;
 pub mod io;
+pub mod mime;
 pub mod output;
 pub mod parser;
+pub mod tags;
 
 /// Build-time helpers for compiling magic rules.
 ///
@@ -558,16 +562,24 @@ impl MagicDatabase {
     pub fn evaluate_file<P: AsRef<Path>>(&self, path: P) -> Result<EvaluationResult> {
         use crate::evaluator::evaluate_rules_with_config;
         use crate::io::FileBuffer;
+        use crate::mime::MimeMapper;
         use std::fs;
+        use std::time::Instant;
 
+        let start_time = Instant::now();
         let path = path.as_ref();
 
         // Check if file is empty - if so, evaluate as empty buffer
         // This allows empty files to be processed like any other file
-        let metadata = fs::metadata(path)?;
-        if metadata.len() == 0 {
-            // Empty file - evaluate as empty buffer
-            return self.evaluate_buffer(b"");
+        let file_metadata = fs::metadata(path)?;
+        let file_size = file_metadata.len();
+
+        if file_size == 0 {
+            // Empty file - evaluate as empty buffer but preserve file metadata
+            let mut result = self.evaluate_buffer_internal(b"", start_time)?;
+            result.metadata.file_size = 0;
+            result.metadata.magic_file.clone_from(&self.source_path);
+            return Ok(result);
         }
 
         // Load the file into memory
@@ -580,28 +592,50 @@ impl MagicDatabase {
                 description: "data".to_string(),
                 mime_type: None,
                 confidence: 0.0,
+                matches: vec![],
+                metadata: EvaluationMetadata {
+                    file_size,
+                    evaluation_time_ms: start_time.elapsed().as_secs_f64() * 1000.0,
+                    rules_evaluated: 0,
+                    magic_file: self.source_path.clone(),
+                    timed_out: false,
+                },
             });
         }
 
         // Evaluate rules against the file buffer
         let matches = evaluate_rules_with_config(&self.rules, buffer, self.config.clone())?;
 
-        if matches.is_empty() {
-            // No matches found, return "data" as fallback
-            Ok(EvaluationResult {
-                description: "data".to_string(),
-                mime_type: None,
-                confidence: 0.0,
-            })
+        // Build the result
+        let (description, confidence) = if matches.is_empty() {
+            ("data".to_string(), 0.0)
         } else {
-            // Use the first match as the primary result
-            let primary_match = &matches[0];
-            Ok(EvaluationResult {
-                description: primary_match.message.clone(),
-                mime_type: None, // TODO: Implement MIME type mapping
-                confidence: 1.0, // TODO: Implement confidence scoring
-            })
-        }
+            (
+                Self::concatenate_messages(&matches),
+                matches.first().map_or(0.0, |m| m.confidence),
+            )
+        };
+
+        // Get MIME type if enabled
+        let mime_type = if self.config.enable_mime_types {
+            MimeMapper::new().get_mime_type(&description)
+        } else {
+            None
+        };
+
+        Ok(EvaluationResult {
+            description,
+            mime_type,
+            confidence,
+            matches,
+            metadata: EvaluationMetadata {
+                file_size,
+                evaluation_time_ms: start_time.elapsed().as_secs_f64() * 1000.0,
+                rules_evaluated: self.rules.len(),
+                magic_file: self.source_path.clone(),
+                timed_out: false,
+            },
+        })
     }
 
     /// Evaluate magic rules against an in-memory buffer
@@ -629,32 +663,89 @@ impl MagicDatabase {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn evaluate_buffer(&self, buffer: &[u8]) -> Result<EvaluationResult> {
+        use std::time::Instant;
+        self.evaluate_buffer_internal(buffer, Instant::now())
+    }
+
+    /// Internal buffer evaluation with externally provided start time
+    fn evaluate_buffer_internal(
+        &self,
+        buffer: &[u8],
+        start_time: std::time::Instant,
+    ) -> Result<EvaluationResult> {
         use crate::evaluator::evaluate_rules_with_config;
+        use crate::mime::MimeMapper;
+
+        let file_size = buffer.len() as u64;
 
         if self.rules.is_empty() {
             return Ok(EvaluationResult {
                 description: "data".to_string(),
                 mime_type: None,
                 confidence: 0.0,
+                matches: vec![],
+                metadata: EvaluationMetadata {
+                    file_size,
+                    evaluation_time_ms: start_time.elapsed().as_secs_f64() * 1000.0,
+                    rules_evaluated: 0,
+                    magic_file: self.source_path.clone(),
+                    timed_out: false,
+                },
             });
         }
 
         let matches = evaluate_rules_with_config(&self.rules, buffer, self.config.clone())?;
 
-        if matches.is_empty() {
-            Ok(EvaluationResult {
-                description: "data".to_string(),
-                mime_type: None,
-                confidence: 0.0,
-            })
+        // Build the result
+        let (description, confidence) = if matches.is_empty() {
+            ("data".to_string(), 0.0)
         } else {
-            let primary_match = &matches[0];
-            Ok(EvaluationResult {
-                description: primary_match.message.clone(),
-                mime_type: None,
-                confidence: 1.0,
-            })
+            (
+                Self::concatenate_messages(&matches),
+                matches.first().map_or(0.0, |m| m.confidence),
+            )
+        };
+
+        // Get MIME type if enabled
+        let mime_type = if self.config.enable_mime_types {
+            MimeMapper::new().get_mime_type(&description)
+        } else {
+            None
+        };
+
+        Ok(EvaluationResult {
+            description,
+            mime_type,
+            confidence,
+            matches,
+            metadata: EvaluationMetadata {
+                file_size,
+                evaluation_time_ms: start_time.elapsed().as_secs_f64() * 1000.0,
+                rules_evaluated: self.rules.len(),
+                magic_file: self.source_path.clone(),
+                timed_out: false,
+            },
+        })
+    }
+
+    /// Concatenate match messages following libmagic behavior
+    ///
+    /// Messages are joined with spaces, except when a message starts with
+    /// backspace character (\\b) which suppresses the space.
+    fn concatenate_messages(matches: &[evaluator::MatchResult]) -> String {
+        let mut result = String::new();
+        for m in matches {
+            if m.message.starts_with('\u{0008}') {
+                // Backspace suppresses the space and the character itself
+                result.push_str(&m.message[1..]);
+            } else if !result.is_empty() {
+                result.push(' ');
+                result.push_str(&m.message);
+            } else {
+                result.push_str(&m.message);
+            }
         }
+        result
     }
 
     /// Returns the evaluation configuration used by this database.
@@ -696,15 +787,99 @@ impl MagicDatabase {
     }
 }
 
+/// Metadata about the evaluation process
+///
+/// Contains diagnostic information about how the evaluation was performed,
+/// including performance metrics and statistics about rule processing.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::EvaluationMetadata;
+/// use std::path::PathBuf;
+///
+/// let metadata = EvaluationMetadata {
+///     file_size: 8192,
+///     evaluation_time_ms: 2.5,
+///     rules_evaluated: 42,
+///     magic_file: Some(PathBuf::from("/usr/share/misc/magic")),
+///     timed_out: false,
+/// };
+///
+/// assert_eq!(metadata.file_size, 8192);
+/// assert!(!metadata.timed_out);
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvaluationMetadata {
+    /// Size of the analyzed file or buffer in bytes
+    pub file_size: u64,
+    /// Time taken to evaluate rules in milliseconds
+    pub evaluation_time_ms: f64,
+    /// Number of top-level rules that were evaluated
+    pub rules_evaluated: usize,
+    /// Path to the magic file used, or None for built-in rules
+    pub magic_file: Option<PathBuf>,
+    /// Whether evaluation was stopped due to timeout
+    pub timed_out: bool,
+}
+
+impl Default for EvaluationMetadata {
+    fn default() -> Self {
+        Self {
+            file_size: 0,
+            evaluation_time_ms: 0.0,
+            rules_evaluated: 0,
+            magic_file: None,
+            timed_out: false,
+        }
+    }
+}
+
 /// Result of magic rule evaluation
-#[derive(Debug, Clone)]
+///
+/// Contains the file type description, optional MIME type, confidence score,
+/// individual match details, and evaluation metadata.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::{EvaluationResult, EvaluationMetadata};
+///
+/// let result = EvaluationResult {
+///     description: "ELF 64-bit executable".to_string(),
+///     mime_type: Some("application/x-executable".to_string()),
+///     confidence: 0.9,
+///     matches: vec![],
+///     metadata: EvaluationMetadata::default(),
+/// };
+///
+/// assert_eq!(result.description, "ELF 64-bit executable");
+/// assert!(result.confidence > 0.5);
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluationResult {
     /// Human-readable file type description
+    ///
+    /// This is the concatenated message from all matching rules,
+    /// following libmagic behavior where hierarchical matches
+    /// are joined with spaces (unless backspace character is used).
     pub description: String,
-    /// Optional MIME type
+    /// Optional MIME type for the detected file type
+    ///
+    /// Only populated when `enable_mime_types` is set in the configuration.
     pub mime_type: Option<String>,
     /// Confidence score (0.0 to 1.0)
+    ///
+    /// Based on the depth of the match in the rule hierarchy.
+    /// Deeper matches indicate more specific identification.
     pub confidence: f64,
+    /// Individual match results from rule evaluation
+    ///
+    /// Contains details about each rule that matched, including
+    /// offset, matched value, and per-match confidence.
+    pub matches: Vec<evaluator::MatchResult>,
+    /// Metadata about the evaluation process
+    pub metadata: EvaluationMetadata,
 }
 
 #[cfg(test)]
@@ -1012,5 +1187,116 @@ mod tests {
         // Test unknown data falls back to "data"
         let unknown_result = db.evaluate_buffer(b"random unknown content").unwrap();
         assert_eq!(unknown_result.description, "data");
+    }
+
+    #[test]
+    fn test_evaluation_metadata_default() {
+        let metadata = EvaluationMetadata::default();
+
+        assert_eq!(metadata.file_size, 0);
+        assert!((metadata.evaluation_time_ms - 0.0).abs() < 0.001);
+        assert_eq!(metadata.rules_evaluated, 0);
+        assert!(metadata.magic_file.is_none());
+        assert!(!metadata.timed_out);
+    }
+
+    #[test]
+    fn test_evaluation_result_has_metadata() {
+        let db = MagicDatabase::with_builtin_rules().expect("builtin rules should load");
+
+        let elf_header = b"\x7fELF\x02\x01\x01\x00";
+        let result = db.evaluate_buffer(elf_header).unwrap();
+
+        // Check metadata is populated
+        assert_eq!(result.metadata.file_size, 8);
+        assert!(result.metadata.evaluation_time_ms >= 0.0);
+        assert!(result.metadata.rules_evaluated > 0);
+        assert!(result.metadata.magic_file.is_none()); // Built-in rules
+        assert!(!result.metadata.timed_out);
+    }
+
+    #[test]
+    fn test_evaluation_result_has_matches() {
+        let db = MagicDatabase::with_builtin_rules().expect("builtin rules should load");
+
+        let elf_header = b"\x7fELF\x02\x01\x01\x00";
+        let result = db.evaluate_buffer(elf_header).unwrap();
+
+        // Should have at least one match for ELF
+        assert!(!result.matches.is_empty());
+
+        // First match should have confidence > 0
+        let first_match = &result.matches[0];
+        assert!(first_match.confidence > 0.0);
+    }
+
+    #[test]
+    fn test_evaluation_result_confidence_from_matches() {
+        let db = MagicDatabase::with_builtin_rules().expect("builtin rules should load");
+
+        let elf_header = b"\x7fELF\x02\x01\x01\x00";
+        let result = db.evaluate_buffer(elf_header).unwrap();
+
+        // Result confidence should match first match confidence
+        if !result.matches.is_empty() {
+            assert!((result.confidence - result.matches[0].confidence).abs() < 0.001);
+        }
+    }
+
+    #[test]
+    fn test_evaluation_result_no_match_has_zero_confidence() {
+        let db = MagicDatabase::with_builtin_rules().expect("builtin rules should load");
+
+        let unknown_result = db.evaluate_buffer(b"random unknown content").unwrap();
+
+        assert_eq!(unknown_result.description, "data");
+        assert!((unknown_result.confidence - 0.0).abs() < 0.001);
+        assert!(unknown_result.matches.is_empty());
+    }
+
+    #[test]
+    fn test_concatenate_messages_simple() {
+        let matches = vec![
+            evaluator::MatchResult {
+                message: "ELF".to_string(),
+                offset: 0,
+                level: 0,
+                value: Value::Bytes(vec![0x7f]),
+                confidence: 0.3,
+            },
+            evaluator::MatchResult {
+                message: "64-bit".to_string(),
+                offset: 4,
+                level: 1,
+                value: Value::Uint(2),
+                confidence: 0.5,
+            },
+        ];
+
+        let result = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(result, "ELF 64-bit");
+    }
+
+    #[test]
+    fn test_concatenate_messages_with_backspace() {
+        let matches = vec![
+            evaluator::MatchResult {
+                message: "ELF".to_string(),
+                offset: 0,
+                level: 0,
+                value: Value::Bytes(vec![0x7f]),
+                confidence: 0.3,
+            },
+            evaluator::MatchResult {
+                message: "\u{0008}, 64-bit".to_string(), // backspace prefix
+                offset: 4,
+                level: 1,
+                value: Value::Uint(2),
+                confidence: 0.5,
+            },
+        ];
+
+        let result = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(result, "ELF, 64-bit"); // No space before comma
     }
 }

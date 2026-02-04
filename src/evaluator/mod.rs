@@ -5,6 +5,7 @@
 
 use crate::parser::ast::MagicRule;
 use crate::{EvaluationConfig, LibmagicError};
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
@@ -201,7 +202,7 @@ impl EvaluationContext {
 ///
 /// Contains information about a successful rule match, including the rule
 /// that matched and its associated message.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MatchResult {
     /// The message associated with the matching rule
     pub message: String,
@@ -211,6 +212,37 @@ pub struct MatchResult {
     pub level: u32,
     /// The matched value
     pub value: crate::parser::ast::Value,
+    /// Confidence score (0.0 to 1.0)
+    ///
+    /// Calculated based on match depth in the rule hierarchy.
+    /// Deeper matches indicate more specific file type identification
+    /// and thus higher confidence.
+    pub confidence: f64,
+}
+
+impl MatchResult {
+    /// Calculate confidence score based on rule depth
+    ///
+    /// Formula: min(1.0, 0.3 + (level * 0.2))
+    /// - Level 0 (root): 0.3
+    /// - Level 1: 0.5
+    /// - Level 2: 0.7
+    /// - Level 3: 0.9
+    /// - Level 4+: 1.0 (capped)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::evaluator::MatchResult;
+    ///
+    /// assert!((MatchResult::calculate_confidence(0) - 0.3).abs() < 0.001);
+    /// assert!((MatchResult::calculate_confidence(3) - 0.9).abs() < 0.001);
+    /// assert!((MatchResult::calculate_confidence(10) - 1.0).abs() < 0.001);
+    /// ```
+    #[must_use]
+    pub fn calculate_confidence(level: u32) -> f64 {
+        (0.3 + (f64::from(level) * 0.2)).min(1.0)
+    }
 }
 
 /// Evaluate a single magic rule against a file buffer
@@ -435,6 +467,7 @@ pub fn evaluate_rules(
                 offset: absolute_offset,
                 level: rule.level,
                 value: read_value,
+                confidence: MatchResult::calculate_confidence(rule.level),
             };
             matches.push(match_result);
 
@@ -1561,12 +1594,14 @@ fn test_match_result_creation() {
         offset: 0,
         level: 0,
         value: Value::Uint(0x7f),
+        confidence: MatchResult::calculate_confidence(0),
     };
 
     assert_eq!(match_result.message, "ELF executable");
     assert_eq!(match_result.offset, 0);
     assert_eq!(match_result.level, 0);
     assert_eq!(match_result.value, Value::Uint(0x7f));
+    assert!((match_result.confidence - 0.3).abs() < 0.001);
 }
 
 #[test]
@@ -1576,6 +1611,7 @@ fn test_match_result_clone() {
         offset: 42,
         level: 1,
         value: Value::String("test".to_string()),
+        confidence: MatchResult::calculate_confidence(1),
     };
 
     let cloned = original.clone();
@@ -1589,6 +1625,7 @@ fn test_match_result_debug() {
         offset: 10,
         level: 2,
         value: Value::Bytes(vec![0x01, 0x02]),
+        confidence: MatchResult::calculate_confidence(2),
     };
 
     let debug_str = format!("{match_result:?}");
@@ -1596,6 +1633,43 @@ fn test_match_result_debug() {
     assert!(debug_str.contains("Debug test"));
     assert!(debug_str.contains("10"));
     assert!(debug_str.contains('2'));
+}
+
+#[test]
+fn test_confidence_calculation_depth_0() {
+    let confidence = MatchResult::calculate_confidence(0);
+    assert!((confidence - 0.3).abs() < 0.001);
+}
+
+#[test]
+fn test_confidence_calculation_depth_1() {
+    let confidence = MatchResult::calculate_confidence(1);
+    assert!((confidence - 0.5).abs() < 0.001);
+}
+
+#[test]
+fn test_confidence_calculation_depth_2() {
+    let confidence = MatchResult::calculate_confidence(2);
+    assert!((confidence - 0.7).abs() < 0.001);
+}
+
+#[test]
+fn test_confidence_calculation_depth_3() {
+    let confidence = MatchResult::calculate_confidence(3);
+    assert!((confidence - 0.9).abs() < 0.001);
+}
+
+#[test]
+fn test_confidence_calculation_capped_at_1() {
+    // Level 4+ should cap at 1.0
+    let confidence_4 = MatchResult::calculate_confidence(4);
+    assert!((confidence_4 - 1.0).abs() < 0.001);
+
+    let confidence_10 = MatchResult::calculate_confidence(10);
+    assert!((confidence_10 - 1.0).abs() < 0.001);
+
+    let confidence_100 = MatchResult::calculate_confidence(100);
+    assert!((confidence_100 - 1.0).abs() < 0.001);
 }
 
 #[test]
