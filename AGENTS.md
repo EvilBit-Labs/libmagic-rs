@@ -21,6 +21,7 @@ This document provides comprehensive guidelines for AI assistants working on the
 - **Bounds checking** for all buffer access using `.get()` methods
 - **Safe resource management** with RAII patterns
 - **Graceful error handling** for malformed inputs
+- **Safe string operations**: Use `strip_prefix()`/`strip_suffix()` instead of direct slicing (`&str[n..]`) to avoid UTF-8 panics
 
 ### 2. Zero-Warnings Policy
 
@@ -44,6 +45,7 @@ This document provides comprehensive guidelines for AI assistants working on the
 - Use `cargo nextest` for faster, more reliable test execution
 - Include property tests with `proptest` for fuzzing
 - Benchmark critical path components with `criterion`
+- Verify doc examples with `cargo test --doc` - ensure example strings don't accidentally match multiple patterns
 
 ## Architecture Patterns
 
@@ -90,6 +92,14 @@ evaluator/
 ### Emoji Usage
 
 - Avoid using emojis and other non-ASCII characters in code, comments, or documentation, except when the code is handling non-plaintext characters (for example: em dash, en dash, or other non-ASCII symbols).
+
+### Case-Insensitive Matching Pattern
+
+When implementing case-insensitive string matching:
+
+- Lowercase inputs at ALL entry points (constructors, setters)
+- Store normalized values internally
+- Document the case-insensitivity in public API docs
 
 ### Error Handling Patterns
 
