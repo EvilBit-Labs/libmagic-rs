@@ -2,7 +2,7 @@
 //!
 //! This module provides MIME type mapping from file type descriptions
 //! to standard MIME types. It includes hardcoded mappings for common
-//! file types and optional loading from system MIME databases.
+//! file types.
 
 use std::collections::HashMap;
 

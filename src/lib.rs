@@ -735,9 +735,9 @@ impl MagicDatabase {
     fn concatenate_messages(matches: &[evaluator::MatchResult]) -> String {
         let mut result = String::new();
         for m in matches {
-            if m.message.starts_with('\u{0008}') {
+            if let Some(rest) = m.message.strip_prefix('\u{0008}') {
                 // Backspace suppresses the space and the character itself
-                result.push_str(&m.message[1..]);
+                result.push_str(rest);
             } else if !result.is_empty() {
                 result.push(' ');
                 result.push_str(&m.message);

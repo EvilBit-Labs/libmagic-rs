@@ -89,7 +89,10 @@ impl TagExtractor {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        let keywords = keywords.into_iter().map(Into::into).collect();
+        let keywords = keywords
+            .into_iter()
+            .map(|s| s.into().to_lowercase())
+            .collect();
         Self { keywords }
     }
 
@@ -114,7 +117,7 @@ impl TagExtractor {
     /// let extractor = TagExtractor::new();
     ///
     /// // Single tag extraction
-    /// let tags = extractor.extract_tags("PNG image data");
+    /// let tags = extractor.extract_tags("PNG image, 800x600");
     /// assert_eq!(tags, vec!["image".to_string()]);
     ///
     /// // Multiple tags
@@ -262,6 +265,16 @@ mod tests {
         assert!(tags.contains(&"custom".to_string()));
         assert!(tags.contains(&"special".to_string()));
         assert!(!tags.contains(&"executable".to_string())); // Not in custom set
+    }
+
+    #[test]
+    fn test_with_keywords_lowercases_input() {
+        // Keywords should be lowercased for case-insensitive matching
+        let extractor = TagExtractor::with_keywords(vec!["Executable", "ARCHIVE"]);
+        // Should match lowercase version in description
+        let tags = extractor.extract_tags("executable file in archive");
+        assert!(tags.contains(&"executable".to_string()));
+        assert!(tags.contains(&"archive".to_string()));
     }
 
     #[test]
