@@ -15,6 +15,7 @@ use crate::parser::ast::{Endianness, OffsetSpec, Operator, TypeKind, Value};
 
 pub mod offset;
 pub mod operators;
+pub mod strength;
 pub mod types;
 
 /// Context for maintaining evaluation state during rule processing
@@ -277,6 +278,7 @@ impl MatchResult {
 ///     message: "ELF magic".to_string(),
 ///     children: vec![],
 ///     level: 0,
+///     strength_modifier: None,
 /// };
 ///
 /// let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
@@ -378,9 +380,11 @@ fn is_buffer_overrun_error(error: &LibmagicError) -> bool {
 ///             message: "64-bit".to_string(),
 ///             children: vec![],
 ///             level: 1,
+///             strength_modifier: None,
 ///         }
 ///     ],
 ///     level: 0,
+///     strength_modifier: None,
 /// };
 ///
 /// let rules = vec![parent_rule];
@@ -556,6 +560,7 @@ pub fn evaluate_rules(
 ///     message: "ELF magic".to_string(),
 ///     children: vec![],
 ///     level: 0,
+///     strength_modifier: None,
 /// };
 ///
 /// let rules = vec![rule];
@@ -637,6 +642,7 @@ mod tests {
             message: "ELF magic".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
@@ -654,6 +660,7 @@ mod tests {
             message: "ELF magic".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x50, 0x4b, 0x03, 0x04]; // ZIP magic bytes
@@ -671,6 +678,7 @@ mod tests {
             message: "Non-zero byte".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -688,6 +696,7 @@ mod tests {
             message: "Not ELF magic".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -705,6 +714,7 @@ mod tests {
             message: "High bit set".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0xff, 0x45, 0x4c, 0x46]; // 0xff has high bit set
@@ -722,6 +732,7 @@ mod tests {
             message: "High bit set".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // 0x7f has high bit clear
@@ -742,6 +753,7 @@ mod tests {
             message: "Little-endian short".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x34, 0x12, 0x56, 0x78]; // 0x1234 in little-endian
@@ -762,6 +774,7 @@ mod tests {
             message: "Big-endian short".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x12, 0x34, 0x56, 0x78]; // 0x1234 in big-endian
@@ -782,6 +795,7 @@ mod tests {
             message: "Positive signed short".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0xff, 0x7f, 0x00, 0x00]; // 0x7fff in little-endian
@@ -802,6 +816,7 @@ mod tests {
             message: "Negative signed short".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0xff, 0xff, 0x00, 0x00]; // 0xffff in little-endian
@@ -822,6 +837,7 @@ mod tests {
             message: "Little-endian long".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x78, 0x56, 0x34, 0x12, 0x00]; // 0x12345678 in little-endian
@@ -842,6 +858,7 @@ mod tests {
             message: "Big-endian long".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x12, 0x34, 0x56, 0x78, 0x00]; // 0x12345678 in big-endian
@@ -862,6 +879,7 @@ mod tests {
             message: "Positive signed long".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0xff, 0xff, 0xff, 0x7f, 0x00]; // 0x7fffffff in little-endian
@@ -882,6 +900,7 @@ mod tests {
             message: "Negative signed long".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0xff, 0xff, 0xff, 0xff, 0x00]; // 0xffffffff in little-endian
@@ -899,6 +918,7 @@ mod tests {
             message: "ELF class byte".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
@@ -916,6 +936,7 @@ mod tests {
             message: "Last byte".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
@@ -933,6 +954,7 @@ mod tests {
             message: "Second to last byte".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
@@ -950,6 +972,7 @@ mod tests {
             message: "Out of bounds".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // Only 4 bytes
@@ -978,6 +1001,7 @@ mod tests {
             message: "Insufficient bytes".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // 4 bytes total
@@ -1006,6 +1030,7 @@ mod tests {
             message: "Insufficient bytes".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // 4 bytes total
@@ -1031,6 +1056,7 @@ mod tests {
             message: "Empty buffer".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let buffer = &[]; // Empty buffer
@@ -1056,6 +1082,7 @@ mod tests {
             message: "String type".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         // Test matching string
@@ -1074,6 +1101,7 @@ mod tests {
             message: "String type".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let result = evaluate_single_rule(&rule_no_match, buffer);
@@ -1094,6 +1122,7 @@ fn test_evaluate_single_rule_cross_type_comparison() {
         message: "Cross-type comparison".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let buffer = &[42]; // Byte value 42
@@ -1114,6 +1143,7 @@ fn test_evaluate_single_rule_bitwise_and_with_shorts() {
         message: "High byte check".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let buffer = &[0x34, 0x12]; // 0x1234 in little-endian
@@ -1134,6 +1164,7 @@ fn test_evaluate_single_rule_bitwise_and_with_longs() {
         message: "High word check".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let buffer = &[0x12, 0x34, 0x56, 0x78]; // 0x12345678 in big-endian
@@ -1155,6 +1186,7 @@ fn test_evaluate_single_rule_comprehensive_elf_check() {
         message: "ELF executable".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 header start
@@ -1179,6 +1211,7 @@ fn test_evaluate_single_rule_native_endianness() {
         message: "Non-zero native short".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let buffer = &[0x01, 0x02]; // Non-zero bytes
@@ -1199,6 +1232,7 @@ fn test_evaluate_single_rule_all_operators() {
         message: "Equal test".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
     assert!(evaluate_single_rule(&equal_rule, buffer).unwrap());
 
@@ -1211,6 +1245,7 @@ fn test_evaluate_single_rule_all_operators() {
         message: "NotEqual test".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
     assert!(evaluate_single_rule(&not_equal_rule, buffer).unwrap()); // 0x00 != 0x42
 
@@ -1223,6 +1258,7 @@ fn test_evaluate_single_rule_all_operators() {
         message: "BitwiseAnd test".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
     assert!(evaluate_single_rule(&bitwise_and_rule, buffer).unwrap()); // 0x80 & 0x80 = 0x80
 }
@@ -1241,6 +1277,7 @@ fn test_evaluate_single_rule_edge_case_values() {
         message: "Max uint32".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let max_buffer = &[0xff, 0xff, 0xff, 0xff];
@@ -1259,6 +1296,7 @@ fn test_evaluate_single_rule_edge_case_values() {
         message: "Min int32".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let min_buffer = &[0x00, 0x00, 0x00, 0x80]; // 0x80000000 in little-endian
@@ -1277,6 +1315,7 @@ fn test_evaluate_single_rule_various_buffer_sizes() {
         message: "Single byte".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let single_buffer = &[0xaa];
@@ -1294,6 +1333,7 @@ fn test_evaluate_single_rule_various_buffer_sizes() {
         message: "Large buffer".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let result = evaluate_single_rule(&large_rule, &large_buffer).unwrap();
@@ -1693,6 +1733,7 @@ fn test_evaluate_rules_single_matching_rule() {
         message: "ELF magic".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let rules = vec![rule];
@@ -1718,6 +1759,7 @@ fn test_evaluate_rules_single_non_matching_rule() {
         message: "ZIP magic".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let rules = vec![rule];
@@ -1739,6 +1781,7 @@ fn test_evaluate_rules_multiple_rules_stop_at_first() {
         message: "First match".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let rule2 = MagicRule {
@@ -1749,6 +1792,7 @@ fn test_evaluate_rules_multiple_rules_stop_at_first() {
         message: "Second match".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let rule_list = vec![rule1, rule2];
@@ -1774,6 +1818,7 @@ fn test_evaluate_rules_multiple_rules_find_all() {
         message: "First match".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let rule2 = MagicRule {
@@ -1784,6 +1829,7 @@ fn test_evaluate_rules_multiple_rules_find_all() {
         message: "Second match".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let rule_set = vec![rule1, rule2];
@@ -1810,6 +1856,7 @@ fn test_evaluate_rules_hierarchical_parent_child() {
         message: "64-bit".to_string(),
         children: vec![],
         level: 1,
+        strength_modifier: None,
     };
 
     let parent_rule = MagicRule {
@@ -1820,6 +1867,7 @@ fn test_evaluate_rules_hierarchical_parent_child() {
         message: "ELF".to_string(),
         children: vec![child_rule],
         level: 0,
+        strength_modifier: None,
     };
 
     let rules = vec![parent_rule];
@@ -1845,6 +1893,7 @@ fn test_evaluate_rules_hierarchical_parent_no_match() {
         message: "64-bit".to_string(),
         children: vec![],
         level: 1,
+        strength_modifier: None,
     };
 
     let parent_rule = MagicRule {
@@ -1855,6 +1904,7 @@ fn test_evaluate_rules_hierarchical_parent_no_match() {
         message: "ZIP".to_string(),
         children: vec![child_rule],
         level: 0,
+        strength_modifier: None,
     };
 
     let rules = vec![parent_rule];
@@ -1876,6 +1926,7 @@ fn test_evaluate_rules_hierarchical_parent_match_child_no_match() {
         message: "32-bit".to_string(),
         children: vec![],
         level: 1,
+        strength_modifier: None,
     };
 
     let parent_rule = MagicRule {
@@ -1886,6 +1937,7 @@ fn test_evaluate_rules_hierarchical_parent_match_child_no_match() {
         message: "ELF".to_string(),
         children: vec![child_rule],
         level: 0,
+        strength_modifier: None,
     };
 
     let rules = vec![parent_rule];
@@ -1909,6 +1961,7 @@ fn test_evaluate_rules_deep_hierarchy() {
         message: "little-endian".to_string(),
         children: vec![],
         level: 2,
+        strength_modifier: None,
     };
 
     let child_rule = MagicRule {
@@ -1919,6 +1972,7 @@ fn test_evaluate_rules_deep_hierarchy() {
         message: "64-bit".to_string(),
         children: vec![grandchild_rule],
         level: 1,
+        strength_modifier: None,
     };
 
     let parent_rule = MagicRule {
@@ -1929,6 +1983,7 @@ fn test_evaluate_rules_deep_hierarchy() {
         message: "ELF".to_string(),
         children: vec![child_rule],
         level: 0,
+        strength_modifier: None,
     };
 
     let rules = vec![parent_rule];
@@ -1956,6 +2011,7 @@ fn test_evaluate_rules_multiple_children() {
         message: "64-bit".to_string(),
         children: vec![],
         level: 1,
+        strength_modifier: None,
     };
 
     let child2 = MagicRule {
@@ -1966,6 +2022,7 @@ fn test_evaluate_rules_multiple_children() {
         message: "little-endian".to_string(),
         children: vec![],
         level: 1,
+        strength_modifier: None,
     };
 
     let parent_rule = MagicRule {
@@ -1976,6 +2033,7 @@ fn test_evaluate_rules_multiple_children() {
         message: "ELF".to_string(),
         children: vec![child1, child2],
         level: 0,
+        strength_modifier: None,
     };
 
     let rules = vec![parent_rule];
@@ -2004,6 +2062,7 @@ fn test_evaluate_rules_recursion_depth_limit() {
         message: "Deep level".to_string(),
         children: vec![],
         level: 10,
+        strength_modifier: None,
     };
 
     // Build a chain of nested rules
@@ -2016,6 +2075,7 @@ fn test_evaluate_rules_recursion_depth_limit() {
             message: format!("Level {i}"),
             children: vec![current_rule],
             level: i,
+            strength_modifier: None,
         };
     }
 
@@ -2049,6 +2109,7 @@ fn test_evaluate_rules_with_config_convenience() {
         message: "ELF magic".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let rules = vec![rule];
@@ -2070,6 +2131,7 @@ fn test_evaluate_rules_timeout() {
         message: "ELF magic".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let rules = vec![rule];
@@ -2099,6 +2161,7 @@ fn test_evaluate_rules_empty_buffer() {
         message: "Should not match".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let rules = vec![rule];
@@ -2124,6 +2187,7 @@ fn test_evaluate_rules_mixed_matching_non_matching() {
         message: "Matches".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let rule2 = MagicRule {
@@ -2134,6 +2198,7 @@ fn test_evaluate_rules_mixed_matching_non_matching() {
         message: "Doesn't match".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let rule3 = MagicRule {
@@ -2144,6 +2209,7 @@ fn test_evaluate_rules_mixed_matching_non_matching() {
         message: "Also matches".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let rule_collection = vec![rule1, rule2, rule3];
@@ -2170,6 +2236,7 @@ fn test_evaluate_rules_context_state_preservation() {
         message: "ELF magic".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let rules = vec![rule];
@@ -2244,6 +2311,7 @@ fn test_error_recovery_skip_problematic_rules() {
             message: "Valid rule".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         },
         // Invalid rule with out-of-bounds offset
         MagicRule {
@@ -2254,6 +2322,7 @@ fn test_error_recovery_skip_problematic_rules() {
             message: "Invalid rule".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         },
         // Another valid rule that should match
         MagicRule {
@@ -2264,6 +2333,7 @@ fn test_error_recovery_skip_problematic_rules() {
             message: "Another valid rule".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         },
     ];
 
@@ -2305,6 +2375,7 @@ fn test_error_recovery_child_rule_failures() {
                 message: "Valid child".to_string(),
                 children: vec![],
                 level: 1,
+                strength_modifier: None,
             },
             // Invalid child rule
             MagicRule {
@@ -2315,9 +2386,11 @@ fn test_error_recovery_child_rule_failures() {
                 message: "Invalid child".to_string(),
                 children: vec![],
                 level: 1,
+                strength_modifier: None,
             },
         ],
         level: 0,
+        strength_modifier: None,
     }];
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
@@ -2346,6 +2419,7 @@ fn test_error_recovery_mixed_rule_types() {
             message: "Valid byte".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         },
         // Invalid short rule (insufficient bytes)
         MagicRule {
@@ -2359,6 +2433,7 @@ fn test_error_recovery_mixed_rule_types() {
             message: "Invalid short".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         },
         // Valid string rule
         MagicRule {
@@ -2371,6 +2446,7 @@ fn test_error_recovery_mixed_rule_types() {
             message: "Valid string".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         },
     ];
 
@@ -2406,6 +2482,7 @@ fn test_error_recovery_all_rules_fail() {
             message: "Out of bounds".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         },
         // Insufficient bytes for type
         MagicRule {
@@ -2419,6 +2496,7 @@ fn test_error_recovery_all_rules_fail() {
             message: "Insufficient bytes".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         },
     ];
 
@@ -2442,6 +2520,7 @@ fn test_error_recovery_timeout_propagation() {
         message: "Test rule".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     }];
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -2486,8 +2565,10 @@ fn test_error_recovery_recursion_limit_propagation() {
             message: "Child".to_string(),
             children: vec![],
             level: 1,
+            strength_modifier: None,
         }],
         level: 0,
+        strength_modifier: None,
     }];
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -2527,6 +2608,7 @@ fn test_error_recovery_preserves_context_state() {
             message: "Valid rule".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         },
         // Invalid rule
         MagicRule {
@@ -2537,6 +2619,7 @@ fn test_error_recovery_preserves_context_state() {
             message: "Invalid rule".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         },
     ];
 
@@ -2568,6 +2651,7 @@ fn test_debug_error_recovery() {
         message: "Out of bounds rule".to_string(),
         children: vec![],
         level: 0,
+        strength_modifier: None,
     };
 
     let buffer = &[0x7f, 0x45]; // Short buffer
@@ -2598,6 +2682,7 @@ fn test_debug_mixed_rules() {
             message: "Valid rule".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         },
         // Invalid rule with out-of-bounds offset
         MagicRule {
@@ -2608,6 +2693,7 @@ fn test_debug_mixed_rules() {
             message: "Invalid rule".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         },
         // Another valid rule that should match
         MagicRule {
@@ -2618,6 +2704,7 @@ fn test_debug_mixed_rules() {
             message: "Another valid rule".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         },
     ];
 

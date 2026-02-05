@@ -120,7 +120,9 @@ pub mod tags;
 pub mod build_helpers;
 
 // Re-export core AST types for convenience
-pub use parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, TypeKind, Value};
+pub use parser::ast::{
+    Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value,
+};
 
 // Re-export evaluator types for convenience
 pub use evaluator::{EvaluationContext, MatchResult};

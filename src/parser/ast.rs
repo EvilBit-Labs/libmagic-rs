@@ -134,6 +134,36 @@ pub enum Endianness {
     Native,
 }
 
+/// Strength modifier for magic rules
+///
+/// Strength modifiers adjust the default strength calculation for a rule.
+/// They are specified using the `!:strength` directive in magic files.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::StrengthModifier;
+///
+/// let add = StrengthModifier::Add(10);      // !:strength +10
+/// let sub = StrengthModifier::Subtract(5);  // !:strength -5
+/// let mul = StrengthModifier::Multiply(2);  // !:strength *2
+/// let div = StrengthModifier::Divide(2);    // !:strength /2
+/// let set = StrengthModifier::Set(50);      // !:strength =50
+/// ```
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum StrengthModifier {
+    /// Add to the default strength: `!:strength +N`
+    Add(i32),
+    /// Subtract from the default strength: `!:strength -N`
+    Subtract(i32),
+    /// Multiply the default strength: `!:strength *N`
+    Multiply(i32),
+    /// Divide the default strength: `!:strength /N`
+    Divide(i32),
+    /// Set strength to an absolute value: `!:strength =N` or `!:strength N`
+    Set(i32),
+}
+
 /// Magic rule representation in the AST
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MagicRule {
@@ -151,6 +181,8 @@ pub struct MagicRule {
     pub children: Vec<MagicRule>,
     /// Indentation level for hierarchical rules
     pub level: u32,
+    /// Optional strength modifier from `!:strength` directive
+    pub strength_modifier: Option<StrengthModifier>,
 }
 
 // TODO: Add validation methods for MagicRule:
@@ -590,6 +622,7 @@ mod tests {
             message: "ELF magic".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         assert_eq!(rule.message, "ELF magic");
@@ -607,6 +640,7 @@ mod tests {
             message: "32-bit".to_string(),
             children: vec![],
             level: 1,
+            strength_modifier: None,
         };
 
         let parent_rule = MagicRule {
@@ -620,6 +654,7 @@ mod tests {
             message: "ELF executable".to_string(),
             children: vec![child_rule],
             level: 0,
+            strength_modifier: None,
         };
 
         assert_eq!(parent_rule.children.len(), 1);
@@ -640,6 +675,7 @@ mod tests {
             message: "Non-zero short value".to_string(),
             children: vec![],
             level: 2,
+            strength_modifier: None,
         };
 
         let json = serde_json::to_string(&rule).expect("Failed to serialize MagicRule");
@@ -649,5 +685,110 @@ mod tests {
         assert_eq!(rule.message, deserialized.message);
         assert_eq!(rule.level, deserialized.level);
         assert_eq!(rule.children.len(), deserialized.children.len());
+    }
+
+    // StrengthModifier tests
+    #[test]
+    fn test_strength_modifier_variants() {
+        let add = StrengthModifier::Add(10);
+        let sub = StrengthModifier::Subtract(5);
+        let mul = StrengthModifier::Multiply(2);
+        let div = StrengthModifier::Divide(2);
+        let set = StrengthModifier::Set(50);
+
+        // Test that each variant has the correct inner value
+        assert_eq!(add, StrengthModifier::Add(10));
+        assert_eq!(sub, StrengthModifier::Subtract(5));
+        assert_eq!(mul, StrengthModifier::Multiply(2));
+        assert_eq!(div, StrengthModifier::Divide(2));
+        assert_eq!(set, StrengthModifier::Set(50));
+
+        // Test that different variants are not equal
+        assert_ne!(add, sub);
+        assert_ne!(mul, div);
+        assert_ne!(set, add);
+    }
+
+    #[test]
+    fn test_strength_modifier_negative_values() {
+        let add_negative = StrengthModifier::Add(-10);
+        let sub_negative = StrengthModifier::Subtract(-5);
+        let set_negative = StrengthModifier::Set(-50);
+
+        assert_eq!(add_negative, StrengthModifier::Add(-10));
+        assert_eq!(sub_negative, StrengthModifier::Subtract(-5));
+        assert_eq!(set_negative, StrengthModifier::Set(-50));
+    }
+
+    #[test]
+    fn test_strength_modifier_serialization() {
+        let modifiers = vec![
+            StrengthModifier::Add(10),
+            StrengthModifier::Subtract(5),
+            StrengthModifier::Multiply(2),
+            StrengthModifier::Divide(3),
+            StrengthModifier::Set(100),
+        ];
+
+        for modifier in modifiers {
+            let json =
+                serde_json::to_string(&modifier).expect("Failed to serialize StrengthModifier");
+            let deserialized: StrengthModifier =
+                serde_json::from_str(&json).expect("Failed to deserialize StrengthModifier");
+            assert_eq!(modifier, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_strength_modifier_debug() {
+        let modifier = StrengthModifier::Add(25);
+        let debug_str = format!("{modifier:?}");
+        assert!(debug_str.contains("Add"));
+        assert!(debug_str.contains("25"));
+    }
+
+    #[test]
+    fn test_strength_modifier_clone() {
+        let original = StrengthModifier::Multiply(4);
+        let cloned = original;
+        assert_eq!(original, cloned);
+    }
+
+    #[test]
+    fn test_magic_rule_with_strength_modifier() {
+        let rule = MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Byte,
+            op: Operator::Equal,
+            value: Value::Uint(0x7f),
+            message: "ELF magic".to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: Some(StrengthModifier::Add(20)),
+        };
+
+        assert_eq!(rule.strength_modifier, Some(StrengthModifier::Add(20)));
+
+        // Test serialization with strength_modifier
+        let json = serde_json::to_string(&rule).expect("Failed to serialize MagicRule");
+        let deserialized: MagicRule =
+            serde_json::from_str(&json).expect("Failed to deserialize MagicRule");
+        assert_eq!(rule.strength_modifier, deserialized.strength_modifier);
+    }
+
+    #[test]
+    fn test_magic_rule_without_strength_modifier() {
+        let rule = MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Byte,
+            op: Operator::Equal,
+            value: Value::Uint(0x7f),
+            message: "ELF magic".to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        };
+
+        assert_eq!(rule.strength_modifier, None);
     }
 }
