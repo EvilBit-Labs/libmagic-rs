@@ -1,4 +1,4 @@
-# Appendix B: Command Reference
+# CLI Reference - rmagic
 
 Command-line interface documentation for the `rmagic` file identification tool.
 
@@ -9,6 +9,9 @@ Command-line interface documentation for the `rmagic` file identification tool.
 ## Installation
 
 ```bash
+# From crates.io (when published)
+cargo install libmagic-rs
+
 # From source
 git clone https://github.com/EvilBit-Labs/libmagic-rs
 cd libmagic-rs
@@ -248,22 +251,24 @@ else
 fi
 ```
 
-## Environment Variables
+## Configuration
+
+### Environment Variables
 
 | Variable | Description |
 |----------|-------------|
 | `CI` | Enables CI mode (affects magic file fallback) |
 | `GITHUB_ACTIONS` | Enables GitHub Actions mode |
 
-## Platform-Specific Behavior
+### Platform-Specific Behavior
 
-### Unix (Linux, macOS, BSD)
+#### Unix (Linux, macOS, BSD)
 
 - Full magic file discovery
 - Memory-mapped file access
 - Standard Unix exit codes
 
-### Windows
+#### Windows
 
 - Limited magic file locations
 - Falls back to `%APPDATA%\Magic\magic`
@@ -355,7 +360,11 @@ rmagic --json document.pdf | jq '.matches[0].mime_type'
 
 ## See Also
 
-- [API Reference](./api-reference.md) - Library API documentation
-- [Architecture Overview](./architecture.md) - Internal design documentation
+- [API Reference](API_REFERENCE.md) - Library API documentation
+- [Architecture](ARCHITECTURE.md) - Internal design documentation
 - [file(1)](https://man7.org/linux/man-pages/man1/file.1.html) - GNU file command
 - [magic(5)](https://man7.org/linux/man-pages/man5/magic.5.html) - Magic file format
+
+## License
+
+Apache-2.0

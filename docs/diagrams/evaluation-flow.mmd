@@ -1,0 +1,100 @@
+%% libmagic-rs Evaluation Flow Diagram
+%% Render with: mmdc -i evaluation-flow.mmd -o evaluation-flow.svg
+
+flowchart TD
+    START([Start Evaluation]) --> LOAD_RULES{Rules Loaded?}
+
+    LOAD_RULES -->|No| RETURN_DATA[Return "data"]
+    LOAD_RULES -->|Yes| INIT_CTX[Initialize EvaluationContext]
+
+    INIT_CTX --> CHECK_TIMEOUT{Timeout Enabled?}
+    CHECK_TIMEOUT -->|Yes| START_TIMER[Start Timer Thread]
+    CHECK_TIMEOUT -->|No| ITER_RULES
+
+    START_TIMER --> ITER_RULES[Iterate Top-Level Rules]
+
+    ITER_RULES --> HAS_MORE{More Rules?}
+    HAS_MORE -->|No| COLLECT[Collect Results]
+    HAS_MORE -->|Yes| EVAL_RULE[Evaluate Rule]
+
+    EVAL_RULE --> RESOLVE_OFF[Resolve Offset]
+    RESOLVE_OFF --> OFF_TYPE{Offset Type?}
+
+    OFF_TYPE -->|Absolute| ABS_OFF[Use Direct Offset]
+    OFF_TYPE -->|Relative| REL_OFF[Add to Current Offset]
+    OFF_TYPE -->|Indirect| IND_OFF[Read Pointer, Apply Adjustment]
+    OFF_TYPE -->|FromEnd| END_OFF[Calculate from File End]
+
+    ABS_OFF --> CHECK_BOUNDS
+    REL_OFF --> CHECK_BOUNDS
+    IND_OFF --> CHECK_BOUNDS
+    END_OFF --> CHECK_BOUNDS
+
+    CHECK_BOUNDS{Within Buffer?}
+    CHECK_BOUNDS -->|No| SKIP_RULE[Skip Rule]
+    CHECK_BOUNDS -->|Yes| READ_TYPE[Read Type at Offset]
+
+    SKIP_RULE --> HAS_MORE
+
+    READ_TYPE --> TYPE_KIND{Type Kind?}
+    TYPE_KIND -->|Byte| READ_BYTE[Read 1 Byte]
+    TYPE_KIND -->|Short| READ_SHORT[Read 2 Bytes<br/>Apply Endianness]
+    TYPE_KIND -->|Long| READ_LONG[Read 4 Bytes<br/>Apply Endianness]
+    TYPE_KIND -->|String| READ_STRING[Read Until Null<br/>or Max Length]
+
+    READ_BYTE --> APPLY_OP
+    READ_SHORT --> APPLY_OP
+    READ_LONG --> APPLY_OP
+    READ_STRING --> APPLY_OP
+
+    APPLY_OP[Apply Operator]
+    APPLY_OP --> OP_TYPE{Operator?}
+
+    OP_TYPE -->|Equal| CMP_EQ[value == expected]
+    OP_TYPE -->|NotEqual| CMP_NE[value != expected]
+    OP_TYPE -->|BitwiseAnd| CMP_AND[value & mask != 0]
+
+    CMP_EQ --> MATCH_CHECK
+    CMP_NE --> MATCH_CHECK
+    CMP_AND --> MATCH_CHECK
+
+    MATCH_CHECK{Matched?}
+    MATCH_CHECK -->|No| HAS_MORE
+    MATCH_CHECK -->|Yes| CREATE_RESULT[Create MatchResult]
+
+    CREATE_RESULT --> HAS_CHILDREN{Has Children?}
+    HAS_CHILDREN -->|No| ADD_RESULT[Add to Results]
+    HAS_CHILDREN -->|Yes| CHECK_DEPTH{Depth < Max?}
+
+    CHECK_DEPTH -->|No| ADD_RESULT
+    CHECK_DEPTH -->|Yes| INC_DEPTH[Increment Depth]
+
+    INC_DEPTH --> EVAL_CHILDREN[Evaluate Child Rules]
+    EVAL_CHILDREN --> DEC_DEPTH[Decrement Depth]
+    DEC_DEPTH --> ADD_RESULT
+
+    ADD_RESULT --> STOP_CHECK{Stop at First?}
+    STOP_CHECK -->|Yes| COLLECT
+    STOP_CHECK -->|No| HAS_MORE
+
+    COLLECT --> BUILD_DESC[Build Description<br/>Concatenate Messages]
+    BUILD_DESC --> CALC_CONF[Calculate Confidence]
+    CALC_CONF --> MAP_MIME{MIME Enabled?}
+
+    MAP_MIME -->|Yes| GET_MIME[Map to MIME Type]
+    MAP_MIME -->|No| CREATE_EVAL
+
+    GET_MIME --> CREATE_EVAL[Create EvaluationResult]
+    CREATE_EVAL --> RETURN([Return Result])
+
+    RETURN_DATA --> RETURN
+
+    classDef start fill:#c8e6c9,stroke:#2e7d32
+    classDef decision fill:#fff9c4,stroke:#f57f17
+    classDef process fill:#e3f2fd,stroke:#1565c0
+    classDef result fill:#f3e5f5,stroke:#7b1fa2
+
+    class START,RETURN start
+    class HAS_MORE,LOAD_RULES,CHECK_TIMEOUT,OFF_TYPE,TYPE_KIND,OP_TYPE,MATCH_CHECK,HAS_CHILDREN,CHECK_DEPTH,STOP_CHECK,MAP_MIME,CHECK_BOUNDS decision
+    class INIT_CTX,EVAL_RULE,RESOLVE_OFF,READ_TYPE,APPLY_OP,CREATE_RESULT,EVAL_CHILDREN,COLLECT,BUILD_DESC,CALC_CONF process
+    class RETURN_DATA,ADD_RESULT,CREATE_EVAL result
