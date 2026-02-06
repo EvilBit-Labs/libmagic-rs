@@ -17,9 +17,6 @@
 
 use crate::parser::ast::{MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value};
 
-/// Default base strength for magic rules
-pub const DEFAULT_STRENGTH: i32 = 10;
-
 /// Maximum strength value (clamped to prevent overflow)
 pub const MAX_STRENGTH: i32 = 255;
 
@@ -172,7 +169,8 @@ pub fn apply_strength_modifier(base_strength: i32, modifier: &StrengthModifier) 
         StrengthModifier::Multiply(n) => base_strength.saturating_mul(*n),
         StrengthModifier::Divide(n) => {
             if *n == 0 {
-                // Division by zero: return base strength unchanged
+                // Division by zero: log warning and return base strength unchanged
+                eprintln!("Warning: strength modifier !:strength /0 ignored (division by zero)");
                 base_strength
             } else {
                 base_strength / n

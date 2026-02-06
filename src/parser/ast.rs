@@ -8,15 +8,18 @@ use serde::{Deserialize, Serialize};
 /// Offset specification for locating data in files
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum OffsetSpec {
-    /// Absolute offset from file start
+    /// Absolute offset from file start (or from file end if negative)
+    ///
+    /// Positive values are offsets from the start of the file.
+    /// Negative values are offsets from the end of the file (same as `FromEnd`).
     ///
     /// # Examples
     ///
     /// ```
     /// use libmagic_rs::parser::ast::OffsetSpec;
     ///
-    /// let offset = OffsetSpec::Absolute(0x10); // Read at byte 16
-    /// let negative = OffsetSpec::Absolute(-4); // 4 bytes before current position
+    /// let offset = OffsetSpec::Absolute(0x10); // Read at byte 16 from start
+    /// let from_end = OffsetSpec::Absolute(-4); // 4 bytes before end of file
     /// ```
     Absolute(i64),
 

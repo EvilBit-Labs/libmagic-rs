@@ -1590,6 +1590,15 @@ pub fn parse_message(input: &str) -> IResult<&str, String> {
 /// - The modifier value cannot be parsed as a valid integer
 /// - The operator is invalid
 pub fn parse_strength_directive(input: &str) -> IResult<&str, StrengthModifier> {
+    // Helper to safely convert i64 to i32 with clamping to valid strength range.
+    // This prevents silent truncation to 0 on overflow while keeping values in bounds.
+    fn clamp_to_i32(n: i64) -> i32 {
+        // Use i64::from for lossless conversion, then clamp and convert back
+        let clamped = n.clamp(i64::from(i32::MIN), i64::from(i32::MAX));
+        // Safe to unwrap: clamped value is guaranteed to be in i32 range
+        i32::try_from(clamped).unwrap()
+    }
+
     let (input, _) = multispace0(input)?;
     let (input, _) = tag("!:strength")(input)?;
     let (input, _) = multispace0(input)?;
@@ -1598,28 +1607,26 @@ pub fn parse_strength_directive(input: &str) -> IResult<&str, StrengthModifier> 
     let (input, modifier) = alt((
         // +N -> Add
         map(pair(char('+'), parse_number), |(_, n)| {
-            StrengthModifier::Add(i32::try_from(n).unwrap_or(0))
+            StrengthModifier::Add(clamp_to_i32(n))
         }),
         // -N -> Subtract (note: parse_number handles negative, so we need special handling)
         map(pair(char('-'), parse_decimal_number), |(_, n)| {
-            StrengthModifier::Subtract(i32::try_from(n).unwrap_or(0))
+            StrengthModifier::Subtract(clamp_to_i32(n))
         }),
         // *N -> Multiply
         map(pair(char('*'), parse_number), |(_, n)| {
-            StrengthModifier::Multiply(i32::try_from(n).unwrap_or(0))
+            StrengthModifier::Multiply(clamp_to_i32(n))
         }),
         // /N -> Divide
         map(pair(char('/'), parse_number), |(_, n)| {
-            StrengthModifier::Divide(i32::try_from(n).unwrap_or(0))
+            StrengthModifier::Divide(clamp_to_i32(n))
         }),
         // =N -> Set
         map(pair(char('='), parse_number), |(_, n)| {
-            StrengthModifier::Set(i32::try_from(n).unwrap_or(0))
+            StrengthModifier::Set(clamp_to_i32(n))
         }),
         // Bare number -> Set
-        map(parse_number, |n| {
-            StrengthModifier::Set(i32::try_from(n).unwrap_or(0))
-        }),
+        map(parse_number, |n| StrengthModifier::Set(clamp_to_i32(n))),
     ))
     .parse(input)?;
 
