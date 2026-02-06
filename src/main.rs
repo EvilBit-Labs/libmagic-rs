@@ -674,12 +674,24 @@ mod tests {
     #[cfg(unix)]
     use nix::unistd::{dup, dup2_stderr, dup2_stdin, dup2_stdout, pipe, read, write};
     use std::fs;
+    #[cfg(unix)]
+    use std::sync::Mutex;
+
+    /// Static mutex to serialize access to file descriptor operations.
+    /// This is necessary because dup/dup2 operations on stdin/stdout/stderr
+    /// are process-wide and not thread-safe. Even with --test-threads=1,
+    /// llvm-cov instrumentation can interfere with FD operations.
+    #[cfg(unix)]
+    static FD_MUTEX: Mutex<()> = Mutex::new(());
 
     #[cfg(unix)]
     fn capture_stdout<F>(f: F) -> (Result<(), LibmagicError>, String)
     where
         F: FnOnce() -> Result<(), LibmagicError>,
     {
+        // Acquire mutex to serialize FD operations across all tests
+        let _guard = FD_MUTEX.lock().unwrap();
+
         let saved_stdout = dup(std::io::stdout()).unwrap();
         let (read_fd, write_fd) = pipe().unwrap();
 
@@ -713,6 +725,9 @@ mod tests {
     where
         F: FnOnce() -> Result<(), LibmagicError>,
     {
+        // Acquire mutex to serialize FD operations across all tests
+        let _guard = FD_MUTEX.lock().unwrap();
+
         let saved_stderr = dup(std::io::stderr()).unwrap();
         let (read_fd, write_fd) = pipe().unwrap();
 
