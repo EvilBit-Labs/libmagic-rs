@@ -95,6 +95,7 @@ rmagic --use-builtin *.bin
 - **Pure Rust**: Memory-safe implementation with no unsafe code
 - **Built-in Rules**: Pre-compiled rules for common file types
 - **Custom Rules**: Support for standard magic file format
+- **Rule Strength**: Automatic rule priority calculation and sorting
 - **Multiple Formats**: Text and JSON output
 - **Stdin Support**: Read from pipes and redirects
 

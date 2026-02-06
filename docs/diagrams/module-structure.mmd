@@ -26,10 +26,12 @@ graph LR
         OFF[offset.rs<br/>Offset Resolution]
         TYPES[types.rs<br/>Type Reading]
         OPS[operators.rs<br/>Comparisons]
+        STRENGTH[strength.rs<br/>Strength Calculation]
 
         EMOD --> OFF
         EMOD --> TYPES
         EMOD --> OPS
+        EMOD --> STRENGTH
     end
 
     subgraph "I/O Module"
@@ -62,9 +64,9 @@ graph LR
     MDB --> MIME
     MDB --> BUILT
 
-    EC --> MDB
-    ER --> MDB
-    EM --> ER
+    MDB --> EC
+    MDB --> ER
+    ER --> EM
 
     EMOD --> IOMOD
     EMOD --> AST
@@ -79,7 +81,7 @@ graph LR
 
     class MDB,EC,ER,EM public
     class PM,AST,GRAM parser
-    class EMOD,OFF,TYPES,OPS eval
+    class EMOD,OFF,TYPES,OPS,STRENGTH eval
     class IOMOD io
     class OMOD,TXT,JSON output
     class ERR,MIME,TAGS,BUILT support

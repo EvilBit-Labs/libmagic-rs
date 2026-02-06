@@ -24,6 +24,7 @@ graph TB
             OFF[offset.rs<br/>Offset Resolution]
             TYP[types.rs<br/>Type Reading]
             OPS[operators.rs<br/>Comparisons]
+            STR[strength.rs<br/>Rule Strength]
         end
 
         subgraph "I/O Module"
@@ -63,6 +64,7 @@ graph TB
     EVAL --> OFF
     EVAL --> TYP
     EVAL --> OPS
+    EVAL --> STR
     CTX --> CFG
 
     TARGET --> FB
@@ -81,5 +83,5 @@ graph TB
     classDef data fill:#e8f5e9,stroke:#1b5e20
 
     class CLI,LIB user
-    class DB,CFG,LOAD,DET,GRAM,AST,EVAL,CTX,OFF,TYP,OPS,FB,SBA,MMAP,MR,TXT,JSON core
+    class DB,CFG,LOAD,DET,GRAM,AST,EVAL,CTX,OFF,TYP,OPS,STR,FB,SBA,MMAP,MR,TXT,JSON core
     class MAGIC,BUILTIN,TARGET data

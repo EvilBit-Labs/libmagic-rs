@@ -296,6 +296,39 @@ pub fn sort_rules_by_strength(rules: &mut [MagicRule]) {
 /// # Returns
 ///
 /// The sorted vector with higher strength rules first
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
+/// use libmagic_rs::evaluator::strength::into_sorted_by_strength;
+///
+/// let rules = vec![
+///     MagicRule {
+///         offset: OffsetSpec::Absolute(0),
+///         typ: TypeKind::Byte,
+///         op: Operator::Equal,
+///         value: Value::Uint(0),
+///         message: "byte rule".to_string(),
+///         children: vec![],
+///         level: 0,
+///         strength_modifier: None,
+///     },
+///     MagicRule {
+///         offset: OffsetSpec::Absolute(0),
+///         typ: TypeKind::String { max_length: None },
+///         op: Operator::Equal,
+///         value: Value::String("MAGIC".to_string()),
+///         message: "string rule".to_string(),
+///         children: vec![],
+///         level: 0,
+///         strength_modifier: None,
+///     },
+/// ];
+///
+/// let sorted = into_sorted_by_strength(rules);
+/// assert_eq!(sorted[0].message, "string rule");
+/// ```
 #[must_use]
 pub fn into_sorted_by_strength(mut rules: Vec<MagicRule>) -> Vec<MagicRule> {
     sort_rules_by_strength(&mut rules);

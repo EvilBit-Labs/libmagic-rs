@@ -325,13 +325,16 @@ done
 use libmagic_rs::MagicDatabase;
 
 fn is_image(path: &str) -> bool {
-    let db = MagicDatabase::with_builtin_rules().ok()?;
-    let result = db.evaluate_file(path).ok()?;
+    let check = || -> Option<bool> {
+        let db = MagicDatabase::with_builtin_rules().ok()?;
+        let result = db.evaluate_file(path).ok()?;
 
-    let desc = result.description.to_lowercase();
-    Some(desc.contains("image") || desc.contains("jpeg") ||
-         desc.contains("png") || desc.contains("gif"))
-}.unwrap_or(false)
+        let desc = result.description.to_lowercase();
+        Some(desc.contains("image") || desc.contains("jpeg") ||
+             desc.contains("png") || desc.contains("gif"))
+    };
+    check().unwrap_or(false)
+}
 ```
 
 ### Pattern 2: Safe Upload Handler

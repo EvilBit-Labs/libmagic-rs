@@ -89,7 +89,8 @@ libmagic-rs/
 │   │   ├── mod.rs          # Main evaluation logic, EvaluationContext
 │   │   ├── offset.rs       # Offset resolution
 │   │   ├── types.rs        # Type reading with bounds checking
-│   │   └── operators.rs    # Comparison operations
+│   │   ├── operators.rs    # Comparison operations
+│   │   └── strength.rs     # Strength calculation and sorting
 │   │
 │   ├── io/                 # I/O utilities
 │   │   └── mod.rs          # FileBuffer, SafeBufferAccess
@@ -262,6 +263,7 @@ pub struct MagicRule {
     message: String,        // Description
     children: Vec<MagicRule>, // Nested rules
     level: u32,             // Indentation level
+    strength_modifier: Option<StrengthModifier>, // Strength adjustment
 }
 ```
 

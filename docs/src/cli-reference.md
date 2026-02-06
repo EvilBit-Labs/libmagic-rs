@@ -104,11 +104,12 @@ binary.exe: PE32 executable
 {
   "matches": [
     {
-      "text": "ELF 64-bit LSB executable",
+      "message": "ELF 64-bit LSB executable",
       "offset": 0,
+      "length": 4,
       "value": "7f454c46",
-      "tags": ["executable", "elf"],
-      "score": 90,
+      "rule_path": ["elf", "executable"],
+      "confidence": 90,
       "mime_type": "application/x-executable"
     }
   ]
@@ -311,8 +312,8 @@ rmagic --use-builtin large-file.bin
 # Check file permissions
 ls -la file.bin
 
-# Run with appropriate permissions
-sudo rmagic file.bin
+# Fix permissions if needed
+chmod +r file.bin
 ```
 
 ### Debug Tips

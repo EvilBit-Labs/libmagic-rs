@@ -271,6 +271,7 @@ use libmagic_rs::MagicRule;
 | `message` | `String` | Description message |
 | `children` | `Vec<MagicRule>` | Nested rules |
 | `level` | `u32` | Indentation level |
+| `strength_modifier` | `Option<StrengthModifier>` | Optional strength modifier from `!:strength` directive |
 
 #### OffsetSpec
 
@@ -469,7 +470,7 @@ The following types are re-exported from the root module for convenience:
 
 ```rust
 // AST types
-pub use parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, TypeKind, Value};
+pub use parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value};
 
 // Evaluator types
 pub use evaluator::{EvaluationContext, MatchResult};

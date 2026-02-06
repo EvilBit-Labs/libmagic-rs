@@ -301,8 +301,8 @@ Use `\b` (backspace) to suppress space before message:
 
 ```
 0       string  GIF8      GIF image data
->4      byte    7a        \b, version 89a
->4      byte    9a        \b, version 87a
+>4      byte    7a        \b, version 87a
+>4      byte    9a        \b, version 89a
 ```
 
 Output: `GIF image data, version 89a`
@@ -479,9 +479,12 @@ Consider:
 - Regex patterns
 - Date/time types
 - Float types
-- Strength modifiers
 - Use/name directives
 - Default rules
+
+### Recently Added
+
+- **Strength modifiers**: The `!:strength` directive for adjusting rule priority
 
 ---
 
