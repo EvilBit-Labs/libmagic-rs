@@ -132,3 +132,4 @@ megalinter-reports/
 
 # megalinter crud
 undefined/
+.claude.local.md
