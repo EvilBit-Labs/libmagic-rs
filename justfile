@@ -90,7 +90,7 @@ lint: lint-rust lint-actions lint-docs lint-justfile
 
 # Individual lint recipes
 lint-actions:
-    @{{ mise_exec }} actionlint .github/workflows/audit.yml .github/workflows/ci.yml .github/workflows/codeql.yml .github/workflows/compatibility.yml .github/workflows/copilot-setup-steps.yml .github/workflows/docs.yml .github/workflows/release.yml .github/workflows/security.yml
+    @{{ mise_exec }} actionlint .github/workflows/audit.yml .github/workflows/benchmarks.yml .github/workflows/ci.yml .github/workflows/codeql.yml .github/workflows/compatibility.yml .github/workflows/copilot-setup-steps.yml .github/workflows/docs.yml .github/workflows/release.yml .github/workflows/security.yml
 
 lint-docs:
     @{{ mise_exec }} markdownlint-cli2 docs/**/*.md README.md
@@ -196,6 +196,30 @@ coverage:
 
 coverage-check:
     @{{ mise_exec }} just _coverage --fail-under-lines 9.7
+
+# Generate HTML coverage report for local viewing
+[unix]
+coverage-report:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf target/llvm-cov-target
+    RUSTFLAGS="--cfg coverage" {{ mise_exec }} cargo llvm-cov --workspace --html --open
+
+[windows]
+coverage-report:
+    $env:RUSTFLAGS = "--cfg coverage"; {{ mise_exec }} cargo llvm-cov --workspace --html --open
+
+# Show coverage summary by file
+[unix]
+coverage-summary:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf target/llvm-cov-target
+    RUSTFLAGS="--cfg coverage" {{ mise_exec }} cargo llvm-cov --workspace
+
+[windows]
+coverage-summary:
+    $env:RUSTFLAGS = "--cfg coverage"; {{ mise_exec }} cargo llvm-cov --workspace
 
 # Full local CI parity check
 ci-check: pre-commit-run fmt-check lint-rust lint-rust-min test-ci build-release audit coverage-check dist-plan

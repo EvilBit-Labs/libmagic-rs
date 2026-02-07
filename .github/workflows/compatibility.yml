@@ -8,19 +8,24 @@ on:
     schedule:
         # Run daily at 2 AM UTC to catch any regressions
         - cron: "0 2 * * *"
+    workflow_dispatch:
+
+env:
+    CARGO_TERM_COLOR: always
 
 jobs:
     compatibility-tests:
-        name: Compatibility Tests
-        if: false
+        name: Compatibility Tests (${{ matrix.os }})
         runs-on: ${{ matrix.os }}
 
         strategy:
+            fail-fast: false
             matrix:
                 os: [ubuntu-latest, windows-latest, macos-latest]
 
         steps:
             - uses: actions/checkout@v6
+
             - uses: jdx/mise-action@v3
               with:
                   install: true
@@ -34,4 +39,14 @@ jobs:
               run: cargo build --release
 
             - name: Run compatibility tests
-              run: cargo test test_compatibility_with_original_libmagic -- --ignored
+              run: cargo test test_compatibility_with_original_libmagic -- --ignored --nocapture
+
+            - name: Upload test results on failure
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: compatibility-test-results-${{ matrix.os }}
+                  path: |
+                      target/nextest/
+                      target/tmp/
+                  retention-days: 7
