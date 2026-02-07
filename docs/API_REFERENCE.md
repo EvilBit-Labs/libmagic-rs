@@ -1,6 +1,19 @@
-# API Reference
+# API Reference - libmagic-rs
 
-Complete API documentation for libmagic-rs library components.
+A comprehensive reference for the libmagic-rs library API.
+
+## Table of Contents
+
+- [Core Types](#core-types)
+- [MagicDatabase](#magicdatabase)
+- [EvaluationConfig](#evaluationconfig)
+- [EvaluationResult](#evaluationresult)
+- [Error Handling](#error-handling)
+- [Parser Module](#parser-module)
+- [Evaluator Module](#evaluator-module)
+- [Output Module](#output-module)
+
+---
 
 ## Core Types
 
@@ -57,38 +70,7 @@ let db = MagicDatabase::with_builtin_rules_and_config(config)?;
 let db = MagicDatabase::load_from_file("/usr/share/misc/magic")?;
 ```
 
-### EvaluationResult
-
-Result of magic rule evaluation.
-
-```rust
-use libmagic_rs::EvaluationResult;
-```
-
-#### Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `description` | `String` | Human-readable file type description |
-| `mime_type` | `Option<String>` | MIME type (if enabled) |
-| `confidence` | `f64` | Confidence score (0.0-1.0) |
-| `matches` | `Vec<MatchResult>` | Individual match results |
-| `metadata` | `EvaluationMetadata` | Evaluation diagnostics |
-
-#### Example
-
-```rust
-let result = db.evaluate_file("document.pdf")?;
-
-println!("Description: {}", result.description);
-println!("Confidence: {:.0}%", result.confidence * 100.0);
-
-if let Some(mime) = &result.mime_type {
-    println!("MIME Type: {}", mime);
-}
-
-println!("Evaluation time: {:.2}ms", result.metadata.evaluation_time_ms);
-```
+---
 
 ### EvaluationConfig
 
@@ -143,6 +125,43 @@ let config = EvaluationConfig {
 config.validate()?;
 ```
 
+---
+
+### EvaluationResult
+
+Result of magic rule evaluation.
+
+```rust
+use libmagic_rs::EvaluationResult;
+```
+
+#### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `description` | `String` | Human-readable file type description |
+| `mime_type` | `Option<String>` | MIME type (if enabled) |
+| `confidence` | `f64` | Confidence score (0.0-1.0) |
+| `matches` | `Vec<MatchResult>` | Individual match results |
+| `metadata` | `EvaluationMetadata` | Evaluation diagnostics |
+
+#### Example
+
+```rust
+let result = db.evaluate_file("document.pdf")?;
+
+println!("Description: {}", result.description);
+println!("Confidence: {:.0}%", result.confidence * 100.0);
+
+if let Some(mime) = &result.mime_type {
+    println!("MIME Type: {}", mime);
+}
+
+println!("Evaluation time: {:.2}ms", result.metadata.evaluation_time_ms);
+```
+
+---
+
 ### EvaluationMetadata
 
 Diagnostic information about the evaluation process.
@@ -161,118 +180,9 @@ use libmagic_rs::EvaluationMetadata;
 | `magic_file` | `Option<PathBuf>` | Source magic file path |
 | `timed_out` | `bool` | Whether evaluation timed out |
 
-## AST Types
+---
 
-### MagicRule
-
-Represents a parsed magic rule.
-
-```rust
-use libmagic_rs::MagicRule;
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `offset` | `OffsetSpec` | Where to read data |
-| `typ` | `TypeKind` | Type of data to read |
-| `op` | `Operator` | Comparison operator |
-| `value` | `Value` | Expected value |
-| `message` | `String` | Description message |
-| `children` | `Vec<MagicRule>` | Nested rules |
-| `level` | `u32` | Indentation level |
-| `strength_modifier` | `Option<StrengthModifier>` | Optional strength modifier from `!:strength` directive |
-
-### StrengthModifier
-
-Optional modifier for rule strength calculation.
-
-```rust
-use libmagic_rs::StrengthModifier;
-```
-
-| Variant | Description |
-|---------|-------------|
-| `Add(i32)` | Add to base strength |
-| `Subtract(i32)` | Subtract from base strength |
-| `Multiply(i32)` | Multiply base strength |
-| `Divide(i32)` | Divide base strength |
-| `Set(i32)` | Set strength to fixed value |
-
-### OffsetSpec
-
-Offset specification for locating data.
-
-```rust
-use libmagic_rs::OffsetSpec;
-```
-
-| Variant | Description |
-|---------|-------------|
-| `Absolute(i64)` | Absolute offset from file start |
-| `Indirect { base_offset, pointer_type, adjustment, endian }` | Indirect through pointer |
-| `Relative(i64)` | Relative to previous match |
-| `FromEnd(i64)` | Offset from end of file |
-
-### TypeKind
-
-Data type specifications.
-
-```rust
-use libmagic_rs::TypeKind;
-```
-
-| Variant | Description |
-|---------|-------------|
-| `Byte` | Single byte |
-| `Short { endian, signed }` | 16-bit integer |
-| `Long { endian, signed }` | 32-bit integer |
-| `String { max_length }` | String data |
-
-### Operator
-
-Comparison operators.
-
-```rust
-use libmagic_rs::Operator;
-```
-
-| Variant | Description |
-|---------|-------------|
-| `Equal` | Equality comparison |
-| `NotEqual` | Inequality comparison |
-| `BitwiseAnd` | Bitwise AND |
-| `BitwiseAndMask(u64)` | Bitwise AND with mask |
-
-### Value
-
-Value types for matching.
-
-```rust
-use libmagic_rs::Value;
-```
-
-| Variant | Description |
-|---------|-------------|
-| `Uint(u64)` | Unsigned integer |
-| `Int(i64)` | Signed integer |
-| `Bytes(Vec<u8>)` | Byte sequence |
-| `String(String)` | String value |
-
-### Endianness
-
-Byte order specification.
-
-```rust
-use libmagic_rs::Endianness;
-```
-
-| Variant | Description |
-|---------|-------------|
-| `Little` | Little-endian |
-| `Big` | Big-endian |
-| `Native` | System native |
-
-## Error Types
+## Error Handling
 
 ### LibmagicError
 
@@ -338,6 +248,107 @@ match MagicDatabase::load_from_file("invalid.magic") {
 }
 ```
 
+---
+
+## Parser Module
+
+### AST Types
+
+#### MagicRule
+
+Represents a parsed magic rule.
+
+```rust
+use libmagic_rs::MagicRule;
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `offset` | `OffsetSpec` | Where to read data |
+| `typ` | `TypeKind` | Type of data to read |
+| `op` | `Operator` | Comparison operator |
+| `value` | `Value` | Expected value |
+| `message` | `String` | Description message |
+| `children` | `Vec<MagicRule>` | Nested rules |
+| `level` | `u32` | Indentation level |
+| `strength_modifier` | `Option<StrengthModifier>` | Optional strength modifier from `!:strength` directive |
+
+#### OffsetSpec
+
+Offset specification for locating data.
+
+```rust
+use libmagic_rs::OffsetSpec;
+```
+
+| Variant | Description |
+|---------|-------------|
+| `Absolute(i64)` | Absolute offset from file start |
+| `Indirect { base_offset, pointer_type, adjustment, endian }` | Indirect through pointer |
+| `Relative(i64)` | Relative to previous match |
+| `FromEnd(i64)` | Offset from end of file |
+
+#### TypeKind
+
+Data type specifications.
+
+```rust
+use libmagic_rs::TypeKind;
+```
+
+| Variant | Description |
+|---------|-------------|
+| `Byte` | Single byte |
+| `Short { endian, signed }` | 16-bit integer |
+| `Long { endian, signed }` | 32-bit integer |
+| `String { max_length }` | String data |
+
+#### Operator
+
+Comparison operators.
+
+```rust
+use libmagic_rs::Operator;
+```
+
+| Variant | Description |
+|---------|-------------|
+| `Equal` | Equality comparison |
+| `NotEqual` | Inequality comparison |
+| `BitwiseAnd` | Bitwise AND |
+| `BitwiseAndMask(u64)` | Bitwise AND with mask |
+
+#### Value
+
+Value types for matching.
+
+```rust
+use libmagic_rs::Value;
+```
+
+| Variant | Description |
+|---------|-------------|
+| `Uint(u64)` | Unsigned integer |
+| `Int(i64)` | Signed integer |
+| `Bytes(Vec<u8>)` | Byte sequence |
+| `String(String)` | String value |
+
+#### Endianness
+
+Byte order specification.
+
+```rust
+use libmagic_rs::Endianness;
+```
+
+| Variant | Description |
+|---------|-------------|
+| `Little` | Little-endian |
+| `Big` | Big-endian |
+| `Native` | System native |
+
+---
+
 ## Evaluator Module
 
 ### EvaluationContext
@@ -379,6 +390,8 @@ use libmagic_rs::evaluator::MatchResult;
 | `level` | `u32` | Rule level |
 | `value` | `Value` | Matched value |
 | `confidence` | `f64` | Confidence score |
+
+---
 
 ## Output Module
 
@@ -441,11 +454,15 @@ let json = format_json_output(&matches)?;
 let json_line = format_json_line_output(path, &matches)?;
 ```
 
+---
+
 ## Type Aliases
 
 | Alias | Definition | Description |
 |-------|------------|-------------|
 | `Result<T>` | `std::result::Result<T, LibmagicError>` | Library result type |
+
+---
 
 ## Re-exports
 
@@ -462,20 +479,24 @@ pub use evaluator::{EvaluationContext, MatchResult};
 pub use error::{EvaluationError, LibmagicError, ParseError};
 ```
 
+---
+
+## Feature Flags
+
+Currently, libmagic-rs does not have optional feature flags. All functionality is included by default.
+
+---
+
 ## Thread Safety
 
 - `MagicDatabase` is **not** `Send` or `Sync` by default due to internal state
 - `EvaluationConfig` is `Send + Sync` (plain data)
 - For multi-threaded use, create separate `MagicDatabase` instances per thread or use appropriate synchronization
 
+---
+
 ## Version Compatibility
 
 - **Minimum Rust Version**: 1.85
 - **Edition**: 2024
 - **License**: Apache-2.0
-
-For complete API documentation with examples, run:
-
-```bash
-cargo doc --open
-```

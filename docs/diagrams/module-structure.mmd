@@ -1,0 +1,87 @@
+%% libmagic-rs Module Structure
+%% Render with: mmdc -i module-structure.mmd -o module-structure.svg
+
+graph LR
+    subgraph "Public API (lib.rs)"
+        MDB[MagicDatabase]
+        EC[EvaluationConfig]
+        ER[EvaluationResult]
+        EM[EvaluationMetadata]
+    end
+
+    subgraph "Parser Module"
+        direction TB
+        PM[mod.rs<br/>Public Interface]
+        AST[ast.rs<br/>Type Definitions]
+        GRAM[grammar.rs<br/>nom Parsers]
+
+        PM --> AST
+        PM --> GRAM
+        GRAM --> AST
+    end
+
+    subgraph "Evaluator Module"
+        direction TB
+        EMOD[mod.rs<br/>Main Engine]
+        OFF[offset.rs<br/>Offset Resolution]
+        TYPES[types.rs<br/>Type Reading]
+        OPS[operators.rs<br/>Comparisons]
+        STRENGTH[strength.rs<br/>Strength Calculation]
+
+        EMOD --> OFF
+        EMOD --> TYPES
+        EMOD --> OPS
+        EMOD --> STRENGTH
+    end
+
+    subgraph "I/O Module"
+        direction TB
+        IOMOD[mod.rs<br/>FileBuffer]
+    end
+
+    subgraph "Output Module"
+        direction TB
+        OMOD[mod.rs<br/>Result Types]
+        TXT[text.rs<br/>Text Formatter]
+        JSON[json.rs<br/>JSON Formatter]
+
+        OMOD --> TXT
+        OMOD --> JSON
+    end
+
+    subgraph "Support Modules"
+        ERR[error.rs<br/>Error Types]
+        MIME[mime.rs<br/>MIME Mapping]
+        TAGS[tags.rs<br/>Tag Extraction]
+        BUILT[builtin_rules.rs<br/>Built-in Rules]
+    end
+
+    MDB --> PM
+    MDB --> EMOD
+    MDB --> IOMOD
+    MDB --> OMOD
+    MDB --> ERR
+    MDB --> MIME
+    MDB --> BUILT
+
+    MDB --> EC
+    MDB --> ER
+    ER --> EM
+
+    EMOD --> IOMOD
+    EMOD --> AST
+    OMOD --> AST
+
+    classDef public fill:#c8e6c9,stroke:#2e7d32
+    classDef parser fill:#e3f2fd,stroke:#1565c0
+    classDef eval fill:#fff3e0,stroke:#e65100
+    classDef io fill:#f3e5f5,stroke:#7b1fa2
+    classDef output fill:#ffecb3,stroke:#ff6f00
+    classDef support fill:#cfd8dc,stroke:#455a64
+
+    class MDB,EC,ER,EM public
+    class PM,AST,GRAM parser
+    class EMOD,OFF,TYPES,OPS,STRENGTH eval
+    class IOMOD io
+    class OMOD,TXT,JSON output
+    class ERR,MIME,TAGS,BUILT support

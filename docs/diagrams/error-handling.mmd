@@ -1,0 +1,59 @@
+%% libmagic-rs Error Handling Hierarchy
+%% Render with: mmdc -i error-handling.mmd -o error-handling.svg
+
+graph TD
+    subgraph "LibmagicError (Main Error Type)"
+        LE[LibmagicError]
+
+        LE --> PE[ParseError]
+        LE --> EE[EvaluationError]
+        LE --> IO[IoError]
+        LE --> TO[Timeout]
+    end
+
+    subgraph "Parse Errors"
+        PE --> IS[InvalidSyntax<br/>line, message]
+        PE --> UF[UnsupportedFeature<br/>line, feature]
+        PE --> IOFF[InvalidOffset<br/>line, offset]
+        PE --> IT[InvalidType<br/>line, type_spec]
+        PE --> IOP[InvalidOperator<br/>line, operator]
+        PE --> IV[InvalidValue<br/>line, value]
+        PE --> USF[UnsupportedFormat<br/>line, format_type, message]
+        PE --> PIO[IoError<br/>std::io::Error]
+    end
+
+    subgraph "Evaluation Errors"
+        EE --> BO[BufferOverrun<br/>offset]
+        EE --> EOFF[InvalidOffset<br/>offset: i64]
+        EE --> UT[UnsupportedType<br/>type_name]
+        EE --> RL[RecursionLimitExceeded<br/>depth]
+        EE --> SL[StringLengthExceeded<br/>length, max_length]
+        EE --> ISE[InvalidStringEncoding<br/>offset]
+        EE --> ET[Timeout<br/>timeout_ms]
+        EE --> TR[TypeReadError]
+        EE --> IE[InternalError<br/>message]
+    end
+
+    subgraph "Exit Codes (CLI)"
+        EXIT0[0: Success]
+        EXIT1[1: General Error]
+        EXIT2[2: Invalid Arguments]
+        EXIT3[3: File Not Found]
+        EXIT4[4: Magic File Error]
+        EXIT5[5: Timeout]
+    end
+
+    IO --> EXIT3
+    PE --> EXIT4
+    EE --> EXIT1
+    TO --> EXIT5
+
+    classDef main fill:#ffcdd2,stroke:#c62828
+    classDef parse fill:#fff3e0,stroke:#e65100
+    classDef eval fill:#e3f2fd,stroke:#1565c0
+    classDef exit fill:#c8e6c9,stroke:#2e7d32
+
+    class LE main
+    class PE,IS,UF,IOFF,IT,IOP,IV,USF,PIO parse
+    class EE,BO,EOFF,UT,RL,SL,ISE,ET,TR,IE eval
+    class EXIT0,EXIT1,EXIT2,EXIT3,EXIT4,EXIT5 exit

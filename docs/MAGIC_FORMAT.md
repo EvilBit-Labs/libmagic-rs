@@ -1,6 +1,20 @@
-# Magic File Format
+# Magic File Format Guide
 
-Magic files define rules for identifying file types through byte-level patterns. This chapter documents the magic file format supported by libmagic-rs.
+A comprehensive guide to the magic file format used by libmagic-rs.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Basic Syntax](#basic-syntax)
+- [Offset Specifications](#offset-specifications)
+- [Type Specifications](#type-specifications)
+- [Operators](#operators)
+- [Values](#values)
+- [Nested Rules](#nested-rules)
+- [Examples](#examples)
+- [Best Practices](#best-practices)
+
+---
 
 ## Overview
 
@@ -23,6 +37,8 @@ Example:
 ```
 
 This rule matches files starting with "PK" and labels them as "ZIP archive data".
+
+---
 
 ## Basic Syntax
 
@@ -55,6 +71,8 @@ Lines starting with `#` are comments:
 - Fields are separated by whitespace (spaces or tabs)
 - Leading whitespace indicates rule nesting level
 - Trailing whitespace is ignored
+
+---
 
 ## Offset Specifications
 
@@ -113,6 +131,8 @@ Offset relative to previous match:
 
 The `&` prefix indicates relative offset.
 
+---
+
 ## Type Specifications
 
 ### Integer Types
@@ -162,6 +182,8 @@ Example:
 0       string/c  <!doctype  HTML document
 ```
 
+---
+
 ## Operators
 
 ### Comparison Operators
@@ -195,6 +217,8 @@ Prefix operator with `!` for negation:
 # Match if NOT equal to zero
 4       long    !0        (non-zero)
 ```
+
+---
 
 ## Values
 
@@ -238,6 +262,8 @@ Example:
 
 The `x` value matches anything and `%d` formats the matched value.
 
+---
+
 ## Nested Rules
 
 Rules can be nested to create hierarchical matches. Deeper matches indicate more specific identification.
@@ -280,6 +306,8 @@ Use `\b` (backspace) to suppress space before message:
 ```
 
 Output: `GIF image data, version 89a`
+
+---
 
 ## Examples
 
@@ -360,6 +388,8 @@ Output: `GIF image data, version 89a`
 >24     byte    6                   \b, RGBA
 ```
 
+---
+
 ## Best Practices
 
 ### 1. Order Rules by Specificity
@@ -428,6 +458,8 @@ Consider:
 0       long    0xcafebabe   (platform-dependent)
 ```
 
+---
+
 ## Supported Features
 
 ### Currently Supported
@@ -454,6 +486,8 @@ Consider:
 
 - **Strength modifiers**: The `!:strength` directive for adjusting rule priority
 
+---
+
 ## Troubleshooting
 
 ### Rule Not Matching
@@ -475,8 +509,10 @@ Consider:
 2. Use specific offsets over searches
 3. Order rules by likelihood of match
 
+---
+
 ## See Also
 
 - [magic(5)](https://man7.org/linux/man-pages/man5/magic.5.html) - Original magic format
 - [file(1)](https://man7.org/linux/man-pages/man1/file.1.html) - GNU file command
-- [API Reference](./api-reference.md) - libmagic-rs API documentation
+- [API Reference](API_REFERENCE.md) - libmagic-rs API documentation

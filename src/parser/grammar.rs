@@ -14,7 +14,9 @@ use nom::{
     sequence::pair,
 };
 
-use crate::parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, TypeKind, Value};
+use crate::parser::ast::{
+    Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value,
+};
 
 /// Parse a decimal number with overflow protection
 fn parse_decimal_number(input: &str) -> IResult<&str, i64> {
@@ -1562,6 +1564,91 @@ pub fn parse_message(input: &str) -> IResult<&str, String> {
     Ok((input, message))
 }
 
+/// Parse a strength directive (`!:strength` line)
+///
+/// Parses the `!:strength` directive that modifies rule strength.
+/// Format: `!:strength [+|-|*|/|=]N` or `!:strength N`
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::grammar::parse_strength_directive;
+/// use libmagic_rs::parser::ast::StrengthModifier;
+///
+/// assert_eq!(parse_strength_directive("!:strength +10"), Ok(("", StrengthModifier::Add(10))));
+/// assert_eq!(parse_strength_directive("!:strength -5"), Ok(("", StrengthModifier::Subtract(5))));
+/// assert_eq!(parse_strength_directive("!:strength *2"), Ok(("", StrengthModifier::Multiply(2))));
+/// assert_eq!(parse_strength_directive("!:strength /2"), Ok(("", StrengthModifier::Divide(2))));
+/// assert_eq!(parse_strength_directive("!:strength =50"), Ok(("", StrengthModifier::Set(50))));
+/// assert_eq!(parse_strength_directive("!:strength 50"), Ok(("", StrengthModifier::Set(50))));
+/// ```
+///
+/// # Errors
+///
+/// Returns a nom parsing error if:
+/// - Input doesn't start with `!:strength`
+/// - The modifier value cannot be parsed as a valid integer
+/// - The operator is invalid
+pub fn parse_strength_directive(input: &str) -> IResult<&str, StrengthModifier> {
+    // Helper to safely convert i64 to i32 with clamping to valid strength range.
+    // This prevents silent truncation to 0 on overflow while keeping values in bounds.
+    fn clamp_to_i32(n: i64) -> i32 {
+        // Use i64::from for lossless conversion, then clamp and convert back
+        let clamped = n.clamp(i64::from(i32::MIN), i64::from(i32::MAX));
+        // Safe to unwrap: clamped value is guaranteed to be in i32 range
+        i32::try_from(clamped).unwrap()
+    }
+
+    let (input, _) = multispace0(input)?;
+    let (input, _) = tag("!:strength")(input)?;
+    let (input, _) = multispace0(input)?;
+
+    // Parse the operator: +, -, *, /, = or bare number (implies =)
+    let (input, modifier) = alt((
+        // +N -> Add
+        map(pair(char('+'), parse_number), |(_, n)| {
+            StrengthModifier::Add(clamp_to_i32(n))
+        }),
+        // -N -> Subtract (note: parse_number handles negative, so we need special handling)
+        map(pair(char('-'), parse_decimal_number), |(_, n)| {
+            StrengthModifier::Subtract(clamp_to_i32(n))
+        }),
+        // *N -> Multiply
+        map(pair(char('*'), parse_number), |(_, n)| {
+            StrengthModifier::Multiply(clamp_to_i32(n))
+        }),
+        // /N -> Divide
+        map(pair(char('/'), parse_number), |(_, n)| {
+            StrengthModifier::Divide(clamp_to_i32(n))
+        }),
+        // =N -> Set
+        map(pair(char('='), parse_number), |(_, n)| {
+            StrengthModifier::Set(clamp_to_i32(n))
+        }),
+        // Bare number -> Set
+        map(parse_number, |n| StrengthModifier::Set(clamp_to_i32(n))),
+    ))
+    .parse(input)?;
+
+    Ok((input, modifier))
+}
+
+/// Check if a line is a strength directive (starts with !:strength)
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::grammar::is_strength_directive;
+///
+/// assert!(is_strength_directive("!:strength +10"));
+/// assert!(is_strength_directive("  !:strength -5"));
+/// assert!(!is_strength_directive("0 byte 1"));
+/// ```
+#[must_use]
+pub fn is_strength_directive(input: &str) -> bool {
+    input.trim().starts_with("!:strength")
+}
+
 /// Parse a complete magic rule line from text format
 ///
 /// Parses a complete magic rule in the format:
@@ -1633,6 +1720,7 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
         message,
         children: vec![], // Children will be added during hierarchical parsing
         level,
+        strength_modifier: None, // Will be set during directive parsing
     };
 
     Ok((input, rule))
@@ -2207,4 +2295,150 @@ fn test_parse_magic_rule_invalid_input() {
             "Should fail to parse invalid input: '{invalid_input}'"
         );
     }
+}
+
+// Strength directive tests
+#[test]
+fn test_parse_strength_directive_add() {
+    assert_eq!(
+        parse_strength_directive("!:strength +10"),
+        Ok(("", StrengthModifier::Add(10)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength +0"),
+        Ok(("", StrengthModifier::Add(0)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength +100"),
+        Ok(("", StrengthModifier::Add(100)))
+    );
+}
+
+#[test]
+fn test_parse_strength_directive_subtract() {
+    assert_eq!(
+        parse_strength_directive("!:strength -5"),
+        Ok(("", StrengthModifier::Subtract(5)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength -0"),
+        Ok(("", StrengthModifier::Subtract(0)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength -50"),
+        Ok(("", StrengthModifier::Subtract(50)))
+    );
+}
+
+#[test]
+fn test_parse_strength_directive_multiply() {
+    assert_eq!(
+        parse_strength_directive("!:strength *2"),
+        Ok(("", StrengthModifier::Multiply(2)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength *10"),
+        Ok(("", StrengthModifier::Multiply(10)))
+    );
+}
+
+#[test]
+fn test_parse_strength_directive_divide() {
+    assert_eq!(
+        parse_strength_directive("!:strength /2"),
+        Ok(("", StrengthModifier::Divide(2)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength /10"),
+        Ok(("", StrengthModifier::Divide(10)))
+    );
+}
+
+#[test]
+fn test_parse_strength_directive_set_explicit() {
+    assert_eq!(
+        parse_strength_directive("!:strength =50"),
+        Ok(("", StrengthModifier::Set(50)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength =0"),
+        Ok(("", StrengthModifier::Set(0)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength =100"),
+        Ok(("", StrengthModifier::Set(100)))
+    );
+}
+
+#[test]
+fn test_parse_strength_directive_set_bare() {
+    // Bare number implies Set
+    assert_eq!(
+        parse_strength_directive("!:strength 50"),
+        Ok(("", StrengthModifier::Set(50)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength 0"),
+        Ok(("", StrengthModifier::Set(0)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength 100"),
+        Ok(("", StrengthModifier::Set(100)))
+    );
+}
+
+#[test]
+fn test_parse_strength_directive_with_whitespace() {
+    assert_eq!(
+        parse_strength_directive("  !:strength +10"),
+        Ok(("", StrengthModifier::Add(10)))
+    );
+    assert_eq!(
+        parse_strength_directive("\t!:strength -5"),
+        Ok(("", StrengthModifier::Subtract(5)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength  *2"),
+        Ok(("", StrengthModifier::Multiply(2)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength   50"),
+        Ok(("", StrengthModifier::Set(50)))
+    );
+}
+
+#[test]
+fn test_parse_strength_directive_with_remaining_input() {
+    // Should leave remaining content after the directive
+    assert_eq!(
+        parse_strength_directive("!:strength +10 extra"),
+        Ok((" extra", StrengthModifier::Add(10)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength 50\n"),
+        Ok(("\n", StrengthModifier::Set(50)))
+    );
+}
+
+#[test]
+fn test_parse_strength_directive_invalid() {
+    // Should fail on invalid input
+    assert!(parse_strength_directive("").is_err());
+    assert!(parse_strength_directive("!:invalid").is_err());
+    assert!(parse_strength_directive("strength +10").is_err());
+    assert!(parse_strength_directive("0 byte 1").is_err());
+}
+
+#[test]
+fn test_is_strength_directive() {
+    assert!(is_strength_directive("!:strength +10"));
+    assert!(is_strength_directive("!:strength -5"));
+    assert!(is_strength_directive("!:strength 50"));
+    assert!(is_strength_directive("  !:strength +10"));
+    assert!(is_strength_directive("\t!:strength *2"));
+
+    assert!(!is_strength_directive("0 byte 1"));
+    assert!(!is_strength_directive("# comment"));
+    assert!(!is_strength_directive(""));
+    assert!(!is_strength_directive("!:mime application/pdf"));
 }

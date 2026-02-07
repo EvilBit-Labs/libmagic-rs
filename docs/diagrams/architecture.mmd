@@ -1,0 +1,87 @@
+%% libmagic-rs Architecture Diagram
+%% Render with: mmdc -i architecture.mmd -o architecture.svg
+
+graph TB
+    subgraph "User Interface"
+        CLI[rmagic CLI]
+        LIB[Library API]
+    end
+
+    subgraph "Core Library"
+        DB[MagicDatabase]
+        CFG[EvaluationConfig]
+
+        subgraph "Parser Module"
+            LOAD[load_magic_file]
+            DET[detect_format]
+            GRAM[grammar.rs<br/>nom parsers]
+            AST[AST Types<br/>MagicRule, TypeKind, etc.]
+        end
+
+        subgraph "Evaluator Module"
+            EVAL[evaluate_rules_with_config]
+            CTX[EvaluationContext]
+            OFF[offset.rs<br/>Offset Resolution]
+            TYP[types.rs<br/>Type Reading]
+            OPS[operators.rs<br/>Comparisons]
+            STR[strength.rs<br/>Rule Strength]
+        end
+
+        subgraph "I/O Module"
+            FB[FileBuffer]
+            SBA[SafeBufferAccess]
+            MMAP[memmap2]
+        end
+
+        subgraph "Output Module"
+            MR[MatchResult]
+            TXT[text.rs]
+            JSON[json.rs]
+        end
+    end
+
+    subgraph "Data Sources"
+        MAGIC[Magic Files<br/>Text/Directory]
+        BUILTIN[Built-in Rules]
+        TARGET[Target Files]
+    end
+
+    CLI --> DB
+    LIB --> DB
+
+    DB --> CFG
+    DB --> LOAD
+    DB --> EVAL
+
+    LOAD --> DET
+    LOAD --> GRAM
+    GRAM --> AST
+
+    MAGIC --> LOAD
+    BUILTIN --> DB
+
+    EVAL --> CTX
+    EVAL --> OFF
+    EVAL --> TYP
+    EVAL --> OPS
+    EVAL --> STR
+    CTX --> CFG
+
+    TARGET --> FB
+    FB --> SBA
+    SBA --> MMAP
+
+    EVAL --> FB
+    AST --> EVAL
+
+    EVAL --> MR
+    MR --> TXT
+    MR --> JSON
+
+    classDef user fill:#e1f5fe,stroke:#01579b
+    classDef core fill:#fff3e0,stroke:#e65100
+    classDef data fill:#e8f5e9,stroke:#1b5e20
+
+    class CLI,LIB user
+    class DB,CFG,LOAD,DET,GRAM,AST,EVAL,CTX,OFF,TYP,OPS,STR,FB,SBA,MMAP,MR,TXT,JSON core
+    class MAGIC,BUILTIN,TARGET data

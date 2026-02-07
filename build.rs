@@ -21,7 +21,7 @@ mod error;
 mod parser;
 
 use error::ParseError;
-use parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, TypeKind, Value};
+use parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value};
 use parser::parse_text_magic_file;
 use std::env;
 use std::fs;
@@ -32,6 +32,7 @@ const INDENT_WIDTH: usize = 4;
 
 fn main() {
     println!("cargo:rerun-if-changed=src/builtin_rules.magic");
+    println!("cargo:rerun-if-changed=build.rs");
 
     let manifest_dir = match env::var("CARGO_MANIFEST_DIR") {
         Ok(value) => value,
@@ -109,9 +110,11 @@ fn format_parse_error(error: &ParseError) -> String {
 fn generate_builtin_rules(rules: &[MagicRule]) -> String {
     let mut output = String::new();
 
+    // Allow unused_imports since StrengthModifier may not be used if no rules have strength modifiers
+    push_line(&mut output, "#[allow(unused_imports)]");
     push_line(
         &mut output,
-        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness};",
+        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness, StrengthModifier};",
     );
     push_line(&mut output, "use std::sync::LazyLock;");
     push_line(&mut output, "");
@@ -200,10 +203,28 @@ fn serialize_magic_rule(rule: &MagicRule, indent: usize) -> String {
         &rule.level.to_string(),
     );
 
+    push_field(
+        &mut output,
+        indent + INDENT_WIDTH,
+        "strength_modifier",
+        &serialize_strength_modifier(&rule.strength_modifier),
+    );
+
     push_indent(&mut output, indent);
     output.push('}');
 
     output
+}
+
+fn serialize_strength_modifier(modifier: &Option<StrengthModifier>) -> String {
+    match modifier {
+        None => "None".to_string(),
+        Some(StrengthModifier::Add(val)) => format!("Some(StrengthModifier::Add({val}))"),
+        Some(StrengthModifier::Subtract(val)) => format!("Some(StrengthModifier::Subtract({val}))"),
+        Some(StrengthModifier::Multiply(val)) => format!("Some(StrengthModifier::Multiply({val}))"),
+        Some(StrengthModifier::Divide(val)) => format!("Some(StrengthModifier::Divide({val}))"),
+        Some(StrengthModifier::Set(val)) => format!("Some(StrengthModifier::Set({val}))"),
+    }
 }
 
 fn serialize_children(children: &[MagicRule], indent: usize) -> String {

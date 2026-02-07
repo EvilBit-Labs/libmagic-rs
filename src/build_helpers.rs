@@ -4,7 +4,9 @@
 /// and generate Rust code for built-in rules. It is extracted into a library module
 /// to enable comprehensive testing of the build process, including error cases.
 use crate::error::ParseError;
-use crate::parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, TypeKind, Value};
+use crate::parser::ast::{
+    Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value,
+};
 use crate::parser::parse_text_magic_file;
 
 const INDENT_WIDTH: usize = 4;
@@ -61,9 +63,11 @@ pub fn format_parse_error(error: &ParseError) -> String {
 fn generate_builtin_rules(rules: &[MagicRule]) -> String {
     let mut output = String::new();
 
+    // Allow unused_imports since StrengthModifier may not be used if no rules have strength modifiers
+    push_line(&mut output, "#[allow(unused_imports)]");
     push_line(
         &mut output,
-        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness};",
+        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness, StrengthModifier};",
     );
     push_line(&mut output, "use std::sync::LazyLock;");
     push_line(&mut output, "");
@@ -150,6 +154,13 @@ fn serialize_magic_rule(rule: &MagicRule, indent: usize) -> String {
         indent + INDENT_WIDTH,
         "level",
         &rule.level.to_string(),
+    );
+
+    push_field(
+        &mut output,
+        indent + INDENT_WIDTH,
+        "strength_modifier",
+        &serialize_strength_modifier(rule.strength_modifier),
     );
 
     push_indent(&mut output, indent);
@@ -273,6 +284,17 @@ fn serialize_endianness(endian: Endianness) -> String {
         Endianness::Little => "Endianness::Little".to_string(),
         Endianness::Big => "Endianness::Big".to_string(),
         Endianness::Native => "Endianness::Native".to_string(),
+    }
+}
+
+fn serialize_strength_modifier(modifier: Option<StrengthModifier>) -> String {
+    match modifier {
+        None => "None".to_string(),
+        Some(StrengthModifier::Add(val)) => format!("Some(StrengthModifier::Add({val}))"),
+        Some(StrengthModifier::Subtract(val)) => format!("Some(StrengthModifier::Subtract({val}))"),
+        Some(StrengthModifier::Multiply(val)) => format!("Some(StrengthModifier::Multiply({val}))"),
+        Some(StrengthModifier::Divide(val)) => format!("Some(StrengthModifier::Divide({val}))"),
+        Some(StrengthModifier::Set(val)) => format!("Some(StrengthModifier::Set({val}))"),
     }
 }
 
@@ -573,6 +595,7 @@ mod tests {
             message: "test".to_string(),
             children: vec![],
             level: 0,
+            strength_modifier: None,
         };
 
         let generated = generate_builtin_rules(&[rule]);
@@ -601,6 +624,7 @@ mod tests {
             message: "child".to_string(),
             children: vec![],
             level: 1,
+            strength_modifier: None,
         };
 
         let result = serialize_children(&[child], 4);

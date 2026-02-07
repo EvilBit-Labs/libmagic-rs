@@ -131,7 +131,7 @@ pub mod ast;
 pub mod grammar;
 
 // Re-export AST types for convenience
-pub use ast::{Endianness, MagicRule, OffsetSpec, Operator, TypeKind, Value};
+pub use ast::{Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value};
 
 // Re-export parser functions for convenience
 pub use grammar::{parse_number, parse_offset};
@@ -139,7 +139,8 @@ pub use grammar::{parse_number, parse_offset};
 use crate::{
     error::ParseError,
     parser::grammar::{
-        has_continuation, is_comment_line, is_empty_line, parse_comment, parse_magic_rule,
+        has_continuation, is_comment_line, is_empty_line, is_strength_directive, parse_comment,
+        parse_magic_rule, parse_strength_directive,
     },
 };
 use std::io::Read;
@@ -227,13 +228,15 @@ pub fn detect_format(path: &Path) -> Result<MagicFileFormat, ParseError> {
 
 /// Internal structure to track line metadata during preprocessing.
 ///
-/// Stores the processed content, original line number, and comment flag
-/// for each line in the input magic file.
+/// Stores the processed content, original line number, and flags for comment
+/// and strength directive lines in the input magic file.
 #[derive(Debug)]
 struct LineInfo {
     content: String,
     line_number: usize,
     is_comment: bool,
+    /// Optional strength modifier parsed from `!:strength` directive
+    strength_modifier: Option<StrengthModifier>,
 }
 
 impl LineInfo {
@@ -242,6 +245,20 @@ impl LineInfo {
             content,
             line_number,
             is_comment,
+            strength_modifier: None,
+        }
+    }
+
+    fn with_strength(
+        content: String,
+        line_number: usize,
+        strength_modifier: StrengthModifier,
+    ) -> Self {
+        Self {
+            content,
+            line_number,
+            is_comment: false,
+            strength_modifier: Some(strength_modifier),
         }
     }
 }
@@ -298,6 +315,28 @@ fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError> {
                 .map_err(|_| ParseError::invalid_syntax(i + 1, "Unable to parse comment"))?;
             line = parsed_comment.1.as_str();
             lines_info.push(LineInfo::new(line.trim().to_string(), i + 1, true));
+            continue;
+        }
+        // Handle strength directives (!:strength ...)
+        if is_strength_directive(line) {
+            // If we have an ongoing continuation, discard it before processing directive
+            if !line_buf.is_empty() {
+                line_buf.clear();
+                start_line_number = None;
+            }
+            let strength_modifier = parse_strength_directive(line)
+                .map_err(|e| {
+                    ParseError::invalid_syntax(
+                        i + 1,
+                        format!("Failed to parse strength directive: {e}"),
+                    )
+                })?
+                .1;
+            lines_info.push(LineInfo::with_strength(
+                line.trim().to_string(),
+                i + 1,
+                strength_modifier,
+            ));
             continue;
         }
         // Track the starting line number when we begin accumulating a rule
@@ -431,12 +470,25 @@ fn build_rule_hierarchy(lines: Vec<LineInfo>) -> Result<Vec<MagicRule>, ParseErr
 
     let mut stack: Vec<MagicRule> = Vec::new();
     let mut roots: Vec<MagicRule> = Vec::new();
+    let mut pending_strength: Option<StrengthModifier> = None;
 
     for line in lines {
         if line.is_comment {
             continue;
         }
-        let rule = parse_magic_rule_line(&line)?;
+
+        // Handle strength directive: store modifier for next rule
+        if line.strength_modifier.is_some() {
+            pending_strength = line.strength_modifier;
+            continue;
+        }
+
+        let mut rule = parse_magic_rule_line(&line)?;
+
+        // Apply pending strength modifier to this rule
+        if pending_strength.is_some() {
+            rule.strength_modifier = pending_strength.take();
+        }
 
         // Unwind stack until we find a parent with lower level
         while stack.last().is_some_and(|top| top.level >= rule.level) {
@@ -795,6 +847,7 @@ mod unit_tests {
             content: content.to_string(),
             line_number,
             is_comment: false,
+            strength_modifier: None,
         }
     }
 
@@ -803,6 +856,7 @@ mod unit_tests {
             content: content.to_string(),
             line_number,
             is_comment: true,
+            strength_modifier: None,
         }
     }
 
@@ -1255,6 +1309,99 @@ mod unit_tests {
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].message, "ELF executable");
         assert!(rules[0].children.len() > 1);
+    }
+
+    // ============================================================
+    // Strength directive integration tests
+    // ============================================================
+
+    #[test]
+    fn test_parse_text_magic_file_with_strength_directive() {
+        let input = r"
+!:strength +10
+0 string \\x7fELF ELF executable
+";
+        let rules = parse_text_magic_file(input).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].strength_modifier, Some(StrengthModifier::Add(10)));
+    }
+
+    #[test]
+    fn test_parse_text_magic_file_strength_applies_to_next_rule() {
+        let input = r"
+!:strength *2
+0 string \\x7fELF ELF executable
+0 string \\x50\\x4b ZIP archive
+";
+        let rules = parse_text_magic_file(input).unwrap();
+        assert_eq!(rules.len(), 2);
+        // Strength should only apply to the immediately following rule
+        assert_eq!(
+            rules[0].strength_modifier,
+            Some(StrengthModifier::Multiply(2))
+        );
+        assert_eq!(rules[1].strength_modifier, None);
+    }
+
+    #[test]
+    fn test_parse_text_magic_file_strength_with_child_rules() {
+        let input = r"
+!:strength =50
+0 string \\x7fELF ELF executable
+>4 byte 1 32-bit
+>4 byte 2 64-bit
+";
+        let rules = parse_text_magic_file(input).unwrap();
+        assert_eq!(rules.len(), 1);
+        // Strength applies to root rule
+        assert_eq!(rules[0].strength_modifier, Some(StrengthModifier::Set(50)));
+        // Children should not have strength modifier
+        assert_eq!(rules[0].children[0].strength_modifier, None);
+        assert_eq!(rules[0].children[1].strength_modifier, None);
+    }
+
+    #[test]
+    fn test_parse_text_magic_file_multiple_strength_directives() {
+        let input = r"
+!:strength +10
+0 string \\x7fELF ELF executable
+!:strength -5
+0 string \\x50\\x4b ZIP archive
+";
+        let rules = parse_text_magic_file(input).unwrap();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].strength_modifier, Some(StrengthModifier::Add(10)));
+        assert_eq!(
+            rules[1].strength_modifier,
+            Some(StrengthModifier::Subtract(5))
+        );
+    }
+
+    #[test]
+    fn test_parse_text_magic_file_strength_all_operators() {
+        let inputs = [
+            ("!:strength +20\n0 byte 1 Test", StrengthModifier::Add(20)),
+            (
+                "!:strength -15\n0 byte 1 Test",
+                StrengthModifier::Subtract(15),
+            ),
+            (
+                "!:strength *3\n0 byte 1 Test",
+                StrengthModifier::Multiply(3),
+            ),
+            ("!:strength /2\n0 byte 1 Test", StrengthModifier::Divide(2)),
+            ("!:strength =100\n0 byte 1 Test", StrengthModifier::Set(100)),
+            ("!:strength 50\n0 byte 1 Test", StrengthModifier::Set(50)),
+        ];
+
+        for (input, expected_modifier) in inputs {
+            let rules = parse_text_magic_file(input).unwrap();
+            assert_eq!(
+                rules[0].strength_modifier,
+                Some(expected_modifier),
+                "Failed for input: {input}"
+            );
+        }
     }
 
     // ============================================================

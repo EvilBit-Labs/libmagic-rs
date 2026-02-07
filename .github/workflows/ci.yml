@@ -131,7 +131,9 @@ jobs:
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Generate coverage
-              run: cargo llvm-cov --all-features --no-report
+              # Use --test-threads=1 to prevent race conditions in stdin-mocking tests
+              # that manipulate file descriptors (dup/dup2) which aren't thread-safe
+              run: cargo llvm-cov --all-features --no-report -- --test-threads=1
 
             - name: Combine coverage reports
               run: cargo llvm-cov report --lcov --output-path lcov.info
