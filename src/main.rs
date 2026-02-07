@@ -756,6 +756,12 @@ mod tests {
         (result, output_str)
     }
 
+    /// Mock stdin with the given input bytes for the duration of the closure.
+    ///
+    /// NOTE: This function does NOT acquire FD_MUTEX because it is always called
+    /// from within `capture_stdout` or `capture_stderr`, which already hold the
+    /// mutex. Adding mutex acquisition here would cause a deadlock since Rust's
+    /// standard Mutex is not reentrant.
     #[cfg(unix)]
     fn with_mocked_stdin<F>(input: &[u8], f: F) -> Result<(), LibmagicError>
     where
@@ -775,6 +781,11 @@ mod tests {
         result
     }
 
+    /// Replace stdin with an invalid file descriptor (a directory) for testing error handling.
+    ///
+    /// NOTE: This function does NOT acquire FD_MUTEX. It relies on tests running
+    /// serially (--test-threads=1) to avoid race conditions. Unlike `with_mocked_stdin`,
+    /// this function is called directly (not nested inside capture_* functions).
     #[cfg(unix)]
     fn with_invalid_stdin<F>(f: F) -> Result<(), LibmagicError>
     where
