@@ -46,7 +46,7 @@ jobs:
                       ${{ runner.os }}-cargo-
 
             - name: Run benchmarks
-              run: cargo bench --workspace -- --noplot
+              run: cargo bench --workspace
 
             - name: Upload benchmark results
               uses: actions/upload-artifact@v4
@@ -89,14 +89,14 @@ jobs:
 
             - name: Run benchmarks on PR branch
               run: |
-                  cargo bench --workspace -- --noplot --save-baseline pr
+                  cargo bench --workspace -- --save-baseline pr
 
             - name: Checkout main branch
               run: git checkout origin/main
 
             - name: Run benchmarks on main branch
               run: |
-                  cargo bench --workspace -- --noplot --save-baseline main
+                  cargo bench --workspace -- --save-baseline main
 
             - name: Compare benchmarks
               run: |

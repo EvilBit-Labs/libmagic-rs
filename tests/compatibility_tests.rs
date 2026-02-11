@@ -34,14 +34,12 @@ enum TestStatus {
 /// Compatibility test runner
 struct CompatibilityTestRunner {
     test_dir: PathBuf,
-    magic_file: PathBuf,
     rmagic_binary: PathBuf,
 }
 
 impl CompatibilityTestRunner {
     fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let test_dir = PathBuf::from("third_party/tests");
-        let magic_file = PathBuf::from("third_party/magic.mgc");
         let rmagic_binary = find_rmagic_binary()?;
 
         if !test_dir.exists() {
@@ -51,13 +49,8 @@ impl CompatibilityTestRunner {
             );
         }
 
-        if !magic_file.exists() {
-            return Err("Magic file not found. Ensure third_party/magic.mgc exists.".into());
-        }
-
         Ok(Self {
             test_dir,
-            magic_file,
             rmagic_binary,
         })
     }
@@ -86,8 +79,7 @@ impl CompatibilityTestRunner {
     /// Run rmagic against a test file
     fn run_rmagic(&self, test_file: &Path) -> Result<String, Box<dyn std::error::Error>> {
         let output = Command::new(&self.rmagic_binary)
-            .arg("--magic-file")
-            .arg(&self.magic_file)
+            .arg("--use-builtin")
             .arg(test_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
