@@ -1,8 +1,8 @@
 # Cross-platform justfile using OS annotations
 # Windows uses PowerShell, Unix uses bash
 
-set shell := ["bash", "-cu"]
-set windows-shell := ["powershell", "-NoProfile", "-Command"]
+set windows-shell := ["powershell.exe", "-c"]
+set shell := ["bash", "-c"]
 set dotenv-load := true
 set ignore-comments := true
 
