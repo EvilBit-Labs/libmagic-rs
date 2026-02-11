@@ -53,7 +53,7 @@ fn bench_rule_parsing(c: &mut Criterion) {
     let mut group = c.benchmark_group("rule_parsing");
 
     // Simple string match rule
-    let simple_rule = "0 string test Test file\n";
+    let simple_rule = "0 string \"test\" Test file\n";
     group.bench_function("parse_simple_string_rule", |b| {
         let mut temp = NamedTempFile::new().expect("temp file");
         temp.write_all(simple_rule.as_bytes()).expect("write temp");
