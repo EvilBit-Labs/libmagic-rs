@@ -136,7 +136,15 @@ pub type Result<T> = std::result::Result<T, LibmagicError>;
 // Implement From<IoError> for LibmagicError
 impl From<crate::io::IoError> for LibmagicError {
     fn from(err: crate::io::IoError) -> Self {
-        LibmagicError::IoError(std::io::Error::other(err.to_string()))
+        // Preserve ErrorKind from the inner std::io::Error source where available
+        let kind = match &err {
+            crate::io::IoError::FileOpenError { source, .. }
+            | crate::io::IoError::MmapError { source, .. }
+            | crate::io::IoError::MetadataError { source, .. } => source.kind(),
+            _ => std::io::ErrorKind::Other,
+        };
+        // Wrap the full IoError as the source, preserving the error chain
+        LibmagicError::IoError(std::io::Error::new(kind, err))
     }
 }
 

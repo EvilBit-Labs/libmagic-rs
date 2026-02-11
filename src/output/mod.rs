@@ -245,6 +245,46 @@ impl MatchResult {
         }
     }
 
+    /// Convert from an evaluator `MatchResult` to an output `MatchResult`
+    ///
+    /// This adapts the internal evaluation result format to the richer output format
+    /// used for JSON and structured output. It extracts rule paths from match messages
+    /// and converts confidence from 0.0-1.0 to 0-100 scale.
+    ///
+    /// # Arguments
+    ///
+    /// * `m` - The evaluator match result to convert
+    /// * `mime_type` - Optional MIME type to associate with this match
+    #[must_use]
+    pub fn from_evaluator_match(
+        m: &crate::evaluator::MatchResult,
+        mime_type: Option<&str>,
+    ) -> Self {
+        use crate::tags::TagExtractor;
+
+        let tag_extractor = TagExtractor::new();
+        let rule_path = tag_extractor.extract_rule_path(std::iter::once(m.message.as_str()));
+
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let confidence = (m.confidence * 100.0).min(100.0) as u8;
+
+        let length = match &m.value {
+            Value::Bytes(b) => b.len(),
+            Value::String(s) => s.len(),
+            Value::Uint(_) | Value::Int(_) => 4,
+        };
+
+        Self::with_metadata(
+            m.message.clone(),
+            m.offset,
+            length,
+            m.value.clone(),
+            rule_path,
+            confidence,
+            mime_type.map(String::from),
+        )
+    }
+
     /// Set the confidence score for this match
     ///
     /// The confidence score is automatically clamped to the range 0-100.
@@ -364,6 +404,54 @@ impl EvaluationResult {
             metadata,
             error: None,
         }
+    }
+
+    /// Convert from a library `EvaluationResult` to an output `EvaluationResult`
+    ///
+    /// This adapts the library's evaluation result into the output format used for
+    /// JSON and structured output. Converts all matches and metadata, and enriches
+    /// the first match's rule path with tags extracted from the overall description.
+    ///
+    /// # Arguments
+    ///
+    /// * `result` - The library evaluation result to convert
+    /// * `filename` - Path to the file that was evaluated
+    #[must_use]
+    pub fn from_library_result(
+        result: &crate::EvaluationResult,
+        filename: &std::path::Path,
+    ) -> Self {
+        use crate::tags::TagExtractor;
+
+        let mut output_matches: Vec<MatchResult> = result
+            .matches
+            .iter()
+            .map(|m| MatchResult::from_evaluator_match(m, result.mime_type.as_deref()))
+            .collect();
+
+        // Enrich the first match with tags from the overall description
+        if let Some(first) = output_matches.first_mut() {
+            if first.rule_path.is_empty() {
+                let tag_extractor = TagExtractor::new();
+                first.rule_path = tag_extractor.extract_tags(&result.description);
+            }
+        }
+
+        #[allow(clippy::cast_possible_truncation)]
+        let rules_evaluated = result.metadata.rules_evaluated as u32;
+        #[allow(clippy::cast_possible_truncation)]
+        let rules_matched = output_matches.len() as u32;
+
+        Self::new(
+            filename.to_path_buf(),
+            output_matches,
+            EvaluationMetadata::new(
+                result.metadata.file_size,
+                result.metadata.evaluation_time_ms,
+                rules_evaluated,
+                rules_matched,
+            ),
+        )
     }
 
     /// Create an evaluation result with an error
