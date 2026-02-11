@@ -46,7 +46,7 @@ jobs:
                       ${{ runner.os }}-cargo-
 
             - name: Run benchmarks
-              run: cargo bench --workspace
+              run: cargo bench --bench parser_bench --bench evaluation_bench --bench io_bench
 
             - name: Upload benchmark results
               uses: actions/upload-artifact@v4
@@ -95,10 +95,13 @@ jobs:
               run: git checkout origin/main
 
             - name: Run benchmarks on main branch
+              continue-on-error: true
+              id: main-bench
               run: |
                   cargo bench --bench parser_bench --bench evaluation_bench --bench io_bench -- --save-baseline main
 
             - name: Compare benchmarks
+              if: steps.main-bench.outcome == 'success'
               run: |
                   {
                     echo "## Benchmark Comparison"
@@ -108,4 +111,14 @@ jobs:
                     echo '```'
                     critcmp main pr || true
                     echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Skip comparison (no main benchmarks)
+              if: steps.main-bench.outcome != 'success'
+              run: |
+                  {
+                    echo "## Benchmark Comparison"
+                    echo ""
+                    echo "Skipped: main branch does not have matching benchmark targets."
+                    echo "Comparison will be available once benchmarks are merged to main."
                   } >> "$GITHUB_STEP_SUMMARY"
