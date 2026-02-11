@@ -6,9 +6,6 @@
 use crate::parser::ast::MagicRule;
 use crate::{EvaluationConfig, LibmagicError};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, mpsc};
-use std::thread;
-use std::time::Duration;
 
 #[cfg(test)]
 use crate::parser::ast::{Endianness, OffsetSpec, Operator, TypeKind, Value};
@@ -407,14 +404,18 @@ pub fn evaluate_rules(
     buffer: &[u8],
     context: &mut EvaluationContext,
 ) -> Result<Vec<MatchResult>, LibmagicError> {
-    let mut matches = Vec::with_capacity(rules.len());
+    let mut matches = Vec::with_capacity(8);
     let start_time = std::time::Instant::now();
+    let mut rule_count = 0u32;
 
     for rule in rules {
-        // Check timeout if configured
-        if let Some(timeout_ms) = context.timeout_ms() {
-            if start_time.elapsed().as_millis() > u128::from(timeout_ms) {
-                return Err(LibmagicError::Timeout { timeout_ms });
+        // Check timeout periodically (every 16 rules) to reduce syscall overhead
+        rule_count = rule_count.wrapping_add(1);
+        if rule_count % 16 == 0 {
+            if let Some(timeout_ms) = context.timeout_ms() {
+                if start_time.elapsed().as_millis() > u128::from(timeout_ms) {
+                    return Err(LibmagicError::Timeout { timeout_ms });
+                }
             }
         }
 
@@ -567,7 +568,7 @@ pub fn evaluate_rules(
 /// let buffer = &[0x7f, 0x45, 0x4c, 0x46];
 /// let config = EvaluationConfig::default();
 ///
-/// let matches = evaluate_rules_with_config(&rules, buffer, config).unwrap();
+/// let matches = evaluate_rules_with_config(&rules, buffer, &config).unwrap();
 /// assert_eq!(matches.len(), 1);
 /// assert_eq!(matches[0].message, "ELF magic");
 /// ```
@@ -579,52 +580,10 @@ pub fn evaluate_rules(
 pub fn evaluate_rules_with_config(
     rules: &[MagicRule],
     buffer: &[u8],
-    config: EvaluationConfig,
+    config: &EvaluationConfig,
 ) -> Result<Vec<MatchResult>, LibmagicError> {
-    // If no timeout is configured, evaluate normally
-    let Some(timeout_ms) = config.timeout_ms else {
-        let mut context = EvaluationContext::new(config);
-        return evaluate_rules(rules, buffer, &mut context);
-    };
-
-    // With timeout: spawn evaluation in a thread and wait with timeout
-    // Use Arc to share data without cloning the potentially large rules/buffer
-    let rules_arc = Arc::new(rules.to_vec());
-    let buffer_arc = Arc::new(buffer.to_vec());
-    let config_clone = config.clone();
-
-    let (tx, rx) = mpsc::channel();
-
-    // Clone Arcs for the thread (cheap reference count increment)
-    let rules_thread = Arc::clone(&rules_arc);
-    let buffer_thread = Arc::clone(&buffer_arc);
-
-    // Spawn evaluation in separate thread
-    // Note: The thread will run to completion even if we return early on timeout.
-    // True cancellation would require cooperative cancellation (checking a flag
-    // periodically during evaluation) or running in a separate process.
-    // For most use cases, the thread will complete quickly or the process will
-    // exit, cleaning up the thread automatically.
-    thread::spawn(move || {
-        let mut context = EvaluationContext::new(config_clone);
-        let result = evaluate_rules(&rules_thread, &buffer_thread, &mut context);
-        // Send result; ignore error if receiver was dropped (timeout occurred)
-        let _ = tx.send(result);
-    });
-
-    // Wait for result with timeout
-    match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
-        Ok(result) => result,
-        Err(mpsc::RecvTimeoutError::Timeout) => Err(LibmagicError::Timeout { timeout_ms }),
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            // Thread panicked or dropped sender
-            Err(LibmagicError::EvaluationError(
-                crate::error::EvaluationError::internal_error(
-                    "Evaluation thread terminated unexpectedly",
-                ),
-            ))
-        }
-    }
+    let mut context = EvaluationContext::new(config.clone());
+    evaluate_rules(rules, buffer, &mut context)
 }
 
 #[cfg(test)]
@@ -2116,7 +2075,7 @@ fn test_evaluate_rules_with_config_convenience() {
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
     let config = EvaluationConfig::default();
 
-    let matches = evaluate_rules_with_config(&rules, buffer, config).unwrap();
+    let matches = evaluate_rules_with_config(&rules, buffer, &config).unwrap();
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].message, "ELF magic");
 }

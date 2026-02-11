@@ -256,7 +256,7 @@ let rule = MagicRule {
 // Evaluate against a buffer
 let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
 let config = EvaluationConfig::default();
-let matches = evaluate_rules_with_config(&[rule], buffer, config)?;
+let matches = evaluate_rules_with_config(&[rule], buffer, &config)?;
 
 assert_eq!(matches.len(), 1);
 assert_eq!(matches[0].message, "ELF magic");

@@ -301,7 +301,9 @@ fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError> {
     let mut lines_info: Vec<LineInfo> = Vec::new();
     let mut line_buf = String::new();
     let mut start_line_number: Option<usize> = None;
+    let mut last_line_num = 0usize;
     for (i, mut line) in input.lines().enumerate() {
+        last_line_num = i + 1;
         if is_empty_line(line) {
             continue;
         }
@@ -345,9 +347,9 @@ fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError> {
         }
         line_buf.push_str(line.trim());
         if has_continuation(line) {
-            if let Some(stripped) = line_buf.strip_suffix('\\') {
-                line_buf = stripped.to_string();
-            }
+            // Remove trailing backslash in-place (O(1)) instead of
+            // strip_suffix().to_string() which allocates a new String
+            line_buf.pop();
             continue;
         }
         // Bug 2 fix: Use the stored starting line number instead of calculating from cont_ctr
@@ -362,9 +364,8 @@ fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError> {
 
     // Handle unterminated continuation at end of input
     if !line_buf.is_empty() {
-        let last_line = input.lines().count();
         return Err(ParseError::invalid_syntax(
-            last_line,
+            last_line_num,
             "Unterminated line continuation",
         ));
     }

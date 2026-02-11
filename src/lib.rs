@@ -432,6 +432,8 @@ pub struct MagicDatabase {
     /// Optional path to the source magic file or directory from which rules were loaded.
     /// This is used for debugging and logging purposes.
     source_path: Option<PathBuf>,
+    /// Cached MIME type mapper to avoid rebuilding the lookup table on every evaluation
+    mime_mapper: mime::MimeMapper,
 }
 
 impl MagicDatabase {
@@ -492,6 +494,7 @@ impl MagicDatabase {
             rules: crate::builtin_rules::get_builtin_rules(),
             config,
             source_path: None,
+            mime_mapper: mime::MimeMapper::new(),
         })
     }
 
@@ -537,6 +540,7 @@ impl MagicDatabase {
             rules,
             config,
             source_path: Some(path.as_ref().to_path_buf()),
+            mime_mapper: mime::MimeMapper::new(),
         })
     }
 
@@ -564,7 +568,6 @@ impl MagicDatabase {
     pub fn evaluate_file<P: AsRef<Path>>(&self, path: P) -> Result<EvaluationResult> {
         use crate::evaluator::evaluate_rules_with_config;
         use crate::io::FileBuffer;
-        use crate::mime::MimeMapper;
         use std::fs;
         use std::time::Instant;
 
@@ -606,7 +609,7 @@ impl MagicDatabase {
         }
 
         // Evaluate rules against the file buffer
-        let matches = evaluate_rules_with_config(&self.rules, buffer, self.config.clone())?;
+        let matches = evaluate_rules_with_config(&self.rules, buffer, &self.config)?;
 
         // Build the result
         let (description, confidence) = if matches.is_empty() {
@@ -620,7 +623,7 @@ impl MagicDatabase {
 
         // Get MIME type if enabled
         let mime_type = if self.config.enable_mime_types {
-            MimeMapper::new().get_mime_type(&description)
+            self.mime_mapper.get_mime_type(&description)
         } else {
             None
         };
@@ -676,7 +679,6 @@ impl MagicDatabase {
         start_time: std::time::Instant,
     ) -> Result<EvaluationResult> {
         use crate::evaluator::evaluate_rules_with_config;
-        use crate::mime::MimeMapper;
 
         let file_size = buffer.len() as u64;
 
@@ -696,7 +698,7 @@ impl MagicDatabase {
             });
         }
 
-        let matches = evaluate_rules_with_config(&self.rules, buffer, self.config.clone())?;
+        let matches = evaluate_rules_with_config(&self.rules, buffer, &self.config)?;
 
         // Build the result
         let (description, confidence) = if matches.is_empty() {
@@ -710,7 +712,7 @@ impl MagicDatabase {
 
         // Get MIME type if enabled
         let mime_type = if self.config.enable_mime_types {
-            MimeMapper::new().get_mime_type(&description)
+            self.mime_mapper.get_mime_type(&description)
         } else {
             None
         };
@@ -735,7 +737,8 @@ impl MagicDatabase {
     /// Messages are joined with spaces, except when a message starts with
     /// backspace character (\\b) which suppresses the space.
     fn concatenate_messages(matches: &[evaluator::MatchResult]) -> String {
-        let mut result = String::new();
+        let capacity: usize = matches.iter().map(|m| m.message.len() + 1).sum();
+        let mut result = String::with_capacity(capacity);
         for m in matches {
             if let Some(rest) = m.message.strip_prefix('\u{0008}') {
                 // Backspace suppresses the space and the character itself
