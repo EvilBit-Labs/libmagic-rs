@@ -89,14 +89,14 @@ jobs:
 
             - name: Run benchmarks on PR branch
               run: |
-                  cargo bench --workspace -- --save-baseline pr
+                  cargo bench --bench parser_bench --bench evaluation_bench --bench io_bench -- --save-baseline pr
 
             - name: Checkout main branch
               run: git checkout origin/main
 
             - name: Run benchmarks on main branch
               run: |
-                  cargo bench --workspace -- --save-baseline main
+                  cargo bench --bench parser_bench --bench evaluation_bench --bench io_bench -- --save-baseline main
 
             - name: Compare benchmarks
               run: |
