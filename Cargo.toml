@@ -28,9 +28,6 @@ exclude = [
     "AGENTS.md",
 ]
 
-[package.metadata.cargo-machete]
-ignored = ["byteorder"] # Ignoring it since we're going to use it later.
-
 # Workspace lint configuration
 [workspace.lints.rust]
 # Security: Forbid unsafe code globally
