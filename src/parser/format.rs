@@ -80,10 +80,7 @@ pub fn detect_format(path: &Path) -> Result<MagicFileFormat, ParseError> {
             // File is too small to be a binary magic file, assume text
             Ok(MagicFileFormat::Text)
         }
-        Err(e) => Err(ParseError::invalid_syntax(
-            0,
-            format!("Failed to read magic file: {e}"),
-        )),
+        Err(e) => Err(ParseError::IoError(e)),
     }
 }
 
