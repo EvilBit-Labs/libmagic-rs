@@ -1,71 +1,288 @@
 # CLI Usage
 
-> [!NOTE]
-> The CLI is currently in early development with placeholder functionality. This documentation describes the planned interface.
-
-The `rmagic` command-line tool provides a drop-in replacement for the GNU `file` command, with additional features for modern workflows.
+The `rmagic` command-line tool identifies file types using magic rules, serving as a pure-Rust alternative to the GNU `file` command.
 
 ## Basic Usage
 
 ```bash
 # Identify a single file
-rmagic file.bin
+rmagic document.pdf
 
 # Identify multiple files
 rmagic file1.bin file2.exe file3.pdf
+
+# Read from stdin
+cat unknown.bin | rmagic -
+
+# Use built-in rules (no external magic file required)
+rmagic --use-builtin archive.tar.gz
 
 # Get help
 rmagic --help
 ```
 
+## Arguments and Flags
+
+### Positional Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `FILE...` | One or more files to analyze (required). Use `-` to read from stdin. |
+
+### Output Format Flags
+
+| Flag | Description |
+|------|-------------|
+| `--text` | Output results in text format. This is the default. |
+| `--json` | Output results in JSON format. Conflicts with `--text`. |
+
+These two flags are mutually exclusive. Passing both `--json` and `--text` produces an error.
+
+### Magic File Flags
+
+| Flag | Description |
+|------|-------------|
+| `--magic-file FILE` | Use a custom magic file instead of the system default. |
+| `--use-builtin` | Use built-in magic rules compiled into the binary. Takes precedence over `--magic-file` if both are provided. |
+
+The built-in rules cover common file types: ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, and PDF. They are compiled at build time and require no external files.
+
+### Behavior Flags
+
+| Flag | Description |
+|------|-------------|
+| `--strict` | Exit with a non-zero code on processing failures (I/O, parse, or evaluation errors). A "data" result (unknown file type) is **not** considered an error. |
+| `--timeout-ms MS` | Per-file evaluation timeout in milliseconds. Valid range: 1--300000 (5 minutes). |
+
 ## Output Formats
 
 ### Text Output (Default)
 
+Text output prints one line per file in the format `filename: description`:
+
 ```bash
-rmagic example.bin
-# Output: example.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
+$ rmagic image.png document.pdf
+image.png: PNG image data
+document.pdf: PDF document
+```
+
+When a file type cannot be determined, the description is `data`:
+
+```bash
+$ rmagic unknown.bin
+unknown.bin: data
 ```
 
 ### JSON Output
 
+JSON output varies based on the number of files being analyzed.
+
+**Single file** -- pretty-printed JSON with a matches array:
+
 ```bash
-rmagic example.bin --json
+$ rmagic --json image.png
 ```
 
 ```json
 {
-  "filename": "example.bin",
-  "description": "ELF 64-bit LSB executable, x86-64, version 1 (SYSV)",
-  "mime_type": "application/x-executable",
-  "confidence": 0.95
+  "matches": [
+    {
+      "description": "PNG image data",
+      "offset": 0,
+      "tags": ["image", "png"],
+      "mime_type": "image/png",
+      "score": 90
+    }
+  ]
 }
 ```
 
-## Command-Line Options
+**Multiple files** -- JSON Lines format with one compact JSON object per line:
 
-### Input Options
+```bash
+$ rmagic --json file1.bin file2.txt
+{"filename":"file1.bin","matches":[...]}
+{"filename":"file2.txt","matches":[...]}
+```
 
-- `FILE...` - Files to analyze (required)
-- `--magic-file FILE` - Use custom magic file database
+Each line is a self-contained JSON object, making it straightforward to parse with line-oriented tools such as `jq`.
 
-### Output Options
+## Stdin Support
 
-- `--text` - Text output format (default)
-- `--json` - JSON output format
-- `--mime` - Output MIME type only
+Use `-` as the filename to read input from stdin:
 
-### Behavior Options
+```bash
+cat sample.bin | rmagic -
+```
 
-- `--brief` - Don't prepend filenames to output lines
-- `--no-buffer` - Don't buffer output (useful for pipes)
+Stdin input is truncated to the configured `max_string_length` (8192 bytes by default). When truncation occurs, a warning is printed to stderr:
 
-## Examples
+```text
+Warning: stdin input truncated to 8192 bytes
+```
 
-Coming soon with full implementation.
+Output for stdin uses `stdin` as the filename:
+
+```bash
+$ echo "hello" | rmagic -
+stdin: data
+```
+
+Stdin can be combined with regular file arguments:
+
+```bash
+$ rmagic --use-builtin file1.bin - file2.txt < input.dat
+```
 
 ## Exit Codes
 
-- `0` - Success
-- `1` - Error processing files
-- `2` - Invalid command-line arguments
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General error (evaluation failure, configuration error) |
+| 2 | Invalid arguments (bad command-line usage) |
+| 3 | File not found or access denied |
+| 4 | Magic file not found or invalid |
+| 5 | Evaluation timeout |
+
+### Strict Mode and Exit Codes
+
+Without `--strict`, processing errors for individual files are printed to stderr but do not affect the exit code. The tool continues processing remaining files and exits 0 if at least the overall invocation succeeded.
+
+With `--strict`, the first processing error (I/O, parse, or evaluation) causes a non-zero exit code. The tool still processes all files and prints errors as they occur, but returns the exit code corresponding to the first error.
+
+A "data" result (unknown file type) is never treated as an error, even in strict mode.
+
+```bash
+# Without strict: exits 0 even if some files fail
+$ rmagic file1.bin nonexistent.bin file2.txt
+file1.bin: data
+Error processing nonexistent.bin: ...
+file2.txt: data
+$ echo $?
+0
+
+# With strict: exits with error code from first failure
+$ rmagic --strict file1.bin nonexistent.bin file2.txt
+file1.bin: data
+Error processing nonexistent.bin: ...
+file2.txt: data
+$ echo $?
+3
+```
+
+## Magic File Discovery
+
+When `--use-builtin` is not specified and no `--magic-file` is provided, `rmagic` searches for a magic file in standard system locations. The search follows an OpenBSD-inspired approach, preferring human-readable text files over compiled binary `.mgc` files.
+
+### Search Order (Unix)
+
+Text directories and files are checked first. If a text-format file or directory is found, it is used immediately. If only binary `.mgc` files exist, the first one found is used as a fallback.
+
+| Priority | Path | Format |
+|----------|------|--------|
+| 1 | `/usr/share/file/magic/Magdir` | Text directory |
+| 2 | `/usr/share/file/magic` | Text directory/file |
+| 3 | `/usr/share/misc/magic` | Text file |
+| 4 | `/usr/local/share/misc/magic` | Text file |
+| 5 | `/etc/magic` | Text file |
+| 6 | `/opt/local/share/file/magic` | Text file |
+| 7 | `/usr/share/file/magic.mgc` | Binary |
+| 8 | `/usr/local/share/misc/magic.mgc` | Binary |
+| 9 | `/opt/local/share/file/magic.mgc` | Binary |
+| 10 | `/etc/magic.mgc` | Binary |
+| 11 | `/usr/share/misc/magic.mgc` | Binary |
+
+If none of these paths exist, `rmagic` falls back to `/usr/share/file/magic.mgc`.
+
+### Windows
+
+On Windows, the tool checks `%APPDATA%\Magic\magic` first, then falls back to the bundled `third_party/magic.mgc`.
+
+## Timeout Configuration
+
+The `--timeout-ms` flag sets a per-file timeout for magic rule evaluation. Each file gets its own independent timeout window. If evaluation exceeds the specified duration, the file is skipped with an error.
+
+```bash
+# Set a 500ms timeout per file
+$ rmagic --timeout-ms 500 large_file.bin
+
+# Combine with strict mode to fail on timeout
+$ rmagic --strict --timeout-ms 1000 *.bin
+```
+
+Valid values range from 1 to 300000 (5 minutes).
+
+## Multiple File Processing
+
+When multiple files are provided, each file is processed sequentially with independent error handling. A failure in one file does not prevent processing of subsequent files.
+
+```bash
+$ rmagic --use-builtin image.png archive.zip README.md
+image.png: PNG image data
+archive.zip: Zip archive data
+README.md: data
+```
+
+Errors for individual files are printed to stderr with the filename for context:
+
+```bash
+$ rmagic --use-builtin good.png /nonexistent bad_perms.bin
+good.png: PNG image data
+Error processing /nonexistent: ...
+Error processing bad_perms.bin: ...
+```
+
+## Examples
+
+### Identify files with built-in rules
+
+```bash
+$ rmagic --use-builtin photo.jpg
+photo.jpg: JPEG image data, JFIF standard
+```
+
+### JSON output for scripting
+
+```bash
+$ rmagic --use-builtin --json binary.elf | jq '.matches[0].mime_type'
+"application/x-executable"
+```
+
+### Process files from a directory listing
+
+```bash
+$ ls *.bin | xargs rmagic --use-builtin --strict
+```
+
+### Custom magic file
+
+```bash
+$ rmagic --magic-file /path/to/custom.magic firmware.img
+firmware.img: ARM firmware image
+```
+
+### Pipeline with stdin
+
+```bash
+$ curl -sL https://example.com/file | rmagic --use-builtin -
+stdin: Zip archive data
+```
+
+### Strict mode in CI
+
+```bash
+#!/bin/bash
+rmagic --use-builtin --strict --json artifacts/*.bin
+if [ $? -ne 0 ]; then
+    echo "File identification failed" >&2
+    exit 1
+fi
+```
+
+## Related Chapters
+
+- [Getting Started](./getting-started.md) -- installation and first steps
+- [Configuration](./configuration.md) -- evaluation configuration options
+- [Error Handling](./error-handling.md) -- detailed error type documentation
+- [Command Reference](./cli-reference.md) -- complete flag and option reference

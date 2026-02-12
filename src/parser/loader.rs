@@ -194,7 +194,7 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
 /// The function uses [`detect_format()`] to determine the file type and handles each
 /// format as follows:
 ///
-/// - **Text format**: Reads the file contents and parses using [`parse_text_magic_file()`]
+/// - **Text format**: Reads the file contents and parses using [`super::parse_text_magic_file()`]
 /// - **Directory format**: Loads all magic files from the directory using [`load_magic_directory()`]
 /// - **Binary format**: Returns an error with guidance to use the `--use-builtin` option
 ///
@@ -258,7 +258,7 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
 ///
 /// # Security
 ///
-/// This function delegates to [`parse_text_magic_file()`] or [`load_magic_directory()`]
+/// This function delegates to [`super::parse_text_magic_file()`] or [`load_magic_directory()`]
 /// based on format detection. Security considerations are handled by those functions:
 ///
 /// - Rule hierarchy depth is bounded during parsing
@@ -271,7 +271,7 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
 /// # See Also
 ///
 /// - [`detect_format()`] - Format detection logic
-/// - [`parse_text_magic_file()`] - Text file parser
+/// - [`super::parse_text_magic_file()`] - Text file parser
 /// - [`load_magic_directory()`] - Directory loader
 pub fn load_magic_file(path: &Path) -> Result<Vec<MagicRule>, ParseError> {
     // Detect the magic file format

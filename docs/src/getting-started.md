@@ -6,7 +6,7 @@ This guide will help you get up and running with libmagic-rs, whether you want t
 
 ### Prerequisites
 
-- **Rust 1.85+** (2024 edition)
+- **Rust 1.91+** (2024 edition)
 - **Git** for cloning the repository
 - **Cargo** (comes with Rust)
 
@@ -46,21 +46,23 @@ cargo build
 ### CLI Usage
 
 ```bash
-# Basic file identification
-./target/release/rmagic example.bin
+# Identify files using built-in rules (no external magic file needed)
+./target/release/rmagic --use-builtin example.bin
 
 # JSON output format
-./target/release/rmagic example.bin --json
+./target/release/rmagic --use-builtin --json example.bin
+
+# Use a custom magic file
+./target/release/rmagic --magic-file /usr/share/misc/magic example.bin
+
+# Multiple files
+./target/release/rmagic --use-builtin file1.bin file2.pdf file3.zip
+
+# Read from stdin
+echo -ne '\x7fELF' | ./target/release/rmagic --use-builtin -
 
 # Help and options
 ./target/release/rmagic --help
-```
-
-**Current Output:**
-
-```bash
-$ ./target/release/rmagic README.md
-README.md: data
 ```
 
 ### Library Usage
@@ -72,24 +74,24 @@ Add libmagic-rs to your `Cargo.toml`:
 libmagic-rs = { git = "https://github.com/EvilBit-Labs/libmagic-rs.git" }
 ```
 
-Basic usage example:
+Basic usage with built-in rules (no external files needed):
 
-```rust
-use libmagic_rs::{EvaluationConfig, LibmagicError, MagicDatabase};
+```rust,no_run
+use libmagic_rs::{LibmagicError, MagicDatabase};
 
 fn main() -> Result<(), LibmagicError> {
-    // Load magic rules from a magic file or directory
-    let db = MagicDatabase::load_from_file("magic.db")?;
+    // Use built-in rules compiled into the binary
+    let db = MagicDatabase::with_builtin_rules()?;
 
-    // Evaluate a file against the loaded rules
+    // Evaluate a file
     let result = db.evaluate_file("example.bin")?;
-
     println!("File type: {}", result.description);
     println!("Confidence: {}", result.confidence);
 
-    if let Some(mime_type) = result.mime_type {
-        println!("MIME type: {}", mime_type);
-    }
+    // Evaluate an in-memory buffer
+    let buffer = b"\x7fELF\x02\x01\x01\x00";
+    let result = db.evaluate_buffer(buffer)?;
+    println!("Buffer type: {}", result.description);
 
     Ok(())
 }
@@ -102,24 +104,29 @@ Understanding the project layout will help you navigate the codebase:
 ```text
 libmagic-rs/
 ├── Cargo.toml              # Project configuration
-├── CONTRIBUTING.md         # Contribution guidelines
 ├── src/
-│   ├── lib.rs              # Library API with EvaluationConfig
-│   ├── main.rs             # CLI implementation (basic)
-│   ├── error.rs            # Error types (ParseError, EvaluationError, etc.)
+│   ├── lib.rs              # Library API (MagicDatabase, EvaluationConfig, etc.)
+│   ├── main.rs             # CLI implementation (rmagic binary)
+│   ├── error.rs            # Error types (LibmagicError, ParseError, EvaluationError)
 │   ├── parser/
-│   │   ├── mod.rs          # Magic file parser ✅ Complete
-│   │   ├── ast.rs          # AST data structures ✅ Complete
-│   │   └── grammar.rs      # nom-based parsing combinators ✅ Complete
+│   │   ├── mod.rs          # Magic file parser entry point
+│   │   ├── ast.rs          # AST data structures
+│   │   ├── grammar.rs      # nom-based parsing combinators
+│   │   ├── loader.rs       # File/directory loading with format detection
+│   │   └── format.rs       # Magic file format detection
 │   ├── evaluator/
-│   │   ├── mod.rs          # Evaluation engine ✅ Complete
-│   │   ├── offset.rs       # Offset resolution ✅ Complete
-│   │   ├── operators.rs    # Comparison operators ✅ Complete
-│   │   └── types.rs        # Type interpretation ✅ Complete
+│   │   ├── mod.rs          # Evaluation engine
+│   │   ├── offset.rs       # Offset resolution
+│   │   ├── operators.rs    # Comparison operators with cross-type coercion
+│   │   └── types.rs        # Type interpretation with endianness
 │   ├── output/
-│   │   └── mod.rs          # Output formatting
-│   └── io/
-│       └── mod.rs          # Memory-mapped I/O ✅ Complete
+│   │   ├── mod.rs          # Output types and conversion
+│   │   └── json.rs         # JSON/JSON Lines formatting
+│   ├── io/
+│   │   └── mod.rs          # Memory-mapped I/O (FileBuffer)
+│   ├── mime.rs             # MIME type mapping
+│   ├── tags.rs             # Semantic tag extraction
+│   └── builtin_rules.rs    # Pre-compiled magic rules
 ├── tests/                  # Integration tests
 ├── third_party/            # Canonical libmagic tests and magic files
 └── docs/                   # This documentation
@@ -174,23 +181,20 @@ cargo watch -x "test ast_structures"
 
 ## Current Capabilities
 
-### What Works Now
-
-- ✅ **AST Data Structures**: Complete implementation with full serialization
-- ✅ **Magic File Parser**: nom-based parser for magic file DSL with hierarchical rules
-- ✅ **Rule Evaluator**: Engine for executing rules against files with graceful error handling
-- ✅ **Memory-Mapped I/O**: Efficient file access with comprehensive bounds checking
-- ✅ **CLI Framework**: Basic argument parsing and structure
-- ✅ **Build System**: Cargo configuration with strict linting
-- ✅ **Testing**: Comprehensive unit tests for all modules
-- ✅ **Documentation**: This guide, API documentation, and architecture docs
-
-### What's Coming Soon
-
-- 🔄 **Indirect Offsets**: Support for offset indirection in magic rules
-- 🔄 **Output Formatters**: Text and JSON result formatting
-- 🔄 **MIME Type Mapping**: Automatic MIME type detection
-- 🔄 **Rule Caching**: Pre-compiled rule database support
+- **AST Data Structures**: Complete implementation with full serialization
+- **Magic File Parser**: nom-based parser for magic file DSL with hierarchical rules
+- **Rule Evaluator**: Engine for executing rules against files with graceful error handling
+- **Memory-Mapped I/O**: Efficient file access with comprehensive bounds checking
+- **CLI Tool (`rmagic`)**: Full-featured CLI with text/JSON output, stdin, timeouts, and built-in rules
+- **Built-in Rules**: Pre-compiled detection for common file types (ELF, ZIP, PDF, JPEG, PNG, etc.)
+- **MIME Type Mapping**: Opt-in MIME type detection
+- **Output Formatters**: Text and JSON output with tag enrichment
+- **Strength Calculation**: Rule priority scoring with `!:strength` directives
+- **Confidence Scoring**: Match confidence based on rule hierarchy depth
+- **Timeout Protection**: Configurable per-file evaluation timeouts
+- **Build System**: Cargo configuration with strict clippy pedantic linting
+- **Testing**: 940+ comprehensive tests across all modules
+- **Documentation**: This guide, API documentation, and architecture docs
 
 ## Example Magic Rules
 

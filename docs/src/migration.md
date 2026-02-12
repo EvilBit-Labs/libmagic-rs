@@ -18,13 +18,32 @@ magic_close(magic);
 
 ### libmagic-rs API
 
-```rust
+```rust,no_run
 use libmagic_rs::MagicDatabase;
 
-let db = MagicDatabase::load_from_file("magic.db")?;
+// Using built-in rules (no external magic file needed)
+let db = MagicDatabase::with_builtin_rules()?;
 let result = db.evaluate_file("example.bin")?;
 println!("File type: {}", result.description);
+
+// Or load from a magic file / directory
+let db = MagicDatabase::load_from_file("/usr/share/misc/magic")?;
+let result = db.evaluate_file("example.bin")?;
+println!("File type: {}", result.description);
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
+
+## API Mapping
+
+| C libmagic | libmagic-rs | Notes |
+|---|---|---|
+| `magic_open(flags)` | `MagicDatabase::with_builtin_rules()` | No manual flag management |
+| `magic_load(magic, path)` | `MagicDatabase::load_from_file(path)` | Auto-detects format |
+| `magic_file(magic, path)` | `db.evaluate_file(path)` | Returns structured result |
+| `magic_buffer(magic, buf, len)` | `db.evaluate_buffer(buf)` | Safe slice, no length needed |
+| `magic_error(magic)` | `Result<T, LibmagicError>` | Typed errors, no global state |
+| `magic_close(magic)` | (automatic) | RAII cleanup on drop |
+| `MAGIC_MIME_TYPE` | `EvaluationConfig { enable_mime_types: true, .. }` | Opt-in configuration |
 
 ## Key Differences
 
@@ -36,12 +55,12 @@ println!("File type: {}", result.description);
 ### Error Handling
 
 - **C libmagic**: Error codes and global error state
-- **libmagic-rs**: Result types with detailed error information
+- **libmagic-rs**: `Result` types with structured errors (`ParseError`, `EvaluationError`, `ConfigError`, `Timeout`)
 
 ### Thread Safety
 
 - **C libmagic**: Requires careful synchronization
-- **libmagic-rs**: Thread-safe by design (when complete)
+- **libmagic-rs**: `MagicDatabase` is safe to share across threads via `Arc`
 
 ## Migration Strategies
 
@@ -102,13 +121,20 @@ if (magic_load(magic, NULL) != 0) {
 
 **libmagic-rs:**
 
-```rust
+```rust,ignore
+use libmagic_rs::{MagicDatabase, LibmagicError};
+
 let db = match MagicDatabase::load_from_file("magic.db") {
     Ok(db) => db,
-    Err(e) => {
-        eprintln!("Error: {}", e);
-        return Err(e);
+    Err(LibmagicError::IoError(e)) => {
+        eprintln!("File error: {}", e);
+        return Err(LibmagicError::IoError(e));
     }
+    Err(LibmagicError::ParseError(e)) => {
+        eprintln!("Parse error: {}", e);
+        return Err(LibmagicError::ParseError(e));
+    }
+    Err(e) => return Err(e),
 };
 ```
 
