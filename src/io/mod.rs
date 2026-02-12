@@ -628,11 +628,17 @@ mod tests {
     use super::*;
     use std::fs;
     use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
-    /// Helper function to create a temporary file with given content
+    /// Monotonic counter for unique temp file names across parallel tests.
+    static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    /// Helper function to create a temporary file with given content.
+    /// Uses a monotonic counter + process ID for guaranteed uniqueness.
     fn create_temp_file(content: &[u8]) -> PathBuf {
         let temp_dir = std::env::temp_dir();
-        let file_path = temp_dir.join(format!("test_file_{}", rand::random::<u32>()));
+        let id = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let file_path = temp_dir.join(format!("libmagic_test_{}_{id}", std::process::id()));
 
         {
             let mut file = File::create(&file_path).expect("Failed to create temp file");
@@ -1271,24 +1277,5 @@ mod tests {
             // On non-Unix systems, we can't create FIFOs easily, so we'll skip this test
             println!("Skipping FIFO test on non-Unix platform");
         }
-    }
-}
-
-// Add a simple random number generator for tests to avoid external dependencies
-#[cfg(test)]
-mod rand {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn random<T: From<u32>>() -> T {
-        let mut hasher = DefaultHasher::new();
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-            .hash(&mut hasher);
-        T::from(hasher.finish() as u32)
     }
 }

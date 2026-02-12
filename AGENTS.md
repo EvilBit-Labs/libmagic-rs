@@ -126,6 +126,15 @@ pub fn evaluate_magic_rules(
 }
 ```
 
+### Architecture Constraints
+
+- `src/error.rs` is shared with `build.rs` -- cannot reference lib-only types like `crate::io::IoError`
+- `FileError(String)` wraps structured I/O errors as strings to work around the build.rs constraint
+- Use `ParseError::IoError` for I/O errors in parser code, not `ParseError::invalid_syntax`
+- Use `LibmagicError::ConfigError` for config validation, not `ParseError::invalid_syntax`
+- Clippy pedantic lints are active (e.g., prefer `trailing_zeros()` over bitwise masks)
+- All public enum variants need `# Examples` rustdoc sections
+
 ### Naming Conventions
 
 - **Files**: snake_case (e.g., `magic_rule.rs`)
@@ -137,6 +146,8 @@ pub fn evaluate_magic_rules(
 ## Development Workflow
 
 ### Standard Commands
+
+All commands should be run via `mise exec --` to use the project's pinned Rust toolchain.
 
 ```bash
 # Development cycle

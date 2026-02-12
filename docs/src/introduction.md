@@ -18,30 +18,33 @@ libmagic-rs is a clean-room implementation of the libmagic library, written enti
 
 ### What's Complete
 
-- ✅ **Core AST Structures**: Complete data model for magic rules with full serialization
-- ✅ **Magic File Parser**: Full text magic file parsing with hierarchical structure, comments, continuations, and `parse_text_magic_file()` API
-- ✅ **Format Detection**: Automatic detection of text files, directories (Magdir), and binary .mgc files with helpful error messages
-- ✅ **Rule Evaluation Engine**: Complete hierarchical evaluation with offset resolution, type interpretation, comparison operators, and graceful error recovery
-- ✅ **Memory-Mapped I/O**: FileBuffer implementation with memmap2 and comprehensive safety
-- ✅ **CLI Framework**: Command-line interface with clap, multiple output formats, and magic file discovery
-- ✅ **Project Infrastructure**: Build system, strict linting, and comprehensive testing
-- ✅ **Extensive Test Coverage**: 650+ comprehensive tests covering all modules
-- ✅ **Memory Safety**: Zero unsafe code with comprehensive bounds checking
-- ✅ **Error Handling**: Structured error types with graceful degradation
-- ✅ **Code Quality**: Strict clippy linting with zero-warnings policy
-
-### What's In Progress
-
-- 🔄 **Indirect Offset Support**: Complex offset indirection patterns (e.g., pointer dereferencing)
-- 🔄 **MIME Type Mapping**: Standard MIME type detection and mapping
-- 🔄 **Strength Calculation**: Rule priority scoring for match ordering
+- **Core AST Structures**: Complete data model for magic rules with full serialization
+- **Magic File Parser**: Full text magic file parsing with hierarchical structure, comments, continuations, and `parse_text_magic_file()` API
+- **Format Detection**: Automatic detection of text files, directories (Magdir), and binary .mgc files with helpful error messages
+- **Rule Evaluation Engine**: Complete hierarchical evaluation with offset resolution, type interpretation, comparison operators, cross-type integer coercion, and graceful error recovery
+- **Memory-Mapped I/O**: FileBuffer implementation with memmap2 and comprehensive safety
+- **CLI Tool (`rmagic`)**: Command-line interface with clap, text/JSON output, stdin support, magic file discovery, strict mode, timeouts, and built-in rules
+- **Built-in Rules**: Pre-compiled detection for common file types (ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, PDF) compiled at build time
+- **MIME Type Mapping**: Opt-in MIME type detection via `enable_mime_types` configuration
+- **Strength Calculation**: Rule priority scoring with `!:strength` directive support (add, subtract, multiply, divide, set)
+- **Output Formatters**: Text and JSON output with tag enrichment and JSON Lines for batch processing
+- **Confidence Scoring**: Match confidence based on rule hierarchy depth
+- **Tag Extraction**: Semantic tag extraction from match descriptions (e.g., "executable", "elf", "archive")
+- **Timeout Protection**: Configurable per-file evaluation timeouts to prevent DoS
+- **Configuration Presets**: `performance()`, `comprehensive()`, and `default()` presets with security validation
+- **Project Infrastructure**: Build system, strict linting, pre-commit hooks, and CI/CD
+- **Extensive Test Coverage**: 940+ comprehensive tests covering all modules
+- **Memory Safety**: Zero unsafe code with comprehensive bounds checking
+- **Error Handling**: Structured error types (ParseError, EvaluationError, ConfigError, FileError, Timeout) with graceful degradation
+- **Code Quality**: Strict clippy pedantic linting with zero-warnings policy
 
 ### Next Milestones
 
-- 📋 **Binary .mgc Support**: Compiled magic database format (Phase 2)
-- 📋 **Rule Caching**: Pre-compiled magic database support
-- 📋 **Parallel Evaluation**: Multi-file processing support
-- 📋 **Extended Type Support**: Additional magic types (regex, date, etc.)
+- Indirect offset support (complex pointer dereferencing patterns)
+- Binary .mgc support (compiled magic database format)
+- Rule caching (pre-compiled magic database)
+- Parallel evaluation (multi-file processing)
+- Extended type support (regex, date, etc.)
 
 ## Why Rust?
 
