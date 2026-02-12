@@ -304,13 +304,10 @@ pub fn evaluate_single_rule(
         .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
 
     // Step 3: Apply the operator to compare the read value with the expected value
-    let matches = operators::apply_operator(&rule.op, &read_value, &rule.value);
-
-    if matches {
-        Ok(Some((absolute_offset, read_value)))
-    } else {
-        Ok(None)
-    }
+    Ok(
+        operators::apply_operator(&rule.op, &read_value, &rule.value)
+            .then_some((absolute_offset, read_value)),
+    )
 }
 
 /// Evaluate a list of magic rules against a file buffer with hierarchical processing

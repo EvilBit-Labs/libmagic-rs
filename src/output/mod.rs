@@ -315,12 +315,6 @@ impl MatchResult {
     /// assert_eq!(result.confidence, 100);
     /// ```
     pub fn set_confidence(&mut self, confidence: u8) {
-        // Only warn in debug builds to avoid performance impact
-        #[cfg(debug_assertions)]
-        if confidence > 100 {
-            eprintln!("Warning: Confidence score {confidence} clamped to 100");
-        }
-
         self.confidence = confidence.min(100);
     }
 

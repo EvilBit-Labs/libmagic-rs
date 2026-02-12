@@ -584,25 +584,12 @@ impl MagicDatabase {
         let file_buffer = FileBuffer::new(path)?;
         let buffer = file_buffer.as_slice();
 
-        // If we have no rules, return "data" as fallback
-        if self.rules.is_empty() {
-            return Ok(EvaluationResult {
-                description: "data".to_string(),
-                mime_type: None,
-                confidence: 0.0,
-                matches: vec![],
-                metadata: EvaluationMetadata {
-                    file_size,
-                    evaluation_time_ms: start_time.elapsed().as_secs_f64() * 1000.0,
-                    rules_evaluated: 0,
-                    magic_file: self.source_path.clone(),
-                    timed_out: false,
-                },
-            });
-        }
-
-        // Evaluate rules against the file buffer
-        let matches = evaluate_rules_with_config(&self.rules, buffer, &self.config)?;
+        // Evaluate rules against the file buffer (build_result handles empty rules/matches)
+        let matches = if self.rules.is_empty() {
+            vec![]
+        } else {
+            evaluate_rules_with_config(&self.rules, buffer, &self.config)?
+        };
 
         Ok(self.build_result(matches, file_size, start_time))
     }
@@ -646,23 +633,11 @@ impl MagicDatabase {
 
         let file_size = buffer.len() as u64;
 
-        if self.rules.is_empty() {
-            return Ok(EvaluationResult {
-                description: "data".to_string(),
-                mime_type: None,
-                confidence: 0.0,
-                matches: vec![],
-                metadata: EvaluationMetadata {
-                    file_size,
-                    evaluation_time_ms: start_time.elapsed().as_secs_f64() * 1000.0,
-                    rules_evaluated: 0,
-                    magic_file: self.source_path.clone(),
-                    timed_out: false,
-                },
-            });
-        }
-
-        let matches = evaluate_rules_with_config(&self.rules, buffer, &self.config)?;
+        let matches = if self.rules.is_empty() {
+            vec![]
+        } else {
+            evaluate_rules_with_config(&self.rules, buffer, &self.config)?
+        };
 
         Ok(self.build_result(matches, file_size, start_time))
     }
