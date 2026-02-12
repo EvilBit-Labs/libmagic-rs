@@ -72,18 +72,9 @@ pub enum TypeReadError {
 /// Returns `TypeReadError::BufferOverrun` if the offset is greater than or equal to
 /// the buffer length.
 pub fn read_byte(buffer: &[u8], offset: usize) -> Result<Value, TypeReadError> {
-    // Additional security check: ensure offset doesn't cause integer overflow
-    if offset >= buffer.len() {
-        return Err(TypeReadError::BufferOverrun {
-            offset,
-            buffer_len: buffer.len(),
-        });
-    }
-
     buffer
         .get(offset)
-        .copied()
-        .map(|byte| Value::Uint(u64::from(byte)))
+        .map(|&byte| Value::Uint(u64::from(byte)))
         .ok_or(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
@@ -294,20 +285,14 @@ pub fn read_string(
     // Get the slice starting from offset
     let remaining_buffer = &buffer[offset..];
 
-    // Determine the actual length to read
+    // Determine the actual length to read (uses SIMD-accelerated memchr for null scan)
     let read_length = if let Some(max_len) = max_length {
         // Find null terminator within max_length, or use max_length if no null found
         let search_len = std::cmp::min(max_len, remaining_buffer.len());
-        remaining_buffer[..search_len]
-            .iter()
-            .position(|&b| b == 0)
-            .unwrap_or(search_len)
+        memchr::memchr(0, &remaining_buffer[..search_len]).unwrap_or(search_len)
     } else {
         // Find null terminator in entire remaining buffer
-        remaining_buffer
-            .iter()
-            .position(|&b| b == 0)
-            .unwrap_or(remaining_buffer.len())
+        memchr::memchr(0, remaining_buffer).unwrap_or(remaining_buffer.len())
     };
 
     // Extract the string bytes (excluding null terminator)

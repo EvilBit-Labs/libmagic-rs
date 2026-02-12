@@ -6,9 +6,6 @@
 use crate::parser::ast::MagicRule;
 use crate::{EvaluationConfig, LibmagicError};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, mpsc};
-use std::thread;
-use std::time::Duration;
 
 #[cfg(test)]
 use crate::parser::ast::{Endianness, OffsetSpec, Operator, TypeKind, Value};
@@ -260,8 +257,9 @@ impl MatchResult {
 ///
 /// # Returns
 ///
-/// Returns `Ok(true)` if the rule matches, `Ok(false)` if it doesn't match,
-/// or `Err(LibmagicError)` if evaluation fails due to buffer access issues or other errors.
+/// Returns `Ok(Some((offset, value)))` if the rule matches (with the resolved offset and
+/// read value), `Ok(None)` if it doesn't match, or `Err(LibmagicError)` if evaluation
+/// fails due to buffer access issues or other errors.
 ///
 /// # Examples
 ///
@@ -283,18 +281,21 @@ impl MatchResult {
 ///
 /// let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
 /// let result = evaluate_single_rule(&rule, elf_buffer).unwrap();
-/// assert!(result); // Should match
+/// assert!(result.is_some()); // Should match
 ///
 /// let non_elf_buffer = &[0x50, 0x4b, 0x03, 0x04]; // ZIP magic bytes
 /// let result = evaluate_single_rule(&rule, non_elf_buffer).unwrap();
-/// assert!(!result); // Should not match
+/// assert!(result.is_none()); // Should not match
 /// ```
 ///
 /// # Errors
 ///
 /// * `LibmagicError::EvaluationError` - If offset resolution fails, buffer access is out of bounds,
 ///   or type interpretation fails
-pub fn evaluate_single_rule(rule: &MagicRule, buffer: &[u8]) -> Result<bool, LibmagicError> {
+pub fn evaluate_single_rule(
+    rule: &MagicRule,
+    buffer: &[u8],
+) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
     // Step 1: Resolve the offset specification to an absolute position
     let absolute_offset = offset::resolve_offset(&rule.offset, buffer)?;
 
@@ -303,29 +304,10 @@ pub fn evaluate_single_rule(rule: &MagicRule, buffer: &[u8]) -> Result<bool, Lib
         .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
 
     // Step 3: Apply the operator to compare the read value with the expected value
-    let matches = operators::apply_operator(&rule.op, &read_value, &rule.value);
-
-    Ok(matches)
-}
-
-/// Helper function to determine if an error is a buffer overrun
-///
-/// Buffer overruns are expected when evaluating rules against short buffers, and should
-/// be silently skipped rather than logged as warnings.
-fn is_buffer_overrun_error(error: &LibmagicError) -> bool {
-    match error {
-        LibmagicError::EvaluationError(eval_error) => match eval_error {
-            crate::error::EvaluationError::BufferOverrun { .. } => true,
-            crate::error::EvaluationError::TypeReadError(type_error) => {
-                matches!(
-                    type_error,
-                    crate::evaluator::types::TypeReadError::BufferOverrun { .. }
-                )
-            }
-            _ => false,
-        },
-        _ => false,
-    }
+    Ok(
+        operators::apply_operator(&rule.op, &read_value, &rule.value)
+            .then_some((absolute_offset, read_value)),
+    )
 }
 
 /// Evaluate a list of magic rules against a file buffer with hierarchical processing
@@ -407,65 +389,31 @@ pub fn evaluate_rules(
     buffer: &[u8],
     context: &mut EvaluationContext,
 ) -> Result<Vec<MatchResult>, LibmagicError> {
-    let mut matches = Vec::with_capacity(rules.len());
+    let mut matches = Vec::with_capacity(8);
     let start_time = std::time::Instant::now();
+    let mut rule_count = 0u32;
 
     for rule in rules {
-        // Check timeout if configured
-        if let Some(timeout_ms) = context.timeout_ms() {
-            if start_time.elapsed().as_millis() > u128::from(timeout_ms) {
-                return Err(LibmagicError::Timeout { timeout_ms });
+        // Check timeout periodically (every 16 rules) to reduce syscall overhead
+        rule_count = rule_count.wrapping_add(1);
+        if rule_count.trailing_zeros() >= 4 {
+            if let Some(timeout_ms) = context.timeout_ms() {
+                if start_time.elapsed().as_millis() > u128::from(timeout_ms) {
+                    return Err(LibmagicError::Timeout { timeout_ms });
+                }
             }
         }
 
         // Evaluate the current rule with graceful error handling
-        let rule_matches = match evaluate_single_rule(rule, buffer) {
-            Ok(matches) => matches,
-            Err(e) => {
-                // Skip buffer overruns silently (expected for short buffers)
-                // Log other errors and continue with next rule (graceful degradation)
-                if !is_buffer_overrun_error(&e) {
-                    eprintln!(
-                        "Warning: Skipping rule '{}' due to error: {}",
-                        rule.message, e
-                    );
-                }
+        let match_data = match evaluate_single_rule(rule, buffer) {
+            Ok(data) => data,
+            Err(_e) => {
+                // Skip rules with evaluation errors (graceful degradation)
                 continue;
             }
         };
 
-        if rule_matches {
-            // Create match result for this rule with graceful error handling
-            let absolute_offset = match offset::resolve_offset(&rule.offset, buffer) {
-                Ok(offset) => offset,
-                Err(e) => {
-                    // Skip buffer overruns silently (expected for short buffers)
-                    if !is_buffer_overrun_error(&e) {
-                        eprintln!(
-                            "Warning: Skipping rule '{}' due to offset resolution error: {}",
-                            rule.message, e
-                        );
-                    }
-                    continue;
-                }
-            };
-
-            let read_value = match types::read_typed_value(buffer, absolute_offset, &rule.typ) {
-                Ok(value) => value,
-                Err(e) => {
-                    // Skip buffer overruns silently (expected for short buffers)
-                    let eval_error: crate::error::EvaluationError = e.into();
-                    let lib_error: LibmagicError = eval_error.into();
-                    if !is_buffer_overrun_error(&lib_error) {
-                        eprintln!(
-                            "Warning: Skipping rule '{}' due to type reading error: {}",
-                            rule.message, lib_error
-                        );
-                    }
-                    continue;
-                }
-            };
-
+        if let Some((absolute_offset, read_value)) = match_data {
             let match_result = MatchResult {
                 message: rule.message.clone(),
                 offset: absolute_offset,
@@ -503,15 +451,8 @@ pub fn evaluate_rules(
                             },
                         ));
                     }
-                    Err(e) => {
-                        // Skip buffer overruns silently (expected for short buffers)
-                        // Other errors in child evaluation are logged but don't stop parent evaluation
-                        if !is_buffer_overrun_error(&e) {
-                            eprintln!(
-                                "Warning: Error evaluating children of rule '{}': {}",
-                                rule.message, e
-                            );
-                        }
+                    Err(_e) => {
+                        // Non-critical child evaluation errors are skipped (graceful degradation)
                     }
                 }
 
@@ -567,7 +508,7 @@ pub fn evaluate_rules(
 /// let buffer = &[0x7f, 0x45, 0x4c, 0x46];
 /// let config = EvaluationConfig::default();
 ///
-/// let matches = evaluate_rules_with_config(&rules, buffer, config).unwrap();
+/// let matches = evaluate_rules_with_config(&rules, buffer, &config).unwrap();
 /// assert_eq!(matches.len(), 1);
 /// assert_eq!(matches[0].message, "ELF magic");
 /// ```
@@ -579,52 +520,10 @@ pub fn evaluate_rules(
 pub fn evaluate_rules_with_config(
     rules: &[MagicRule],
     buffer: &[u8],
-    config: EvaluationConfig,
+    config: &EvaluationConfig,
 ) -> Result<Vec<MatchResult>, LibmagicError> {
-    // If no timeout is configured, evaluate normally
-    let Some(timeout_ms) = config.timeout_ms else {
-        let mut context = EvaluationContext::new(config);
-        return evaluate_rules(rules, buffer, &mut context);
-    };
-
-    // With timeout: spawn evaluation in a thread and wait with timeout
-    // Use Arc to share data without cloning the potentially large rules/buffer
-    let rules_arc = Arc::new(rules.to_vec());
-    let buffer_arc = Arc::new(buffer.to_vec());
-    let config_clone = config.clone();
-
-    let (tx, rx) = mpsc::channel();
-
-    // Clone Arcs for the thread (cheap reference count increment)
-    let rules_thread = Arc::clone(&rules_arc);
-    let buffer_thread = Arc::clone(&buffer_arc);
-
-    // Spawn evaluation in separate thread
-    // Note: The thread will run to completion even if we return early on timeout.
-    // True cancellation would require cooperative cancellation (checking a flag
-    // periodically during evaluation) or running in a separate process.
-    // For most use cases, the thread will complete quickly or the process will
-    // exit, cleaning up the thread automatically.
-    thread::spawn(move || {
-        let mut context = EvaluationContext::new(config_clone);
-        let result = evaluate_rules(&rules_thread, &buffer_thread, &mut context);
-        // Send result; ignore error if receiver was dropped (timeout occurred)
-        let _ = tx.send(result);
-    });
-
-    // Wait for result with timeout
-    match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
-        Ok(result) => result,
-        Err(mpsc::RecvTimeoutError::Timeout) => Err(LibmagicError::Timeout { timeout_ms }),
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            // Thread panicked or dropped sender
-            Err(LibmagicError::EvaluationError(
-                crate::error::EvaluationError::internal_error(
-                    "Evaluation thread terminated unexpectedly",
-                ),
-            ))
-        }
-    }
+    let mut context = EvaluationContext::new(config.clone());
+    evaluate_rules(rules, buffer, &mut context)
 }
 
 #[cfg(test)]
@@ -647,7 +546,7 @@ mod tests {
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result);
+        assert!(result.is_some());
     }
 
     #[test]
@@ -665,7 +564,7 @@ mod tests {
 
         let buffer = &[0x50, 0x4b, 0x03, 0x04]; // ZIP magic bytes
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(!result);
+        assert!(result.is_none());
     }
 
     #[test]
@@ -683,7 +582,7 @@ mod tests {
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46];
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result); // 0x7f != 0x00
+        assert!(result.is_some()); // 0x7f != 0x00
     }
 
     #[test]
@@ -701,7 +600,7 @@ mod tests {
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46];
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(!result); // 0x7f == 0x7f, so NotEqual is false
+        assert!(result.is_none()); // 0x7f == 0x7f, so NotEqual is false
     }
 
     #[test]
@@ -719,7 +618,7 @@ mod tests {
 
         let buffer = &[0xff, 0x45, 0x4c, 0x46]; // 0xff has high bit set
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result); // 0xff & 0x80 = 0x80 (non-zero)
+        assert!(result.is_some()); // 0xff & 0x80 = 0x80 (non-zero)
     }
 
     #[test]
@@ -737,7 +636,7 @@ mod tests {
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // 0x7f has high bit clear
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(!result); // 0x7f & 0x80 = 0x00 (zero)
+        assert!(result.is_none()); // 0x7f & 0x80 = 0x00 (zero)
     }
 
     #[test]
@@ -758,7 +657,7 @@ mod tests {
 
         let buffer = &[0x34, 0x12, 0x56, 0x78]; // 0x1234 in little-endian
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result);
+        assert!(result.is_some());
     }
 
     #[test]
@@ -779,7 +678,7 @@ mod tests {
 
         let buffer = &[0x12, 0x34, 0x56, 0x78]; // 0x1234 in big-endian
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result);
+        assert!(result.is_some());
     }
 
     #[test]
@@ -800,7 +699,7 @@ mod tests {
 
         let buffer = &[0xff, 0x7f, 0x00, 0x00]; // 0x7fff in little-endian
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result);
+        assert!(result.is_some());
     }
 
     #[test]
@@ -821,7 +720,7 @@ mod tests {
 
         let buffer = &[0xff, 0xff, 0x00, 0x00]; // 0xffff in little-endian
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result);
+        assert!(result.is_some());
     }
 
     #[test]
@@ -842,7 +741,7 @@ mod tests {
 
         let buffer = &[0x78, 0x56, 0x34, 0x12, 0x00]; // 0x12345678 in little-endian
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result);
+        assert!(result.is_some());
     }
 
     #[test]
@@ -863,7 +762,7 @@ mod tests {
 
         let buffer = &[0x12, 0x34, 0x56, 0x78, 0x00]; // 0x12345678 in big-endian
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result);
+        assert!(result.is_some());
     }
 
     #[test]
@@ -884,7 +783,7 @@ mod tests {
 
         let buffer = &[0xff, 0xff, 0xff, 0x7f, 0x00]; // 0x7fffffff in little-endian
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result);
+        assert!(result.is_some());
     }
 
     #[test]
@@ -905,7 +804,7 @@ mod tests {
 
         let buffer = &[0xff, 0xff, 0xff, 0xff, 0x00]; // 0xffffffff in little-endian
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result);
+        assert!(result.is_some());
     }
 
     #[test]
@@ -923,7 +822,7 @@ mod tests {
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result); // buffer[2] == 0x4c
+        assert!(result.is_some()); // buffer[2] == 0x4c
     }
 
     #[test]
@@ -941,7 +840,7 @@ mod tests {
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result); // Last byte is 0x46
+        assert!(result.is_some()); // Last byte is 0x46
     }
 
     #[test]
@@ -959,7 +858,7 @@ mod tests {
 
         let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
         let result = evaluate_single_rule(&rule, buffer).unwrap();
-        assert!(result); // buffer[2] == 0x4c (second to last)
+        assert!(result.is_some()); // buffer[2] == 0x4c (second to last)
     }
 
     #[test]
@@ -1090,7 +989,7 @@ mod tests {
         let result = evaluate_single_rule(&rule, buffer);
         assert!(result.is_ok());
         let matches = result.unwrap();
-        assert!(matches); // Should match
+        assert!(matches.is_some()); // Should match
 
         // Test non-matching string
         let rule_no_match = MagicRule {
@@ -1107,13 +1006,13 @@ mod tests {
         let result = evaluate_single_rule(&rule_no_match, buffer);
         assert!(result.is_ok());
         let matches = result.unwrap();
-        assert!(!matches); // Should not match
+        assert!(matches.is_none()); // Should not match
     }
 }
 
 #[test]
 fn test_evaluate_single_rule_cross_type_comparison() {
-    // Test that cross-type comparisons work correctly (should not match)
+    // Test that cross-type integer comparisons use coercion (Uint(42) == Int(42))
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Byte,
@@ -1127,7 +1026,7 @@ fn test_evaluate_single_rule_cross_type_comparison() {
 
     let buffer = &[42]; // Byte value 42
     let result = evaluate_single_rule(&rule, buffer).unwrap();
-    assert!(!result); // Should not match due to type mismatch (Uint vs Int)
+    assert!(result.is_some()); // Should match via cross-type integer coercion
 }
 
 #[test]
@@ -1148,7 +1047,7 @@ fn test_evaluate_single_rule_bitwise_and_with_shorts() {
 
     let buffer = &[0x34, 0x12]; // 0x1234 in little-endian
     let result = evaluate_single_rule(&rule, buffer).unwrap();
-    assert!(result); // 0x1234 & 0xff00 = 0x1200 (non-zero)
+    assert!(result.is_some()); // 0x1234 & 0xff00 = 0x1200 (non-zero)
 }
 
 #[test]
@@ -1169,7 +1068,7 @@ fn test_evaluate_single_rule_bitwise_and_with_longs() {
 
     let buffer = &[0x12, 0x34, 0x56, 0x78]; // 0x12345678 in big-endian
     let result = evaluate_single_rule(&rule, buffer).unwrap();
-    assert!(result); // 0x12345678 & 0xffff0000 = 0x12340000 (non-zero)
+    assert!(result.is_some()); // 0x12345678 & 0xffff0000 = 0x12340000 (non-zero)
 }
 
 #[test]
@@ -1191,11 +1090,11 @@ fn test_evaluate_single_rule_comprehensive_elf_check() {
 
     let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 header start
     let result = evaluate_single_rule(&rule, elf_buffer).unwrap();
-    assert!(result);
+    assert!(result.is_some());
 
     let non_elf_buffer = &[0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]; // ZIP header
     let result = evaluate_single_rule(&rule, non_elf_buffer).unwrap();
-    assert!(!result);
+    assert!(result.is_none());
 }
 
 #[test]
@@ -1216,7 +1115,7 @@ fn test_evaluate_single_rule_native_endianness() {
 
     let buffer = &[0x01, 0x02]; // Non-zero bytes
     let result = evaluate_single_rule(&rule, buffer).unwrap();
-    assert!(result); // Should be non-zero regardless of endianness
+    assert!(result.is_some()); // Should be non-zero regardless of endianness
 }
 
 #[test]
@@ -1234,7 +1133,7 @@ fn test_evaluate_single_rule_all_operators() {
         level: 0,
         strength_modifier: None,
     };
-    assert!(evaluate_single_rule(&equal_rule, buffer).unwrap());
+    assert!(evaluate_single_rule(&equal_rule, buffer).unwrap().is_some());
 
     // Test NotEqual operator
     let not_equal_rule = MagicRule {
@@ -1247,7 +1146,11 @@ fn test_evaluate_single_rule_all_operators() {
         level: 0,
         strength_modifier: None,
     };
-    assert!(evaluate_single_rule(&not_equal_rule, buffer).unwrap()); // 0x00 != 0x42
+    assert!(
+        evaluate_single_rule(&not_equal_rule, buffer)
+            .unwrap()
+            .is_some()
+    ); // 0x00 != 0x42
 
     // Test BitwiseAnd operator
     let bitwise_and_rule = MagicRule {
@@ -1260,7 +1163,11 @@ fn test_evaluate_single_rule_all_operators() {
         level: 0,
         strength_modifier: None,
     };
-    assert!(evaluate_single_rule(&bitwise_and_rule, buffer).unwrap()); // 0x80 & 0x80 = 0x80
+    assert!(
+        evaluate_single_rule(&bitwise_and_rule, buffer)
+            .unwrap()
+            .is_some()
+    ); // 0x80 & 0x80 = 0x80
 }
 
 #[test]
@@ -1282,7 +1189,7 @@ fn test_evaluate_single_rule_edge_case_values() {
 
     let max_buffer = &[0xff, 0xff, 0xff, 0xff];
     let result = evaluate_single_rule(&max_uint_rule, max_buffer).unwrap();
-    assert!(result);
+    assert!(result.is_some());
 
     // Test with minimum signed value
     let min_int_rule = MagicRule {
@@ -1301,7 +1208,7 @@ fn test_evaluate_single_rule_edge_case_values() {
 
     let min_buffer = &[0x00, 0x00, 0x00, 0x80]; // 0x80000000 in little-endian
     let result = evaluate_single_rule(&min_int_rule, min_buffer).unwrap();
-    assert!(result);
+    assert!(result.is_some());
 }
 
 #[test]
@@ -1320,7 +1227,7 @@ fn test_evaluate_single_rule_various_buffer_sizes() {
 
     let single_buffer = &[0xaa];
     let result = evaluate_single_rule(&single_byte_rule, single_buffer).unwrap();
-    assert!(result);
+    assert!(result.is_some());
 
     // Test with large buffer
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -1337,7 +1244,7 @@ fn test_evaluate_single_rule_various_buffer_sizes() {
     };
 
     let result = evaluate_single_rule(&large_rule, &large_buffer).unwrap();
-    assert!(result);
+    assert!(result.is_some());
 }
 
 // Tests for EvaluationContext
@@ -2116,7 +2023,7 @@ fn test_evaluate_rules_with_config_convenience() {
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
     let config = EvaluationConfig::default();
 
-    let matches = evaluate_rules_with_config(&rules, buffer, config).unwrap();
+    let matches = evaluate_rules_with_config(&rules, buffer, &config).unwrap();
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].message, "ELF magic");
 }

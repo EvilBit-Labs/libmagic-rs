@@ -229,7 +229,7 @@ let config = EvaluationConfig {
     ..Default::default()
 };
 
-let result = evaluate_rules_with_config(&rules, buffer, config)?;
+let result = evaluate_rules_with_config(&rules, buffer, &config)?;
 ```
 
 ## API Reference
@@ -247,7 +247,7 @@ pub fn evaluate_rules(
 pub fn evaluate_rules_with_config(
     rules: &[MagicRule],
     buffer: &[u8],
-    config: EvaluationConfig,
+    config: &EvaluationConfig,
 ) -> Result<Vec<MatchResult>, EvaluationError>;
 
 /// Evaluate a single rule (used internally and for testing)

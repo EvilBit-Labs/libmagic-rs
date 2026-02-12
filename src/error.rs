@@ -27,6 +27,41 @@ pub enum LibmagicError {
         /// The timeout duration in milliseconds
         timeout_ms: u64,
     },
+
+    /// Invalid configuration parameter.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::LibmagicError;
+    ///
+    /// let error = LibmagicError::ConfigError {
+    ///     reason: "invalid timeout value".to_string(),
+    /// };
+    /// assert!(matches!(error, LibmagicError::ConfigError { .. }));
+    /// ```
+    #[error("Configuration error: {reason}")]
+    ConfigError {
+        /// Description of the configuration issue
+        reason: String,
+    },
+
+    /// File I/O error with structured context (path, operation).
+    ///
+    /// Unlike `IoError` which wraps a generic `std::io::Error`, this variant
+    /// preserves the structured error information from file I/O operations
+    /// (e.g., file path, operation type).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::LibmagicError;
+    ///
+    /// let error = LibmagicError::FileError("failed to read /path/to/file".to_string());
+    /// assert!(matches!(error, LibmagicError::FileError(_)));
+    /// ```
+    #[error("File error: {0}")]
+    FileError(String),
 }
 
 /// Errors that can occur during magic file parsing.

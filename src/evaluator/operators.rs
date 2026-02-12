@@ -32,8 +32,8 @@ use crate::parser::ast::{Operator, Value};
 /// // Same type, different value
 /// assert!(!apply_equal(&Value::Uint(42), &Value::Uint(24)));
 ///
-/// // Different types, same numeric value
-/// assert!(!apply_equal(&Value::Uint(42), &Value::Int(42)));
+/// // Cross-type integer coercion
+/// assert!(apply_equal(&Value::Uint(42), &Value::Int(42)));
 ///
 /// // String comparison
 /// assert!(apply_equal(
@@ -56,7 +56,11 @@ pub fn apply_equal(left: &Value, right: &Value) -> bool {
         // String comparison
         (Value::String(a), Value::String(b)) => a == b,
 
-        // Different types are never equal
+        // Cross-type integer coercion (safe via i128 to avoid overflow)
+        (Value::Uint(a), Value::Int(b)) => i128::from(*a) == i128::from(*b),
+        (Value::Int(a), Value::Uint(b)) => i128::from(*a) == i128::from(*b),
+
+        // Different non-integer types are never equal
         _ => false,
     }
 }
@@ -88,8 +92,8 @@ pub fn apply_equal(left: &Value, right: &Value) -> bool {
 /// // Same type, same value
 /// assert!(!apply_not_equal(&Value::Uint(42), &Value::Uint(42)));
 ///
-/// // Different types (always not equal)
-/// assert!(apply_not_equal(&Value::Uint(42), &Value::Int(42)));
+/// // Cross-type integers with same numeric value (equal via coercion)
+/// assert!(!apply_not_equal(&Value::Uint(42), &Value::Int(42)));
 ///
 /// // String comparison
 /// assert!(apply_not_equal(
@@ -201,8 +205,8 @@ pub fn apply_bitwise_and(left: &Value, right: &Value) -> bool {
 ///     &Value::Uint(0x0F)
 /// ));
 ///
-/// // Cross-type comparisons
-/// assert!(!apply_operator(
+/// // Cross-type integer coercion
+/// assert!(apply_operator(
 ///     &Operator::Equal,
 ///     &Value::Uint(42),
 ///     &Value::Int(42)
@@ -219,13 +223,9 @@ pub fn apply_operator(operator: &Operator, left: &Value, right: &Value) -> bool 
             let masked_left = match left {
                 Value::Uint(val) => Value::Uint(val & mask),
                 Value::Int(val) => {
-                    // Convert u64 mask to i64 safely
-                    let i64_mask = if i64::try_from(*mask).is_ok() {
-                        i64::try_from(*mask).unwrap_or(0)
-                    } else {
-                        // For values > i64::MAX, use bitwise representation
-                        i64::from_ne_bytes(mask.to_ne_bytes())
-                    };
+                    // Convert u64 mask to i64, using bitwise representation for values > i64::MAX
+                    let i64_mask = i64::try_from(*mask)
+                        .unwrap_or_else(|_| i64::from_ne_bytes(mask.to_ne_bytes()));
                     Value::Int(val & i64_mask)
                 }
                 _ => return false, // Can't apply bitwise operations to non-numeric values
@@ -398,12 +398,23 @@ mod tests {
     // Cross-type comparison tests (should all return false)
     #[test]
     fn test_apply_equal_uint_vs_int() {
+        // Same numeric value across types should match
         let left = Value::Uint(42);
         let right = Value::Int(42);
-        assert!(!apply_equal(&left, &right));
+        assert!(apply_equal(&left, &right));
 
         let left = Value::Uint(0);
         let right = Value::Int(0);
+        assert!(apply_equal(&left, &right));
+
+        // Negative Int cannot equal Uint
+        let left = Value::Uint(42);
+        let right = Value::Int(-42);
+        assert!(!apply_equal(&left, &right));
+
+        // Large Uint that doesn't fit in i64 cannot equal Int
+        let left = Value::Uint(u64::MAX);
+        let right = Value::Int(-1);
         assert!(!apply_equal(&left, &right));
     }
 
@@ -451,14 +462,23 @@ mod tests {
             Value::String("42".to_string()),
         ];
 
-        // Test that no cross-type comparisons return true
+        // Test cross-type comparisons
         for (i, left) in values.iter().enumerate() {
             for (j, right) in values.iter().enumerate() {
                 if i != j {
-                    assert!(
-                        !apply_equal(left, right),
-                        "Cross-type comparison should be false: {left:?} vs {right:?}"
-                    );
+                    let result = apply_equal(left, right);
+                    // Uint(42) and Int(42) should be equal (cross-type coercion)
+                    if (i <= 1) && (j <= 1) {
+                        assert!(
+                            result,
+                            "Integer cross-type comparison should be true: {left:?} vs {right:?}"
+                        );
+                    } else {
+                        assert!(
+                            !result,
+                            "Non-integer cross-type comparison should be false: {left:?} vs {right:?}"
+                        );
+                    }
                 }
             }
         }
@@ -527,6 +547,12 @@ mod tests {
         assert!(apply_equal(&max_unsigned, &max_unsigned));
         assert!(apply_equal(&max_signed, &max_signed));
         assert!(apply_equal(&min_int, &min_int));
+
+        // Cross-type edge cases
+        // u64::MAX != -1 in i64 (different mathematical values)
+        assert!(!apply_equal(&max_unsigned, &Value::Int(-1)));
+        // i64::MAX can be represented as u64, so should match
+        assert!(apply_equal(&Value::Uint(i64::MAX as u64), &max_signed));
 
         // Test with empty collections
         let empty_bytes = Value::Bytes(vec![]);
@@ -709,12 +735,18 @@ mod tests {
     // Cross-type comparison tests for not_equal (should all return true)
     #[test]
     fn test_apply_not_equal_uint_vs_int() {
+        // Same numeric value across types should be equal (not not-equal)
         let left = Value::Uint(42);
         let right = Value::Int(42);
-        assert!(apply_not_equal(&left, &right));
+        assert!(!apply_not_equal(&left, &right));
 
         let left = Value::Uint(0);
         let right = Value::Int(0);
+        assert!(!apply_not_equal(&left, &right));
+
+        // Different numeric values should be not-equal
+        let left = Value::Uint(42);
+        let right = Value::Int(-42);
         assert!(apply_not_equal(&left, &right));
     }
 
@@ -762,14 +794,23 @@ mod tests {
             Value::String("42".to_string()),
         ];
 
-        // Test that all cross-type comparisons return true for not_equal
+        // Test cross-type comparisons for not_equal
         for (i, left) in values.iter().enumerate() {
             for (j, right) in values.iter().enumerate() {
                 if i != j {
-                    assert!(
-                        apply_not_equal(left, right),
-                        "Cross-type comparison should be true for not_equal: {left:?} vs {right:?}"
-                    );
+                    let result = apply_not_equal(left, right);
+                    // Uint(42) and Int(42) should be equal, so not_equal is false
+                    if (i <= 1) && (j <= 1) {
+                        assert!(
+                            !result,
+                            "Integer cross-type not_equal should be false: {left:?} vs {right:?}"
+                        );
+                    } else {
+                        assert!(
+                            result,
+                            "Non-integer cross-type not_equal should be true: {left:?} vs {right:?}"
+                        );
+                    }
                 }
             }
         }
@@ -1152,8 +1193,8 @@ mod tests {
             &Value::String("world".to_string())
         ));
 
-        // Cross-type should be false
-        assert!(!apply_operator(
+        // Cross-type integer coercion
+        assert!(apply_operator(
             &Operator::Equal,
             &Value::Uint(42),
             &Value::Int(42)
@@ -1186,8 +1227,8 @@ mod tests {
             &Value::String("world".to_string())
         ));
 
-        // Cross-type should be true (not equal)
-        assert!(apply_operator(
+        // Cross-type integer coercion: same value, so not-equal is false
+        assert!(!apply_operator(
             &Operator::NotEqual,
             &Value::Uint(42),
             &Value::Int(42)
@@ -1302,20 +1343,19 @@ mod tests {
                 Value::String("world".to_string()),
             ),
             (Value::Bytes(vec![1, 2, 3]), Value::Bytes(vec![4, 5, 6])),
-            // Different types
-            (Value::Uint(42), Value::Int(42)),
+            // Different types (non-coercible)
             (Value::Uint(42), Value::String("42".to_string())),
             (Value::Int(42), Value::Bytes(vec![42])),
         ];
 
         for (left, right) in test_cases {
-            // Equal should always be false for different values
+            // Equal should always be false for truly different values
             assert!(
                 !apply_operator(&Operator::Equal, &left, &right),
                 "Equal should be false for different values: {left:?} == {right:?}"
             );
 
-            // NotEqual should always be true for different values
+            // NotEqual should always be true for truly different values
             assert!(
                 apply_operator(&Operator::NotEqual, &left, &right),
                 "NotEqual should be true for different values: {left:?} != {right:?}"
@@ -1514,11 +1554,11 @@ mod tests {
             &zero_signed,
             &Value::Int(0xFF)
         ));
-        assert!(apply_operator(
+        assert!(!apply_operator(
             &Operator::NotEqual,
             &zero_uint,
             &zero_signed
-        )); // Different types
+        )); // Cross-type integer coercion: 0 == 0
     }
 
     #[test]

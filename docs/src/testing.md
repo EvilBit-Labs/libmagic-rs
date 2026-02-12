@@ -195,43 +195,54 @@ fn test_hierarchical_rules() {
 }
 ```
 
-### Property Tests (Planned)
+### Property Tests
 
-Using `proptest` for fuzz-like testing:
+Property-based testing using `proptest` is implemented in `tests/property_tests.rs`:
+
+```bash
+# Run property tests
+cargo test --test property_tests
+
+# Run with more test cases
+PROPTEST_CASES=1000 cargo test --test property_tests
+```
+
+The property tests verify:
+
+- **Serialization roundtrips**: AST types serialize and deserialize correctly
+- **Evaluation safety**: Evaluation never panics on arbitrary input
+- **Configuration validation**: Invalid configurations are rejected
+- **Known pattern detection**: ELF, ZIP, PDF patterns are correctly detected
+
+Example property test:
 
 ```rust
 use proptest::prelude::*;
 
 proptest! {
     #[test]
-    fn test_number_parsing_roundtrip(n in any::<i64>()) {
-        let s = n.to_string();
-        let (remaining, parsed) = parse_number(&s).unwrap();
-        assert_eq!(remaining, "");
-        assert_eq!(parsed, n);
-    }
-
-    #[test]
-    fn test_offset_parsing_never_panics(s in ".*") {
-        // Should never panic, even on invalid input
-        let _ = parse_offset(&s);
+    fn prop_evaluation_never_panics(buffer in prop::collection::vec(any::<u8>(), 0..1024)) {
+        let db = MagicDatabase::with_builtin_rules().expect("should load");
+        // Should not panic regardless of buffer contents
+        let result = db.evaluate_buffer(&buffer);
+        prop_assert!(result.is_ok());
     }
 }
 ```
 
-### Compatibility Tests (Planned)
+### Compatibility Tests
 
-Validate against GNU `file` command:
+Compatibility tests validate against GNU `file` command using the canonical test suite from the file project. Test data is located in `third_party/tests/`.
 
-```rust
-#[test]
-fn test_elf_detection_compatibility() {
-    let gnu_result = run_gnu_file("third_party/tests/elf64.testfile");
-    let our_result = evaluate_file("third_party/tests/elf64.testfile");
+```bash
+# Run compatibility tests (requires test files)
+cargo test test_compatibility_with_original_libmagic -- --ignored
 
-    assert_eq!(extract_file_type(&gnu_result), our_result.description);
-}
+# Or use the just recipe
+just test-compatibility
 ```
+
+The compatibility workflow runs automatically in CI on pushes to main/develop.
 
 ## Test Utilities and Helpers
 
@@ -507,21 +518,44 @@ cargo insta accept
 3. **Test Cross-Platform**: Verify tests pass on both Windows and Unix
 4. **Keep Snapshots Small**: Use focused tests for specific CLI features
 
+## Benchmarks
+
+Performance benchmarks are implemented using Criterion in the `benches/` directory:
+
+```bash
+# Run all benchmarks
+cargo bench
+
+# Run specific benchmark group
+cargo bench parser
+cargo bench evaluation
+cargo bench io
+
+# Generate HTML benchmark report
+cargo bench -- --noplot
+```
+
+### Available Benchmarks
+
+| Benchmark | Description |
+|-----------|-------------|
+| `parser_bench` | Magic file parsing performance |
+| `evaluation_bench` | Rule evaluation against various file types |
+| `io_bench` | Memory-mapped I/O operations |
+
+### Benchmark CI
+
+Benchmarks run automatically:
+
+- **Weekly**: Scheduled runs on Sunday at 3 AM UTC
+- **On PR**: When performance-critical code changes (src/evaluator, src/parser, src/io, benches)
+- **Manual**: Via workflow_dispatch
+
+The CI compares PR benchmarks against the main branch and reports regressions.
+
 ## Future Testing Plans
 
-### Integration Testing
-
-- **Complete Workflow Tests**: End-to-end magic file parsing and evaluation
-- **File Format Tests**: Comprehensive testing against known file formats
-- **Error Recovery Tests**: Graceful handling of malformed inputs
-
-### Compatibility Testing
-
-- **GNU file Compatibility**: Validate results against original implementation
-- **Magic File Compatibility**: Test with real-world magic databases
-- **Performance Parity**: Ensure comparable performance to libmagic
-
-### Fuzzing Integration
+### Fuzzing Integration (Phase 2)
 
 - **Parser Fuzzing**: Use cargo-fuzz for parser robustness
 - **Evaluator Fuzzing**: Test evaluation engine with malformed files

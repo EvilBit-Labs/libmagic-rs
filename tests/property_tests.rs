@@ -1,0 +1,217 @@
+//! Property-based tests for libmagic-rs
+//!
+//! Uses proptest to verify properties that should hold for all valid inputs:
+//! - Evaluator never panics on any buffer
+//! - Buffer access is always bounds-checked
+//! - Metadata is consistent
+//! - Serde roundtrips preserve data
+
+use proptest::prelude::*;
+
+use libmagic_rs::{
+    EvaluationConfig, MagicDatabase, MagicRule, OffsetSpec, Operator, TypeKind, Value,
+};
+
+/// Generate a valid OffsetSpec for testing
+fn arb_offset_spec() -> impl Strategy<Value = OffsetSpec> {
+    prop_oneof![
+        (-1000i64..=1000i64).prop_map(OffsetSpec::Absolute),
+        (-100i64..=100i64).prop_map(OffsetSpec::Relative),
+        (-100i64..=0i64).prop_map(OffsetSpec::FromEnd),
+    ]
+}
+
+/// Generate a valid TypeKind for testing
+fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
+    prop_oneof![
+        Just(TypeKind::Byte),
+        (any::<bool>(), any::<bool>()).prop_map(|(is_big, signed)| {
+            TypeKind::Short {
+                endian: if is_big {
+                    libmagic_rs::Endianness::Big
+                } else {
+                    libmagic_rs::Endianness::Little
+                },
+                signed,
+            }
+        }),
+        (any::<bool>(), any::<bool>()).prop_map(|(is_big, signed)| {
+            TypeKind::Long {
+                endian: if is_big {
+                    libmagic_rs::Endianness::Big
+                } else {
+                    libmagic_rs::Endianness::Little
+                },
+                signed,
+            }
+        }),
+        (0usize..256usize).prop_map(|len| TypeKind::String {
+            max_length: Some(len),
+        }),
+    ]
+}
+
+/// Generate a valid Operator for testing
+fn arb_operator() -> impl Strategy<Value = Operator> {
+    prop_oneof![
+        Just(Operator::Equal),
+        Just(Operator::NotEqual),
+        Just(Operator::BitwiseAnd),
+        (0u64..=255u64).prop_map(Operator::BitwiseAndMask),
+    ]
+}
+
+/// Generate a valid Value for testing
+fn arb_value() -> impl Strategy<Value = Value> {
+    prop_oneof![
+        (0u64..=u32::MAX as u64).prop_map(Value::Uint),
+        (i32::MIN as i64..=i32::MAX as i64).prop_map(Value::Int),
+        prop::collection::vec(any::<u8>(), 0..32).prop_map(Value::Bytes),
+        "[a-zA-Z0-9 ]{0,32}".prop_map(Value::String),
+    ]
+}
+
+/// Generate a valid MagicRule for testing
+fn arb_magic_rule() -> impl Strategy<Value = MagicRule> {
+    (
+        arb_offset_spec(),
+        arb_type_kind(),
+        arb_operator(),
+        arb_value(),
+        "[a-zA-Z0-9 _-]{1,64}",
+    )
+        .prop_map(|(offset, typ, op, value, message)| MagicRule {
+            offset,
+            typ,
+            op,
+            value,
+            message,
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        })
+}
+
+/// Generate arbitrary binary data for testing
+fn arb_buffer() -> impl Strategy<Value = Vec<u8>> {
+    prop::collection::vec(any::<u8>(), 0..1024)
+}
+
+// =============================================================================
+// Property Tests
+// =============================================================================
+
+proptest! {
+    /// Property: Evaluation should never panic on any valid buffer
+    #[test]
+    fn prop_evaluation_never_panics(buffer in arb_buffer()) {
+        let db = MagicDatabase::with_builtin_rules()
+            .expect("builtin rules should load");
+
+        let result = db.evaluate_buffer(&buffer);
+
+        match result {
+            Ok(eval_result) => {
+                prop_assert!(!eval_result.description.is_empty());
+                prop_assert!(eval_result.confidence >= 0.0);
+                prop_assert!(eval_result.confidence <= 1.0);
+            }
+            Err(e) => {
+                prop_assert!(!e.to_string().is_empty());
+            }
+        }
+    }
+
+    /// Property: EvaluationConfig validation accepts reasonable values
+    #[test]
+    fn prop_config_validation_consistent(
+        recursion_depth in 1u32..100u32,
+        string_length in 1usize..10000usize,
+        timeout in 1u64..100000u64
+    ) {
+        let config = EvaluationConfig {
+            max_recursion_depth: recursion_depth,
+            max_string_length: string_length,
+            stop_at_first_match: true,
+            enable_mime_types: false,
+            timeout_ms: Some(timeout),
+        };
+
+        prop_assert!(config.validate().is_ok());
+    }
+
+    /// Property: Evaluation result metadata is consistent with input
+    #[test]
+    fn prop_metadata_valid(buffer in arb_buffer()) {
+        let db = MagicDatabase::with_builtin_rules()
+            .expect("builtin rules should load");
+
+        let result = db.evaluate_buffer(&buffer)
+            .expect("should evaluate");
+
+        prop_assert_eq!(result.metadata.file_size as usize, buffer.len());
+        prop_assert!(result.metadata.evaluation_time_ms >= 0.0);
+        prop_assert!(result.metadata.rules_evaluated > 0);
+    }
+
+    /// Property: Arbitrary rules should serialize/deserialize consistently
+    #[test]
+    fn prop_rule_serde_roundtrip(rule in arb_magic_rule()) {
+        let json = serde_json::to_string(&rule)
+            .expect("should serialize");
+
+        let deserialized: MagicRule = serde_json::from_str(&json)
+            .expect("should deserialize");
+
+        prop_assert_eq!(rule.message, deserialized.message);
+        prop_assert_eq!(rule.level, deserialized.level);
+    }
+}
+
+// =============================================================================
+// Known-pattern detection (regular tests, not property tests)
+// =============================================================================
+
+#[test]
+fn test_elf_detection() {
+    let db = MagicDatabase::with_builtin_rules().expect("builtin rules should load");
+    let elf_buffer = vec![0x7f, b'E', b'L', b'F', 2, 1, 1, 0];
+
+    let result = db.evaluate_buffer(&elf_buffer).expect("should evaluate");
+    assert!(
+        result.description.contains("ELF"),
+        "Expected ELF detection, got: {}",
+        result.description
+    );
+}
+
+#[test]
+fn test_zip_detection() {
+    let db = MagicDatabase::with_builtin_rules().expect("builtin rules should load");
+    let zip_buffer = vec![0x50, 0x4b, 0x03, 0x04];
+
+    let result = db.evaluate_buffer(&zip_buffer).expect("should evaluate");
+    assert!(
+        result.description.contains("ZIP"),
+        "Expected ZIP detection, got: {}",
+        result.description
+    );
+}
+
+#[test]
+fn test_empty_buffer_handled() {
+    let db = MagicDatabase::with_builtin_rules().expect("builtin rules should load");
+
+    let result = db.evaluate_buffer(&[]).expect("should evaluate");
+    assert!(!result.description.is_empty());
+}
+
+#[test]
+fn test_zero_recursion_fails_validation() {
+    let config = EvaluationConfig {
+        max_recursion_depth: 0,
+        ..EvaluationConfig::default()
+    };
+
+    assert!(config.validate().is_err());
+}
