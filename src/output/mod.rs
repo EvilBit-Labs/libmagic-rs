@@ -12,7 +12,15 @@ pub mod text;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use std::sync::LazyLock;
+
 use crate::parser::ast::Value;
+
+/// Shared `TagExtractor` instance, initialized once on first use.
+/// Avoids allocating the 16-keyword `HashSet` on every call to
+/// `from_evaluator_match` or `from_library_result`.
+static DEFAULT_TAG_EXTRACTOR: LazyLock<crate::tags::TagExtractor> =
+    LazyLock::new(crate::tags::TagExtractor::new);
 
 /// Result of a single magic rule match
 ///
@@ -260,10 +268,8 @@ impl MatchResult {
         m: &crate::evaluator::MatchResult,
         mime_type: Option<&str>,
     ) -> Self {
-        use crate::tags::TagExtractor;
-
-        let tag_extractor = TagExtractor::new();
-        let rule_path = tag_extractor.extract_rule_path(std::iter::once(m.message.as_str()));
+        let rule_path =
+            DEFAULT_TAG_EXTRACTOR.extract_rule_path(std::iter::once(m.message.as_str()));
 
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let confidence = (m.confidence * 100.0).min(100.0) as u8;
@@ -421,8 +427,6 @@ impl EvaluationResult {
         result: &crate::EvaluationResult,
         filename: &std::path::Path,
     ) -> Self {
-        use crate::tags::TagExtractor;
-
         let mut output_matches: Vec<MatchResult> = result
             .matches
             .iter()
@@ -432,8 +436,7 @@ impl EvaluationResult {
         // Enrich the first match with tags from the overall description
         if let Some(first) = output_matches.first_mut() {
             if first.rule_path.is_empty() {
-                let tag_extractor = TagExtractor::new();
-                first.rule_path = tag_extractor.extract_tags(&result.description);
+                first.rule_path = DEFAULT_TAG_EXTRACTOR.extract_tags(&result.description);
             }
         }
 

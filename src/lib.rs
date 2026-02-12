@@ -133,18 +133,10 @@ pub use error::{EvaluationError, LibmagicError, ParseError};
 /// Result type for library operations
 pub type Result<T> = std::result::Result<T, LibmagicError>;
 
-// Implement From<IoError> for LibmagicError
 impl From<crate::io::IoError> for LibmagicError {
     fn from(err: crate::io::IoError) -> Self {
-        // Preserve ErrorKind from the inner std::io::Error source where available
-        let kind = match &err {
-            crate::io::IoError::FileOpenError { source, .. }
-            | crate::io::IoError::MmapError { source, .. }
-            | crate::io::IoError::MetadataError { source, .. } => source.kind(),
-            _ => std::io::ErrorKind::Other,
-        };
-        // Wrap the full IoError as the source, preserving the error chain
-        LibmagicError::IoError(std::io::Error::new(kind, err))
+        // Preserve the structured error message (includes path and operation context)
+        LibmagicError::FileError(err.to_string())
     }
 }
 
@@ -346,19 +338,17 @@ impl EvaluationConfig {
         const MAX_SAFE_RECURSION_DEPTH: u32 = 1000;
 
         if self.max_recursion_depth == 0 {
-            return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
-                0,
-                "max_recursion_depth must be greater than 0",
-            )));
+            return Err(LibmagicError::ConfigError {
+                reason: "max_recursion_depth must be greater than 0".to_string(),
+            });
         }
 
         if self.max_recursion_depth > MAX_SAFE_RECURSION_DEPTH {
-            return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
-                0,
-                format!(
+            return Err(LibmagicError::ConfigError {
+                reason: format!(
                     "max_recursion_depth must not exceed {MAX_SAFE_RECURSION_DEPTH} to prevent stack overflow"
                 ),
-            )));
+            });
         }
 
         Ok(())
@@ -369,19 +359,17 @@ impl EvaluationConfig {
         const MAX_SAFE_STRING_LENGTH: usize = 1_048_576; // 1MB
 
         if self.max_string_length == 0 {
-            return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
-                0,
-                "max_string_length must be greater than 0",
-            )));
+            return Err(LibmagicError::ConfigError {
+                reason: "max_string_length must be greater than 0".to_string(),
+            });
         }
 
         if self.max_string_length > MAX_SAFE_STRING_LENGTH {
-            return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
-                0,
-                format!(
+            return Err(LibmagicError::ConfigError {
+                reason: format!(
                     "max_string_length must not exceed {MAX_SAFE_STRING_LENGTH} bytes to prevent memory exhaustion"
                 ),
-            )));
+            });
         }
 
         Ok(())
@@ -393,19 +381,17 @@ impl EvaluationConfig {
 
         if let Some(timeout) = self.timeout_ms {
             if timeout == 0 {
-                return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
-                    0,
-                    "timeout_ms must be greater than 0 if specified",
-                )));
+                return Err(LibmagicError::ConfigError {
+                    reason: "timeout_ms must be greater than 0 if specified".to_string(),
+                });
             }
 
             if timeout > MAX_SAFE_TIMEOUT_MS {
-                return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
-                    0,
-                    format!(
+                return Err(LibmagicError::ConfigError {
+                    reason: format!(
                         "timeout_ms must not exceed {MAX_SAFE_TIMEOUT_MS} (5 minutes) to prevent denial of service"
                     ),
-                )));
+                });
             }
         }
 
@@ -420,12 +406,11 @@ impl EvaluationConfig {
         if self.max_recursion_depth > HIGH_RECURSION_THRESHOLD
             && self.max_string_length > LARGE_STRING_THRESHOLD
         {
-            return Err(LibmagicError::ParseError(ParseError::invalid_syntax(
-                0,
-                format!(
+            return Err(LibmagicError::ConfigError {
+                reason: format!(
                     "High recursion depth (>{HIGH_RECURSION_THRESHOLD}) combined with large string length (>{LARGE_STRING_THRESHOLD}) may cause resource exhaustion"
                 ),
-            )));
+            });
         }
 
         Ok(())
@@ -619,36 +604,7 @@ impl MagicDatabase {
         // Evaluate rules against the file buffer
         let matches = evaluate_rules_with_config(&self.rules, buffer, &self.config)?;
 
-        // Build the result
-        let (description, confidence) = if matches.is_empty() {
-            ("data".to_string(), 0.0)
-        } else {
-            (
-                Self::concatenate_messages(&matches),
-                matches.first().map_or(0.0, |m| m.confidence),
-            )
-        };
-
-        // Get MIME type if enabled
-        let mime_type = if self.config.enable_mime_types {
-            self.mime_mapper.get_mime_type(&description)
-        } else {
-            None
-        };
-
-        Ok(EvaluationResult {
-            description,
-            mime_type,
-            confidence,
-            matches,
-            metadata: EvaluationMetadata {
-                file_size,
-                evaluation_time_ms: start_time.elapsed().as_secs_f64() * 1000.0,
-                rules_evaluated: self.rules.len(),
-                magic_file: self.source_path.clone(),
-                timed_out: false,
-            },
-        })
+        Ok(self.build_result(matches, file_size, start_time))
     }
 
     /// Evaluate magic rules against an in-memory buffer
@@ -708,7 +664,19 @@ impl MagicDatabase {
 
         let matches = evaluate_rules_with_config(&self.rules, buffer, &self.config)?;
 
-        // Build the result
+        Ok(self.build_result(matches, file_size, start_time))
+    }
+
+    /// Build an `EvaluationResult` from match results, file size, and start time.
+    ///
+    /// This is shared between `evaluate_file` and `evaluate_buffer_internal` to
+    /// avoid duplicating the result-construction logic.
+    fn build_result(
+        &self,
+        matches: Vec<evaluator::MatchResult>,
+        file_size: u64,
+        start_time: std::time::Instant,
+    ) -> EvaluationResult {
         let (description, confidence) = if matches.is_empty() {
             ("data".to_string(), 0.0)
         } else {
@@ -718,14 +686,13 @@ impl MagicDatabase {
             )
         };
 
-        // Get MIME type if enabled
         let mime_type = if self.config.enable_mime_types {
             self.mime_mapper.get_mime_type(&description)
         } else {
             None
         };
 
-        Ok(EvaluationResult {
+        EvaluationResult {
             description,
             mime_type,
             confidence,
@@ -737,7 +704,7 @@ impl MagicDatabase {
                 magic_file: self.source_path.clone(),
                 timed_out: false,
             },
-        })
+        }
     }
 
     /// Concatenate match messages following libmagic behavior
@@ -963,10 +930,10 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::ParseError(ParseError::InvalidSyntax { message, .. }) => {
+            LibmagicError::ConfigError { reason: message } => {
                 assert!(message.contains("max_recursion_depth must be greater than 0"));
             }
-            _ => panic!("Expected ParseError with InvalidSyntax"),
+            _ => panic!("Expected ConfigError"),
         }
     }
 
@@ -981,10 +948,10 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::ParseError(ParseError::InvalidSyntax { message, .. }) => {
+            LibmagicError::ConfigError { reason: message } => {
                 assert!(message.contains("max_recursion_depth must not exceed 1000"));
             }
-            _ => panic!("Expected ParseError with InvalidSyntax"),
+            _ => panic!("Expected ConfigError"),
         }
     }
 
@@ -999,10 +966,10 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::ParseError(ParseError::InvalidSyntax { message, .. }) => {
+            LibmagicError::ConfigError { reason: message } => {
                 assert!(message.contains("max_string_length must be greater than 0"));
             }
-            _ => panic!("Expected ParseError with InvalidSyntax"),
+            _ => panic!("Expected ConfigError"),
         }
     }
 
@@ -1017,11 +984,11 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::ParseError(ParseError::InvalidSyntax { message, .. }) => {
+            LibmagicError::ConfigError { reason: message } => {
                 assert!(message.contains("max_string_length must not exceed"));
                 assert!(message.contains("bytes to prevent memory exhaustion"));
             }
-            _ => panic!("Expected ParseError with InvalidSyntax"),
+            _ => panic!("Expected ConfigError"),
         }
     }
 
@@ -1036,10 +1003,10 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::ParseError(ParseError::InvalidSyntax { message, .. }) => {
+            LibmagicError::ConfigError { reason: message } => {
                 assert!(message.contains("timeout_ms must be greater than 0 if specified"));
             }
-            _ => panic!("Expected ParseError with InvalidSyntax"),
+            _ => panic!("Expected ConfigError"),
         }
     }
 
@@ -1054,10 +1021,10 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            LibmagicError::ParseError(ParseError::InvalidSyntax { message, .. }) => {
+            LibmagicError::ConfigError { reason: message } => {
                 assert!(message.contains("timeout_ms must not exceed 300000"));
             }
-            _ => panic!("Expected ParseError with InvalidSyntax"),
+            _ => panic!("Expected ConfigError"),
         }
     }
 

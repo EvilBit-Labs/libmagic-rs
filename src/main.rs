@@ -260,6 +260,14 @@ fn handle_error(error: LibmagicError) -> i32 {
         LibmagicError::ParseError(ref parse_err) => handle_parse_error_new(parse_err),
         LibmagicError::EvaluationError(ref eval_err) => handle_evaluation_error_new(eval_err),
         LibmagicError::Timeout { timeout_ms } => handle_timeout_error(timeout_ms),
+        LibmagicError::ConfigError { ref reason } => {
+            eprintln!("Configuration error: {reason}");
+            1
+        }
+        LibmagicError::FileError(ref msg) => {
+            eprintln!("File error: {msg}");
+            3
+        }
     }
 }
 
