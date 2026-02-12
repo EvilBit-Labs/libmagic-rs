@@ -223,13 +223,9 @@ pub fn apply_operator(operator: &Operator, left: &Value, right: &Value) -> bool 
             let masked_left = match left {
                 Value::Uint(val) => Value::Uint(val & mask),
                 Value::Int(val) => {
-                    // Convert u64 mask to i64 safely
-                    let i64_mask = if i64::try_from(*mask).is_ok() {
-                        i64::try_from(*mask).unwrap_or(0)
-                    } else {
-                        // For values > i64::MAX, use bitwise representation
-                        i64::from_ne_bytes(mask.to_ne_bytes())
-                    };
+                    // Convert u64 mask to i64, using bitwise representation for values > i64::MAX
+                    let i64_mask = i64::try_from(*mask)
+                        .unwrap_or_else(|_| i64::from_ne_bytes(mask.to_ne_bytes()));
                     Value::Int(val & i64_mask)
                 }
                 _ => return false, // Can't apply bitwise operations to non-numeric values

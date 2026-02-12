@@ -147,6 +147,7 @@ byteorder = "1.5.0"
 cfg-if = "1.0.4"
 clap = { version = "4.5.57", features = ["derive"] }
 clap-stdin = "0.8.0"
+memchr = "2.7.6"
 memmap2 = "0.9.9"
 nom = "8.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -177,6 +178,10 @@ harness = false
 [[bench]]
 name = "io_bench"
 harness = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
 
 # The profile that 'dist' will build with
 [profile.dist]
