@@ -234,9 +234,22 @@ pub fn parse_rule(input: &str) -> Result<MagicRule, ParseError> {
 
 1. **Update documentation** for any API changes
 2. **Add tests** for new functionality
-3. **Run the full test suite** locally
+3. **Run the full test suite** locally: `just ci-check`
 4. **Create a pull request** with a clear description
 5. **Address review feedback** promptly
+
+### Code Review Requirements
+
+All pull requests require review before merging. Reviewers check for:
+
+- **Correctness**: Does the code do what it claims? Are edge cases handled?
+- **Safety**: No unsafe code, proper bounds checking, no panics in library code
+- **Tests**: New functionality has tests, existing tests still pass
+- **Style**: Follows project conventions, passes `cargo fmt` and `cargo clippy -- -D warnings`
+- **Documentation**: Public APIs have rustdoc with examples, AGENTS.md updated if architecture changes
+- **Performance**: No unnecessary allocations in hot paths, no regressions in benchmarks
+
+CI must pass before merge. This includes formatting, linting, tests, security audit, and CodeQL analysis. Branch protection enforces these checks on the `main` branch.
 
 ### PR Description Template
 

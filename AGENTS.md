@@ -417,6 +417,21 @@ The project includes automated CI checks via `.kiro/hooks/ci-auto-fix.kiro.hook`
 - Security audit must pass
 - Performance benchmarks must not regress
 
+### Code Review Requirements
+
+All pull requests require review before merging. Reviews are performed by maintainers and automated tools (CodeRabbit). Reviewers check for:
+
+- **Correctness**: Does the code do what it claims? Are edge cases handled?
+- **Memory safety**: No unsafe code blocks (except vetted dependencies). All buffer access must use bounds checking with `.get()` methods. No raw pointer arithmetic or transmute operations.
+- **Error handling**: Proper use of `Result` types, no panics in library code, no `unwrap()` or `expect()` in library code. Use `thiserror` for structured error types.
+- **Tests**: New functionality has tests, existing tests still pass, edge cases and error conditions are covered. Property tests with `proptest` for complex data structures.
+- **Performance**: No unnecessary allocations in hot paths, no regressions in benchmarks. Memory-mapped I/O used for file access.
+- **libmagic compatibility**: Changes maintain compatibility with libmagic behavior and magic file format. Output format matches GNU `file` command expectations.
+- **Style**: Follows project conventions, passes `cargo fmt` and `cargo clippy -- -D warnings`
+- **Documentation**: Public APIs have rustdoc with examples, AGENTS.md updated if architecture changes
+
+CI must pass before merge. Branch protection enforces these checks on the `main` branch.
+
 ## Project Context
 
 ### Current Status
