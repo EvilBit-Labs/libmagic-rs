@@ -1,5 +1,6 @@
 # libmagic-rs
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11947/badge)](https://www.bestpractices.dev/projects/11947)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EvilBit-Labs/libmagic-rs/badge)](https://scorecard.dev/viewer/?uri=github.com/EvilBit-Labs/libmagic-rs)
 [![Crates.io](https://img.shields.io/crates/v/libmagic-rs)](https://crates.io/crates/libmagic-rs)
 [![License](https://img.shields.io/crates/l/libmagic-rs)](https://github.com/EvilBit-Labs/libmagic-rs/blob/main/LICENSE)
