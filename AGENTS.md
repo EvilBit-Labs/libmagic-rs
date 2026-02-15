@@ -514,32 +514,36 @@ This guide ensures consistent, high-quality development practices for the libmag
 - `Cargo.lock` and `mise.lock` are committed for reproducible builds -- do not gitignore
 - In justfile recipes, never wrap `just` in `{{ mise_exec }}` -- it's redundant
 - Changelog: `just changelog`, `just changelog-version <tag>`, `just changelog-unreleased`
-- Security contact: support@evilbitlabs.io (matches PGP key in SECURITY.md)
+- Security contact: <support@evilbitlabs.io> (matches PGP key in SECURITY.md)
 
 ## Open Source Quality Standards (OSSF Best Practices)
 
 This project has the OSSF Best Practices passing badge. Maintain these standards:
 
-### Every PR must:
+### Every PR must
+
 - Sign off commits with `git commit -s` (DCO enforced by GitHub App)
 - Pass CI (clippy, fmt, tests, CodeQL, cargo audit) before merge
 - Include tests for new functionality -- this is policy, not optional
 - Be reviewed (human or CodeRabbit) for correctness, safety, and style
 - Not introduce `unsafe` code, `unwrap()`/`expect()` in library code, or panics
 
-### Every release must:
+### Every release must
+
 - Have human-readable release notes via git-cliff (not raw git log)
 - Use unique SemVer identifiers (`vX.Y.Z` tags)
 - Be built reproducibly (pinned toolchain, committed lock files, cargo-dist)
 
-### Security:
-- Vulnerabilities go through private reporting (GitHub advisories or support@evilbitlabs.io), never public issues
+### Security
+
+- Vulnerabilities go through private reporting (GitHub advisories or <support@evilbitlabs.io>), never public issues
 - `cargo audit` and `cargo deny` run daily in CI -- fix findings promptly
 - Medium+ severity vulnerabilities: we aim to release a fix within 90 days of confirmation (see SECURITY.md for canonical policy)
 - `unsafe_code = "forbid"` is enforced project-wide via workspace lints in `Cargo.toml` -- this is a hardening mechanism, not a suggestion
 - `docs/src/security-assurance.md` must be updated when new attack surface is introduced
 
-### Documentation:
+### Documentation
+
 - Public APIs require rustdoc with examples
 - CONTRIBUTING.md documents code review criteria, test policy, DCO, and governance
 - SECURITY.md documents vulnerability reporting with scope, safe harbor, and PGP key
