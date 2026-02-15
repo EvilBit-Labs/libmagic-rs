@@ -38,6 +38,15 @@ pull_request_rules:
       queue:
         name: default
 
+  - name: Keep PRs up to date with main
+    conditions:
+      - base = main
+      - -conflict
+      - -draft
+      - -author = dependabot[bot]
+    actions:
+      update:
+
 merge_protections:
   - name: CI must pass
     description: >-
