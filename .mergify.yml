@@ -11,15 +11,18 @@ queue_rules:
       - check-success = coverage
 
 pull_request_rules:
-  - name: Queue PRs when approved by maintainer
+  # Tier 1: Maintainer PRs -- queue when maintainer adds 'lgtm' label
+  - name: Queue maintainer PRs with lgtm label
     conditions:
       - base = main
-      - "approved-reviews-by=@maintainers"
+      - "author=@maintainers"
+      - label = lgtm
       - label != do-not-merge
     actions:
       queue:
         name: default
 
+  # Tier 2: Trusted bot PRs -- auto-queue when checks pass
   - name: Auto-queue release-plz PRs
     conditions:
       - base = main
@@ -39,6 +42,19 @@ pull_request_rules:
       review:
         type: APPROVE
         message: Automatically approved by Mergify
+      queue:
+        name: default
+
+  # Tier 3: All other PRs (external contributors, copilot) -- require maintainer approval
+  - name: Queue external PRs when approved by maintainer
+    conditions:
+      - base = main
+      - -"author=@maintainers"
+      - author != dependabot[bot]
+      - -"head ~= ^release-plz-"
+      - "approved-reviews-by=@maintainers"
+      - label != do-not-merge
+    actions:
       queue:
         name: default
 
