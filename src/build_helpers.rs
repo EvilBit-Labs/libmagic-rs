@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /// Build-time helpers for compiling magic rules.
 ///
 /// This module contains functionality used by the build script to parse magic files

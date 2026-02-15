@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Integration tests for JSON output functionality
 //!
 //! These tests verify that the CLI correctly integrates the JSON output formatter

@@ -34,8 +34,8 @@ This document provides comprehensive guidelines for AI assistants working on the
 
 - Use memory-mapped I/O (`memmap2`) for efficient file access
 - Implement zero-copy operations where possible
-- Use Aho-Corasick indexing for multi-pattern string searches
-- Cache compiled magic rules for performance
+- Use Aho-Corasick indexing for multi-pattern string searches (planned)
+- Cache compiled magic rules for performance (planned)
 - Profile with `cargo bench` for performance regressions
 
 ### 4. Testing Required
@@ -64,8 +64,16 @@ Target File → Memory Mapper → File Buffer
 ```rust
 // Core data structures in lib.rs
 pub struct MagicRule { /* ... */ }
-pub enum TypeKind { Byte, Short, Long, String, /* ... */ }
-pub enum Operator { Equal, NotEqual, Greater, /* ... */ }
+pub enum TypeKind {
+    Byte,
+    Short { endian: Endianness, signed: bool },
+    Long { endian: Endianness, signed: bool },
+    String { max_length: Option<usize> },
+}
+pub enum Operator {
+    Equal, NotEqual, BitwiseAnd, BitwiseAndMask(u64),
+}
+// Additional types and operators are planned -- see Current Limitations below
 
 // Parser module structure
 parser/
@@ -78,7 +86,7 @@ evaluator/
 ├── mod.rs       // Main evaluation engine
 ├── offset.rs    // Offset resolution (absolute, indirect, relative)
 ├── types.rs     // Type interpretation with endianness
-└── operators.rs // Comparison and bitwise operations
+└── operators.rs // Equality and bitwise operations
 ```
 
 ## Code Quality Standards
@@ -175,15 +183,25 @@ cargo test --doc   # Test documentation examples
 
 ## Magic File Compatibility
 
-### Supported Syntax
+### Currently Implemented (v0.1.0)
 
-- **Offsets**: Absolute, indirect, relative, and from-end specifications
-- **Types**: byte, short, long, string, regex with endianness support
-- **Operators**: =, !=, >, \<, & (bitwise AND), ^ (XOR)
+- **Offsets**: Absolute and from-end specifications (indirect and relative are parsed but not yet evaluated)
+- **Types**: `byte`, `short`, `long`, `string` with endianness support
+- **Operators**: `=` (equal), `!=` (not equal), `&` (bitwise AND with optional mask)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
-- **String Matching**: Both exact and regex pattern matching
+- **String Matching**: Exact string matching with null-termination
 
-### Binary-Safe Regex Handling
+### Planned Features (v1.0+)
+
+- Comparison operators: `>`, `<`, `>=`, `<=`
+- Bitwise XOR operator: `^`
+- Regex type: Pattern matching with binary-safe regex support
+- Additional types: 64-bit integers, floats, doubles, dates
+- Search type: Multi-pattern string searching
+
+### Future Enhancement: Binary-Safe Regex Handling
+
+> **Note:** The following is planned for future releases and is not yet implemented.
 
 ```rust
 // Use regex crate with bytes feature for binary-safe matching
@@ -195,6 +213,37 @@ impl BinaryRegex for regex::bytes::Regex {
     /* ... */
 }
 ```
+
+## Current Limitations (v0.1.0)
+
+### Type System
+
+- No regex/search pattern matching
+- No 64-bit integer types (quad, qquad)
+- No floating-point types (float, double, befloat, lefloat)
+- No date/time types (date, qdate, ldate, qldate)
+- String evaluation reads until first NUL or end-of-buffer by default; `max_length: Some(_)` is supported internally but no dedicated fixed-length string parser syntax exists yet
+
+### Operators
+
+- No comparison operators (`>`, `<`, `>=`, `<=`)
+- No XOR operator (`^`)
+- No negation operator (`~`)
+- BitwiseAnd supports mask values but not all libmagic mask syntax
+
+### Offset Specifications
+
+- Indirect offsets are parsed into the AST but evaluation is not yet implemented (#37)
+- Relative offsets are parsed into the AST but evaluation is not yet implemented (#38)
+- Only absolute and from-end offsets are fully functional
+
+### Magic File Syntax
+
+- Limited support for special directives (only `!:strength` is parsed)
+- No support for `!:mime`, `!:ext`, `!:apple` directives in evaluation
+- No support for named tests or use/name directives
+
+See issue #52 for the planned enhancement roadmap.
 
 ## Performance Requirements
 
@@ -257,6 +306,8 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 
 ### Adding New Type Support
 
+> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, and `String`. Regex and other advanced types are planned for future releases.
+
 1. Extend `TypeKind` enum in `src/parser/ast.rs`
 2. Add parsing logic in `src/parser/grammar.rs`
 3. Implement reading logic in `src/evaluator/types.rs`
@@ -264,6 +315,8 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 5. Update documentation
 
 ### Adding New Operators
+
+> **Note:** Currently implemented operators are `Equal`, `NotEqual`, and `BitwiseAnd` (with `BitwiseAndMask`). Comparison operators (`>`, `<`) and XOR (`^`) are planned for future releases.
 
 1. Extend `Operator` enum in `src/parser/ast.rs`
 2. Add parsing logic in `src/parser/grammar.rs`
@@ -364,6 +417,21 @@ The project includes automated CI checks via `.kiro/hooks/ci-auto-fix.kiro.hook`
 - Security audit must pass
 - Performance benchmarks must not regress
 
+### Code Review Requirements
+
+All pull requests require review before merging. Reviews are performed by maintainers and automated tools (CodeRabbit). Reviewers check for:
+
+- **Correctness**: Does the code do what it claims? Are edge cases handled?
+- **Memory safety**: No unsafe code blocks (except vetted dependencies). All buffer access must use bounds checking with `.get()` methods. No raw pointer arithmetic or transmute operations.
+- **Error handling**: Proper use of `Result` types, no panics in library code, no `unwrap()` or `expect()` in library code. Use `thiserror` for structured error types.
+- **Tests**: New functionality has tests, existing tests still pass, edge cases and error conditions are covered. Property tests with `proptest` for complex data structures.
+- **Performance**: No unnecessary allocations in hot paths, no regressions in benchmarks. Memory-mapped I/O used for file access.
+- **libmagic compatibility**: Changes maintain compatibility with libmagic behavior and magic file format. Output format matches GNU `file` command expectations.
+- **Style**: Follows project conventions, passes `cargo fmt` and `cargo clippy -- -D warnings`
+- **Documentation**: Public APIs have rustdoc with examples, AGENTS.md updated if architecture changes
+
+CI must pass before merge. Branch protection enforces these checks on the `main` branch.
+
 ## Project Context
 
 ### Current Status
@@ -380,15 +448,16 @@ The project includes automated CI checks via `.kiro/hooks/ci-auto-fix.kiro.hook`
 - `nom`: Parser combinators
 - `serde`: Serialization
 - `clap`: CLI argument parsing
-- `regex`: Pattern matching
-- `aho-corasick`: Multi-pattern search
+- `regex`: Pattern matching (used in tests; regex *type* for magic rules is planned)
+- `aho-corasick`: Multi-pattern search (planned, not yet added)
 
 ### Development Phases
 
-1. **MVP (v0.1)**: Basic parsing and evaluation
-2. **Enhanced Features (v0.2)**: Indirect offsets, regex, caching
-3. **Performance & Compatibility (v0.3)**: Optimizations, full compatibility
-4. **Production Ready (v1.0)**: Stable API, complete documentation
+1. **MVP (v0.1.0)** - CURRENT: Basic parsing and evaluation with byte/short/long/string types, equality and bitwise AND operators, built-in rules for 10 common formats
+2. **Enhanced Features (v0.2)**: Comparison operators (`>`, `<`), indirect offset improvements, strength-based rule ordering
+3. **Advanced Types (v0.3)**: Regex type, 64-bit integers, floating-point types, search patterns
+4. **Full Compatibility (v0.4)**: Complete libmagic syntax support, all special directives, named tests
+5. **Production Ready (v1.0)**: Stable API, complete documentation, 95%+ compatibility with GNU file
 
 ## Best Practices
 
@@ -437,3 +506,42 @@ The project includes automated CI checks via `.kiro/hooks/ci-auto-fix.kiro.hook`
 - Profile with `cargo bench` for performance analysis
 
 This guide ensures consistent, high-quality development practices for the libmagic-rs project while maintaining focus on memory safety, performance, and compatibility.
+
+## Quick Reference
+
+- `.github/workflows/release.yml` is auto-generated by cargo-dist -- do not modify manually
+- All `.rs` files must have copyright and SPDX headers (see any source file for format)
+- `Cargo.lock` and `mise.lock` are committed for reproducible builds -- do not gitignore
+- In justfile recipes, never wrap `just` in `{{ mise_exec }}` -- it's redundant
+- Changelog: `just changelog`, `just changelog-version <tag>`, `just changelog-unreleased`
+- Security contact: support@evilbitlabs.io (matches PGP key in SECURITY.md)
+
+## Open Source Quality Standards (OSSF Best Practices)
+
+This project has the OSSF Best Practices passing badge. Maintain these standards:
+
+### Every PR must:
+- Sign off commits with `git commit -s` (DCO enforced by GitHub App)
+- Pass CI (clippy, fmt, tests, CodeQL, cargo audit) before merge
+- Include tests for new functionality -- this is policy, not optional
+- Be reviewed (human or CodeRabbit) for correctness, safety, and style
+- Not introduce `unsafe` code, `unwrap()`/`expect()` in library code, or panics
+
+### Every release must:
+- Have human-readable release notes via git-cliff (not raw git log)
+- Use unique SemVer identifiers (`vX.Y.Z` tags)
+- Be built reproducibly (pinned toolchain, committed lock files, cargo-dist)
+
+### Security:
+- Vulnerabilities go through private reporting (GitHub advisories or support@evilbitlabs.io), never public issues
+- `cargo audit` and `cargo deny` run daily in CI -- fix findings promptly
+- Medium+ severity vulnerabilities: we aim to release a fix within 90 days of confirmation (see SECURITY.md for canonical policy)
+- `unsafe_code = "forbid"` is enforced project-wide via workspace lints in `Cargo.toml` -- this is a hardening mechanism, not a suggestion
+- `docs/src/security-assurance.md` must be updated when new attack surface is introduced
+
+### Documentation:
+- Public APIs require rustdoc with examples
+- CONTRIBUTING.md documents code review criteria, test policy, DCO, and governance
+- SECURITY.md documents vulnerability reporting with scope, safe harbor, and PGP key
+- AGENTS.md must accurately reflect implemented features (not aspirational)
+- `docs/src/release-verification.md` documents artifact signing for users

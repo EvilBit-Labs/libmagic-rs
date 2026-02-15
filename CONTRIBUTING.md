@@ -13,6 +13,7 @@ Thank you for your interest in contributing to libmagic-rs! This document provid
 - [Documentation](#documentation)
 - [Submitting Changes](#submitting-changes)
 - [Style Guidelines](#style-guidelines)
+- [Project Governance](#project-governance)
 
 ## Code of Conduct
 
@@ -234,9 +235,40 @@ pub fn parse_rule(input: &str) -> Result<MagicRule, ParseError> {
 
 1. **Update documentation** for any API changes
 2. **Add tests** for new functionality
-3. **Run the full test suite** locally
+3. **Run the full test suite** locally: `just ci-check`
 4. **Create a pull request** with a clear description
 5. **Address review feedback** promptly
+
+### Code Review Requirements
+
+All pull requests require review before merging. Reviewers check for:
+
+- **Correctness**: Does the code do what it claims? Are edge cases handled?
+- **Safety**: No unsafe code, proper bounds checking, no panics in library code
+- **Tests**: New functionality has tests, existing tests still pass
+- **Style**: Follows project conventions, passes `cargo fmt` and `cargo clippy -- -D warnings`
+- **Documentation**: Public APIs have rustdoc with examples, AGENTS.md updated if architecture changes
+- **Performance**: No unnecessary allocations in hot paths, no regressions in benchmarks
+
+CI must pass before merge. This includes formatting, linting, tests, security audit, and CodeQL analysis. Branch protection enforces these checks on the `main` branch.
+
+### Developer Certificate of Origin (DCO)
+
+This project requires all contributors to sign off on their commits, certifying that they have the right to submit the code under the project's license. This is enforced by the [DCO GitHub App](https://github.com/apps/dco).
+
+To sign off, add `-s` to your commit command:
+
+```bash
+git commit -s -m "feat: add new feature"
+```
+
+This adds a `Signed-off-by` line to your commit message:
+
+```text
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+By signing off, you agree to the [Developer Certificate of Origin](https://developercertificate.org/).
 
 ### PR Description Template
 
@@ -256,6 +288,7 @@ How were these changes tested?
 - [ ] No clippy warnings (`cargo clippy`)
 - [ ] Code formatted (`cargo fmt`)
 - [ ] Documentation updated
+- [ ] Commits signed off (`git commit -s`)
 ```
 
 ## Style Guidelines
@@ -300,6 +333,31 @@ pub enum ParseError {
     UnexpectedEof,
 }
 ```
+
+## Project Governance
+
+### Decision-Making
+
+libmagic-rs uses a **maintainer-driven** governance model. Decisions are made by the project maintainers through consensus on GitHub issues and pull requests.
+
+### Roles
+
+| Role | Responsibilities | Current |
+|------|-----------------|---------|
+| **Maintainer** | Merge PRs, manage releases, set project direction, review security reports | [@unclesp1d3r](https://github.com/unclesp1d3r), [@kmelton](https://github.com/kmelton) |
+| **Contributor** | Submit issues, PRs, and participate in discussions | Anyone following this guide |
+
+### How Decisions Are Made
+
+- **Bug fixes and minor changes**: Any maintainer can review and merge
+- **New features**: Discussed in a GitHub issue before implementation; maintainer approval required
+- **Architecture changes**: Require agreement from both maintainers
+- **Breaking API changes**: Discussed in a GitHub issue with community input; require agreement from both maintainers
+- **Releases**: Prepared by any maintainer, following the [release process](docs/src/release-process.md)
+
+### Becoming a Maintainer
+
+As the project grows, active contributors who demonstrate sustained, high-quality contributions and alignment with project goals may be invited to become maintainers.
 
 ## Getting Help
 

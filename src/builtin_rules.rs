@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Built-in magic rules compiled at build time.
 //!
 //! This module contains magic rules that are compiled into the library binary

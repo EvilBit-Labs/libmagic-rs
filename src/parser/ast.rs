@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Abstract Syntax Tree definitions for magic rules
 //!
 //! This module contains the core data structures that represent parsed magic rules

@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Compatibility tests for libmagic-rs
 //!
 //! These tests ensure that our implementation produces identical results to the original libmagic.

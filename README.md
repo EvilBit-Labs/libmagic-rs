@@ -1,5 +1,10 @@
 # libmagic-rs
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11947/badge)](https://www.bestpractices.dev/projects/11947)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EvilBit-Labs/libmagic-rs/badge)](https://scorecard.dev/viewer/?uri=github.com/EvilBit-Labs/libmagic-rs)
+[![Crates.io](https://img.shields.io/crates/v/libmagic-rs)](https://crates.io/crates/libmagic-rs)
+[![License](https://img.shields.io/crates/l/libmagic-rs)](https://github.com/EvilBit-Labs/libmagic-rs/blob/main/LICENSE)
+
 A pure-Rust implementation of libmagic, the library that powers the `file` command for identifying file types. This project provides a memory-safe, efficient alternative to the C-based libmagic library.
 
 > [!NOTE]
@@ -385,6 +390,16 @@ The library provides a migration path from C-based libmagic:
 - **Safe File Handling**: Graceful handling of truncated/corrupted files
 - **Fuzzing Integration**: Robustness testing with malformed inputs
 
+### Verifying Releases
+
+All release artifacts are cryptographically signed via [Sigstore](https://www.sigstore.dev/) using GitHub Attestations. To verify a downloaded artifact:
+
+```bash
+gh attestation verify <artifact> --repo EvilBit-Labs/libmagic-rs
+```
+
+See the [release verification guide](https://evilbitlabs.io/libmagic-rs/release-verification.html) for details.
+
 ## Contributing
 
 1. Fork the repository
@@ -410,55 +425,15 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ## Roadmap
 
-### Phase 1: MVP (v0.1) - Current Focus
+See [ROADMAP.md](ROADMAP.md) for the full roadmap with linked issues, or [GitHub Milestones](https://github.com/EvilBit-Labs/libmagic-rs/milestones) for detailed issue tracking.
 
-**Core Infrastructure (Complete):**
-
-- [x] Core AST data structures with comprehensive serialization
-- [x] Magic file parser for text format with hierarchical rules
-- [x] Rule evaluation engine with confidence scoring
-- [x] Memory-mapped file I/O with FileBuffer
-- [x] Text and JSON output formatters
-- [x] CLI with `--json` and `--magic-file` flags
-- [x] Comprehensive error handling
-
-**In Progress:**
-
-- [ ] Multiple file support in CLI
-- [ ] Stdin input support (`rmagic -`)
-- [ ] Built-in fallback rules (`--use-builtin`)
-- [ ] Magdir directory loading (load all files from `/usr/share/file/magic/Magdir/`)
-- [ ] Strength calculation (libmagic's `!:strength` parsing)
-- [ ] Complete rustdoc and mdbook documentation
-
-**Success Criteria:**
-
-- 95%+ compatibility with GNU `file` for common types (ELF, PE, ZIP, JPEG, PNG, PDF)
-- >85% test coverage
-
-### Phase 2: Enhanced Features (v0.2)
-
-- [ ] Binary `.mgc` format support (deferred per OpenBSD approach)
-- [ ] Indirect offset resolution
-- [ ] Regex support with binary-safe matching
-- [ ] Compiled rule caching for faster startup
-- [ ] Additional operators and type support
-- [ ] Aho-Corasick string indexing
-
-### Phase 3: Performance & Compatibility (v0.3)
-
-- [ ] Performance optimizations and benchmarking
-- [ ] Full libmagic syntax compatibility
-- [ ] PE/Mach-O/ELF format-specific detection
-- [ ] Go build info extraction
-
-### Phase 4: Production Ready (v1.0)
-
-- [ ] Stable API with semver guarantees
-- [ ] Migration guide from C libmagic
-- [ ] Performance parity validation
-- [ ] Fuzzing and security testing
-- [ ] crates.io publication
+| Milestone | Focus |
+|-----------|-------|
+| **v0.1.0** (current) | MVP: parser, evaluator, CLI, built-in rules, 94%+ test coverage |
+| **v0.2.0** | Comparison operators, bitwise XOR/NOT, indirect/relative offsets, 64-bit integers |
+| **v0.3.0** | Regex, float/double, date/timestamp, pascal strings, meta-types |
+| **v0.4.0** | Builder API, JSON metadata, parse warnings, improved errors |
+| **v1.0.0** | 95%+ GNU `file` compatibility, stable API, crates.io publication |
 
 ## Support
 

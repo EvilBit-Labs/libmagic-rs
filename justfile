@@ -8,8 +8,8 @@ set ignore-comments := true
 
 # Use mise to manage all dev tools (go, pre-commit, uv, etc.)
 # See mise.toml for tool versions
-mise_exec := "mise exec --"
 
+mise_exec := "mise exec --"
 root := justfile_dir()
 
 # =============================================================================
@@ -18,26 +18,6 @@ root := justfile_dir()
 
 default:
     @just --list
-
-# =============================================================================
-# CROSS-PLATFORM HELPERS (private)
-# =============================================================================
-
-[private, windows]
-ensure-dir dir:
-    New-Item -ItemType Directory -Force -Path "{{ dir }}" | Out-Null
-
-[private, unix]
-ensure-dir dir:
-    /bin/mkdir -p "{{ dir }}"
-
-[private, windows]
-rmrf path:
-    if (Test-Path "{{ path }}") { Remove-Item "{{ path }}" -Recurse -Force }
-
-[private, unix]
-rmrf path:
-    /bin/rm -rf "{{ path }}"
 
 # =============================================================================
 # SETUP AND INITIALIZATION
@@ -80,17 +60,18 @@ lint-rust-min:
 
 # Format justfile
 fmt-justfile:
-    @{{ mise_exec }} just --fmt --unstable
+    @just --fmt --unstable
 
 # Lint justfile formatting
 lint-justfile:
-    @{{ mise_exec }} just --fmt --check --unstable
+    @just --fmt --check --unstable
+
 # Main lint recipe - calls all sub-linters
 lint: lint-rust lint-actions lint-docs lint-justfile
 
 # Individual lint recipes
 lint-actions:
-    @{{ mise_exec }} actionlint .github/workflows/audit.yml .github/workflows/benchmarks.yml .github/workflows/ci.yml .github/workflows/codeql.yml .github/workflows/compatibility.yml .github/workflows/copilot-setup-steps.yml .github/workflows/docs.yml .github/workflows/release.yml .github/workflows/security.yml
+    @{{ mise_exec }} actionlint .github/workflows/audit.yml .github/workflows/benchmarks.yml .github/workflows/ci.yml .github/workflows/codeql.yml .github/workflows/compatibility.yml .github/workflows/copilot-setup-steps.yml .github/workflows/docs.yml .github/workflows/release.yml .github/workflows/scorecard.yml .github/workflows/security.yml
 
 lint-docs:
     @{{ mise_exec }} markdownlint-cli2 docs/**/*.md README.md
@@ -112,7 +93,6 @@ pre-commit-run:
 # Format a single file (for pre-commit hooks)
 format-files +FILES:
     @{{ mise_exec }} prettier --write --config .prettierrc.json {{ FILES }}
-
 
 # =============================================================================
 # BUILDING AND TESTING
@@ -179,23 +159,25 @@ deny:
 # =============================================================================
 
 # Private helper: run cargo llvm-cov with proper setup
-[private, unix]
+[private]
+[unix]
 _coverage +args:
     #!/usr/bin/env bash
     set -euo pipefail
     rm -rf target/llvm-cov-target
     RUSTFLAGS="--cfg coverage" {{ mise_exec }} cargo llvm-cov --workspace --lcov --output-path lcov.info {{ args }}
 
-[private, windows]
+[private]
+[windows]
 _coverage +args:
     Remove-Item -Recurse -Force target/llvm-cov-target -ErrorAction SilentlyContinue
     $env:RUSTFLAGS = "--cfg coverage"; {{ mise_exec }} cargo llvm-cov --workspace --lcov --output-path lcov.info {{ args }}
 
 coverage:
-    @{{ mise_exec }} just _coverage
+    @just _coverage
 
 coverage-check:
-    @{{ mise_exec }} just _coverage --fail-under-lines 9.7
+    @just _coverage --fail-under-lines 85
 
 # Generate HTML coverage report for local viewing
 [unix]
@@ -281,7 +263,7 @@ docs-clean:
 [unix]
 docs-check:
     cd docs && {{ mise_exec }} mdbook build
-    @{{ mise_exec }} just fmt-check
+    @just fmt-check
 
 # Generate and serve documentation
 [unix]
@@ -292,42 +274,23 @@ docs:
     @echo "mdbook requires a Unix-like environment to serve"
 
 # =============================================================================
-# GORELEASER TESTING
+# CHANGELOG
 # =============================================================================
 
-# Private helper: run goreleaser with macOS SDK env configured (no-op on non-mac)
-[private, unix]
-_goreleaser +args:
-    #!/bin/bash
-    set -euo pipefail
-    if command -v xcrun >/dev/null 2>&1; then
-        SDKROOT_PATH=$(xcrun --sdk macosx --show-sdk-path)
-        export SDKROOT="${SDKROOT_PATH}"
-        export MACOSX_DEPLOYMENT_TARGET="11.0"
-        export CARGO_ZIGBUILD_SYSROOT="${SDKROOT_PATH}"
-        export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-syslibroot,${SDKROOT_PATH} -C link-arg=-F${SDKROOT_PATH}/System/Library/Frameworks"
-    fi
-    goreleaser {{ args }}
+# Generate changelog
+[group('docs')]
+changelog:
+    @{{ mise_exec }} git-cliff --output CHANGELOG.md
 
-[private, windows]
-_goreleaser +args:
-    @{{ mise_exec }} goreleaser {{ args }}
+# Generate changelog for a specific version
+[group('docs')]
+changelog-version version:
+    @{{ mise_exec }} git-cliff --tag {{ version }} --output CHANGELOG.md
 
-goreleaser-check:
-    @{{ mise_exec }} goreleaser check
-
-goreleaser-build:
-    @just _goreleaser build --clean
-
-goreleaser-snapshot:
-    @just _goreleaser release --snapshot --clean
-
-goreleaser-build-target target:
-    @just _goreleaser build --clean --single-target {{ target }}
-
-# Clean GoReleaser artifacts
-goreleaser-clean:
-    @just rmrf dist
+# Generate changelog for unreleased changes only
+[group('docs')]
+changelog-unreleased:
+    @{{ mise_exec }} git-cliff --unreleased --output CHANGELOG.md
 
 # =============================================================================
 # RELEASE MANAGEMENT

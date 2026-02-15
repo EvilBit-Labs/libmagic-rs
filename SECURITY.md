@@ -2,100 +2,112 @@
 
 ## Supported Versions
 
-libmagic-rs is currently in active development as a passion project. Security updates are provided on a best-effort basis for the following versions:
+| Version | Supported          |
+| ------- | ------------------ |
+| 0.1.x   | :white_check_mark: |
+| < 0.1   | :x:                |
 
-| Version | Supported          | Notes                                |
-| ------- | ------------------ | ------------------------------------ |
-| 1.0.x   | :white_check_mark: | Production releases (when available) |
-| 0.3.x   | :white_check_mark: | Pre-release with security fixes      |
-| 0.2.x   | :white_check_mark: | Pre-release with security fixes      |
-| 0.1.x   | :white_check_mark: | MVP releases with security fixes     |
-| < 0.1   | :x:                | Development versions                 |
-
-## Security Considerations
-
-### Memory Safety
-
-- **Pure Rust Implementation**: No unsafe code except in vetted dependencies
-- **Bounds Checking**: All buffer access protected by bounds checking
-- **Safe File Handling**: Graceful handling of truncated/corrupted files
-- **Fuzzing Integration**: Robustness testing with malformed inputs
-
-### Input Validation
-
-- **Magic File Validation**: Syntax validation before parsing
-- **File Size Limits**: Protection against resource exhaustion
-- **Malformed Input Handling**: Safe processing of corrupted files
-- **Timeout Protection**: Configurable timeouts for long-running evaluations
-
-### Dependencies
-
-- **Vetted Dependencies**: Only trusted, well-maintained crates
-- **Security Audits**: Regular `cargo audit` checks
-- **Minimal Attack Surface**: Minimal external dependencies
-- **License Compliance**: All dependencies must have compatible licenses
+Users on unsupported versions should upgrade to the latest release. Please review the [release notes](https://github.com/EvilBit-Labs/libmagic-rs/releases) when upgrading.
 
 ## Reporting a Vulnerability
 
-### How to Report
+We take the security of libmagic-rs seriously. If you believe you have found a security vulnerability, please report it to us as described below.
 
-If you discover a security vulnerability in libmagic-rs, please report it responsibly:
+**Please do not report security vulnerabilities through public GitHub issues.**
 
-1. **Email**: Send details to <security@evilbitlabs.com>
-2. **GitHub Security**: Use GitHub's private vulnerability reporting feature
-3. **Do NOT**: Open public issues for security vulnerabilities
+Instead, use one of the following channels:
 
-### What to Include
+1. [GitHub Private Vulnerability Reporting](https://github.com/EvilBit-Labs/libmagic-rs/security/advisories/new) (preferred)
+2. Email [support@evilbitlabs.io](mailto:support@evilbitlabs.io) encrypted with our [PGP key](#pgp-key) (verify the full fingerprint below before use)
+
+Please include:
 
 - Description of the vulnerability
-- Steps to reproduce the issue
-- Potential impact assessment
+- Steps to reproduce
+- Potential impact
 - Suggested fix (if any)
-- Your contact information for follow-up
 
-### Response Timeline
+### Scope
+
+**In scope:**
+
+- Buffer overflows or out-of-bounds reads in magic file parsing or evaluation
+- Denial of service via crafted magic files or input files
+- Path traversal in file input handling
+- Command injection via CLI arguments
+- Unsafe code in dependencies that affects libmagic-rs
+
+**Out of scope:**
+
+- Vulnerabilities in the original C libmagic implementation
+- Issues requiring physical access to the machine running libmagic-rs
+- Social engineering attacks
+
+### What to Expect
 
 **Note**: This is a passion project with volunteer maintainers. Response times are best-effort and may vary based on maintainer availability.
 
-- **Acknowledgment**: Best effort (typically within 1 week)
-- **Initial Assessment**: Best effort (typically within 2 weeks)
-- **Fix Development**: Best effort (timeline depends on severity and maintainer availability)
-- **Public Disclosure**: Coordinated with fix release when possible
+- We will acknowledge receipt of your report within **1 week**
+- We will provide an initial assessment within **2 weeks**
+- We aim to release a fix within **90 days** of confirmed vulnerabilities
+- We will coordinate disclosure through a [GitHub Security Advisory](https://github.com/EvilBit-Labs/libmagic-rs/security/advisories)
+- We will credit you in the advisory (unless you prefer to remain anonymous)
 
-### Severity Levels
+### Responsible Disclosure
 
-- **Critical**: Remote code execution, memory corruption
-- **High**: Denial of service, information disclosure
-- **Medium**: Limited information disclosure, minor DoS
-- **Low**: Minor issues, edge cases
+We ask that you:
 
-## Security Best Practices
+- Give us reasonable time to respond to issues before any disclosure
+- Avoid accessing or modifying other users' data
+- Avoid actions that could negatively impact other users
 
-### For Users
+## Security Features
 
-- Keep libmagic-rs updated to the latest version
-- Validate input files before processing
-- Use appropriate file size limits
-- Monitor for security advisories
+libmagic-rs includes several security-focused features:
 
-### For Developers
+- **Pure Rust implementation**: No unsafe code except in vetted dependencies
+- **Bounds checking**: All buffer access protected by bounds checking
+- **Safe file handling**: Graceful handling of truncated and corrupted files
+- **Dependency auditing**: Regular `cargo audit` and `cargo deny` checks
+- **Automated dependency updates**: Via Dependabot
 
-- Follow Rust security best practices
-- Use `cargo audit` regularly
-- Implement proper error handling
-- Test with malformed inputs
-- Review all unsafe code usage
+## Safe Harbor
 
-## Security Acknowledgments
+We support safe harbor for security researchers who:
 
-We appreciate responsible disclosure and will acknowledge security researchers who help improve libmagic-rs security. Contributors will be listed in our security acknowledgments (with permission).
+- Make a good faith effort to avoid privacy violations, data destruction, and service disruption
+- Only interact with accounts you own or with explicit permission of the account holder
+- Report vulnerabilities through the channels described above
 
-**Note**: As a passion project, we may not always be able to provide immediate responses or fixes, but we do our best to address security issues when maintainers are available.
+We will not pursue legal action against researchers who follow this policy.
+
+## PGP Key
+
+**Fingerprint:** `F839 4B2C F0FE C451 1B11 E721 8F71 D62B F438 2BC0`
+
+```text
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+mDMEaLJmxhYJKwYBBAHaRw8BAQdAaS3KAoo+AgZGR6G6+m0wT2yulC5d6zV9lf2m
+TugBT+O0L3N1cHBvcnRAZXZpbGJpdGxhYnMuaW8gPHN1cHBvcnRAZXZpbGJpdGxh
+YnMuaW8+iNcEExYKAH8DCwkHRRQAAAAAABwAIHNhbHRAbm90YXRpb25zLm9wZW5w
+Z3Bqcy5vcmexd21FpCDfIrO7bf+T6hH/8drbGLWiuEueWvSTyw4T/QMVCggEFgAC
+AQIZAQKbAwIeARYhBPg5Syzw/sRRGxHnIY9x1iv0OCvABQJpiUiCBQkIXQE5AAoJ
+EI9x1iv0OCvAm2sA/AqFT6XEULJCimXX9Ve6e63RX7y2B+VoBVHt+PDaPBwkAP4j
+39xBoLFI6KZJ/A7SOQBkret+VONwPqyW83xfn+E7Arg4BGiyZsYSCisGAQQBl1UB
+BQEBB0ArjU33Uj/x1Kc7ldjVIM9UUCWMTwDWgw8lB/mNESb+GgMBCAeIvgQYFgoA
+cAWCaLJmxgkQj3HWK/Q4K8BFFAAAAAAAHAAgc2FsdEBub3RhdGlvbnMub3BlbnBn
+cGpzLm9yZ4msIB6mugSL+LkdT93+rSeNePtBY4Aj+O6TRFU9aKiQApsMFiEE+DlL
+LPD+xFEbEechj3HWK/Q4K8AAALEXAQDqlsBwMP2XXzXDSnNNLg8yh1/zQcxT1zZ1
+Z26lyM7L6QD+Lya5aFe74WE3wTys5ykGuWkHYEgba+AyZNmuPhwMGAc=
+=9zSi
+-----END PGP PUBLIC KEY BLOCK-----
+```
 
 ## Contact
 
-For security-related questions or concerns:
+For general security questions, open a GitHub Issue. For vulnerability reports, use [Private Vulnerability Reporting](https://github.com/EvilBit-Labs/libmagic-rs/security/advisories/new) or email [support@evilbitlabs.io](mailto:support@evilbitlabs.io).
 
-- **Email**: <security@evilbitlabs.com>
-- **GitHub**: [Security Advisories](https://github.com/EvilBit-Labs/libmagic-rs/security/advisories)
-- **Issues**: Use private vulnerability reporting for security issues
+---
+
+Thank you for helping keep libmagic-rs and its users secure!

@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Tests for CLI output normalization functionality
 //!
 //! These tests ensure that the cross-platform normalization helpers work correctly

@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! End-to-end integration tests for magic file parser and database integration.
 //!
 //! These tests validate the complete flow from file/directory loading through

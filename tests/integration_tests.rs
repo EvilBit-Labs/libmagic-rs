@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! End-to-end integration tests for core flows
 //!
 //! Tests the complete workflow: load database, evaluate files/buffers,

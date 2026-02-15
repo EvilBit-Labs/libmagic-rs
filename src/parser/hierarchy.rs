@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Rule hierarchy building for magic file parsing.
 //!
 //! Constructs parent-child relationships between magic rules based on

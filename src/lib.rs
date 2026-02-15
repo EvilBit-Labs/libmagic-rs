@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Rust Libmagic - A pure-Rust implementation of libmagic
 //!
 //! This library provides safe, efficient file type identification through magic rule evaluation.

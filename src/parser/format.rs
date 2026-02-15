@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Format detection for magic files.
 //!
 //! Detects whether a path points to a text magic file, a directory of magic files,

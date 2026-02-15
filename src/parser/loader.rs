@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! File and directory loading for magic files.
 //!
 //! Provides functions for loading magic rules from individual files and

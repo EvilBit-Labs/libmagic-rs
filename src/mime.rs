@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! MIME type mapping for file type detection
 //!
 //! This module provides MIME type mapping from file type descriptions

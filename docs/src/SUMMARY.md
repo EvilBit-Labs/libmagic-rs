@@ -46,6 +46,7 @@
 - [Chapter 18: Code Style & Standards](./code-style.md)
 - [Chapter 19: Testing Guidelines](./testing-guidelines.md)
 - [Chapter 20: Release Process](./release-process.md)
+- [Chapter 21: Release Verification](./release-verification.md)
 
 ---
 
@@ -55,3 +56,4 @@
 - [Appendix B: Command Reference](./cli-reference.md)
 - [Appendix C: Magic File Examples](./magic-examples.md)
 - [Appendix D: Compatibility Matrix](./compatibility.md)
+- [Appendix E: Security Assurance Case](./security-assurance.md)

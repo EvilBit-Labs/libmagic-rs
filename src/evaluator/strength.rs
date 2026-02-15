@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Strength calculation for magic rules
 //!
 //! This module implements the strength calculation algorithm based on libmagic's

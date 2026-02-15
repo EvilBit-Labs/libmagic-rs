@@ -401,8 +401,11 @@ git commit -m "test(ast): add comprehensive serialization tests"
    - Reference to related issues
    - Test coverage information
    - Breaking change notes (if any)
-3. **Address feedback** from code review
-4. **Ensure CI passes** all checks
+3. **Sign off commits** with `git commit -s` (DCO required)
+4. **Address feedback** from code review
+5. **Ensure CI passes** all checks
+
+For full details on code review criteria, DCO requirements, and project governance, see [CONTRIBUTING.md](https://github.com/EvilBit-Labs/libmagic-rs/blob/main/CONTRIBUTING.md).
 
 ## Debugging
 
