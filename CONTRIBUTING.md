@@ -13,6 +13,7 @@ Thank you for your interest in contributing to libmagic-rs! This document provid
 - [Documentation](#documentation)
 - [Submitting Changes](#submitting-changes)
 - [Style Guidelines](#style-guidelines)
+- [Project Governance](#project-governance)
 
 ## Code of Conduct
 
@@ -332,6 +333,31 @@ pub enum ParseError {
     UnexpectedEof,
 }
 ```
+
+## Project Governance
+
+### Decision-Making
+
+libmagic-rs uses a **maintainer-driven** governance model. Decisions are made by the project maintainers through consensus on GitHub issues and pull requests.
+
+### Roles
+
+| Role | Responsibilities | Current |
+|------|-----------------|---------|
+| **Maintainer** | Merge PRs, manage releases, set project direction, review security reports | [@unclesp1d3r](https://github.com/unclesp1d3r), [@kmelton](https://github.com/kmelton) |
+| **Contributor** | Submit issues, PRs, and participate in discussions | Anyone following this guide |
+
+### How Decisions Are Made
+
+- **Bug fixes and minor changes**: Any maintainer can review and merge
+- **New features**: Discussed in a GitHub issue before implementation; maintainer approval required
+- **Architecture changes**: Require agreement from both maintainers
+- **Breaking API changes**: Discussed in a GitHub issue with community input; require agreement from both maintainers
+- **Releases**: Prepared by any maintainer, following the [release process](docs/src/release-process.md)
+
+### Becoming a Maintainer
+
+As the project grows, active contributors who demonstrate sustained, high-quality contributions and alignment with project goals may be invited to become maintainers.
 
 ## Getting Help
 
