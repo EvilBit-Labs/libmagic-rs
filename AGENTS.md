@@ -64,8 +64,9 @@ Target File → Memory Mapper → File Buffer
 ```rust
 // Core data structures in lib.rs
 pub struct MagicRule { /* ... */ }
-pub enum TypeKind { Byte, Short, Long, String, /* ... */ }
-pub enum Operator { Equal, NotEqual, Greater, /* ... */ }
+pub enum TypeKind { Byte, Short, Long, String }
+pub enum Operator { Equal, NotEqual, BitwiseAnd, BitwiseAndMask }
+// Additional types and operators are planned for v1.0+
 
 // Parser module structure
 parser/
@@ -78,7 +79,7 @@ evaluator/
 ├── mod.rs       // Main evaluation engine
 ├── offset.rs    // Offset resolution (absolute, indirect, relative)
 ├── types.rs     // Type interpretation with endianness
-└── operators.rs // Comparison and bitwise operations
+└── operators.rs // Equality and bitwise operations
 ```
 
 ## Code Quality Standards
@@ -175,15 +176,25 @@ cargo test --doc   # Test documentation examples
 
 ## Magic File Compatibility
 
-### Supported Syntax
+### Currently Implemented (v0.1.0)
 
 - **Offsets**: Absolute, indirect, relative, and from-end specifications
-- **Types**: byte, short, long, string, regex with endianness support
-- **Operators**: =, !=, >, \<, & (bitwise AND), ^ (XOR)
+- **Types**: `byte`, `short`, `long`, `string` with endianness support
+- **Operators**: `=` (equal), `!=` (not equal), `&` (bitwise AND with optional mask)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
-- **String Matching**: Both exact and regex pattern matching
+- **String Matching**: Exact string matching with null-termination
 
-### Binary-Safe Regex Handling
+### Planned Features (v1.0+)
+
+- Comparison operators: `>`, `<`, `>=`, `<=`
+- Bitwise XOR operator: `^`
+- Regex type: Pattern matching with binary-safe regex support
+- Additional types: 64-bit integers, floats, doubles, dates
+- Search type: Multi-pattern string searching
+
+### Future Enhancement: Binary-Safe Regex Handling
+
+> The following is planned for future releases and is not yet implemented.
 
 ```rust
 // Use regex crate with bytes feature for binary-safe matching
@@ -195,6 +206,36 @@ impl BinaryRegex for regex::bytes::Regex {
     /* ... */
 }
 ```
+
+## Current Limitations (v0.1.0)
+
+### Type System
+
+- No regex/search pattern matching
+- No 64-bit integer types (quad, qquad)
+- No floating-point types (float, double, befloat, lefloat)
+- No date/time types (date, qdate, ldate, qldate)
+- String type supports null-terminated strings only (no fixed-length strings)
+
+### Operators
+
+- No comparison operators (`>`, `<`, `>=`, `<=`)
+- No XOR operator (`^`)
+- No negation operator (`~`)
+- BitwiseAnd supports mask values but not all libmagic mask syntax
+
+### Offset Specifications
+
+- Indirect offsets implemented but may not support all libmagic syntax variations
+- No support for complex offset expressions
+
+### Magic File Syntax
+
+- Limited support for special directives (only `!:strength` is parsed)
+- No support for `!:mime`, `!:ext`, `!:apple` directives in evaluation
+- No support for named tests or use/name directives
+
+See issue #52 for the planned enhancement roadmap.
 
 ## Performance Requirements
 
@@ -257,6 +298,8 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 
 ### Adding New Type Support
 
+> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, and `String`. Regex and other advanced types are planned for future releases.
+
 1. Extend `TypeKind` enum in `src/parser/ast.rs`
 2. Add parsing logic in `src/parser/grammar.rs`
 3. Implement reading logic in `src/evaluator/types.rs`
@@ -264,6 +307,8 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 5. Update documentation
 
 ### Adding New Operators
+
+> **Note:** Currently implemented operators are `Equal`, `NotEqual`, and `BitwiseAnd` (with `BitwiseAndMask`). Comparison operators (`>`, `<`) and XOR (`^`) are planned for future releases.
 
 1. Extend `Operator` enum in `src/parser/ast.rs`
 2. Add parsing logic in `src/parser/grammar.rs`
@@ -385,10 +430,11 @@ The project includes automated CI checks via `.kiro/hooks/ci-auto-fix.kiro.hook`
 
 ### Development Phases
 
-1. **MVP (v0.1)**: Basic parsing and evaluation
-2. **Enhanced Features (v0.2)**: Indirect offsets, regex, caching
-3. **Performance & Compatibility (v0.3)**: Optimizations, full compatibility
-4. **Production Ready (v1.0)**: Stable API, complete documentation
+1. **MVP (v0.1.0)** - CURRENT: Basic parsing and evaluation with byte/short/long/string types, equality and bitwise AND operators, built-in rules for 10 common formats
+2. **Enhanced Features (v0.2)**: Comparison operators (`>`, `<`), indirect offset improvements, strength-based rule ordering
+3. **Advanced Types (v0.3)**: Regex type, 64-bit integers, floating-point types, search patterns
+4. **Full Compatibility (v0.4)**: Complete libmagic syntax support, all special directives, named tests
+5. **Production Ready (v1.0)**: Stable API, complete documentation, 95%+ compatibility with GNU file
 
 ## Best Practices
 
