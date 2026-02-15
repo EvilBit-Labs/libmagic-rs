@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Tag extraction integration tests
 //!
 //! Tests for keyword extraction, case insensitivity, rule path tags,

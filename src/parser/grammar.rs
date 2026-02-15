@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Grammar parsing for magic files using nom parser combinators
 //!
 //! This module implements the parsing logic for magic file syntax, converting

@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! MIME type mapping integration tests
 //!
 //! Tests for MIME type detection through the public API,

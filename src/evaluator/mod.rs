@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Rule evaluation engine
 //!
 //! This module contains the core evaluation logic for executing magic rules

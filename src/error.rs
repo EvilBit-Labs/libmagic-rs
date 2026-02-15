@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Error types for the libmagic-rs library.
 //!
 //! This module defines the error types used throughout the library for

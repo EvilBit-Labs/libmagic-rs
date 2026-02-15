@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Offset resolution for magic rule evaluation
 //!
 //! This module provides functions for resolving different types of offset specifications

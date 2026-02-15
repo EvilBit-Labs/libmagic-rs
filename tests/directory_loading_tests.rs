@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Integration tests for directory loading functionality.
 //!
 //! These tests validate the `load_magic_directory()` function's behavior

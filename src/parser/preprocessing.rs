@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Line preprocessing for magic file parsing.
 //!
 //! Handles comment removal, empty line filtering, line continuations,

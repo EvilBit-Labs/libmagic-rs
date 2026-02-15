@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Text output formatting for magic rule evaluation results
 //!
 //! This module provides functionality to format evaluation results in a human-readable

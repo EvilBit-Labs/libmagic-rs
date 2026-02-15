@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Magic file parser module
 //!
 //! This module handles parsing of magic files into an Abstract Syntax Tree (AST)

@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Output formatting module for magic rule evaluation results
 //!
 //! This module provides data structures and functionality for storing and formatting

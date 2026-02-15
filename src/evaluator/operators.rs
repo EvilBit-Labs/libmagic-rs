@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Operator application for magic rule evaluation
 //!
 //! This module provides functions for applying comparison and bitwise operators

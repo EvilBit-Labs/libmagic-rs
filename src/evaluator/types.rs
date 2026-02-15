@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Type interpretation for reading and converting bytes from file buffers
 //!
 //! This module provides functions for safely reading different data types from byte buffers

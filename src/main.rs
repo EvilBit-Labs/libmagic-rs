@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Command-line interface for libmagic-rs
 //!
 //! This binary provides a CLI tool for file type identification using magic rules,

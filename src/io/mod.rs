@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! I/O utilities module
 //!
 //! This module provides efficient file access utilities including memory-mapped

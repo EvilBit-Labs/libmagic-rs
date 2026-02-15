@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Property-based tests for libmagic-rs
 //!
 //! Uses proptest to verify properties that should hold for all valid inputs:

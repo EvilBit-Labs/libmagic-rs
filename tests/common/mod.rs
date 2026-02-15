@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Common test utilities for cross-platform compatibility
 //!
 //! This module provides helpers for normalizing test outputs to ensure

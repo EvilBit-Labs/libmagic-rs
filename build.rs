@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 // Stub module to satisfy error.rs dependencies during build
 #[allow(dead_code)]
 mod evaluator {

@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Evaluation benchmarks for libmagic-rs
 //!
 //! Benchmarks rule evaluation performance against various file types:
