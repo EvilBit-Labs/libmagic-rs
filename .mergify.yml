@@ -25,7 +25,7 @@ merge_protections:
           - check-skipped = coverage
 
   - name: Do not merge outdated PRs
-    description: Make sure PRs are almost up to date before merging
+    description: Make sure PRs are within 10 commits of the base branch before merging
     if:
       - base = main
     success_conditions:
