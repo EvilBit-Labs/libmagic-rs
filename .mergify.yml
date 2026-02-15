@@ -49,9 +49,9 @@ pull_request_rules:
   - name: Queue external PRs when approved by maintainer
     conditions:
       - base = main
-      - -"author=@maintainers"
+      - "-author=@maintainers"
       - author != dependabot[bot]
-      - -"head ~= ^release-plz-"
+      - "-head ~= ^release-plz-"
       - "approved-reviews-by=@maintainers"
       - label != do-not-merge
     actions:
