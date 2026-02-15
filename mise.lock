@@ -86,6 +86,10 @@ backend = "cargo:mdbook-tabs"
 version = "0.15.3"
 backend = "cargo:mdbook-toc"
 
+[[tools."cargo:release-plz"]]
+version = "0.3.155"
+backend = "cargo:release-plz"
+
 [[tools.just]]
 version = "1.46.0"
 backend = "aqua:casey/just"

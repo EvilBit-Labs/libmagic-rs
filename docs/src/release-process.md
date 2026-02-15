@@ -297,74 +297,41 @@ git push origin --delete hotfix/v0.2.1
 
 ## Release Automation
 
-### GitHub Actions Workflow
+Releases are automated by two complementary tools:
 
-```yaml
-# .github/workflows/release.yml
-name: Release
+- **release-plz**: Manages crates.io publishing, version bumping, changelog generation, and git tagging
+- **cargo-dist**: Builds cross-platform binaries, Homebrew formulas, SBOM, and GitHub Releases
 
-on:
-  push:
-    tags:
-      - v*
+### How It Works
 
-jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
+1. Every push to `main` triggers release-plz, which opens (or updates) a **release PR** with:
+   - Version bump in `Cargo.toml`
+   - Updated `CHANGELOG.md` (generated via git-cliff)
+   - Semantic versioning based on conventional commits
 
-      - name: Setup Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+2. When the release PR is **merged**, release-plz:
+   - Publishes the crate to **crates.io**
+   - Creates a **git tag** (e.g., `v0.2.0`)
 
-      - name: Run tests
-        run: cargo test --all-features
+3. The git tag triggers **cargo-dist**, which:
+   - Builds binaries for all target platforms
+   - Generates SLSA attestations and SBOM
+   - Publishes the Homebrew formula
+   - Creates the **GitHub Release** with all artifacts
 
-      - name: Build release
-        run: cargo build --release
+### Configuration Files
 
-      - name: Create release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-```
+| File | Purpose |
+|------|---------|
+| `release-plz.toml` | release-plz configuration (crates.io, tags, changelog) |
+| `dist-workspace.toml` | cargo-dist configuration (binaries, Homebrew, SBOM) |
+| `cliff.toml` | git-cliff changelog template (shared by both tools) |
 
-### Automated Checks
+### Authentication
 
-```bash
-#!/bin/bash
-# scripts/pre_release_check.sh
-
-set -e
-
-echo "Running pre-release checks..."
-
-# Code quality
-cargo fmt -- --check
-cargo clippy -- -D warnings
-
-# Tests
-cargo test --all-features
-cargo test --doc
-
-# Security
-cargo audit
-
-# Performance
-cargo bench --bench evaluation_bench
-
-# Documentation
-cargo doc --document-private-items
-
-echo "All pre-release checks passed!"
-```
+- **crates.io**: Uses [trusted publishing](https://doc.rust-lang.org/cargo/reference/registry-authentication.html#oidc-token-exchange) (OIDC) -- no token secret needed. Requires configuring the trusted publisher on crates.io and `id-token: write` permission in the workflow. Note: the first publish of a new crate must be done manually with `cargo publish`.
+- **Homebrew tap**: Requires a `HOMEBREW_TAP_TOKEN` secret with write access to the tap repository.
+- **GitHub Releases**: Uses the automatic `GITHUB_TOKEN`.
 
 ## Release Schedule
 
