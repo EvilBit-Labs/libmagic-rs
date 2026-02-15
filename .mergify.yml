@@ -1,28 +1,56 @@
+queue_rules:
+  - name: default
+    merge_method: squash
+    merge_conditions:
+      - check-success = quality
+      - check-success = test
+      - "check-success = test-cross-platform (ubuntu-latest, Linux)"
+      - "check-success = test-cross-platform (ubuntu-22.04, Linux)"
+      - "check-success = test-cross-platform (macos-latest, macOS)"
+      - "check-success = test-cross-platform (windows-latest, Windows)"
+      - check-success = coverage
+
+pull_request_rules:
+  - name: Queue PRs when approved
+    conditions:
+      - base = main
+      - "#approved-reviews-by >= 1"
+      - label != do-not-merge
+    actions:
+      queue:
+        name: default
+
+  - name: Auto-queue release-plz PRs
+    conditions:
+      - base = main
+      - "head ~= ^release-plz-"
+    actions:
+      queue:
+        name: default
+
+  - name: Auto-queue dependabot PRs
+    conditions:
+      - base = main
+      - author = dependabot[bot]
+    actions:
+      queue:
+        name: default
+
 merge_protections:
   - name: CI must pass
     description: >-
-      All CI checks must pass or be legitimately skipped (path filtering).
-      Matrix job names differ between running and skipped states, so the
-      test-cross-platform rule uses an and/or pattern to handle both.
+      All CI checks must pass. This protection prevents manual merges
+      that bypass the merge queue.
     if:
       - base = main
     success_conditions:
-      - or:
-          - check-success = quality
-          - check-skipped = quality
-      - or:
-          - check-success = test
-          - check-skipped = test
-      - or:
-          - and:
-              - "check-success = test-cross-platform (ubuntu-latest, Linux)"
-              - "check-success = test-cross-platform (ubuntu-22.04, Linux)"
-              - "check-success = test-cross-platform (macos-latest, macOS)"
-              - "check-success = test-cross-platform (windows-latest, Windows)"
-          - check-skipped = test-cross-platform
-      - or:
-          - check-success = coverage
-          - check-skipped = coverage
+      - check-success = quality
+      - check-success = test
+      - "check-success = test-cross-platform (ubuntu-latest, Linux)"
+      - "check-success = test-cross-platform (ubuntu-22.04, Linux)"
+      - "check-success = test-cross-platform (macos-latest, macOS)"
+      - "check-success = test-cross-platform (windows-latest, Windows)"
+      - check-success = coverage
 
   - name: Do not merge outdated PRs
     description: Make sure PRs are within 10 commits of the base branch before merging

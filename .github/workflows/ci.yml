@@ -21,38 +21,8 @@ env:
     GITHUB_ACTIONS: true
 
 jobs:
-    # Detect if Rust code has changed
-    changes:
-        runs-on: ubuntu-latest
-        outputs:
-            rust: ${{ steps.filter.outputs.rust }}
-            docs: ${{ steps.filter.outputs.docs }}
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
-              id: filter
-              with:
-                  filters: |
-                      rust:
-                        - '**/*.rs'
-                        - '**/Cargo.toml'
-                        - '**/Cargo.lock'
-                        - '**/build.rs'
-                        - 'justfile'
-                        - 'rust-toolchain.toml'
-                        - 'deny.toml'
-                      docs:
-                        - 'docs/**'
-                        - '*.md'
-                        - '.kiro/**'
-                        - 'spec/**'
-
-    # Code quality checks - always run
     quality:
         runs-on: ubuntu-latest
-        needs: changes
-        if: needs.changes.outputs.rust == 'true'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - uses: dtolnay/rust-toolchain@0dd4a6d07aedb0ef7f65e79f3e229a6c102ae2e0 # 1.91.0
@@ -69,8 +39,6 @@ jobs:
 
     test:
         runs-on: ubuntu-latest
-        needs: changes
-        if: needs.changes.outputs.rust == 'true'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
@@ -85,26 +53,21 @@ jobs:
             - name: Build release
               run: cargo build --release --all-features
 
-    # Test cross-platform - only run when Rust code changes
     test-cross-platform:
         strategy:
             matrix:
                 include:
-                    # Primary Support - Linux
                     - os: ubuntu-latest
                       platform: "Linux"
                     - os: ubuntu-22.04
                       platform: "Linux"
-                    # Primary Support - macOS (using available runners)
                     - os: macos-latest
                       platform: "macOS"
-                    # Primary Support - Windows
                     - os: windows-latest
                       platform: "Windows"
 
         runs-on: ${{ matrix.os }}
-        needs: [changes, test]
-        if: needs.changes.outputs.rust == 'true'
+        needs: test
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
@@ -113,15 +76,12 @@ jobs:
                   cache: true
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
-            # Run tests and build the release binary
             - run: cargo nextest run --all-features
             - run: cargo build --release --all-features
 
-    # Generate coverage for TLS-enabled builds - only run when Rust code changes
     coverage:
         runs-on: ubuntu-latest
-        needs: [changes, test]
-        if: needs.changes.outputs.rust == 'true'
+        needs: test
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
