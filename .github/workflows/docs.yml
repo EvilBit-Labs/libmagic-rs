@@ -42,16 +42,16 @@ jobs:
             - name: Install mdbook plugins
               run: cargo binstall mdbook-tabs mdbook-i18n-helpers mdbook-alerts mdbook-yml-header mdbook-image-size --no-confirm
 
-            - name: Build rustdoc
-              run: |
-                  cargo doc --no-deps --document-private-items --target-dir target
-                  mkdir -p docs/book/api
-                  cp -r target/doc/* docs/book/api/
-
             - name: Build mdBook
               run: |
                   cd docs
                   mdbook build
+
+            - name: Build rustdoc and copy into book
+              run: |
+                  cargo doc --no-deps --document-private-items --target-dir target
+                  mkdir -p docs/book/api
+                  cp -r target/doc/* docs/book/api/
 
             - name: Setup Pages
               if: github.ref == 'refs/heads/main'

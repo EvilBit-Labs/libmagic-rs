@@ -3,8 +3,8 @@
 
 CMD="${CLAUDE_TOOL_INPUT_command:-}"
 
-# Only check commands that contain "git commit"
-if ! echo "$CMD" | grep -q "git commit"; then
+# Only check commands that contain "git commit" as a distinct subcommand
+if ! echo "$CMD" | grep -qE '(^|[;&|] *)git commit( |$)'; then
   exit 0
 fi
 
