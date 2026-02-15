@@ -1,0 +1,126 @@
+[[tools.actionlint]]
+version = "1.7.10"
+backend = "aqua:rhysd/actionlint"
+
+[[tools.cargo-binstall]]
+version = "1.17.5"
+backend = "aqua:cargo-bins/cargo-binstall"
+
+[[tools.cargo-insta]]
+version = "1.46.1"
+backend = "aqua:mitsuhiko/insta"
+
+[[tools."cargo:cargo-audit"]]
+version = "0.22.0"
+backend = "cargo:cargo-audit"
+
+[[tools."cargo:cargo-auditable"]]
+version = "0.7.2"
+backend = "cargo:cargo-auditable"
+
+[[tools."cargo:cargo-cyclonedx"]]
+version = "0.5.7"
+backend = "cargo:cargo-cyclonedx"
+
+[[tools."cargo:cargo-deny"]]
+version = "0.19.0"
+backend = "cargo:cargo-deny"
+
+[[tools."cargo:cargo-dist"]]
+version = "0.30.3"
+backend = "cargo:cargo-dist"
+
+[[tools."cargo:cargo-llvm-cov"]]
+version = "0.6.24"
+backend = "cargo:cargo-llvm-cov"
+
+[[tools."cargo:cargo-machete"]]
+version = "0.9.1"
+backend = "cargo:cargo-machete"
+
+[[tools."cargo:cargo-nextest"]]
+version = "0.9.123-b.4"
+backend = "cargo:cargo-nextest"
+
+[[tools."cargo:cargo-outdated"]]
+version = "0.17.0"
+backend = "cargo:cargo-outdated"
+
+[[tools."cargo:cargo-release"]]
+version = "0.25.22"
+backend = "cargo:cargo-release"
+
+[[tools."cargo:git-cliff"]]
+version = "2.12.0"
+backend = "cargo:git-cliff"
+
+[[tools."cargo:mdbook"]]
+version = "0.5.2"
+backend = "cargo:mdbook"
+
+[[tools."cargo:mdbook-admonish"]]
+version = "1.20.0"
+backend = "cargo:mdbook-admonish"
+
+[[tools."cargo:mdbook-i18n-helpers"]]
+version = "0.4.0"
+backend = "cargo:mdbook-i18n-helpers"
+
+[[tools."cargo:mdbook-linkcheck"]]
+version = "0.7.7"
+backend = "cargo:mdbook-linkcheck"
+
+[[tools."cargo:mdbook-mermaid"]]
+version = "0.17.0"
+backend = "cargo:mdbook-mermaid"
+
+[[tools."cargo:mdbook-open-on-gh"]]
+version = "3.0.0"
+backend = "cargo:mdbook-open-on-gh"
+
+[[tools."cargo:mdbook-tabs"]]
+version = "0.3.4"
+backend = "cargo:mdbook-tabs"
+
+[[tools."cargo:mdbook-toc"]]
+version = "0.15.3"
+backend = "cargo:mdbook-toc"
+
+[[tools.just]]
+version = "1.46.0"
+backend = "aqua:casey/just"
+
+[[tools.lychee]]
+version = "0.22.0"
+backend = "aqua:lycheeverse/lychee"
+
+[[tools.markdownlint-cli2]]
+version = "0.20.0"
+backend = "npm:markdownlint-cli2"
+
+[[tools."pipx:mdformat"]]
+version = "0.7.21"
+backend = "pipx:mdformat"
+
+[tools."pipx:mdformat".options]
+uvx_args = "--with mdformat-gfm --with mdformat-frontmatter --with mdformat-footnote --with mdformat-simple-breaks --with mdformat-gfm-alerts --with mdformat-toc --with mdformat-wikilink --with mdformat-tables"
+
+[[tools.pre-commit]]
+version = "4.5.1"
+backend = "aqua:pre-commit/pre-commit"
+
+[[tools.prettier]]
+version = "3.8.1"
+backend = "npm:prettier"
+
+[[tools.python]]
+version = "3.13.11"
+backend = "core:python"
+
+[[tools.rust]]
+version = "1.91.0"
+backend = "core:rust"
+
+[[tools.scorecard]]
+version = "5.4.0"
+backend = "aqua:ossf/scorecard"
