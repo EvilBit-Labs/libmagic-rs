@@ -251,6 +251,24 @@ All pull requests require review before merging. Reviewers check for:
 
 CI must pass before merge. This includes formatting, linting, tests, security audit, and CodeQL analysis. Branch protection enforces these checks on the `main` branch.
 
+### Developer Certificate of Origin (DCO)
+
+This project requires all contributors to sign off on their commits, certifying that they have the right to submit the code under the project's license. This is enforced by the [DCO GitHub App](https://github.com/apps/dco).
+
+To sign off, add `-s` to your commit command:
+
+```bash
+git commit -s -m "feat: add new feature"
+```
+
+This adds a `Signed-off-by` line to your commit message:
+
+```text
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+By signing off, you agree to the [Developer Certificate of Origin](https://developercertificate.org/).
+
 ### PR Description Template
 
 ```markdown
@@ -269,6 +287,7 @@ How were these changes tested?
 - [ ] No clippy warnings (`cargo clippy`)
 - [ ] Code formatted (`cargo fmt`)
 - [ ] Documentation updated
+- [ ] Commits signed off (`git commit -s`)
 ```
 
 ## Style Guidelines
