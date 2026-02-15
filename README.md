@@ -389,6 +389,16 @@ The library provides a migration path from C-based libmagic:
 - **Safe File Handling**: Graceful handling of truncated/corrupted files
 - **Fuzzing Integration**: Robustness testing with malformed inputs
 
+### Verifying Releases
+
+All release artifacts are cryptographically signed via [Sigstore](https://www.sigstore.dev/) using GitHub Attestations. To verify a downloaded artifact:
+
+```bash
+gh attestation verify <artifact> --repo EvilBit-Labs/libmagic-rs
+```
+
+See the [release verification guide](https://evilbitlabs.io/libmagic-rs/release-verification.html) for details.
+
 ## Contributing
 
 1. Fork the repository

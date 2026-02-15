@@ -46,6 +46,7 @@
 - [Chapter 18: Code Style & Standards](./code-style.md)
 - [Chapter 19: Testing Guidelines](./testing-guidelines.md)
 - [Chapter 20: Release Process](./release-process.md)
+- [Chapter 21: Release Verification](./release-verification.md)
 
 ---
 
