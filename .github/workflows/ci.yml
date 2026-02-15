@@ -149,22 +149,3 @@ jobs:
               with:
                   token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
                   files: lcov.info
-
-    # Single required status check for branch protection.
-    # Passes when all jobs pass OR when jobs are skipped (no Rust changes).
-    ci-pass:
-        name: CI
-        runs-on: ubuntu-latest
-        if: always()
-        needs: [quality, test, test-cross-platform, coverage]
-        steps:
-            - name: Check results
-              run: |
-                  results=("${{ needs.quality.result }}" "${{ needs.test.result }}" "${{ needs.test-cross-platform.result }}" "${{ needs.coverage.result }}")
-                  for result in "${results[@]}"; do
-                    if [[ "$result" != "success" && "$result" != "skipped" ]]; then
-                      echo "Job failed with result: $result"
-                      exit 1
-                    fi
-                  done
-                  echo "All jobs passed or were skipped"
