@@ -414,55 +414,62 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ## Roadmap
 
-### Phase 1: MVP (v0.1) - Current Focus
+See [GitHub Milestones](https://github.com/EvilBit-Labs/libmagic-rs/milestones) for detailed issue tracking.
 
-**Core Infrastructure (Complete):**
+### v0.1.0 - MVP (Current)
 
 - [x] Core AST data structures with comprehensive serialization
 - [x] Magic file parser for text format with hierarchical rules
 - [x] Rule evaluation engine with confidence scoring
 - [x] Memory-mapped file I/O with FileBuffer
 - [x] Text and JSON output formatters
-- [x] CLI with `--json` and `--magic-file` flags
-- [x] Comprehensive error handling
+- [x] CLI with multiple file support, stdin, `--json`, and `--magic-file`
+- [x] Built-in fallback rules with build-time compilation
+- [x] Strength calculation and `!:strength` parsing
+- [x] Comprehensive error handling, rustdoc, and mdbook documentation
+- [x] 94%+ test coverage across 1,058+ tests
 
-**In Progress:**
+### v0.2.0 - Core Primitives
 
-- [ ] Multiple file support in CLI
-- [ ] Stdin input support (`rmagic -`)
-- [ ] Built-in fallback rules (`--use-builtin`)
-- [ ] Magdir directory loading (load all files from `/usr/share/file/magic/Magdir/`)
-- [ ] Strength calculation (libmagic's `!:strength` parsing)
-- [ ] Complete rustdoc and mdbook documentation
+- [ ] Comparison operators: `>`, `<`, `>=`, `<=` ([#34](https://github.com/EvilBit-Labs/libmagic-rs/issues/34))
+- [ ] Bitwise XOR, NOT, and any-value operators ([#35](https://github.com/EvilBit-Labs/libmagic-rs/issues/35))
+- [ ] Indirect offset resolution ([#37](https://github.com/EvilBit-Labs/libmagic-rs/issues/37))
+- [ ] Relative offset resolution ([#38](https://github.com/EvilBit-Labs/libmagic-rs/issues/38))
+- [ ] Quad (64-bit integer) type ([#36](https://github.com/EvilBit-Labs/libmagic-rs/issues/36))
 
-**Success Criteria:**
+### v0.3.0 - Advanced Features
 
-- 95%+ compatibility with GNU `file` for common types (ELF, PE, ZIP, JPEG, PNG, PDF)
-- >85% test coverage
+- [ ] Regex and search types ([#39](https://github.com/EvilBit-Labs/libmagic-rs/issues/39))
+- [ ] Float and double types ([#40](https://github.com/EvilBit-Labs/libmagic-rs/issues/40))
+- [ ] Date and timestamp types ([#41](https://github.com/EvilBit-Labs/libmagic-rs/issues/41))
+- [ ] Pascal string type ([#43](https://github.com/EvilBit-Labs/libmagic-rs/issues/43))
+- [ ] Meta-types: default, clear, name, use, indirect ([#42](https://github.com/EvilBit-Labs/libmagic-rs/issues/42))
 
-### Phase 2: Enhanced Features (v0.2)
+### v0.4.0 - API and UX Polish
 
-- [ ] Binary `.mgc` format support (deferred per OpenBSD approach)
-- [ ] Indirect offset resolution
-- [ ] Regex support with binary-safe matching
-- [ ] Compiled rule caching for faster startup
-- [ ] Additional operators and type support
-- [ ] Aho-Corasick string indexing
+- [ ] Builder pattern for `MagicDatabase` ([#45](https://github.com/EvilBit-Labs/libmagic-rs/issues/45))
+- [ ] JSON output metadata ([#46](https://github.com/EvilBit-Labs/libmagic-rs/issues/46))
+- [ ] Parse warnings for skipped rules ([#47](https://github.com/EvilBit-Labs/libmagic-rs/issues/47))
+- [ ] Improved error messages ([#49](https://github.com/EvilBit-Labs/libmagic-rs/issues/49))
+- [ ] Partial results on timeout ([#44](https://github.com/EvilBit-Labs/libmagic-rs/issues/44))
 
-### Phase 3: Performance & Compatibility (v0.3)
+### v1.0.0 - Production Ready
 
-- [ ] Performance optimizations and benchmarking
-- [ ] Full libmagic syntax compatibility
-- [ ] PE/Mach-O/ELF format-specific detection
-- [ ] Go build info extraction
-
-### Phase 4: Production Ready (v1.0)
-
+- [ ] 95%+ compatibility with GNU `file` ([#48](https://github.com/EvilBit-Labs/libmagic-rs/issues/48), [#57](https://github.com/EvilBit-Labs/libmagic-rs/issues/57))
 - [ ] Stable API with semver guarantees
 - [ ] Migration guide from C libmagic
 - [ ] Performance parity validation
-- [ ] Fuzzing and security testing
 - [ ] crates.io publication
+
+### Non-Goals
+
+The following are explicitly out of scope for this project:
+
+- **Binary `.mgc` compilation**: We follow the OpenBSD approach of using text magic files directly, not the compiled binary format
+- **Drop-in C ABI replacement**: This is a Rust-native library, not a C-compatible shared library with `libmagic.so` ABI
+- **MIME database management**: We detect file types via magic rules, not by maintaining a MIME type registry
+- **File modification or conversion**: This is a read-only detection tool
+- **Network protocol detection**: We identify file contents, not network traffic
 
 ## Support
 
