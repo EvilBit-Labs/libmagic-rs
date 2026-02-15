@@ -56,3 +56,4 @@
 - [Appendix B: Command Reference](./cli-reference.md)
 - [Appendix C: Magic File Examples](./magic-examples.md)
 - [Appendix D: Compatibility Matrix](./compatibility.md)
+- [Appendix E: Security Assurance Case](./security-assurance.md)
