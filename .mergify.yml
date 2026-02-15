@@ -29,12 +29,15 @@ pull_request_rules:
       queue:
         name: default
 
-  - name: Auto-queue dependabot PRs
+  - name: Auto-approve and queue dependabot PRs
     conditions:
       - base = main
       - author = dependabot[bot]
       - label != do-not-merge
     actions:
+      review:
+        type: APPROVE
+        message: Automatically approved by Mergify
       queue:
         name: default
 
