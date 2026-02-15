@@ -1,0 +1,8 @@
+[workspace]
+# release-plz handles crates.io publish + git tags
+# cargo-dist handles GitHub Releases (triggered by the tag)
+git_release_enable = false
+git_tag_enable = true
+publish = true
+semver_check = true
+changelog_config = "cliff.toml"
