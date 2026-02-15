@@ -47,8 +47,9 @@ pull_request_rules:
       - -conflict
       - -draft
       - -author = dependabot[bot]
+      - label != do-not-merge
     actions:
-      update:
+      update: {}
 
 merge_protections:
   - name: CI must pass
