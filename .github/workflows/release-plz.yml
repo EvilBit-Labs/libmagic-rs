@@ -18,8 +18,9 @@ jobs:
           fetch-depth: 0
           # persist-credentials required for pushing signed tags via git CLI
           persist-credentials: true
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
+        with:
+          install: true
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
@@ -42,8 +43,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
+        with:
+          install: true
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
