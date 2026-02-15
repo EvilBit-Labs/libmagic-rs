@@ -9,11 +9,11 @@ updates:
     - package-ecosystem: "github-actions"
       directory: "/"
       schedule:
-          interval: weekly
+          interval: "weekly"
       rebase-strategy: "disabled"
 
     - package-ecosystem: "devcontainers"
       directory: "/"
       schedule:
-          interval: weekly
+          interval: "weekly"
       rebase-strategy: "disabled"
