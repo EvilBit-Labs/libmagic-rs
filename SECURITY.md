@@ -18,7 +18,7 @@ We take the security of libmagic-rs seriously. If you believe you have found a s
 Instead, use one of the following channels:
 
 1. [GitHub Private Vulnerability Reporting](https://github.com/EvilBit-Labs/libmagic-rs/security/advisories/new) (preferred)
-2. Email [security@evilbitlabs.com](mailto:security@evilbitlabs.com) encrypted with our [PGP key](#pgp-key) (verify the full fingerprint below before use)
+2. Email [support@evilbitlabs.io](mailto:support@evilbitlabs.io) encrypted with our [PGP key](#pgp-key) (verify the full fingerprint below before use)
 
 Please include:
 
@@ -106,7 +106,7 @@ Z26lyM7L6QD+Lya5aFe74WE3wTys5ykGuWkHYEgba+AyZNmuPhwMGAc=
 
 ## Contact
 
-For general security questions, open a GitHub Issue. For vulnerability reports, use [Private Vulnerability Reporting](https://github.com/EvilBit-Labs/libmagic-rs/security/advisories/new) or email [security@evilbitlabs.com](mailto:security@evilbitlabs.com).
+For general security questions, open a GitHub Issue. For vulnerability reports, use [Private Vulnerability Reporting](https://github.com/EvilBit-Labs/libmagic-rs/security/advisories/new) or email [support@evilbitlabs.io](mailto:support@evilbitlabs.io).
 
 ---
 
