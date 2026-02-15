@@ -9,7 +9,7 @@ if ! echo "$CMD" | grep -q "git commit"; then
 fi
 
 # Allow if -s or --signoff is present anywhere in the command
-if echo "$CMD" | grep -qE -- '(-s\b|--signoff)'; then
+if echo "$CMD" | grep -qE -- '(^| )-s( |$)|(^| )--signoff( |$)'; then
   exit 0
 fi
 
