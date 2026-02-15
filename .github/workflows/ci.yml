@@ -28,9 +28,9 @@ jobs:
             rust: ${{ steps.filter.outputs.rust }}
             docs: ${{ steps.filter.outputs.docs }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - uses: dorny/paths-filter@v3
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
               with:
                   filters: |
@@ -54,11 +54,11 @@ jobs:
         needs: changes
         if: needs.changes.outputs.rust == 'true'
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - uses: dtolnay/rust-toolchain@1.91.0
               with:
                   components: llvm-tools, cargo, rustfmt, clippy
-            - uses: jdx/mise-action@v3
+            - uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
               with:
                   install: true
                   cache: true
@@ -72,8 +72,8 @@ jobs:
         needs: changes
         if: needs.changes.outputs.rust == 'true'
         steps:
-            - uses: actions/checkout@v6
-            - uses: jdx/mise-action@v3
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
               with:
                   install: true
                   cache: true
@@ -106,8 +106,8 @@ jobs:
         needs: [changes, test]
         if: needs.changes.outputs.rust == 'true'
         steps:
-            - uses: actions/checkout@v6
-            - uses: jdx/mise-action@v3
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
               with:
                   install: true
                   cache: true
@@ -123,8 +123,8 @@ jobs:
         needs: [changes, test]
         if: needs.changes.outputs.rust == 'true'
         steps:
-            - uses: actions/checkout@v6
-            - uses: jdx/mise-action@v3
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
               with:
                   install: true
                   cache: true
@@ -139,13 +139,13 @@ jobs:
               run: cargo llvm-cov report --lcov --output-path lcov.info
 
             - name: Upload to Codecov
-              uses: codecov/codecov-action@v5
+              uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
               with:
                   files: lcov.info
                   fail_ci_if_error: false
                   token: ${{ secrets.CODECOV_TOKEN }}
                   slug: EvilBit-Labs/libmagic-rs
-            - uses: qltysh/qlty-action/coverage@v2
+            - uses: qltysh/qlty-action/coverage@a19242102d17e497f437d7466aa01b528537e899 # v2.2.0
               with:
                   token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
                   files: target/lcov.info
