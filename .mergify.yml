@@ -24,17 +24,32 @@ pull_request_rules:
     conditions:
       - base = main
       - "head ~= ^release-plz-"
+      - label != do-not-merge
     actions:
       queue:
         name: default
 
-  - name: Auto-queue dependabot PRs
+  - name: Auto-approve and queue dependabot PRs
     conditions:
       - base = main
       - author = dependabot[bot]
+      - label != do-not-merge
     actions:
+      review:
+        type: APPROVE
+        message: Automatically approved by Mergify
       queue:
         name: default
+
+  - name: Keep PRs up to date with main
+    conditions:
+      - base = main
+      - -conflict
+      - -draft
+      - -author = dependabot[bot]
+      - label != do-not-merge
+    actions:
+      update: {}
 
 merge_protections:
   - name: CI must pass
