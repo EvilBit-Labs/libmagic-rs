@@ -344,7 +344,7 @@ libmagic-rs uses a **maintainer-driven** governance model. Decisions are made by
 
 | Role | Responsibilities | Current |
 |------|-----------------|---------|
-| **Maintainer** | Merge PRs, manage releases, set project direction, review security reports | [@unclesp1d3r](https://github.com/unclesp1d3r), [@kmelton](https://github.com/kmelton) |
+| **Maintainer** | Merge PRs, manage releases, set project direction, review security reports | [@unclesp1d3r](https://github.com/unclesp1d3r), [@KryptoKat08](https://github.com/KryptoKat08) |
 | **Contributor** | Submit issues, PRs, and participate in discussions | Anyone following this guide |
 
 ### How Decisions Are Made
