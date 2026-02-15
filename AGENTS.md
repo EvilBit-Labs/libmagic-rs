@@ -34,8 +34,8 @@ This document provides comprehensive guidelines for AI assistants working on the
 
 - Use memory-mapped I/O (`memmap2`) for efficient file access
 - Implement zero-copy operations where possible
-- Use Aho-Corasick indexing for multi-pattern string searches
-- Cache compiled magic rules for performance
+- Use Aho-Corasick indexing for multi-pattern string searches (planned)
+- Cache compiled magic rules for performance (planned)
 - Profile with `cargo bench` for performance regressions
 
 ### 4. Testing Required
@@ -64,9 +64,16 @@ Target File → Memory Mapper → File Buffer
 ```rust
 // Core data structures in lib.rs
 pub struct MagicRule { /* ... */ }
-pub enum TypeKind { Byte, Short, Long, String }
-pub enum Operator { Equal, NotEqual, BitwiseAnd, BitwiseAndMask }
-// Additional types and operators are planned for v1.0+
+pub enum TypeKind {
+    Byte,
+    Short { endian: Endianness, signed: bool },
+    Long { endian: Endianness, signed: bool },
+    String { max_length: Option<usize> },
+}
+pub enum Operator {
+    Equal, NotEqual, BitwiseAnd, BitwiseAndMask(u64),
+}
+// Additional types and operators are planned -- see Current Limitations below
 
 // Parser module structure
 parser/
@@ -178,7 +185,7 @@ cargo test --doc   # Test documentation examples
 
 ### Currently Implemented (v0.1.0)
 
-- **Offsets**: Absolute, indirect, relative, and from-end specifications
+- **Offsets**: Absolute and from-end specifications (indirect and relative are parsed but not yet evaluated)
 - **Types**: `byte`, `short`, `long`, `string` with endianness support
 - **Operators**: `=` (equal), `!=` (not equal), `&` (bitwise AND with optional mask)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
@@ -226,8 +233,9 @@ impl BinaryRegex for regex::bytes::Regex {
 
 ### Offset Specifications
 
-- Indirect offsets implemented but may not support all libmagic syntax variations
-- No support for complex offset expressions
+- Indirect offsets are parsed into the AST but evaluation is not yet implemented (#37)
+- Relative offsets are parsed into the AST but evaluation is not yet implemented (#38)
+- Only absolute and from-end offsets are fully functional
 
 ### Magic File Syntax
 
@@ -425,8 +433,8 @@ The project includes automated CI checks via `.kiro/hooks/ci-auto-fix.kiro.hook`
 - `nom`: Parser combinators
 - `serde`: Serialization
 - `clap`: CLI argument parsing
-- `regex`: Pattern matching
-- `aho-corasick`: Multi-pattern search
+- `regex`: Pattern matching (used in tests; regex *type* for magic rules is planned)
+- `aho-corasick`: Multi-pattern search (planned, not yet added)
 
 ### Development Phases
 
