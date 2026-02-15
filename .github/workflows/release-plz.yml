@@ -16,7 +16,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          persist-credentials: false
+          # persist-credentials required for pushing signed tags via git CLI
+          persist-credentials: true
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Run release-plz
