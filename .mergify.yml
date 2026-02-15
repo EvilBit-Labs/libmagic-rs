@@ -11,10 +11,10 @@ queue_rules:
       - check-success = coverage
 
 pull_request_rules:
-  - name: Queue PRs when approved
+  - name: Queue PRs when approved by maintainer
     conditions:
       - base = main
-      - "#approved-reviews-by >= 1"
+      - "approved-reviews-by=@maintainers"
       - label != do-not-merge
     actions:
       queue:
