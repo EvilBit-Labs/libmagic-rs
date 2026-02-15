@@ -201,7 +201,7 @@ cargo test --doc   # Test documentation examples
 
 ### Future Enhancement: Binary-Safe Regex Handling
 
-> The following is planned for future releases and is not yet implemented.
+> **Note:** The following is planned for future releases and is not yet implemented.
 
 ```rust
 // Use regex crate with bytes feature for binary-safe matching
@@ -222,7 +222,7 @@ impl BinaryRegex for regex::bytes::Regex {
 - No 64-bit integer types (quad, qquad)
 - No floating-point types (float, double, befloat, lefloat)
 - No date/time types (date, qdate, ldate, qldate)
-- String type supports null-terminated strings only (no fixed-length strings)
+- String evaluation reads until first NUL or end-of-buffer by default; `max_length: Some(_)` is supported internally but no dedicated fixed-length string parser syntax exists yet
 
 ### Operators
 
@@ -535,8 +535,8 @@ This project has the OSSF Best Practices passing badge. Maintain these standards
 ### Security:
 - Vulnerabilities go through private reporting (GitHub advisories or support@evilbitlabs.io), never public issues
 - `cargo audit` and `cargo deny` run daily in CI -- fix findings promptly
-- Medium+ severity vulnerabilities must be fixed within 60 days of public disclosure
-- `#![forbid(unsafe_code)]` is enforced project-wide -- this is a hardening mechanism, not a suggestion
+- Medium+ severity vulnerabilities: we aim to release a fix within 90 days of confirmation (see SECURITY.md for canonical policy)
+- `unsafe_code = "forbid"` is enforced project-wide via workspace lints in `Cargo.toml` -- this is a hardening mechanism, not a suggestion
 - `docs/src/security-assurance.md` must be updated when new attack surface is introduced
 
 ### Documentation:

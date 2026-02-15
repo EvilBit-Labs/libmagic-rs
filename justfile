@@ -71,7 +71,7 @@ lint: lint-rust lint-actions lint-docs lint-justfile
 
 # Individual lint recipes
 lint-actions:
-    @{{ mise_exec }} actionlint .github/workflows/audit.yml .github/workflows/benchmarks.yml .github/workflows/ci.yml .github/workflows/codeql.yml .github/workflows/compatibility.yml .github/workflows/copilot-setup-steps.yml .github/workflows/docs.yml .github/workflows/release.yml .github/workflows/security.yml
+    @{{ mise_exec }} actionlint .github/workflows/audit.yml .github/workflows/benchmarks.yml .github/workflows/ci.yml .github/workflows/codeql.yml .github/workflows/compatibility.yml .github/workflows/copilot-setup-steps.yml .github/workflows/docs.yml .github/workflows/release.yml .github/workflows/scorecard.yml .github/workflows/security.yml
 
 lint-docs:
     @{{ mise_exec }} markdownlint-cli2 docs/**/*.md README.md
@@ -177,7 +177,7 @@ coverage:
     @just _coverage
 
 coverage-check:
-    @just _coverage --fail-under-lines 9.7
+    @just _coverage --fail-under-lines 85
 
 # Generate HTML coverage report for local viewing
 [unix]

@@ -13,7 +13,7 @@ See [GitHub Milestones](https://github.com/EvilBit-Labs/libmagic-rs/milestones) 
 - [x] Built-in fallback rules with build-time compilation
 - [x] Strength calculation and `!:strength` parsing
 - [x] Comprehensive error handling, rustdoc, and mdbook documentation
-- [x] 94%+ test coverage across 1,058+ tests
+- [x] High test coverage across 1,058+ tests
 
 ## v0.2.0 - Core Primitives
 
