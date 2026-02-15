@@ -1,4 +1,29 @@
 merge_protections:
+  - name: CI must pass
+    description: >-
+      All CI checks must pass or be legitimately skipped (path filtering).
+      Matrix job names differ between running and skipped states, so the
+      test-cross-platform rule uses an and/or pattern to handle both.
+    if:
+      - base = main
+    success_conditions:
+      - or:
+          - check-success = quality
+          - check-skipped = quality
+      - or:
+          - check-success = test
+          - check-skipped = test
+      - or:
+          - and:
+              - "check-success = test-cross-platform (ubuntu-latest, Linux)"
+              - "check-success = test-cross-platform (ubuntu-22.04, Linux)"
+              - "check-success = test-cross-platform (macos-latest, macOS)"
+              - "check-success = test-cross-platform (windows-latest, Windows)"
+          - check-skipped = test-cross-platform
+      - or:
+          - check-success = coverage
+          - check-skipped = coverage
+
   - name: Do not merge outdated PRs
     description: Make sure PRs are almost up to date before merging
     if:
