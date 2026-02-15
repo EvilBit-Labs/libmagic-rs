@@ -18,7 +18,7 @@ We take the security of libmagic-rs seriously. If you believe you have found a s
 Instead, use one of the following channels:
 
 1. [GitHub Private Vulnerability Reporting](https://github.com/EvilBit-Labs/libmagic-rs/security/advisories/new) (preferred)
-2. Email [security@evilbitlabs.com](mailto:security@evilbitlabs.com)
+2. Email [security@evilbitlabs.com](mailto:security@evilbitlabs.com) encrypted with our [PGP key](#pgp-key) (verify the full fingerprint below before use)
 
 Please include:
 
@@ -80,6 +80,29 @@ We support safe harbor for security researchers who:
 - Report vulnerabilities through the channels described above
 
 We will not pursue legal action against researchers who follow this policy.
+
+## PGP Key
+
+**Fingerprint:** `F839 4B2C F0FE C451 1B11 E721 8F71 D62B F438 2BC0`
+
+```text
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+mDMEaLJmxhYJKwYBBAHaRw8BAQdAaS3KAoo+AgZGR6G6+m0wT2yulC5d6zV9lf2m
+TugBT+O0L3N1cHBvcnRAZXZpbGJpdGxhYnMuaW8gPHN1cHBvcnRAZXZpbGJpdGxh
+YnMuaW8+iNcEExYKAH8DCwkHRRQAAAAAABwAIHNhbHRAbm90YXRpb25zLm9wZW5w
+Z3Bqcy5vcmexd21FpCDfIrO7bf+T6hH/8drbGLWiuEueWvSTyw4T/QMVCggEFgAC
+AQIZAQKbAwIeARYhBPg5Syzw/sRRGxHnIY9x1iv0OCvABQJpiUiCBQkIXQE5AAoJ
+EI9x1iv0OCvAm2sA/AqFT6XEULJCimXX9Ve6e63RX7y2B+VoBVHt+PDaPBwkAP4j
+39xBoLFI6KZJ/A7SOQBkret+VONwPqyW83xfn+E7Arg4BGiyZsYSCisGAQQBl1UB
+BQEBB0ArjU33Uj/x1Kc7ldjVIM9UUCWMTwDWgw8lB/mNESb+GgMBCAeIvgQYFgoA
+cAWCaLJmxgkQj3HWK/Q4K8BFFAAAAAAAHAAgc2FsdEBub3RhdGlvbnMub3BlbnBn
+cGpzLm9yZ4msIB6mugSL+LkdT93+rSeNePtBY4Aj+O6TRFU9aKiQApsMFiEE+DlL
+LPD+xFEbEechj3HWK/Q4K8AAALEXAQDqlsBwMP2XXzXDSnNNLg8yh1/zQcxT1zZ1
+Z26lyM7L6QD+Lya5aFe74WE3wTys5ykGuWkHYEgba+AyZNmuPhwMGAc=
+=9zSi
+-----END PGP PUBLIC KEY BLOCK-----
+```
 
 ## Contact
 
