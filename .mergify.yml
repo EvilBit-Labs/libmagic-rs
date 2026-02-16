@@ -1,3 +1,73 @@
+queue_rules:
+  - name: default
+    merge_method: squash
+    merge_conditions:
+      - check-success = quality
+      - check-success = test
+      - "check-success = test-cross-platform (ubuntu-latest, Linux)"
+      - "check-success = test-cross-platform (ubuntu-22.04, Linux)"
+      - "check-success = test-cross-platform (macos-latest, macOS)"
+      - "check-success = test-cross-platform (windows-latest, Windows)"
+      - check-success = coverage
+
+pull_request_rules:
+  # Tier 1: Maintainer PRs -- queue when maintainer adds 'lgtm' label
+  - name: Queue maintainer PRs with lgtm label
+    conditions:
+      - base = main
+      - "author=@maintainers"
+      - label = lgtm
+      - label != do-not-merge
+    actions:
+      queue:
+        name: default
+
+  # Tier 2: Trusted bot PRs -- auto-queue when checks pass
+  - name: Auto-queue release-plz PRs
+    conditions:
+      - base = main
+      - "head ~= ^release-plz-"
+      - label != do-not-merge
+    actions:
+      queue:
+        name: default
+
+  - name: Auto-approve and queue dependabot PRs
+    conditions:
+      - base = main
+      - author = dependabot[bot]
+      - label != do-not-merge
+      - -files~=\.github/workflows/release\.yml
+    actions:
+      review:
+        type: APPROVE
+        message: Automatically approved by Mergify
+      queue:
+        name: default
+
+  # Tier 3: All other PRs (external contributors, copilot) -- require maintainer approval
+  - name: Queue external PRs when approved by maintainer
+    conditions:
+      - base = main
+      - "-author=@maintainers"
+      - author != dependabot[bot]
+      - "-head ~= ^release-plz-"
+      - "approved-reviews-by=@maintainers"
+      - label != do-not-merge
+    actions:
+      queue:
+        name: default
+
+  - name: Keep PRs up to date with main
+    conditions:
+      - base = main
+      - -conflict
+      - -draft
+      - -author = dependabot[bot]
+      - label != do-not-merge
+    actions:
+      update: {}
+
 merge_protections:
   - name: CI must pass
     description: All CI checks must pass or be legitimately skipped (path
