@@ -188,13 +188,12 @@ cargo test --doc   # Test documentation examples
 
 - **Offsets**: Absolute and from-end specifications (indirect and relative are parsed but not yet evaluated)
 - **Types**: `byte`, `short`, `long`, `string` with endianness support
-- **Operators**: `=` (equal), `!=` (not equal), `&` (bitwise AND with optional mask)
+- **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
 - **String Matching**: Exact string matching with null-termination
 
 ### Planned Features (v1.0+)
 
-- Comparison operators: `>`, `<`, `>=`, `<=`
 - Bitwise XOR operator: `^`
 - Regex type: Pattern matching with binary-safe regex support
 - Additional types: 64-bit integers, floats, doubles, dates
@@ -227,7 +226,6 @@ impl BinaryRegex for regex::bytes::Regex {
 
 ### Operators
 
-- Comparison operators (`>`, `<`, `>=`, `<=`) are parsed but evaluation is not yet implemented
 - No XOR operator (`^`)
 - No negation operator (`~`)
 - BitwiseAnd supports mask values but not all libmagic mask syntax
