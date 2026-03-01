@@ -91,6 +91,11 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
         Operator::Equal => 10,
         // Inequality is somewhat specific
         Operator::NotEqual => 5,
+        // Comparison operators are moderately specific
+        Operator::LessThan
+        | Operator::GreaterThan
+        | Operator::LessEqual
+        | Operator::GreaterEqual => 6,
         // Bitwise AND with mask is moderately specific
         Operator::BitwiseAndMask(_) => 7,
         // Plain bitwise AND is least specific

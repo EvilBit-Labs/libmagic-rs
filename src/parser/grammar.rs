@@ -141,6 +141,10 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
 /// Supports both symbolic and text representations of operators:
 /// - `=` or `==` for equality
 /// - `!=` or `<>` for inequality
+/// - `<` for less-than
+/// - `>` for greater-than
+/// - `<=` for less-than-or-equal
+/// - `>=` for greater-than-or-equal
 /// - `&` for bitwise AND
 ///
 /// # Examples
@@ -153,6 +157,10 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
 /// assert_eq!(parse_operator("=="), Ok(("", Operator::Equal)));
 /// assert_eq!(parse_operator("!="), Ok(("", Operator::NotEqual)));
 /// assert_eq!(parse_operator("<>"), Ok(("", Operator::NotEqual)));
+/// assert_eq!(parse_operator("<"), Ok(("", Operator::LessThan)));
+/// assert_eq!(parse_operator(">"), Ok(("", Operator::GreaterThan)));
+/// assert_eq!(parse_operator("<="), Ok(("", Operator::LessEqual)));
+/// assert_eq!(parse_operator(">="), Ok(("", Operator::GreaterEqual)));
 /// assert_eq!(parse_operator("&"), Ok(("", Operator::BitwiseAnd)));
 /// ```
 ///
@@ -188,6 +196,16 @@ pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
         return Ok((remaining, Operator::NotEqual));
     }
 
+    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("<=")(input) {
+        let (remaining, _) = multispace0(remaining)?;
+        return Ok((remaining, Operator::LessEqual));
+    }
+
+    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>(">=")(input) {
+        let (remaining, _) = multispace0(remaining)?;
+        return Ok((remaining, Operator::GreaterEqual));
+    }
+
     if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("=")(input) {
         // Check that we don't have another '=' following (to reject "==")
         if remaining.starts_with('=') {
@@ -210,6 +228,30 @@ pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
         }
         let (remaining, _) = multispace0(remaining)?;
         return Ok((remaining, Operator::BitwiseAnd));
+    }
+
+    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("<")(input) {
+        // Reject if next char would form a longer token (<> or <=)
+        if remaining.starts_with('>') || remaining.starts_with('=') {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Tag,
+            )));
+        }
+        let (remaining, _) = multispace0(remaining)?;
+        return Ok((remaining, Operator::LessThan));
+    }
+
+    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>(">")(input) {
+        // Reject if next char would form a longer token (>=)
+        if remaining.starts_with('=') {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Tag,
+            )));
+        }
+        let (remaining, _) = multispace0(remaining)?;
+        return Ok((remaining, Operator::GreaterThan));
     }
 
     // If no operator matches, return an error
@@ -837,11 +879,25 @@ mod tests {
             Ok(("extra", Operator::NotEqual))
         );
 
-        // Test that "<>" is parsed correctly
+        // Test that "<>" is parsed correctly, not as "<" followed by ">"
         assert_eq!(parse_operator("<>"), Ok(("", Operator::NotEqual)));
         assert_eq!(
             parse_operator("<> extra"),
             Ok(("extra", Operator::NotEqual))
+        );
+
+        // Test that "<=" is parsed as LessEqual, not "<" followed by "="
+        assert_eq!(parse_operator("<="), Ok(("", Operator::LessEqual)));
+        assert_eq!(
+            parse_operator("<= extra"),
+            Ok(("extra", Operator::LessEqual))
+        );
+
+        // Test that ">=" is parsed as GreaterEqual, not ">" followed by "="
+        assert_eq!(parse_operator(">="), Ok(("", Operator::GreaterEqual)));
+        assert_eq!(
+            parse_operator(">= extra"),
+            Ok(("extra", Operator::GreaterEqual))
         );
     }
 
@@ -851,8 +907,6 @@ mod tests {
         assert!(parse_operator("").is_err());
         assert!(parse_operator("abc").is_err());
         assert!(parse_operator("123").is_err());
-        assert!(parse_operator(">").is_err());
-        assert!(parse_operator("<").is_err());
         assert!(parse_operator("!").is_err());
         assert!(parse_operator("===").is_err()); // Too many equals
         assert!(parse_operator("&&").is_err()); // Double ampersand not supported
@@ -909,6 +963,10 @@ mod tests {
             ("==", Operator::Equal),
             ("!=", Operator::NotEqual),
             ("<>", Operator::NotEqual),
+            ("<", Operator::LessThan),
+            (">", Operator::GreaterThan),
+            ("<=", Operator::LessEqual),
+            (">=", Operator::GreaterEqual),
             ("&", Operator::BitwiseAnd),
         ];
 
@@ -919,6 +977,80 @@ mod tests {
                 "Failed to parse operator: '{input}'"
             );
         }
+    }
+
+    #[test]
+    fn test_parse_operator_less_than() {
+        // Basic less-than
+        assert_eq!(parse_operator("<"), Ok(("", Operator::LessThan)));
+
+        // With whitespace
+        assert_eq!(parse_operator(" < "), Ok(("", Operator::LessThan)));
+        assert_eq!(parse_operator("  <  "), Ok(("", Operator::LessThan)));
+        assert_eq!(parse_operator("\t<\t"), Ok(("", Operator::LessThan)));
+
+        // With remaining input
+        assert_eq!(parse_operator("< 42"), Ok(("42", Operator::LessThan)));
+    }
+
+    #[test]
+    fn test_parse_operator_greater_than() {
+        // Basic greater-than
+        assert_eq!(parse_operator(">"), Ok(("", Operator::GreaterThan)));
+
+        // With whitespace
+        assert_eq!(parse_operator(" > "), Ok(("", Operator::GreaterThan)));
+        assert_eq!(parse_operator("  >  "), Ok(("", Operator::GreaterThan)));
+        assert_eq!(parse_operator("\t>\t"), Ok(("", Operator::GreaterThan)));
+
+        // With remaining input
+        assert_eq!(parse_operator("> 42"), Ok(("42", Operator::GreaterThan)));
+    }
+
+    #[test]
+    fn test_parse_operator_less_equal() {
+        // Basic less-or-equal
+        assert_eq!(parse_operator("<="), Ok(("", Operator::LessEqual)));
+
+        // With whitespace
+        assert_eq!(parse_operator(" <= "), Ok(("", Operator::LessEqual)));
+        assert_eq!(parse_operator("  <=  "), Ok(("", Operator::LessEqual)));
+        assert_eq!(parse_operator("\t<=\t"), Ok(("", Operator::LessEqual)));
+
+        // With remaining input
+        assert_eq!(parse_operator("<= 42"), Ok(("42", Operator::LessEqual)));
+    }
+
+    #[test]
+    fn test_parse_operator_greater_equal() {
+        // Basic greater-or-equal
+        assert_eq!(parse_operator(">="), Ok(("", Operator::GreaterEqual)));
+
+        // With whitespace
+        assert_eq!(parse_operator(" >= "), Ok(("", Operator::GreaterEqual)));
+        assert_eq!(parse_operator("  >=  "), Ok(("", Operator::GreaterEqual)));
+        assert_eq!(parse_operator("\t>=\t"), Ok(("", Operator::GreaterEqual)));
+
+        // With remaining input
+        assert_eq!(parse_operator(">= 42"), Ok(("42", Operator::GreaterEqual)));
+    }
+
+    #[test]
+    fn test_parse_operator_comparison_disambiguation() {
+        // <> still parses as NotEqual
+        assert_eq!(parse_operator("<>"), Ok(("", Operator::NotEqual)));
+
+        // <= parses as LessEqual, not LessThan with "=" remaining
+        assert_eq!(parse_operator("<="), Ok(("", Operator::LessEqual)));
+
+        // >= parses as GreaterEqual, not GreaterThan with "=" remaining
+        assert_eq!(parse_operator(">="), Ok(("", Operator::GreaterEqual)));
+
+        // "< >" (with space) parses as LessThan with "> " remaining
+        assert_eq!(parse_operator("< >"), Ok((">", Operator::LessThan)));
+
+        // "> =" (with space) parses as GreaterThan with "= " remaining
+        assert_eq!(parse_operator("> ="), Ok(("=", Operator::GreaterThan)));
     }
 
     // Value parsing tests

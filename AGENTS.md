@@ -138,6 +138,7 @@ pub fn evaluate_magic_rules(
 
 - `src/error.rs` is shared with `build.rs` -- cannot reference lib-only types like `crate::io::IoError`
 - `FileError(String)` wraps structured I/O errors as strings to work around the build.rs constraint
+- `build.rs` and `src/build_helpers.rs` have duplicate `serialize_*` functions -- both must be updated when adding enum variants
 - Use `ParseError::IoError` for I/O errors in parser code, not `ParseError::invalid_syntax`
 - Use `LibmagicError::ConfigError` for config validation, not `ParseError::invalid_syntax`
 - Clippy pedantic lints are active (e.g., prefer `trailing_zeros()` over bitwise masks)
@@ -226,7 +227,7 @@ impl BinaryRegex for regex::bytes::Regex {
 
 ### Operators
 
-- No comparison operators (`>`, `<`, `>=`, `<=`)
+- Comparison operators (`>`, `<`, `>=`, `<=`) are parsed but evaluation is not yet implemented
 - No XOR operator (`^`)
 - No negation operator (`~`)
 - BitwiseAnd supports mask values but not all libmagic mask syntax
@@ -316,13 +317,16 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 
 ### Adding New Operators
 
-> **Note:** Currently implemented operators are `Equal`, `NotEqual`, and `BitwiseAnd` (with `BitwiseAndMask`). Comparison operators (`>`, `<`) and XOR (`^`) are planned for future releases.
+> **Note:** Currently implemented operators are `Equal`, `NotEqual`, `LessThan`, `GreaterThan`, `LessEqual`, `GreaterEqual`, and `BitwiseAnd` (with `BitwiseAndMask`). XOR (`^`) is planned for future releases.
 
 1. Extend `Operator` enum in `src/parser/ast.rs`
 2. Add parsing logic in `src/parser/grammar.rs`
 3. Implement operator logic in `src/evaluator/operators.rs`
-4. Add tests for the new operator
-5. Update documentation
+4. Update `serialize_operator()` in both `src/build_helpers.rs` AND `build.rs` (they have duplicate match statements)
+5. Update strength calculation match in `src/evaluator/strength.rs`
+6. Update `arb_operator()` in `tests/property_tests.rs`
+7. Add tests for the new operator
+8. Update documentation
 
 ### Performance Optimization
 

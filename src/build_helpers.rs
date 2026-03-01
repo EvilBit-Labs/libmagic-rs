@@ -235,6 +235,10 @@ fn serialize_operator(op: &Operator) -> String {
     match op {
         Operator::Equal => "Operator::Equal".to_string(),
         Operator::NotEqual => "Operator::NotEqual".to_string(),
+        Operator::LessThan => "Operator::LessThan".to_string(),
+        Operator::GreaterThan => "Operator::GreaterThan".to_string(),
+        Operator::LessEqual => "Operator::LessEqual".to_string(),
+        Operator::GreaterEqual => "Operator::GreaterEqual".to_string(),
         Operator::BitwiseAnd => "Operator::BitwiseAnd".to_string(),
         Operator::BitwiseAndMask(mask) => format!("Operator::BitwiseAndMask({mask})"),
     }

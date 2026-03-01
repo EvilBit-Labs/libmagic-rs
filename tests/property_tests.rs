@@ -59,6 +59,10 @@ fn arb_operator() -> impl Strategy<Value = Operator> {
     prop_oneof![
         Just(Operator::Equal),
         Just(Operator::NotEqual),
+        Just(Operator::LessThan),
+        Just(Operator::GreaterThan),
+        Just(Operator::LessEqual),
+        Just(Operator::GreaterEqual),
         Just(Operator::BitwiseAnd),
         (0u64..=255u64).prop_map(Operator::BitwiseAndMask),
     ]

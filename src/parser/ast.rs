@@ -106,13 +106,93 @@ pub enum TypeKind {
 /// Comparison and bitwise operators
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Operator {
-    /// Equality comparison
+    /// Equality comparison (`=` or `==`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::Equal;
+    /// assert_eq!(op, Operator::Equal);
+    /// ```
     Equal,
-    /// Inequality comparison
+    /// Inequality comparison (`!=` or `<>`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::NotEqual;
+    /// assert_eq!(op, Operator::NotEqual);
+    /// ```
     NotEqual,
-    /// Bitwise AND operation (without mask)
+    /// Less-than comparison (`<`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::LessThan;
+    /// assert_eq!(op, Operator::LessThan);
+    /// ```
+    LessThan,
+    /// Greater-than comparison (`>`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::GreaterThan;
+    /// assert_eq!(op, Operator::GreaterThan);
+    /// ```
+    GreaterThan,
+    /// Less-than-or-equal comparison (`<=`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::LessEqual;
+    /// assert_eq!(op, Operator::LessEqual);
+    /// ```
+    LessEqual,
+    /// Greater-than-or-equal comparison (`>=`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::GreaterEqual;
+    /// assert_eq!(op, Operator::GreaterEqual);
+    /// ```
+    GreaterEqual,
+    /// Bitwise AND operation without mask (`&`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::BitwiseAnd;
+    /// assert_eq!(op, Operator::BitwiseAnd);
+    /// ```
     BitwiseAnd,
-    /// Bitwise AND operation with mask value
+    /// Bitwise AND operation with mask value (`&` with a mask operand)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::BitwiseAndMask(0xFF00);
+    /// assert_eq!(op, Operator::BitwiseAndMask(0xFF00));
+    /// ```
     BitwiseAndMask(u64),
 }
 
