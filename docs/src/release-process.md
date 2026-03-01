@@ -105,24 +105,21 @@ version = "0.2.0"    # Update version
 ```markdown
 # Changelog
 
-## [0.2.0] - 2024-03-15
+## [0.2.0] - 2026-03-01
 
-### Added
-- Magic file parser implementation
-- Basic rule evaluation engine
-- Memory-mapped file I/O support
+### Features
+- **parser**: Implement comparison operators
 
-### Changed
-- Improved AST structure for better performance
-- Enhanced error messages with more context
-
-### Fixed
-- Buffer overflow protection in string reading
-- Proper handling of indirect offsets
+### Miscellaneous Tasks
+- **Mergify**: Add outdated PR protection
+- Add Mergify merge queue and simplify CI
+- Mergify merge queue, dependabot integration, and CI simplification
+- **release**: Add regex for version bumping based on commit types
 
 ### Breaking Changes
-- `EvaluationConfig` structure modified
-- `MagicRule::new()` signature changed
+- `TypeKind::Byte` variant changed from unit variant to a different kind
+- `Operator` enum: added `LessThan`, `GreaterThan`, `LessEqual`, `GreaterEqual` variants (exhaustive enum)
+- `read_byte` function signature changed (parameter count modified)
 ```
 
 ### Release Creation
