@@ -306,9 +306,12 @@ pub fn evaluate_single_rule(
     let read_value = types::read_typed_value(buffer, absolute_offset, &rule.typ)
         .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
 
-    // Step 3: Apply the operator to compare the read value with the expected value
+    // Step 3: Coerce the rule's expected value to match the type's signedness/width
+    let expected_value = types::coerce_value_to_type(&rule.value, &rule.typ);
+
+    // Step 4: Apply the operator to compare the read value with the expected value
     Ok(
-        operators::apply_operator(&rule.op, &read_value, &rule.value)
+        operators::apply_operator(&rule.op, &read_value, &expected_value)
             .then_some((absolute_offset, read_value)),
     )
 }

@@ -369,6 +369,56 @@ pub fn read_typed_value(
     }
 }
 
+/// Coerce a rule's expected value to match the type's signedness and width.
+///
+/// In libmagic, comparison values like `0xff` in `0 byte =0xff` are interpreted
+/// at the type's bit width. For a signed byte, `0xff` means `-1` (the signed
+/// interpretation of that bit pattern). This function performs that coercion so
+/// that comparisons work correctly regardless of how the value was parsed.
+///
+/// Only affects `Value::Uint` values paired with signed types whose values exceed
+/// the signed range. All other combinations pass through unchanged.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::evaluator::types::coerce_value_to_type;
+/// use libmagic_rs::parser::ast::{TypeKind, Value};
+///
+/// // 0xff for signed byte -> -1
+/// let coerced = coerce_value_to_type(&Value::Uint(0xff), &TypeKind::Byte { signed: true });
+/// assert_eq!(coerced, Value::Int(-1));
+///
+/// // 0x7f for signed byte -> unchanged (fits in signed range)
+/// let coerced = coerce_value_to_type(&Value::Uint(0x7f), &TypeKind::Byte { signed: true });
+/// assert_eq!(coerced, Value::Uint(0x7f));
+///
+/// // Unsigned types pass through unchanged
+/// let coerced = coerce_value_to_type(&Value::Uint(0xff), &TypeKind::Byte { signed: false });
+/// assert_eq!(coerced, Value::Uint(0xff));
+/// ```
+#[must_use]
+pub fn coerce_value_to_type(value: &Value, type_kind: &TypeKind) -> Value {
+    match (value, type_kind) {
+        (Value::Uint(v), TypeKind::Byte { signed: true }) if *v > i8::MAX as u64 =>
+        {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            Value::Int(i64::from(*v as u8 as i8))
+        }
+        (Value::Uint(v), TypeKind::Short { signed: true, .. }) if *v > i16::MAX as u64 =>
+        {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            Value::Int(i64::from(*v as u16 as i16))
+        }
+        (Value::Uint(v), TypeKind::Long { signed: true, .. }) if *v > i32::MAX as u64 =>
+        {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            Value::Int(i64::from(*v as u32 as i32))
+        }
+        _ => value.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1399,5 +1449,169 @@ fn test_read_typed_value_empty_buffer() {
             }
             TypeReadError::UnsupportedType { .. } => panic!("Expected BufferOverrun error"),
         }
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn test_coerce_value_to_type() {
+    let cases = [
+        // Signed byte: values above i8::MAX get coerced
+        (
+            Value::Uint(0xff),
+            TypeKind::Byte { signed: true },
+            Value::Int(-1),
+        ),
+        (
+            Value::Uint(0x80),
+            TypeKind::Byte { signed: true },
+            Value::Int(-128),
+        ),
+        (
+            Value::Uint(0xfe),
+            TypeKind::Byte { signed: true },
+            Value::Int(-2),
+        ),
+        // Signed byte: values in signed range pass through
+        (
+            Value::Uint(0x7f),
+            TypeKind::Byte { signed: true },
+            Value::Uint(0x7f),
+        ),
+        (
+            Value::Uint(0),
+            TypeKind::Byte { signed: true },
+            Value::Uint(0),
+        ),
+        (
+            Value::Uint(1),
+            TypeKind::Byte { signed: true },
+            Value::Uint(1),
+        ),
+        // Unsigned byte: all values pass through
+        (
+            Value::Uint(0xff),
+            TypeKind::Byte { signed: false },
+            Value::Uint(0xff),
+        ),
+        (
+            Value::Uint(0x80),
+            TypeKind::Byte { signed: false },
+            Value::Uint(0x80),
+        ),
+        // Signed short: values above i16::MAX get coerced
+        (
+            Value::Uint(0xffff),
+            TypeKind::Short {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Int(-1),
+        ),
+        (
+            Value::Uint(0x8000),
+            TypeKind::Short {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Int(-32768),
+        ),
+        (
+            Value::Uint(0xffd8),
+            TypeKind::Short {
+                endian: Endianness::Big,
+                signed: true,
+            },
+            Value::Int(-40),
+        ),
+        // Signed short: values in signed range pass through
+        (
+            Value::Uint(0x7fff),
+            TypeKind::Short {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Uint(0x7fff),
+        ),
+        // Unsigned short: all values pass through
+        (
+            Value::Uint(0xffff),
+            TypeKind::Short {
+                endian: Endianness::Native,
+                signed: false,
+            },
+            Value::Uint(0xffff),
+        ),
+        // Signed long: values above i32::MAX get coerced
+        (
+            Value::Uint(0xffff_ffff),
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Int(-1),
+        ),
+        (
+            Value::Uint(0x8000_0000),
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Int(-2_147_483_648),
+        ),
+        (
+            Value::Uint(0x8950_4e47),
+            TypeKind::Long {
+                endian: Endianness::Big,
+                signed: true,
+            },
+            Value::Int(-1_991_225_785),
+        ),
+        // Signed long: values in signed range pass through
+        (
+            Value::Uint(0x7fff_ffff),
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Uint(0x7fff_ffff),
+        ),
+        // Unsigned long: all values pass through
+        (
+            Value::Uint(0xffff_ffff),
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: false,
+            },
+            Value::Uint(0xffff_ffff),
+        ),
+        // Non-Uint values pass through unchanged
+        (
+            Value::Int(-1),
+            TypeKind::Byte { signed: true },
+            Value::Int(-1),
+        ),
+        (
+            Value::Int(42),
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Int(42),
+        ),
+        // String type: values pass through
+        (
+            Value::Uint(0xff),
+            TypeKind::String { max_length: None },
+            Value::Uint(0xff),
+        ),
+    ];
+
+    for (i, (input, type_kind, expected)) in cases.iter().enumerate() {
+        let result = coerce_value_to_type(input, type_kind);
+        assert_eq!(
+            result, *expected,
+            "Case {i}: coerce({input:?}, {type_kind:?})"
+        );
     }
 }
