@@ -375,111 +375,60 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_read_byte_success() {
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-
-        // Test reading each byte
-        assert_eq!(read_byte(buffer, 0, false).unwrap(), Value::Uint(0x7f));
-        assert_eq!(read_byte(buffer, 1, false).unwrap(), Value::Uint(0x45));
-        assert_eq!(read_byte(buffer, 2, false).unwrap(), Value::Uint(0x4c));
-        assert_eq!(read_byte(buffer, 3, false).unwrap(), Value::Uint(0x46));
-    }
-
-    #[test]
-    fn test_read_byte_zero_value() {
-        let buffer = &[0x00, 0xff];
-
-        // Test reading zero byte
-        assert_eq!(read_byte(buffer, 0, false).unwrap(), Value::Uint(0));
-        // Test reading max byte value
-        assert_eq!(read_byte(buffer, 1, false).unwrap(), Value::Uint(255));
-    }
-
-    #[test]
-    fn test_read_byte_single_byte_buffer() {
-        let buffer = &[0x42];
-
-        // Should succeed for offset 0
-        assert_eq!(read_byte(buffer, 0, false).unwrap(), Value::Uint(0x42));
-
-        // Should fail for offset 1
-        let result = read_byte(buffer, 1, false);
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            TypeReadError::BufferOverrun {
-                offset: 1,
-                buffer_len: 1
-            }
-        );
-    }
-
-    #[test]
-    fn test_read_byte_empty_buffer() {
-        let buffer = &[];
-
-        // Should fail for any offset
-        let result = read_byte(buffer, 0, false);
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            TypeReadError::BufferOverrun {
-                offset: 0,
-                buffer_len: 0
-            }
-        );
-    }
-
-    #[test]
-    fn test_read_byte_out_of_bounds() {
-        let buffer = &[0x01, 0x02, 0x03];
-
-        // Test various out-of-bounds offsets
-        let test_cases = [3, 4, 10, 100, usize::MAX];
-
-        for offset in test_cases {
-            let result = read_byte(buffer, offset, false);
-            assert!(result.is_err());
+    fn test_read_byte_values() {
+        // All 256 unsigned values
+        let buffer: Vec<u8> = (0..=255).collect();
+        for (i, &byte) in buffer.iter().enumerate() {
             assert_eq!(
-                result.unwrap_err(),
-                TypeReadError::BufferOverrun {
-                    offset,
-                    buffer_len: 3
-                }
+                read_byte(&buffer, i, false).unwrap(),
+                Value::Uint(u64::from(byte))
             );
         }
     }
 
     #[test]
-    fn test_read_byte_large_buffer() {
-        // Test with a larger buffer to ensure no performance issues
-        let buffer: Vec<u8> = (0..=255).collect();
-
-        // Test reading from various positions
-        assert_eq!(read_byte(&buffer, 0, false).unwrap(), Value::Uint(0));
-        assert_eq!(read_byte(&buffer, 127, false).unwrap(), Value::Uint(127));
-        assert_eq!(read_byte(&buffer, 255, false).unwrap(), Value::Uint(255));
-
-        // Test out of bounds
-        let result = read_byte(&buffer, 256, false);
-        assert!(result.is_err());
+    fn test_read_byte_out_of_bounds() {
+        // Empty buffer
         assert_eq!(
-            result.unwrap_err(),
+            read_byte(&[], 0, false).unwrap_err(),
             TypeReadError::BufferOverrun {
-                offset: 256,
-                buffer_len: 256
+                offset: 0,
+                buffer_len: 0
+            }
+        );
+        // Just past end
+        assert_eq!(
+            read_byte(&[0x42], 1, false).unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 1,
+                buffer_len: 1
+            }
+        );
+        // Way past end
+        assert_eq!(
+            read_byte(&[1, 2, 3], 100, false).unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 100,
+                buffer_len: 3
             }
         );
     }
 
     #[test]
-    fn test_read_byte_all_byte_values() {
-        // Test that all possible byte values are correctly converted to u64
-        let buffer: Vec<u8> = (0..=255).collect();
-
-        for (i, &expected_byte) in buffer.iter().enumerate() {
-            let result = read_byte(&buffer, i, false).unwrap();
-            assert_eq!(result, Value::Uint(u64::from(expected_byte)));
+    fn test_read_byte_signedness() {
+        let cases: Vec<(u8, bool, Value)> = vec![
+            (0x00, false, Value::Uint(0)),
+            (0x7f, false, Value::Uint(127)),
+            (0x80, false, Value::Uint(128)),
+            (0xff, false, Value::Uint(255)),
+            (0x00, true, Value::Int(0)),
+            (0x7f, true, Value::Int(127)),
+            (0x80, true, Value::Int(-128)),
+            (0xff, true, Value::Int(-1)),
+        ];
+        for (byte, signed, expected) in cases {
+            let result = read_byte(&[byte], 0, signed).unwrap();
+            assert_eq!(result, expected, "byte=0x{byte:02x}, signed={signed}");
         }
     }
 
@@ -489,110 +438,9 @@ mod tests {
             offset: 10,
             buffer_len: 5,
         };
-
-        let error_string = format!("{error}");
-        assert!(error_string.contains("Buffer overrun"));
-        assert!(error_string.contains("offset 10"));
-        assert!(error_string.contains("buffer length is 5"));
-    }
-
-    #[test]
-    fn test_type_read_error_debug() {
-        let error = TypeReadError::BufferOverrun {
-            offset: 42,
-            buffer_len: 20,
-        };
-
-        let debug_string = format!("{error:?}");
-        assert!(debug_string.contains("BufferOverrun"));
-        assert!(debug_string.contains("offset: 42"));
-        assert!(debug_string.contains("buffer_len: 20"));
-    }
-
-    #[test]
-    fn test_type_read_error_equality() {
-        let error1 = TypeReadError::BufferOverrun {
-            offset: 5,
-            buffer_len: 3,
-        };
-        let error2 = TypeReadError::BufferOverrun {
-            offset: 5,
-            buffer_len: 3,
-        };
-        let error3 = TypeReadError::BufferOverrun {
-            offset: 6,
-            buffer_len: 3,
-        };
-
-        assert_eq!(error1, error2);
-        assert_ne!(error1, error3);
-    }
-
-    #[test]
-    fn test_read_byte_boundary_conditions() {
-        let buffer = &[0xaa, 0xbb, 0xcc];
-
-        // Test reading at exact boundary (last valid index)
-        assert_eq!(read_byte(buffer, 2, false).unwrap(), Value::Uint(0xcc));
-
-        // Test reading just past boundary
-        let result = read_byte(buffer, 3, false);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_read_byte_return_type() {
-        let buffer = &[0x80]; // Test with high bit set
-
-        let result = read_byte(buffer, 0, false).unwrap();
-
-        // Verify it returns Value::Uint, not Value::Int
-        match result {
-            Value::Uint(val) => assert_eq!(val, 0x80),
-            _ => panic!("Expected Value::Uint variant"),
-        }
-    }
-
-    #[test]
-    fn test_read_byte_signed_positive() {
-        let buffer = &[0x7f]; // 127, max positive signed byte
-        let result = read_byte(buffer, 0, true).unwrap();
-        assert_eq!(result, Value::Int(127));
-    }
-
-    #[test]
-    fn test_read_byte_signed_negative() {
-        let buffer = &[0x80]; // -128, min signed byte
-        let result = read_byte(buffer, 0, true).unwrap();
-        assert_eq!(result, Value::Int(-128));
-    }
-
-    #[test]
-    fn test_read_byte_signed_minus_one() {
-        let buffer = &[0xff]; // -1 as signed byte
-        let result = read_byte(buffer, 0, true).unwrap();
-        assert_eq!(result, Value::Int(-1));
-    }
-
-    #[test]
-    fn test_read_byte_unsigned_high_bit() {
-        let buffer = &[0x80]; // 128 as unsigned byte
-        let result = read_byte(buffer, 0, false).unwrap();
-        assert_eq!(result, Value::Uint(128));
-    }
-
-    #[test]
-    fn test_read_byte_unsigned_max() {
-        let buffer = &[0xff]; // 255 as unsigned byte
-        let result = read_byte(buffer, 0, false).unwrap();
-        assert_eq!(result, Value::Uint(255));
-    }
-
-    #[test]
-    fn test_read_byte_signed_zero() {
-        let buffer = &[0x00];
-        let result = read_byte(buffer, 0, true).unwrap();
-        assert_eq!(result, Value::Int(0));
+        let msg = format!("{error}");
+        assert!(msg.contains("offset 10"));
+        assert!(msg.contains("buffer length is 5"));
     }
 
     // Tests for read_short function

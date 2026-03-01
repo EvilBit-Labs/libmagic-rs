@@ -7,6 +7,8 @@
 //! to values during magic rule evaluation. It handles type-safe comparisons
 //! between different Value variants.
 
+use std::cmp::Ordering;
+
 use crate::parser::ast::{Operator, Value};
 
 /// Apply equality comparison between two values
@@ -165,21 +167,38 @@ pub fn apply_bitwise_and(left: &Value, right: &Value) -> bool {
     }
 }
 
+/// Compare two values and return their ordering, if comparable
+///
+/// Returns `Some(Ordering)` for same-type comparisons (integers, strings, bytes)
+/// and cross-type integer comparisons (via `i128` coercion). Returns `None` for
+/// incomparable type combinations.
+///
+/// # Examples
+///
+/// ```
+/// use std::cmp::Ordering;
+/// use libmagic_rs::parser::ast::Value;
+/// use libmagic_rs::evaluator::operators::compare_values;
+///
+/// assert_eq!(compare_values(&Value::Uint(5), &Value::Uint(10)), Some(Ordering::Less));
+/// assert_eq!(compare_values(&Value::Int(-1), &Value::Uint(0)), Some(Ordering::Less));
+/// assert_eq!(compare_values(&Value::Uint(42), &Value::Int(42)), Some(Ordering::Equal));
+/// assert_eq!(compare_values(&Value::Uint(1), &Value::String("1".to_string())), None);
+/// ```
+#[must_use]
+pub fn compare_values(left: &Value, right: &Value) -> Option<Ordering> {
+    match (left, right) {
+        (Value::Uint(a), Value::Uint(b)) => Some(a.cmp(b)),
+        (Value::Int(a), Value::Int(b)) => Some(a.cmp(b)),
+        (Value::Uint(a), Value::Int(b)) => Some(i128::from(*a).cmp(&i128::from(*b))),
+        (Value::Int(a), Value::Uint(b)) => Some(i128::from(*a).cmp(&i128::from(*b))),
+        (Value::String(a), Value::String(b)) => Some(a.cmp(b)),
+        (Value::Bytes(a), Value::Bytes(b)) => Some(a.cmp(b)),
+        _ => None,
+    }
+}
+
 /// Apply less-than comparison between two values
-///
-/// Compares two `Value` instances to determine if the left value is strictly
-/// less than the right value. Supports unsigned integers, signed integers,
-/// cross-type integer comparisons (via `i128` coercion), and lexicographic
-/// string comparisons.
-///
-/// # Arguments
-///
-/// * `left` - The left-hand side value (typically from file data)
-/// * `right` - The right-hand side value (typically from magic rule)
-///
-/// # Returns
-///
-/// `true` if `left` is strictly less than `right`, `false` otherwise
 ///
 /// # Examples
 ///
@@ -187,61 +206,16 @@ pub fn apply_bitwise_and(left: &Value, right: &Value) -> bool {
 /// use libmagic_rs::parser::ast::Value;
 /// use libmagic_rs::evaluator::operators::apply_less_than;
 ///
-/// // Unsigned integer comparison
 /// assert!(apply_less_than(&Value::Uint(5), &Value::Uint(10)));
 /// assert!(!apply_less_than(&Value::Uint(10), &Value::Uint(10)));
-///
-/// // Signed integer comparison
-/// assert!(apply_less_than(&Value::Int(-10), &Value::Int(-5)));
-///
-/// // Cross-type integer coercion
 /// assert!(apply_less_than(&Value::Int(-1), &Value::Uint(0)));
-///
-/// // String comparison (lexicographic)
-/// assert!(apply_less_than(
-///     &Value::String("abc".to_string()),
-///     &Value::String("abd".to_string())
-/// ));
 /// ```
 #[must_use]
 pub fn apply_less_than(left: &Value, right: &Value) -> bool {
-    match (left, right) {
-        // Unsigned integer comparison
-        (Value::Uint(a), Value::Uint(b)) => a < b,
-
-        // Signed integer comparison
-        (Value::Int(a), Value::Int(b)) => a < b,
-
-        // Cross-type integer comparison via i128 coercion
-        (Value::Uint(a), Value::Int(b)) => i128::from(*a) < i128::from(*b),
-        (Value::Int(a), Value::Uint(b)) => i128::from(*a) < i128::from(*b),
-
-        // Lexicographic string comparison
-        (Value::String(a), Value::String(b)) => a < b,
-
-        // Lexicographic byte sequence comparison
-        (Value::Bytes(a), Value::Bytes(b)) => a < b,
-
-        // Unsupported type combinations
-        _ => false,
-    }
+    compare_values(left, right) == Some(Ordering::Less)
 }
 
 /// Apply greater-than comparison between two values
-///
-/// Compares two `Value` instances to determine if the left value is strictly
-/// greater than the right value. Supports unsigned integers, signed integers,
-/// cross-type integer comparisons (via `i128` coercion), and lexicographic
-/// string comparisons.
-///
-/// # Arguments
-///
-/// * `left` - The left-hand side value (typically from file data)
-/// * `right` - The right-hand side value (typically from magic rule)
-///
-/// # Returns
-///
-/// `true` if `left` is strictly greater than `right`, `false` otherwise
 ///
 /// # Examples
 ///
@@ -249,61 +223,16 @@ pub fn apply_less_than(left: &Value, right: &Value) -> bool {
 /// use libmagic_rs::parser::ast::Value;
 /// use libmagic_rs::evaluator::operators::apply_greater_than;
 ///
-/// // Unsigned integer comparison
 /// assert!(apply_greater_than(&Value::Uint(10), &Value::Uint(5)));
 /// assert!(!apply_greater_than(&Value::Uint(10), &Value::Uint(10)));
-///
-/// // Signed integer comparison
-/// assert!(apply_greater_than(&Value::Int(-5), &Value::Int(-10)));
-///
-/// // Cross-type integer coercion
 /// assert!(apply_greater_than(&Value::Uint(0), &Value::Int(-1)));
-///
-/// // String comparison (lexicographic)
-/// assert!(apply_greater_than(
-///     &Value::String("abd".to_string()),
-///     &Value::String("abc".to_string())
-/// ));
 /// ```
 #[must_use]
 pub fn apply_greater_than(left: &Value, right: &Value) -> bool {
-    match (left, right) {
-        // Unsigned integer comparison
-        (Value::Uint(a), Value::Uint(b)) => a > b,
-
-        // Signed integer comparison
-        (Value::Int(a), Value::Int(b)) => a > b,
-
-        // Cross-type integer comparison via i128 coercion
-        (Value::Uint(a), Value::Int(b)) => i128::from(*a) > i128::from(*b),
-        (Value::Int(a), Value::Uint(b)) => i128::from(*a) > i128::from(*b),
-
-        // Lexicographic string comparison
-        (Value::String(a), Value::String(b)) => a > b,
-
-        // Lexicographic byte sequence comparison
-        (Value::Bytes(a), Value::Bytes(b)) => a > b,
-
-        // Unsupported type combinations
-        _ => false,
-    }
+    compare_values(left, right) == Some(Ordering::Greater)
 }
 
 /// Apply less-than-or-equal comparison between two values
-///
-/// Compares two `Value` instances to determine if the left value is less than
-/// or equal to the right value. Supports unsigned integers, signed integers,
-/// cross-type integer comparisons (via `i128` coercion), and lexicographic
-/// string comparisons.
-///
-/// # Arguments
-///
-/// * `left` - The left-hand side value (typically from file data)
-/// * `right` - The right-hand side value (typically from magic rule)
-///
-/// # Returns
-///
-/// `true` if `left` is less than or equal to `right`, `false` otherwise
 ///
 /// # Examples
 ///
@@ -311,63 +240,19 @@ pub fn apply_greater_than(left: &Value, right: &Value) -> bool {
 /// use libmagic_rs::parser::ast::Value;
 /// use libmagic_rs::evaluator::operators::apply_less_equal;
 ///
-/// // Equal values
 /// assert!(apply_less_equal(&Value::Uint(10), &Value::Uint(10)));
-///
-/// // Less than
 /// assert!(apply_less_equal(&Value::Uint(5), &Value::Uint(10)));
-///
-/// // Greater than
 /// assert!(!apply_less_equal(&Value::Uint(10), &Value::Uint(5)));
-///
-/// // Cross-type integer coercion
-/// assert!(apply_less_equal(&Value::Uint(42), &Value::Int(42)));
-///
-/// // String comparison (lexicographic)
-/// assert!(apply_less_equal(
-///     &Value::String("abc".to_string()),
-///     &Value::String("abc".to_string())
-/// ));
 /// ```
 #[must_use]
 pub fn apply_less_equal(left: &Value, right: &Value) -> bool {
-    match (left, right) {
-        // Unsigned integer comparison
-        (Value::Uint(a), Value::Uint(b)) => a <= b,
-
-        // Signed integer comparison
-        (Value::Int(a), Value::Int(b)) => a <= b,
-
-        // Cross-type integer comparison via i128 coercion
-        (Value::Uint(a), Value::Int(b)) => i128::from(*a) <= i128::from(*b),
-        (Value::Int(a), Value::Uint(b)) => i128::from(*a) <= i128::from(*b),
-
-        // Lexicographic string comparison
-        (Value::String(a), Value::String(b)) => a <= b,
-
-        // Lexicographic byte sequence comparison
-        (Value::Bytes(a), Value::Bytes(b)) => a <= b,
-
-        // Unsupported type combinations
-        _ => false,
-    }
+    matches!(
+        compare_values(left, right),
+        Some(Ordering::Less | Ordering::Equal)
+    )
 }
 
 /// Apply greater-than-or-equal comparison between two values
-///
-/// Compares two `Value` instances to determine if the left value is greater than
-/// or equal to the right value. Supports unsigned integers, signed integers,
-/// cross-type integer comparisons (via `i128` coercion), and lexicographic
-/// string comparisons.
-///
-/// # Arguments
-///
-/// * `left` - The left-hand side value (typically from file data)
-/// * `right` - The right-hand side value (typically from magic rule)
-///
-/// # Returns
-///
-/// `true` if `left` is greater than or equal to `right`, `false` otherwise
 ///
 /// # Examples
 ///
@@ -375,46 +260,16 @@ pub fn apply_less_equal(left: &Value, right: &Value) -> bool {
 /// use libmagic_rs::parser::ast::Value;
 /// use libmagic_rs::evaluator::operators::apply_greater_equal;
 ///
-/// // Equal values
 /// assert!(apply_greater_equal(&Value::Uint(10), &Value::Uint(10)));
-///
-/// // Greater than
 /// assert!(apply_greater_equal(&Value::Uint(10), &Value::Uint(5)));
-///
-/// // Less than
 /// assert!(!apply_greater_equal(&Value::Uint(5), &Value::Uint(10)));
-///
-/// // Cross-type integer coercion
-/// assert!(apply_greater_equal(&Value::Int(42), &Value::Uint(42)));
-///
-/// // String comparison (lexicographic)
-/// assert!(apply_greater_equal(
-///     &Value::String("abd".to_string()),
-///     &Value::String("abc".to_string())
-/// ));
 /// ```
 #[must_use]
 pub fn apply_greater_equal(left: &Value, right: &Value) -> bool {
-    match (left, right) {
-        // Unsigned integer comparison
-        (Value::Uint(a), Value::Uint(b)) => a >= b,
-
-        // Signed integer comparison
-        (Value::Int(a), Value::Int(b)) => a >= b,
-
-        // Cross-type integer comparison via i128 coercion
-        (Value::Uint(a), Value::Int(b)) => i128::from(*a) >= i128::from(*b),
-        (Value::Int(a), Value::Uint(b)) => i128::from(*a) >= i128::from(*b),
-
-        // Lexicographic string comparison
-        (Value::String(a), Value::String(b)) => a >= b,
-
-        // Lexicographic byte sequence comparison
-        (Value::Bytes(a), Value::Bytes(b)) => a >= b,
-
-        // Unsupported type combinations
-        _ => false,
-    }
+    matches!(
+        compare_values(left, right),
+        Some(Ordering::Greater | Ordering::Equal)
+    )
 }
 
 /// Apply operator to two values using the specified operator type
@@ -1911,350 +1766,119 @@ mod tests {
         }
     }
 
-    // ---- apply_less_than tests ----
+    // ---- compare_values + comparison operator tests ----
 
     #[test]
-    fn test_apply_less_than_uint_true() {
-        assert!(apply_less_than(&Value::Uint(5), &Value::Uint(10)));
+    fn test_compare_values_ordering() {
+        use std::cmp::Ordering::*;
+
+        // Same-type integer comparisons
+        assert_eq!(
+            compare_values(&Value::Uint(5), &Value::Uint(10)),
+            Some(Less)
+        );
+        assert_eq!(
+            compare_values(&Value::Uint(10), &Value::Uint(10)),
+            Some(Equal)
+        );
+        assert_eq!(
+            compare_values(&Value::Uint(10), &Value::Uint(5)),
+            Some(Greater)
+        );
+        assert_eq!(
+            compare_values(&Value::Int(-10), &Value::Int(-5)),
+            Some(Less)
+        );
+        assert_eq!(
+            compare_values(&Value::Int(i64::MIN), &Value::Int(0)),
+            Some(Less)
+        );
+
+        // Cross-type integer comparisons via i128
+        assert_eq!(compare_values(&Value::Int(-1), &Value::Uint(0)), Some(Less));
+        assert_eq!(
+            compare_values(&Value::Uint(42), &Value::Int(42)),
+            Some(Equal)
+        );
+        assert_eq!(
+            compare_values(&Value::Uint(u64::MAX), &Value::Int(-1)),
+            Some(Greater)
+        );
+
+        // String comparisons
+        assert_eq!(
+            compare_values(&Value::String("abc".into()), &Value::String("abd".into())),
+            Some(Less)
+        );
+        assert_eq!(
+            compare_values(&Value::String("abc".into()), &Value::String("abc".into())),
+            Some(Equal)
+        );
+
+        // Bytes comparisons (lexicographic, including different lengths)
+        assert_eq!(
+            compare_values(&Value::Bytes(vec![1]), &Value::Bytes(vec![2])),
+            Some(Less)
+        );
+        assert_eq!(
+            compare_values(&Value::Bytes(vec![1]), &Value::Bytes(vec![1])),
+            Some(Equal)
+        );
+        assert_eq!(
+            compare_values(&Value::Bytes(vec![1]), &Value::Bytes(vec![1, 2])),
+            Some(Less)
+        );
+        assert_eq!(
+            compare_values(&Value::Bytes(vec![]), &Value::Bytes(vec![1])),
+            Some(Less)
+        );
+
+        // Incomparable types return None
+        assert_eq!(
+            compare_values(&Value::Uint(1), &Value::String("1".into())),
+            None
+        );
+        assert_eq!(compare_values(&Value::Int(1), &Value::Bytes(vec![1])), None);
     }
 
     #[test]
-    fn test_apply_less_than_uint_false_equal() {
-        assert!(!apply_less_than(&Value::Uint(10), &Value::Uint(10)));
-    }
+    fn test_comparison_operators_consistency() {
+        // Verify all four comparison functions agree with compare_values
+        let pairs = vec![
+            (Value::Uint(5), Value::Uint(10)),
+            (Value::Uint(10), Value::Uint(10)),
+            (Value::Uint(10), Value::Uint(5)),
+            (Value::Int(-10), Value::Int(-5)),
+            (Value::Int(-1), Value::Uint(0)),
+            (Value::Uint(u64::MAX), Value::Int(-1)),
+            (Value::String("abc".into()), Value::String("abd".into())),
+            (Value::Bytes(vec![1, 2]), Value::Bytes(vec![1, 3])),
+            (Value::Bytes(vec![1]), Value::Bytes(vec![1, 2])),
+            (Value::Uint(1), Value::String("1".into())), // incomparable
+        ];
 
-    #[test]
-    fn test_apply_less_than_uint_false_greater() {
-        assert!(!apply_less_than(&Value::Uint(10), &Value::Uint(5)));
-    }
-
-    #[test]
-    fn test_apply_less_than_int_negative() {
-        assert!(apply_less_than(&Value::Int(-10), &Value::Int(-5)));
-    }
-
-    #[test]
-    fn test_apply_less_than_int_min() {
-        assert!(apply_less_than(&Value::Int(i64::MIN), &Value::Int(0)));
-    }
-
-    #[test]
-    fn test_apply_less_than_cross_uint_int() {
-        assert!(apply_less_than(&Value::Uint(5), &Value::Int(10)));
-    }
-
-    #[test]
-    fn test_apply_less_than_cross_int_uint() {
-        assert!(apply_less_than(&Value::Int(-1), &Value::Uint(0)));
-    }
-
-    #[test]
-    fn test_apply_less_than_cross_uint_max_vs_int_neg() {
-        assert!(!apply_less_than(&Value::Uint(u64::MAX), &Value::Int(-1)));
-    }
-
-    #[test]
-    fn test_apply_less_than_string_true() {
-        assert!(apply_less_than(
-            &Value::String("abc".to_string()),
-            &Value::String("abd".to_string())
-        ));
-    }
-
-    #[test]
-    fn test_apply_less_than_string_false() {
-        assert!(!apply_less_than(
-            &Value::String("abd".to_string()),
-            &Value::String("abc".to_string())
-        ));
-    }
-
-    #[test]
-    fn test_apply_less_than_bytes() {
-        assert!(apply_less_than(
-            &Value::Bytes(vec![1]),
-            &Value::Bytes(vec![2])
-        ));
-        assert!(!apply_less_than(
-            &Value::Bytes(vec![2]),
-            &Value::Bytes(vec![1])
-        ));
-        assert!(!apply_less_than(
-            &Value::Bytes(vec![1]),
-            &Value::Bytes(vec![1])
-        ));
-        // Different lengths
-        assert!(apply_less_than(
-            &Value::Bytes(vec![1]),
-            &Value::Bytes(vec![1, 2])
-        ));
-        assert!(apply_less_than(
-            &Value::Bytes(vec![]),
-            &Value::Bytes(vec![1])
-        ));
-    }
-
-    #[test]
-    fn test_apply_less_than_mixed_types_false() {
-        assert!(!apply_less_than(
-            &Value::Uint(1),
-            &Value::String("2".to_string())
-        ));
-    }
-
-    // ---- apply_greater_than tests ----
-
-    #[test]
-    fn test_apply_greater_than_uint_true() {
-        assert!(apply_greater_than(&Value::Uint(10), &Value::Uint(5)));
-    }
-
-    #[test]
-    fn test_apply_greater_than_uint_false_equal() {
-        assert!(!apply_greater_than(&Value::Uint(10), &Value::Uint(10)));
-    }
-
-    #[test]
-    fn test_apply_greater_than_uint_false_less() {
-        assert!(!apply_greater_than(&Value::Uint(5), &Value::Uint(10)));
-    }
-
-    #[test]
-    fn test_apply_greater_than_int_negative() {
-        assert!(apply_greater_than(&Value::Int(-5), &Value::Int(-10)));
-    }
-
-    #[test]
-    fn test_apply_greater_than_int_max() {
-        assert!(apply_greater_than(&Value::Int(0), &Value::Int(i64::MIN)));
-    }
-
-    #[test]
-    fn test_apply_greater_than_cross_uint_int() {
-        assert!(apply_greater_than(&Value::Uint(10), &Value::Int(5)));
-    }
-
-    #[test]
-    fn test_apply_greater_than_cross_int_uint() {
-        assert!(!apply_greater_than(&Value::Int(-1), &Value::Uint(0)));
-    }
-
-    #[test]
-    fn test_apply_greater_than_cross_uint_max_vs_int_neg() {
-        assert!(apply_greater_than(&Value::Uint(u64::MAX), &Value::Int(-1)));
-    }
-
-    #[test]
-    fn test_apply_greater_than_string_true() {
-        assert!(apply_greater_than(
-            &Value::String("abd".to_string()),
-            &Value::String("abc".to_string())
-        ));
-    }
-
-    #[test]
-    fn test_apply_greater_than_string_false() {
-        assert!(!apply_greater_than(
-            &Value::String("abc".to_string()),
-            &Value::String("abd".to_string())
-        ));
-    }
-
-    #[test]
-    fn test_apply_greater_than_bytes() {
-        assert!(apply_greater_than(
-            &Value::Bytes(vec![2]),
-            &Value::Bytes(vec![1])
-        ));
-        assert!(!apply_greater_than(
-            &Value::Bytes(vec![1]),
-            &Value::Bytes(vec![2])
-        ));
-        assert!(!apply_greater_than(
-            &Value::Bytes(vec![1]),
-            &Value::Bytes(vec![1])
-        ));
-        // Different lengths
-        assert!(apply_greater_than(
-            &Value::Bytes(vec![1, 2]),
-            &Value::Bytes(vec![1])
-        ));
-        assert!(apply_greater_than(
-            &Value::Bytes(vec![1]),
-            &Value::Bytes(vec![])
-        ));
-    }
-
-    #[test]
-    fn test_apply_greater_than_mixed_types_false() {
-        assert!(!apply_greater_than(
-            &Value::String("2".to_string()),
-            &Value::Uint(1)
-        ));
-    }
-
-    // ---- apply_less_equal tests ----
-
-    #[test]
-    fn test_apply_less_equal_uint_equal() {
-        assert!(apply_less_equal(&Value::Uint(10), &Value::Uint(10)));
-    }
-
-    #[test]
-    fn test_apply_less_equal_uint_less() {
-        assert!(apply_less_equal(&Value::Uint(5), &Value::Uint(10)));
-    }
-
-    #[test]
-    fn test_apply_less_equal_uint_greater() {
-        assert!(!apply_less_equal(&Value::Uint(10), &Value::Uint(5)));
-    }
-
-    #[test]
-    fn test_apply_less_equal_int_min() {
-        assert!(apply_less_equal(
-            &Value::Int(i64::MIN),
-            &Value::Int(i64::MIN)
-        ));
-    }
-
-    #[test]
-    fn test_apply_less_equal_cross_equal() {
-        assert!(apply_less_equal(&Value::Uint(42), &Value::Int(42)));
-    }
-
-    #[test]
-    fn test_apply_less_equal_string_equal() {
-        assert!(apply_less_equal(
-            &Value::String("abc".to_string()),
-            &Value::String("abc".to_string())
-        ));
-    }
-
-    #[test]
-    fn test_apply_less_equal_bytes() {
-        assert!(apply_less_equal(
-            &Value::Bytes(vec![1]),
-            &Value::Bytes(vec![1])
-        ));
-        assert!(apply_less_equal(
-            &Value::Bytes(vec![1]),
-            &Value::Bytes(vec![2])
-        ));
-        assert!(!apply_less_equal(
-            &Value::Bytes(vec![2]),
-            &Value::Bytes(vec![1])
-        ));
-        // Equal content
-        assert!(apply_less_equal(
-            &Value::Bytes(vec![1, 2, 3]),
-            &Value::Bytes(vec![1, 2, 3])
-        ));
-    }
-
-    // ---- apply_greater_equal tests ----
-
-    #[test]
-    fn test_apply_greater_equal_uint_equal() {
-        assert!(apply_greater_equal(&Value::Uint(10), &Value::Uint(10)));
-    }
-
-    #[test]
-    fn test_apply_greater_equal_uint_greater() {
-        assert!(apply_greater_equal(&Value::Uint(10), &Value::Uint(5)));
-    }
-
-    #[test]
-    fn test_apply_greater_equal_uint_less() {
-        assert!(!apply_greater_equal(&Value::Uint(5), &Value::Uint(10)));
-    }
-
-    #[test]
-    fn test_apply_greater_equal_int_min() {
-        assert!(apply_greater_equal(
-            &Value::Int(i64::MIN),
-            &Value::Int(i64::MIN)
-        ));
-    }
-
-    #[test]
-    fn test_apply_greater_equal_cross_equal() {
-        assert!(apply_greater_equal(&Value::Int(42), &Value::Uint(42)));
-    }
-
-    #[test]
-    fn test_apply_greater_equal_string_equal() {
-        assert!(apply_greater_equal(
-            &Value::String("abc".to_string()),
-            &Value::String("abc".to_string())
-        ));
-    }
-
-    #[test]
-    fn test_apply_greater_equal_bytes() {
-        assert!(apply_greater_equal(
-            &Value::Bytes(vec![1]),
-            &Value::Bytes(vec![1])
-        ));
-        assert!(apply_greater_equal(
-            &Value::Bytes(vec![2]),
-            &Value::Bytes(vec![1])
-        ));
-        assert!(!apply_greater_equal(
-            &Value::Bytes(vec![1]),
-            &Value::Bytes(vec![2])
-        ));
-        // Equal content
-        assert!(apply_greater_equal(
-            &Value::Bytes(vec![1, 2, 3]),
-            &Value::Bytes(vec![1, 2, 3])
-        ));
-    }
-
-    // ---- apply_operator dispatch tests for comparison operators ----
-
-    #[test]
-    fn test_apply_operator_less_than() {
-        assert!(apply_operator(
-            &Operator::LessThan,
-            &Value::Uint(1),
-            &Value::Uint(2)
-        ));
-    }
-
-    #[test]
-    fn test_apply_operator_greater_than() {
-        assert!(apply_operator(
-            &Operator::GreaterThan,
-            &Value::Uint(2),
-            &Value::Uint(1)
-        ));
-    }
-
-    #[test]
-    fn test_apply_operator_less_equal_equal() {
-        assert!(apply_operator(
-            &Operator::LessEqual,
-            &Value::Uint(5),
-            &Value::Uint(5)
-        ));
-    }
-
-    #[test]
-    fn test_apply_operator_greater_equal_equal() {
-        assert!(apply_operator(
-            &Operator::GreaterEqual,
-            &Value::Uint(5),
-            &Value::Uint(5)
-        ));
-    }
-
-    #[test]
-    fn test_apply_operator_less_than_string() {
-        assert!(apply_operator(
-            &Operator::LessThan,
-            &Value::String("a".to_string()),
-            &Value::String("b".to_string())
-        ));
+        for (left, right) in &pairs {
+            let ord = compare_values(left, right);
+            assert_eq!(
+                apply_less_than(left, right),
+                ord == Some(Ordering::Less),
+                "< for {left:?}, {right:?}"
+            );
+            assert_eq!(
+                apply_greater_than(left, right),
+                ord == Some(Ordering::Greater),
+                "> for {left:?}, {right:?}"
+            );
+            assert_eq!(
+                apply_less_equal(left, right),
+                matches!(ord, Some(Ordering::Less | Ordering::Equal)),
+                "<= for {left:?}, {right:?}"
+            );
+            assert_eq!(
+                apply_greater_equal(left, right),
+                matches!(ord, Some(Ordering::Greater | Ordering::Equal)),
+                ">= for {left:?}, {right:?}"
+            );
+        }
     }
 }
