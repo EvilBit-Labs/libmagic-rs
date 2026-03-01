@@ -93,13 +93,17 @@ merge_protections:
       - base = main
     success_conditions:
       - "title ~=
-        ^(fix|feat|docs|style|refactor|perf|test|build|ci|chore|revert)(?:\\\\(\
-        .+\\\\))?!?:"
+        ^(fix|feat|docs|style|refactor|perf|test|build|ci|chore|revert)(?:\\(\
+        .+\\))?!?:"
   - name: CI must pass
-    description: All CI checks must pass. This protection prevents manual merges
-      that bypass the merge queue.
+    description: >-
+      All CI checks must pass. This protection prevents manual merges
+      that bypass the merge queue. Release-plz PRs are exempt because
+      they only bump versions and changelogs (code was already tested
+      on main), and GITHUB_TOKEN-triggered force-pushes suppress CI.
     if:
       - base = main
+      - "-head ~= ^release-plz-"
     success_conditions:
       - check-success = quality
       - check-success = test
