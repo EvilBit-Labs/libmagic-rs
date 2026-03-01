@@ -211,7 +211,7 @@ fn serialize_offset_spec(offset: &OffsetSpec) -> String {
 
 fn serialize_type_kind(typ: &TypeKind) -> String {
     match typ {
-        TypeKind::Byte => "TypeKind::Byte".to_string(),
+        TypeKind::Byte { signed } => format!("TypeKind::Byte {{ signed: {signed} }}"),
         TypeKind::Short { endian, signed } => format!(
             "TypeKind::Short {{ endian: {}, signed: {} }}",
             serialize_endianness(*endian),
@@ -235,6 +235,10 @@ fn serialize_operator(op: &Operator) -> String {
     match op {
         Operator::Equal => "Operator::Equal".to_string(),
         Operator::NotEqual => "Operator::NotEqual".to_string(),
+        Operator::LessThan => "Operator::LessThan".to_string(),
+        Operator::GreaterThan => "Operator::GreaterThan".to_string(),
+        Operator::LessEqual => "Operator::LessEqual".to_string(),
+        Operator::GreaterEqual => "Operator::GreaterEqual".to_string(),
         Operator::BitwiseAnd => "Operator::BitwiseAnd".to_string(),
         Operator::BitwiseAndMask(mask) => format!("Operator::BitwiseAndMask({mask})"),
     }
@@ -437,9 +441,16 @@ mod tests {
 
     #[test]
     fn test_serialize_type_kind_byte() {
-        let typ = TypeKind::Byte;
-        let serialized = serialize_type_kind(&typ);
-        assert_eq!(serialized, "TypeKind::Byte");
+        let signed = TypeKind::Byte { signed: true };
+        assert_eq!(
+            serialize_type_kind(&signed),
+            "TypeKind::Byte { signed: true }"
+        );
+        let unsigned = TypeKind::Byte { signed: false };
+        assert_eq!(
+            serialize_type_kind(&unsigned),
+            "TypeKind::Byte { signed: false }"
+        );
     }
 
     #[test]
@@ -485,6 +496,22 @@ mod tests {
         assert_eq!(
             serialize_operator(&Operator::NotEqual),
             "Operator::NotEqual"
+        );
+        assert_eq!(
+            serialize_operator(&Operator::LessThan),
+            "Operator::LessThan"
+        );
+        assert_eq!(
+            serialize_operator(&Operator::GreaterThan),
+            "Operator::GreaterThan"
+        );
+        assert_eq!(
+            serialize_operator(&Operator::LessEqual),
+            "Operator::LessEqual"
+        );
+        assert_eq!(
+            serialize_operator(&Operator::GreaterEqual),
+            "Operator::GreaterEqual"
         );
         assert_eq!(
             serialize_operator(&Operator::BitwiseAnd),
@@ -592,7 +619,7 @@ mod tests {
     fn test_generate_builtin_rules_single_rule() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7F),
             message: "test".to_string(),
@@ -604,7 +631,7 @@ mod tests {
         let generated = generate_builtin_rules(&[rule]);
 
         assert!(generated.contains("OffsetSpec::Absolute(0)"));
-        assert!(generated.contains("TypeKind::Byte"));
+        assert!(generated.contains("TypeKind::Byte { signed: true }"));
         assert!(generated.contains("Operator::Equal"));
         assert!(generated.contains("Value::Uint(127)"));
         assert!(generated.contains("test"));
@@ -621,7 +648,7 @@ mod tests {
     fn test_serialize_children_with_nested_rule() {
         let child = MagicRule {
             offset: OffsetSpec::Absolute(4),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(1),
             message: "child".to_string(),
@@ -691,7 +718,7 @@ mod tests {
         assert!(result.is_ok());
         let generated = result.unwrap();
         assert!(generated.contains("OffsetSpec::Absolute(0)"));
-        assert!(generated.contains("TypeKind::Byte"));
+        assert!(generated.contains("TypeKind::Byte { signed: true }"));
         assert!(generated.contains("Value::Uint(127)"));
         assert!(generated.contains("ELF executable"));
     }

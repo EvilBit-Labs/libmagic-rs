@@ -81,7 +81,10 @@ pub enum OffsetSpec {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TypeKind {
     /// Single byte
-    Byte,
+    Byte {
+        /// Whether value is signed
+        signed: bool,
+    },
     /// 16-bit integer
     Short {
         /// Byte order
@@ -106,13 +109,93 @@ pub enum TypeKind {
 /// Comparison and bitwise operators
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Operator {
-    /// Equality comparison
+    /// Equality comparison (`=` or `==`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::Equal;
+    /// assert_eq!(op, Operator::Equal);
+    /// ```
     Equal,
-    /// Inequality comparison
+    /// Inequality comparison (`!=` or `<>`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::NotEqual;
+    /// assert_eq!(op, Operator::NotEqual);
+    /// ```
     NotEqual,
-    /// Bitwise AND operation (without mask)
+    /// Less-than comparison (`<`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::LessThan;
+    /// assert_eq!(op, Operator::LessThan);
+    /// ```
+    LessThan,
+    /// Greater-than comparison (`>`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::GreaterThan;
+    /// assert_eq!(op, Operator::GreaterThan);
+    /// ```
+    GreaterThan,
+    /// Less-than-or-equal comparison (`<=`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::LessEqual;
+    /// assert_eq!(op, Operator::LessEqual);
+    /// ```
+    LessEqual,
+    /// Greater-than-or-equal comparison (`>=`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::GreaterEqual;
+    /// assert_eq!(op, Operator::GreaterEqual);
+    /// ```
+    GreaterEqual,
+    /// Bitwise AND operation without mask (`&`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::BitwiseAnd;
+    /// assert_eq!(op, Operator::BitwiseAnd);
+    /// ```
     BitwiseAnd,
-    /// Bitwise AND operation with mask value
+    /// Bitwise AND operation with mask value (`&` with a mask operand)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::BitwiseAndMask(0xFF00);
+    /// assert_eq!(op, Operator::BitwiseAndMask(0xFF00));
+    /// ```
     BitwiseAndMask(u64),
 }
 
@@ -319,7 +402,7 @@ mod tests {
             OffsetSpec::Absolute(-100),
             OffsetSpec::Indirect {
                 base_offset: 0x20,
-                pointer_type: TypeKind::Byte,
+                pointer_type: TypeKind::Byte { signed: true },
                 adjustment: 0,
                 endian: Endianness::Little,
             },
@@ -517,8 +600,8 @@ mod tests {
     // TypeKind tests
     #[test]
     fn test_type_kind_byte() {
-        let byte_type = TypeKind::Byte;
-        assert_eq!(byte_type, TypeKind::Byte);
+        let byte_type = TypeKind::Byte { signed: true };
+        assert_eq!(byte_type, TypeKind::Byte { signed: true });
     }
 
     #[test]
@@ -566,7 +649,7 @@ mod tests {
     #[test]
     fn test_type_kind_serialization() {
         let types = vec![
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             TypeKind::Short {
                 endian: Endianness::Little,
                 signed: false,
@@ -622,7 +705,7 @@ mod tests {
     fn test_magic_rule_creation() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7f),
             message: "ELF magic".to_string(),
@@ -640,7 +723,7 @@ mod tests {
     fn test_magic_rule_with_children() {
         let child_rule = MagicRule {
             offset: OffsetSpec::Absolute(4),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(1),
             message: "32-bit".to_string(),
@@ -764,7 +847,7 @@ mod tests {
     fn test_magic_rule_with_strength_modifier() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7f),
             message: "ELF magic".to_string(),
@@ -786,7 +869,7 @@ mod tests {
     fn test_magic_rule_without_strength_modifier() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7f),
             message: "ELF magic".to_string(),

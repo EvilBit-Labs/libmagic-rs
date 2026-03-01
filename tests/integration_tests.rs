@@ -261,6 +261,96 @@ fn test_custom_rules_no_match_fallback() {
 }
 
 // ============================================================
+// Comparison Operators End-to-End
+// ============================================================
+
+#[test]
+fn test_comparison_operators_in_magic_rules() {
+    let temp_dir = TempDir::new().unwrap();
+    let magic_path = temp_dir.path().join("compare.magic");
+
+    // Version detection: match magic, then use comparison on version byte
+    let mut f = fs::File::create(&magic_path).unwrap();
+    writeln!(f, "0 belong 0x7f454c46 ELF").unwrap();
+    writeln!(f, ">4 ubyte >1 64-bit").unwrap();
+    writeln!(f, ">4 ubyte <=1 32-bit").unwrap();
+
+    let db = MagicDatabase::load_from_file(&magic_path).unwrap();
+
+    // class byte = 2, which is >1 -> "64-bit"
+    let result = db.evaluate_buffer(b"\x7fELF\x02").unwrap();
+    assert!(
+        result.description.contains("64-bit"),
+        "Expected 64-bit for class=2, got: {}",
+        result.description
+    );
+
+    // class byte = 1, which is <=1 -> "32-bit"
+    let result = db.evaluate_buffer(b"\x7fELF\x01").unwrap();
+    assert!(
+        result.description.contains("32-bit"),
+        "Expected 32-bit for class=1, got: {}",
+        result.description
+    );
+}
+
+#[test]
+fn test_less_than_greater_than_operators() {
+    let temp_dir = TempDir::new().unwrap();
+    let magic_path = temp_dir.path().join("range.magic");
+
+    let mut f = fs::File::create(&magic_path).unwrap();
+    writeln!(f, "0 ubyte <0x10 Low byte value").unwrap();
+    writeln!(f, "0 ubyte >=0x80 High byte value").unwrap();
+
+    let db = MagicDatabase::load_from_file(&magic_path).unwrap();
+
+    // 0x05 < 0x10 -> "Low byte value"
+    let result = db.evaluate_buffer(b"\x05rest").unwrap();
+    assert!(
+        result.description.contains("Low byte value"),
+        "Expected low byte match, got: {}",
+        result.description
+    );
+
+    // 0xFF >= 0x80 -> "High byte value"
+    let result = db.evaluate_buffer(b"\xFFrest").unwrap();
+    assert!(
+        result.description.contains("High byte value"),
+        "Expected high byte match, got: {}",
+        result.description
+    );
+}
+
+#[test]
+fn test_signed_byte_comparison_integration() {
+    let temp_dir = TempDir::new().unwrap();
+    let magic_path = temp_dir.path().join("signed.magic");
+
+    let mut f = fs::File::create(&magic_path).unwrap();
+    // byte (signed default) with comparison
+    writeln!(f, "0 byte >0 Positive first byte").unwrap();
+
+    let db = MagicDatabase::load_from_file(&magic_path).unwrap();
+
+    // 0x7f = 127 as signed, which is > 0
+    let result = db.evaluate_buffer(b"\x7f").unwrap();
+    assert!(
+        result.description.contains("Positive first byte"),
+        "Expected match for 0x7f (signed 127 > 0), got: {}",
+        result.description
+    );
+
+    // 0x80 = -128 as signed, which is NOT > 0
+    let result = db.evaluate_buffer(b"\x80").unwrap();
+    assert!(
+        !result.description.contains("Positive first byte"),
+        "Expected no match for 0x80 (signed -128 is not > 0), got: {}",
+        result.description
+    );
+}
+
+// ============================================================
 // Load from Directory End-to-End
 // ============================================================
 
@@ -268,9 +358,9 @@ fn test_custom_rules_no_match_fallback() {
 fn test_load_directory_of_magic_files() {
     let temp_dir = TempDir::new().unwrap();
 
-    // Create multiple magic files using belong for binary magic numbers
+    // Create multiple magic files using ubelong for binary magic numbers
     let mut f1 = fs::File::create(temp_dir.path().join("images.magic")).unwrap();
-    writeln!(f1, "0 belong 0x89504e47 PNG image").unwrap();
+    writeln!(f1, "0 ubelong 0x89504e47 PNG image").unwrap();
 
     let mut f2 = fs::File::create(temp_dir.path().join("docs.magic")).unwrap();
     writeln!(f2, "0 string \"%PDF-\" PDF document").unwrap();

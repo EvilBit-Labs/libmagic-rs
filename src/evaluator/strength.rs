@@ -82,7 +82,7 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
         // 16-bit integers are moderately specific
         TypeKind::Short { .. } => 10,
         // Single bytes are least specific
-        TypeKind::Byte => 5,
+        TypeKind::Byte { .. } => 5,
     };
 
     // Operator contribution: equality is most specific
@@ -91,6 +91,11 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
         Operator::Equal => 10,
         // Inequality is somewhat specific
         Operator::NotEqual => 5,
+        // Comparison operators are moderately specific
+        Operator::LessThan
+        | Operator::GreaterThan
+        | Operator::LessEqual
+        | Operator::GreaterEqual => 6,
         // Bitwise AND with mask is moderately specific
         Operator::BitwiseAndMask(_) => 7,
         // Plain bitwise AND is least specific
@@ -207,7 +212,7 @@ pub fn apply_strength_modifier(base_strength: i32, modifier: &StrengthModifier) 
 ///
 /// let rule = MagicRule {
 ///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte,
+///     typ: TypeKind::Byte { signed: true },
 ///     op: Operator::Equal,
 ///     value: Value::Uint(0x7f),
 ///     message: "ELF magic".to_string(),
@@ -250,7 +255,7 @@ pub fn calculate_rule_strength(rule: &MagicRule) -> i32 {
 /// let mut rules = vec![
 ///     MagicRule {
 ///         offset: OffsetSpec::Absolute(0),
-///         typ: TypeKind::Byte,
+///         typ: TypeKind::Byte { signed: true },
 ///         op: Operator::Equal,
 ///         value: Value::Uint(0x7f),
 ///         message: "byte rule".to_string(),
@@ -307,7 +312,7 @@ pub fn sort_rules_by_strength(rules: &mut [MagicRule]) {
 /// let rules = vec![
 ///     MagicRule {
 ///         offset: OffsetSpec::Absolute(0),
-///         typ: TypeKind::Byte,
+///         typ: TypeKind::Byte { signed: true },
 ///         op: Operator::Equal,
 ///         value: Value::Uint(0),
 ///         message: "byte rule".to_string(),
@@ -362,7 +367,7 @@ mod tests {
     #[test]
     fn test_strength_type_byte() {
         let rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::Equal,
             OffsetSpec::Absolute(0),
             Value::Uint(0),
@@ -435,7 +440,7 @@ mod tests {
     #[test]
     fn test_strength_operator_not_equal() {
         let rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::NotEqual,
             OffsetSpec::Absolute(0),
             Value::Uint(0),
@@ -448,7 +453,7 @@ mod tests {
     #[test]
     fn test_strength_operator_bitwise_and() {
         let rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::BitwiseAnd,
             OffsetSpec::Absolute(0),
             Value::Uint(0),
@@ -461,7 +466,7 @@ mod tests {
     #[test]
     fn test_strength_operator_bitwise_and_mask() {
         let rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::BitwiseAndMask(0xFF),
             OffsetSpec::Absolute(0),
             Value::Uint(0),
@@ -472,9 +477,30 @@ mod tests {
     }
 
     #[test]
+    fn test_strength_comparison_operators() {
+        let operators = [
+            Operator::LessThan,
+            Operator::GreaterThan,
+            Operator::LessEqual,
+            Operator::GreaterEqual,
+        ];
+        for op in operators {
+            let rule = make_rule(
+                TypeKind::Byte { signed: true },
+                op.clone(),
+                OffsetSpec::Absolute(0),
+                Value::Uint(0),
+            );
+            let strength = calculate_default_strength(&rule);
+            // Byte: 5, Comparison: 6, Absolute: 10, Numeric: 0 = 21
+            assert_eq!(strength, 21, "Failed for operator: {op:?}");
+        }
+    }
+
+    #[test]
     fn test_strength_offset_indirect() {
         let rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::Equal,
             OffsetSpec::Indirect {
                 base_offset: 0,
@@ -495,7 +521,7 @@ mod tests {
     #[test]
     fn test_strength_offset_relative() {
         let rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::Equal,
             OffsetSpec::Relative(4),
             Value::Uint(0),
@@ -508,7 +534,7 @@ mod tests {
     #[test]
     fn test_strength_offset_from_end() {
         let rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::Equal,
             OffsetSpec::FromEnd(-4),
             Value::Uint(0),
@@ -521,7 +547,7 @@ mod tests {
     #[test]
     fn test_strength_value_bytes() {
         let rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::Equal,
             OffsetSpec::Absolute(0),
             Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
@@ -643,7 +669,7 @@ mod tests {
     #[test]
     fn test_rule_strength_without_modifier() {
         let rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::Equal,
             OffsetSpec::Absolute(0),
             Value::Uint(0),
@@ -655,7 +681,7 @@ mod tests {
     #[test]
     fn test_rule_strength_with_add_modifier() {
         let mut rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::Equal,
             OffsetSpec::Absolute(0),
             Value::Uint(0),
@@ -668,7 +694,7 @@ mod tests {
     #[test]
     fn test_rule_strength_with_multiply_modifier() {
         let mut rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::Equal,
             OffsetSpec::Absolute(0),
             Value::Uint(0),
@@ -681,7 +707,7 @@ mod tests {
     #[test]
     fn test_rule_strength_with_set_modifier() {
         let mut rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::Equal,
             OffsetSpec::Absolute(0),
             Value::Uint(0),
@@ -700,7 +726,7 @@ mod tests {
         let mut rules = vec![
             {
                 let mut r = make_rule(
-                    TypeKind::Byte,
+                    TypeKind::Byte { signed: true },
                     Operator::Equal,
                     OffsetSpec::Absolute(0),
                     Value::Uint(0),
@@ -744,7 +770,7 @@ mod tests {
             },
             {
                 let mut r = make_rule(
-                    TypeKind::Byte,
+                    TypeKind::Byte { signed: true },
                     Operator::Equal,
                     OffsetSpec::Absolute(0),
                     Value::Uint(0),
@@ -773,7 +799,7 @@ mod tests {
     #[test]
     fn test_sort_rules_single() {
         let mut rules = vec![make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::Equal,
             OffsetSpec::Absolute(0),
             Value::Uint(0),
@@ -787,7 +813,7 @@ mod tests {
         let rules = vec![
             {
                 let mut r = make_rule(
-                    TypeKind::Byte,
+                    TypeKind::Byte { signed: true },
                     Operator::Equal,
                     OffsetSpec::Absolute(0),
                     Value::Uint(0),
@@ -830,7 +856,7 @@ mod tests {
             Value::String("AB".to_string()),
         );
         let byte_rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::Equal,
             OffsetSpec::Absolute(0),
             Value::Uint(0x7f),
@@ -849,13 +875,13 @@ mod tests {
     #[test]
     fn test_strength_comparison_absolute_vs_relative_offset() {
         let absolute_rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::Equal,
             OffsetSpec::Absolute(0),
             Value::Uint(0x7f),
         );
         let relative_rule = make_rule(
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             Operator::Equal,
             OffsetSpec::Relative(4),
             Value::Uint(0x7f),

@@ -65,7 +65,7 @@ Target File → Memory Mapper → File Buffer
 // Core data structures in lib.rs
 pub struct MagicRule { /* ... */ }
 pub enum TypeKind {
-    Byte,
+    Byte { signed: bool },
     Short { endian: Endianness, signed: bool },
     Long { endian: Endianness, signed: bool },
     String { max_length: Option<usize> },
@@ -138,10 +138,13 @@ pub fn evaluate_magic_rules(
 
 - `src/error.rs` is shared with `build.rs` -- cannot reference lib-only types like `crate::io::IoError`
 - `FileError(String)` wraps structured I/O errors as strings to work around the build.rs constraint
+- `build.rs` and `src/build_helpers.rs` have duplicate `serialize_*` functions -- both must be updated when adding enum variants
 - Use `ParseError::IoError` for I/O errors in parser code, not `ParseError::invalid_syntax`
 - Use `LibmagicError::ConfigError` for config validation, not `ParseError::invalid_syntax`
 - Clippy pedantic lints are active (e.g., prefer `trailing_zeros()` over bitwise masks)
 - All public enum variants need `# Examples` rustdoc sections
+- Comparison operators share a `compare_values() -> Option<Ordering>` helper in `operators.rs` -- new comparison logic goes there, not in individual `apply_*` functions
+- libmagic types are signed by default (`byte`, `short`, `long`); unsigned variants use `u` prefix (`ubyte`, `ushort`, `ulong`, etc.)
 
 ### Naming Conventions
 
@@ -180,20 +183,20 @@ cargo test --doc   # Test documentation examples
 - **Property Tests**: Use `proptest` for fuzzing magic rule evaluation
 - **Benchmarks**: Critical path performance tests with `criterion`
 - **Coverage**: Target >85% with `cargo llvm-cov`
+- **Test style**: Prefer table-driven tests over one-assertion-per-function tests; consolidate related cases into a single test with descriptive failure messages
 
 ## Magic File Compatibility
 
 ### Currently Implemented (v0.1.0)
 
 - **Offsets**: Absolute and from-end specifications (indirect and relative are parsed but not yet evaluated)
-- **Types**: `byte`, `short`, `long`, `string` with endianness support
-- **Operators**: `=` (equal), `!=` (not equal), `&` (bitwise AND with optional mask)
+- **Types**: `byte`, `short`, `long`, `string` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`; types are signed by default (libmagic-compatible)
+- **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
 - **String Matching**: Exact string matching with null-termination
 
 ### Planned Features (v1.0+)
 
-- Comparison operators: `>`, `<`, `>=`, `<=`
 - Bitwise XOR operator: `^`
 - Regex type: Pattern matching with binary-safe regex support
 - Additional types: 64-bit integers, floats, doubles, dates
@@ -226,7 +229,6 @@ impl BinaryRegex for regex::bytes::Regex {
 
 ### Operators
 
-- No comparison operators (`>`, `<`, `>=`, `<=`)
 - No XOR operator (`^`)
 - No negation operator (`~`)
 - BitwiseAnd supports mask values but not all libmagic mask syntax
@@ -316,13 +318,16 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 
 ### Adding New Operators
 
-> **Note:** Currently implemented operators are `Equal`, `NotEqual`, and `BitwiseAnd` (with `BitwiseAndMask`). Comparison operators (`>`, `<`) and XOR (`^`) are planned for future releases.
+> **Note:** Currently implemented operators are `Equal`, `NotEqual`, `LessThan`, `GreaterThan`, `LessEqual`, `GreaterEqual`, and `BitwiseAnd` (with `BitwiseAndMask`). XOR (`^`) is planned for future releases.
 
 1. Extend `Operator` enum in `src/parser/ast.rs`
 2. Add parsing logic in `src/parser/grammar.rs`
 3. Implement operator logic in `src/evaluator/operators.rs`
-4. Add tests for the new operator
-5. Update documentation
+4. Update `serialize_operator()` in both `src/build_helpers.rs` AND `build.rs` (they have duplicate match statements)
+5. Update strength calculation match in `src/evaluator/strength.rs`
+6. Update `arb_operator()` in `tests/property_tests.rs`
+7. Add tests for the new operator
+8. Update documentation
 
 ### Performance Optimization
 
