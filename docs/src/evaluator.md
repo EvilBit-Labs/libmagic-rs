@@ -107,8 +107,14 @@ Applies comparison operations:
 
 - **Equal** (`=`, `==`): Exact value matching
 - **NotEqual** (`!=`, `<>`): Non-matching values
+- **LessThan** (`<`): Numeric less-than comparison
+- **GreaterThan** (`>`): Numeric greater-than comparison
+- **LessEqual** (`<=`): Numeric less-than-or-equal comparison
+- **GreaterEqual** (`>=`): Numeric greater-than-or-equal comparison
 - **BitwiseAnd** (`&`): Pattern matching for flags
 - **BitwiseAndMask**: AND with mask then compare
+
+Comparison operators support numeric comparisons across different integer types using `i128` coercion for cross-type compatibility.
 
 ```rust
 pub fn apply_operator(
@@ -288,7 +294,7 @@ for m in matches {
 - [x] Basic evaluation engine structure
 - [x] Offset resolution (absolute, relative, from-end)
 - [x] Type reading with endianness support (Byte, Short, Long, String)
-- [x] Operator application (Equal, NotEqual, BitwiseAnd)
+- [x] Operator application (Equal, NotEqual, LessThan, GreaterThan, LessEqual, GreaterEqual, BitwiseAnd, BitwiseAndMask)
 - [x] Hierarchical rule processing with child evaluation
 - [x] Error handling with graceful degradation
 - [x] Timeout protection
