@@ -223,7 +223,7 @@ use libmagic_rs::TypeKind;
 
 | Variant | Description |
 |---------|-------------|
-| `Byte` | Single byte |
+| `Byte { signed }` | Single byte with explicit signedness |
 | `Short { endian, signed }` | 16-bit integer |
 | `Long { endian, signed }` | 32-bit integer |
 | `String { max_length }` | String data |
@@ -238,8 +238,12 @@ use libmagic_rs::Operator;
 
 | Variant | Description |
 |---------|-------------|
-| `Equal` | Equality comparison |
-| `NotEqual` | Inequality comparison |
+| `Equal` | Equality comparison (`=`) |
+| `NotEqual` | Inequality comparison (`!=`) |
+| `LessThan` | Less than comparison (`<`) |
+| `GreaterThan` | Greater than comparison (`>`) |
+| `LessEqual` | Less than or equal comparison (`<=`) |
+| `GreaterEqual` | Greater than or equal comparison (`>=`) |
 | `BitwiseAnd` | Bitwise AND |
 | `BitwiseAndMask(u64)` | Bitwise AND with mask |
 
