@@ -1174,6 +1174,79 @@ fn test_evaluate_single_rule_all_operators() {
 }
 
 #[test]
+fn test_evaluate_single_rule_comparison_operators() {
+    let buffer = &[0x42, 0x00, 0xff, 0x80];
+
+    // LessThan: byte at offset 1 is 0x00, 0x00 < 0x42 = true
+    let less_than_rule = MagicRule {
+        offset: OffsetSpec::Absolute(1),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::LessThan,
+        value: Value::Uint(0x42),
+        message: "LessThan test".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+    assert!(
+        evaluate_single_rule(&less_than_rule, buffer)
+            .unwrap()
+            .is_some()
+    );
+
+    // GreaterThan: byte at offset 2 is 0xff, 0xff > 0x42 = true
+    let greater_than_rule = MagicRule {
+        offset: OffsetSpec::Absolute(2),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::GreaterThan,
+        value: Value::Uint(0x42),
+        message: "GreaterThan test".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+    assert!(
+        evaluate_single_rule(&greater_than_rule, buffer)
+            .unwrap()
+            .is_some()
+    );
+
+    // LessEqual: byte at offset 0 is 0x42, 0x42 <= 0x42 = true
+    let less_equal_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::LessEqual,
+        value: Value::Uint(0x42),
+        message: "LessEqual test".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+    assert!(
+        evaluate_single_rule(&less_equal_rule, buffer)
+            .unwrap()
+            .is_some()
+    );
+
+    // GreaterEqual: byte at offset 0 is 0x42, 0x42 >= 0x42 = true
+    let greater_equal_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::GreaterEqual,
+        value: Value::Uint(0x42),
+        message: "GreaterEqual test".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+    assert!(
+        evaluate_single_rule(&greater_equal_rule, buffer)
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
 fn test_evaluate_single_rule_edge_case_values() {
     // Test with maximum values
     let max_uint_rule = MagicRule {
