@@ -27,7 +27,7 @@ fn arb_offset_spec() -> impl Strategy<Value = OffsetSpec> {
 /// Generate a valid TypeKind for testing
 fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
     prop_oneof![
-        Just(TypeKind::Byte),
+        any::<bool>().prop_map(|signed| TypeKind::Byte { signed }),
         (any::<bool>(), any::<bool>()).prop_map(|(is_big, signed)| {
             TypeKind::Short {
                 endian: if is_big {

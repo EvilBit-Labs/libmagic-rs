@@ -81,7 +81,10 @@ pub enum OffsetSpec {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TypeKind {
     /// Single byte
-    Byte,
+    Byte {
+        /// Whether value is signed
+        signed: bool,
+    },
     /// 16-bit integer
     Short {
         /// Byte order
@@ -399,7 +402,7 @@ mod tests {
             OffsetSpec::Absolute(-100),
             OffsetSpec::Indirect {
                 base_offset: 0x20,
-                pointer_type: TypeKind::Byte,
+                pointer_type: TypeKind::Byte { signed: true },
                 adjustment: 0,
                 endian: Endianness::Little,
             },
@@ -597,8 +600,8 @@ mod tests {
     // TypeKind tests
     #[test]
     fn test_type_kind_byte() {
-        let byte_type = TypeKind::Byte;
-        assert_eq!(byte_type, TypeKind::Byte);
+        let byte_type = TypeKind::Byte { signed: true };
+        assert_eq!(byte_type, TypeKind::Byte { signed: true });
     }
 
     #[test]
@@ -646,7 +649,7 @@ mod tests {
     #[test]
     fn test_type_kind_serialization() {
         let types = vec![
-            TypeKind::Byte,
+            TypeKind::Byte { signed: true },
             TypeKind::Short {
                 endian: Endianness::Little,
                 signed: false,
@@ -702,7 +705,7 @@ mod tests {
     fn test_magic_rule_creation() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7f),
             message: "ELF magic".to_string(),
@@ -720,7 +723,7 @@ mod tests {
     fn test_magic_rule_with_children() {
         let child_rule = MagicRule {
             offset: OffsetSpec::Absolute(4),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(1),
             message: "32-bit".to_string(),
@@ -844,7 +847,7 @@ mod tests {
     fn test_magic_rule_with_strength_modifier() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7f),
             message: "ELF magic".to_string(),
@@ -866,7 +869,7 @@ mod tests {
     fn test_magic_rule_without_strength_modifier() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7f),
             message: "ELF magic".to_string(),
