@@ -332,7 +332,7 @@ mod tests {
         let buffer = b"Test data";
         let spec = OffsetSpec::Indirect {
             base_offset: 0,
-            pointer_type: crate::parser::ast::TypeKind::Byte,
+            pointer_type: crate::parser::ast::TypeKind::Byte { signed: true },
             adjustment: 0,
             endian: crate::parser::ast::Endianness::Little,
         };

@@ -82,7 +82,7 @@ libmagic-rs/
 │   │
 │   ├── parser/             # Magic file parsing
 │   │   ├── mod.rs          # Parser interface, file loading
-│   │   ├── ast.rs          # AST definitions (MagicRule, TypeKind, etc.)
+│   │   ├── ast.rs          # AST definitions (MagicRule, TypeKind::Byte { signed: bool }, etc.)
 │   │   └── grammar.rs      # nom-based parsing combinators
 │   │
 │   ├── evaluator/          # Rule evaluation engine
@@ -271,6 +271,9 @@ pub struct MagicRule {
 - Top-level rules (level 0) are entry points
 - Child rules are evaluated only if parent matches
 - Deeper matches = higher confidence
+
+**Operator Support:**
+- Supports comparison operators (`<`, `>`, `<=`, `>=`) in addition to equality (`=`, `!=`) and bitwise operators (`&`)
 
 ### EvaluationContext
 
@@ -472,8 +475,19 @@ The evaluation hot path is optimized for:
 1. Add variant to `Operator` enum (`ast.rs`)
 2. Add parsing logic (`grammar.rs`)
 3. Add comparison logic (`operators.rs`)
-4. Add tests
-5. Update documentation
+4. Add serialization for build-time (`build.rs` and `build_helpers.rs`)
+5. Add tests
+6. Update documentation
+
+**Implemented Operators:**
+- `Equal` (`=`, `==`)
+- `NotEqual` (`!=`, `<>`)
+- `LessThan` (`<`)
+- `GreaterThan` (`>`)
+- `LessEqual` (`<=`)
+- `GreaterEqual` (`>=`)
+- `BitwiseAnd` (`&`)
+- `BitwiseAndMask` (`&` with mask)
 
 ### Adding Output Formats
 

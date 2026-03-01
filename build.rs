@@ -269,7 +269,7 @@ fn serialize_offset_spec(offset: &OffsetSpec) -> String {
 
 fn serialize_type_kind(typ: &TypeKind) -> String {
     match typ {
-        TypeKind::Byte => "TypeKind::Byte".to_string(),
+        TypeKind::Byte { signed } => format!("TypeKind::Byte {{ signed: {signed} }}"),
         TypeKind::Short { endian, signed } => format!(
             "TypeKind::Short {{ endian: {}, signed: {} }}",
             serialize_endianness(*endian),
@@ -293,6 +293,10 @@ fn serialize_operator(op: &Operator) -> String {
     match op {
         Operator::Equal => "Operator::Equal".to_string(),
         Operator::NotEqual => "Operator::NotEqual".to_string(),
+        Operator::LessThan => "Operator::LessThan".to_string(),
+        Operator::GreaterThan => "Operator::GreaterThan".to_string(),
+        Operator::LessEqual => "Operator::LessEqual".to_string(),
+        Operator::GreaterEqual => "Operator::GreaterEqual".to_string(),
         Operator::BitwiseAnd => "Operator::BitwiseAnd".to_string(),
         Operator::BitwiseAndMask(mask) => format!("Operator::BitwiseAndMask({mask})"),
     }
@@ -301,7 +305,14 @@ fn serialize_operator(op: &Operator) -> String {
 fn serialize_value(value: &Value) -> String {
     match value {
         Value::Uint(number) => format!("Value::Uint({})", format_number(*number)),
-        Value::Int(number) => format!("Value::Int({})", format_number(*number as u64)),
+        Value::Int(number) => {
+            if *number < 0 {
+                let abs = number.unsigned_abs();
+                format!("Value::Int(-{})", format_number(abs))
+            } else {
+                format!("Value::Int({})", format_number(*number as u64))
+            }
+        }
         Value::Bytes(bytes) => format!("Value::Bytes({})", format_byte_vec(bytes)),
         Value::String(text) => format!(
             "Value::String(String::from({}))",

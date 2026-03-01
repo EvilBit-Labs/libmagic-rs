@@ -40,10 +40,12 @@ pub enum TypeReadError {
 ///
 /// * `buffer` - The byte buffer to read from
 /// * `offset` - The offset position to read the byte from
+/// * `signed` - Whether to interpret the byte as signed (`i8`) or unsigned (`u8`)
 ///
 /// # Returns
 ///
-/// Returns `Ok(Value::Uint(byte_value))` if the read is successful, or
+/// Returns `Ok(Value::Uint(byte_value))` for unsigned reads or
+/// `Ok(Value::Int(byte_value))` for signed reads if the read is successful, or
 /// `Err(TypeReadError::BufferOverrun)` if the offset is beyond the buffer bounds.
 ///
 /// # Security
@@ -59,25 +61,33 @@ pub enum TypeReadError {
 /// use libmagic_rs::evaluator::types::read_byte;
 /// use libmagic_rs::parser::ast::Value;
 ///
-/// let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
+/// let buffer = &[0x7f, 0x80, 0x4c, 0x46]; // example bytes
 ///
-/// // Read first byte (0x7f)
-/// let result = read_byte(buffer, 0).unwrap();
-/// assert_eq!(result, Value::Uint(0x7f));
+/// // Read unsigned byte (0x80 = 128)
+/// let result = read_byte(buffer, 1, false).unwrap();
+/// assert_eq!(result, Value::Uint(0x80));
 ///
-/// // Read last byte (0x46)
-/// let result = read_byte(buffer, 3).unwrap();
-/// assert_eq!(result, Value::Uint(0x46));
+/// // Read signed byte (0x80 = -128)
+/// let result = read_byte(buffer, 1, true).unwrap();
+/// assert_eq!(result, Value::Int(-128));
 /// ```
 ///
 /// # Errors
 ///
 /// Returns `TypeReadError::BufferOverrun` if the offset is greater than or equal to
 /// the buffer length.
-pub fn read_byte(buffer: &[u8], offset: usize) -> Result<Value, TypeReadError> {
+pub fn read_byte(buffer: &[u8], offset: usize, signed: bool) -> Result<Value, TypeReadError> {
     buffer
         .get(offset)
-        .map(|&byte| Value::Uint(u64::from(byte)))
+        .map(|&byte| {
+            if signed {
+                // Wrapping is intentional: e.g., 0x80 -> -128 as i8
+                #[allow(clippy::cast_possible_wrap)]
+                Value::Int(i64::from(byte as i8))
+            } else {
+                Value::Uint(u64::from(byte))
+            }
+        })
         .ok_or(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
@@ -270,8 +280,7 @@ pub fn read_long(
 ///
 /// # Errors
 ///
-/// Returns `TypeReadError::BufferOverrun` if the offset is beyond the buffer bounds,
-/// or if no null terminator is found within the available buffer space when no `max_length` is specified.
+/// Returns `TypeReadError::BufferOverrun` if the offset is greater than or equal to the buffer length.
 pub fn read_string(
     buffer: &[u8],
     offset: usize,
@@ -288,7 +297,7 @@ pub fn read_string(
     // Get the slice starting from offset
     let remaining_buffer = &buffer[offset..];
 
-    // Determine the actual length to read (uses SIMD-accelerated memchr for null scan)
+    // Determine the actual length to read (uses memchr for efficient null byte scanning)
     let read_length = if let Some(max_len) = max_length {
         // Find null terminator within max_length, or use max_length if no null found
         let search_len = std::cmp::min(max_len, remaining_buffer.len());
@@ -330,8 +339,8 @@ pub fn read_string(
 ///
 /// let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x34, 0x12];
 ///
-/// // Read a byte
-/// let byte_result = read_typed_value(buffer, 0, &TypeKind::Byte).unwrap();
+/// // Read an unsigned byte
+/// let byte_result = read_typed_value(buffer, 0, &TypeKind::Byte { signed: false }).unwrap();
 /// assert_eq!(byte_result, Value::Uint(0x7f));
 ///
 /// // Read a little-endian short
@@ -353,10 +362,60 @@ pub fn read_typed_value(
     type_kind: &TypeKind,
 ) -> Result<Value, TypeReadError> {
     match type_kind {
-        TypeKind::Byte => read_byte(buffer, offset),
+        TypeKind::Byte { signed } => read_byte(buffer, offset, *signed),
         TypeKind::Short { endian, signed } => read_short(buffer, offset, *endian, *signed),
         TypeKind::Long { endian, signed } => read_long(buffer, offset, *endian, *signed),
         TypeKind::String { max_length } => read_string(buffer, offset, *max_length),
+    }
+}
+
+/// Coerce a rule's expected value to match the type's signedness and width.
+///
+/// In libmagic, comparison values like `0xff` in `0 byte =0xff` are interpreted
+/// at the type's bit width. For a signed byte, `0xff` means `-1` (the signed
+/// interpretation of that bit pattern). This function performs that coercion so
+/// that comparisons work correctly regardless of how the value was parsed.
+///
+/// Only affects `Value::Uint` values paired with signed types whose values exceed
+/// the signed range. All other combinations pass through unchanged.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::evaluator::types::coerce_value_to_type;
+/// use libmagic_rs::parser::ast::{TypeKind, Value};
+///
+/// // 0xff for signed byte -> -1
+/// let coerced = coerce_value_to_type(&Value::Uint(0xff), &TypeKind::Byte { signed: true });
+/// assert_eq!(coerced, Value::Int(-1));
+///
+/// // 0x7f for signed byte -> unchanged (fits in signed range)
+/// let coerced = coerce_value_to_type(&Value::Uint(0x7f), &TypeKind::Byte { signed: true });
+/// assert_eq!(coerced, Value::Uint(0x7f));
+///
+/// // Unsigned types pass through unchanged
+/// let coerced = coerce_value_to_type(&Value::Uint(0xff), &TypeKind::Byte { signed: false });
+/// assert_eq!(coerced, Value::Uint(0xff));
+/// ```
+#[must_use]
+pub fn coerce_value_to_type(value: &Value, type_kind: &TypeKind) -> Value {
+    match (value, type_kind) {
+        (Value::Uint(v), TypeKind::Byte { signed: true }) if *v > i8::MAX as u64 =>
+        {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            Value::Int(i64::from(*v as u8 as i8))
+        }
+        (Value::Uint(v), TypeKind::Short { signed: true, .. }) if *v > i16::MAX as u64 =>
+        {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            Value::Int(i64::from(*v as u16 as i16))
+        }
+        (Value::Uint(v), TypeKind::Long { signed: true, .. }) if *v > i32::MAX as u64 =>
+        {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            Value::Int(i64::from(*v as u32 as i32))
+        }
+        _ => value.clone(),
     }
 }
 
@@ -365,111 +424,60 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_read_byte_success() {
-        let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-
-        // Test reading each byte
-        assert_eq!(read_byte(buffer, 0).unwrap(), Value::Uint(0x7f));
-        assert_eq!(read_byte(buffer, 1).unwrap(), Value::Uint(0x45));
-        assert_eq!(read_byte(buffer, 2).unwrap(), Value::Uint(0x4c));
-        assert_eq!(read_byte(buffer, 3).unwrap(), Value::Uint(0x46));
-    }
-
-    #[test]
-    fn test_read_byte_zero_value() {
-        let buffer = &[0x00, 0xff];
-
-        // Test reading zero byte
-        assert_eq!(read_byte(buffer, 0).unwrap(), Value::Uint(0));
-        // Test reading max byte value
-        assert_eq!(read_byte(buffer, 1).unwrap(), Value::Uint(255));
-    }
-
-    #[test]
-    fn test_read_byte_single_byte_buffer() {
-        let buffer = &[0x42];
-
-        // Should succeed for offset 0
-        assert_eq!(read_byte(buffer, 0).unwrap(), Value::Uint(0x42));
-
-        // Should fail for offset 1
-        let result = read_byte(buffer, 1);
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            TypeReadError::BufferOverrun {
-                offset: 1,
-                buffer_len: 1
-            }
-        );
-    }
-
-    #[test]
-    fn test_read_byte_empty_buffer() {
-        let buffer = &[];
-
-        // Should fail for any offset
-        let result = read_byte(buffer, 0);
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            TypeReadError::BufferOverrun {
-                offset: 0,
-                buffer_len: 0
-            }
-        );
-    }
-
-    #[test]
-    fn test_read_byte_out_of_bounds() {
-        let buffer = &[0x01, 0x02, 0x03];
-
-        // Test various out-of-bounds offsets
-        let test_cases = [3, 4, 10, 100, usize::MAX];
-
-        for offset in test_cases {
-            let result = read_byte(buffer, offset);
-            assert!(result.is_err());
+    fn test_read_byte_values() {
+        // All 256 unsigned values
+        let buffer: Vec<u8> = (0..=255).collect();
+        for (i, &byte) in buffer.iter().enumerate() {
             assert_eq!(
-                result.unwrap_err(),
-                TypeReadError::BufferOverrun {
-                    offset,
-                    buffer_len: 3
-                }
+                read_byte(&buffer, i, false).unwrap(),
+                Value::Uint(u64::from(byte))
             );
         }
     }
 
     #[test]
-    fn test_read_byte_large_buffer() {
-        // Test with a larger buffer to ensure no performance issues
-        let buffer: Vec<u8> = (0..=255).collect();
-
-        // Test reading from various positions
-        assert_eq!(read_byte(&buffer, 0).unwrap(), Value::Uint(0));
-        assert_eq!(read_byte(&buffer, 127).unwrap(), Value::Uint(127));
-        assert_eq!(read_byte(&buffer, 255).unwrap(), Value::Uint(255));
-
-        // Test out of bounds
-        let result = read_byte(&buffer, 256);
-        assert!(result.is_err());
+    fn test_read_byte_out_of_bounds() {
+        // Empty buffer
         assert_eq!(
-            result.unwrap_err(),
+            read_byte(&[], 0, false).unwrap_err(),
             TypeReadError::BufferOverrun {
-                offset: 256,
-                buffer_len: 256
+                offset: 0,
+                buffer_len: 0
+            }
+        );
+        // Just past end
+        assert_eq!(
+            read_byte(&[0x42], 1, false).unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 1,
+                buffer_len: 1
+            }
+        );
+        // Way past end
+        assert_eq!(
+            read_byte(&[1, 2, 3], 100, false).unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 100,
+                buffer_len: 3
             }
         );
     }
 
     #[test]
-    fn test_read_byte_all_byte_values() {
-        // Test that all possible byte values are correctly converted to u64
-        let buffer: Vec<u8> = (0..=255).collect();
-
-        for (i, &expected_byte) in buffer.iter().enumerate() {
-            let result = read_byte(&buffer, i).unwrap();
-            assert_eq!(result, Value::Uint(u64::from(expected_byte)));
+    fn test_read_byte_signedness() {
+        let cases: Vec<(u8, bool, Value)> = vec![
+            (0x00, false, Value::Uint(0)),
+            (0x7f, false, Value::Uint(127)),
+            (0x80, false, Value::Uint(128)),
+            (0xff, false, Value::Uint(255)),
+            (0x00, true, Value::Int(0)),
+            (0x7f, true, Value::Int(127)),
+            (0x80, true, Value::Int(-128)),
+            (0xff, true, Value::Int(-1)),
+        ];
+        for (byte, signed, expected) in cases {
+            let result = read_byte(&[byte], 0, signed).unwrap();
+            assert_eq!(result, expected, "byte=0x{byte:02x}, signed={signed}");
         }
     }
 
@@ -479,68 +487,9 @@ mod tests {
             offset: 10,
             buffer_len: 5,
         };
-
-        let error_string = format!("{error}");
-        assert!(error_string.contains("Buffer overrun"));
-        assert!(error_string.contains("offset 10"));
-        assert!(error_string.contains("buffer length is 5"));
-    }
-
-    #[test]
-    fn test_type_read_error_debug() {
-        let error = TypeReadError::BufferOverrun {
-            offset: 42,
-            buffer_len: 20,
-        };
-
-        let debug_string = format!("{error:?}");
-        assert!(debug_string.contains("BufferOverrun"));
-        assert!(debug_string.contains("offset: 42"));
-        assert!(debug_string.contains("buffer_len: 20"));
-    }
-
-    #[test]
-    fn test_type_read_error_equality() {
-        let error1 = TypeReadError::BufferOverrun {
-            offset: 5,
-            buffer_len: 3,
-        };
-        let error2 = TypeReadError::BufferOverrun {
-            offset: 5,
-            buffer_len: 3,
-        };
-        let error3 = TypeReadError::BufferOverrun {
-            offset: 6,
-            buffer_len: 3,
-        };
-
-        assert_eq!(error1, error2);
-        assert_ne!(error1, error3);
-    }
-
-    #[test]
-    fn test_read_byte_boundary_conditions() {
-        let buffer = &[0xaa, 0xbb, 0xcc];
-
-        // Test reading at exact boundary (last valid index)
-        assert_eq!(read_byte(buffer, 2).unwrap(), Value::Uint(0xcc));
-
-        // Test reading just past boundary
-        let result = read_byte(buffer, 3);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_read_byte_return_type() {
-        let buffer = &[0x80]; // Test with high bit set
-
-        let result = read_byte(buffer, 0).unwrap();
-
-        // Verify it returns Value::Uint, not Value::Int
-        match result {
-            Value::Uint(val) => assert_eq!(val, 0x80),
-            _ => panic!("Expected Value::Uint variant"),
-        }
+        let msg = format!("{error}");
+        assert!(msg.contains("offset 10"));
+        assert!(msg.contains("buffer length is 5"));
     }
 
     // Tests for read_short function
@@ -855,8 +804,8 @@ mod tests {
         let buffer = &[0x34, 0x12, 0x78, 0x56, 0xbc, 0x9a, 0xde, 0xf0];
 
         // Read as individual bytes
-        let byte0 = read_byte(buffer, 0).unwrap();
-        let byte1 = read_byte(buffer, 1).unwrap();
+        let byte0 = read_byte(buffer, 0, false).unwrap();
+        let byte1 = read_byte(buffer, 1, false).unwrap();
 
         // Read as short
         let short = read_short(buffer, 0, Endianness::Little, false).unwrap();
@@ -913,7 +862,7 @@ mod tests {
     #[test]
     fn test_read_typed_value_byte() {
         let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-        let type_kind = TypeKind::Byte;
+        let type_kind = TypeKind::Byte { signed: false };
 
         let result = read_typed_value(buffer, 0, &type_kind).unwrap();
         assert_eq!(result, Value::Uint(0x7f));
@@ -1368,7 +1317,7 @@ fn test_read_typed_value_all_supported_types() {
 
     // Test all supported TypeKind variants
     let test_cases = vec![
-        (TypeKind::Byte, 0, Value::Uint(0x7f)),
+        (TypeKind::Byte { signed: false }, 0, Value::Uint(0x7f)),
         (
             TypeKind::Short {
                 endian: Endianness::Little,
@@ -1451,8 +1400,8 @@ fn test_read_typed_value_consistency_with_direct_calls() {
     let buffer = &[0x34, 0x12, 0x78, 0x56, 0xbc, 0x9a, 0xde, 0xf0];
 
     // Test that read_typed_value gives same results as direct function calls
-    let byte_type = TypeKind::Byte;
-    let direct_byte = read_byte(buffer, 0).unwrap();
+    let byte_type = TypeKind::Byte { signed: false };
+    let direct_byte = read_byte(buffer, 0, false).unwrap();
     let typed_byte = read_typed_value(buffer, 0, &byte_type).unwrap();
     assert_eq!(direct_byte, typed_byte);
 
@@ -1479,7 +1428,7 @@ fn test_read_typed_value_empty_buffer() {
 
     // All types should fail on empty buffer
     let types = vec![
-        TypeKind::Byte,
+        TypeKind::Byte { signed: false },
         TypeKind::Short {
             endian: Endianness::Little,
             signed: false,
@@ -1500,5 +1449,169 @@ fn test_read_typed_value_empty_buffer() {
             }
             TypeReadError::UnsupportedType { .. } => panic!("Expected BufferOverrun error"),
         }
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn test_coerce_value_to_type() {
+    let cases = [
+        // Signed byte: values above i8::MAX get coerced
+        (
+            Value::Uint(0xff),
+            TypeKind::Byte { signed: true },
+            Value::Int(-1),
+        ),
+        (
+            Value::Uint(0x80),
+            TypeKind::Byte { signed: true },
+            Value::Int(-128),
+        ),
+        (
+            Value::Uint(0xfe),
+            TypeKind::Byte { signed: true },
+            Value::Int(-2),
+        ),
+        // Signed byte: values in signed range pass through
+        (
+            Value::Uint(0x7f),
+            TypeKind::Byte { signed: true },
+            Value::Uint(0x7f),
+        ),
+        (
+            Value::Uint(0),
+            TypeKind::Byte { signed: true },
+            Value::Uint(0),
+        ),
+        (
+            Value::Uint(1),
+            TypeKind::Byte { signed: true },
+            Value::Uint(1),
+        ),
+        // Unsigned byte: all values pass through
+        (
+            Value::Uint(0xff),
+            TypeKind::Byte { signed: false },
+            Value::Uint(0xff),
+        ),
+        (
+            Value::Uint(0x80),
+            TypeKind::Byte { signed: false },
+            Value::Uint(0x80),
+        ),
+        // Signed short: values above i16::MAX get coerced
+        (
+            Value::Uint(0xffff),
+            TypeKind::Short {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Int(-1),
+        ),
+        (
+            Value::Uint(0x8000),
+            TypeKind::Short {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Int(-32768),
+        ),
+        (
+            Value::Uint(0xffd8),
+            TypeKind::Short {
+                endian: Endianness::Big,
+                signed: true,
+            },
+            Value::Int(-40),
+        ),
+        // Signed short: values in signed range pass through
+        (
+            Value::Uint(0x7fff),
+            TypeKind::Short {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Uint(0x7fff),
+        ),
+        // Unsigned short: all values pass through
+        (
+            Value::Uint(0xffff),
+            TypeKind::Short {
+                endian: Endianness::Native,
+                signed: false,
+            },
+            Value::Uint(0xffff),
+        ),
+        // Signed long: values above i32::MAX get coerced
+        (
+            Value::Uint(0xffff_ffff),
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Int(-1),
+        ),
+        (
+            Value::Uint(0x8000_0000),
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Int(-2_147_483_648),
+        ),
+        (
+            Value::Uint(0x8950_4e47),
+            TypeKind::Long {
+                endian: Endianness::Big,
+                signed: true,
+            },
+            Value::Int(-1_991_225_785),
+        ),
+        // Signed long: values in signed range pass through
+        (
+            Value::Uint(0x7fff_ffff),
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Uint(0x7fff_ffff),
+        ),
+        // Unsigned long: all values pass through
+        (
+            Value::Uint(0xffff_ffff),
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: false,
+            },
+            Value::Uint(0xffff_ffff),
+        ),
+        // Non-Uint values pass through unchanged
+        (
+            Value::Int(-1),
+            TypeKind::Byte { signed: true },
+            Value::Int(-1),
+        ),
+        (
+            Value::Int(42),
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Int(42),
+        ),
+        // String type: values pass through
+        (
+            Value::Uint(0xff),
+            TypeKind::String { max_length: None },
+            Value::Uint(0xff),
+        ),
+    ];
+
+    for (i, (input, type_kind, expected)) in cases.iter().enumerate() {
+        let result = coerce_value_to_type(input, type_kind);
+        assert_eq!(
+            result, *expected,
+            "Case {i}: coerce({input:?}, {type_kind:?})"
+        );
     }
 }

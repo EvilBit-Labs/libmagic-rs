@@ -56,14 +56,14 @@ Magic rules can contain child rules that are evaluated when the parent matches:
 ```rust
 let parent_rule = MagicRule {
     offset: OffsetSpec::Absolute(0),
-    typ: TypeKind::Byte,
+    typ: TypeKind::Byte { signed: false },
     op: Operator::Equal,
     value: Value::Uint(0x7f),
     message: "ELF".to_string(),
     children: vec![
         MagicRule {
             offset: OffsetSpec::Absolute(4),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: false },
             op: Operator::Equal,
             value: Value::Uint(1),
             message: "32-bit".to_string(),
@@ -72,7 +72,7 @@ let parent_rule = MagicRule {
         },
         MagicRule {
             offset: OffsetSpec::Absolute(4),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: false },
             op: Operator::Equal,
             value: Value::Uint(2),
             message: "64-bit".to_string(),
@@ -169,7 +169,7 @@ The `TypeKind` enum specifies how to interpret bytes at the given offset:
 ```rust
 pub enum TypeKind {
     /// Single byte (8-bit)
-    Byte,
+    Byte { signed: bool },
 
     /// 16-bit integer
     Short { endian: Endianness, signed: bool },
@@ -185,8 +185,11 @@ pub enum TypeKind {
 **Examples:**
 
 ```rust
-// Single byte
-let byte_type = TypeKind::Byte;
+// Single unsigned byte
+let byte_type = TypeKind::Byte { signed: false };
+
+// Single signed byte
+let signed_byte_type = TypeKind::Byte { signed: true };
 
 // 16-bit little-endian unsigned integer
 let short_le = TypeKind::Short {
@@ -218,13 +221,18 @@ pub enum Endianness {
 
 ## Operator Types
 
-The `Operator` enum defines comparison operations:
+The `Operator` enum defines comparison and bitwise operations:
 
 ```rust
 pub enum Operator {
-    Equal,      // ==
-    NotEqual,   // !=
-    BitwiseAnd, // & (bitwise AND for pattern matching)
+    Equal,          // == (equality comparison)
+    NotEqual,       // != (inequality comparison)
+    LessThan,       // < (less-than comparison)
+    GreaterThan,    // > (greater-than comparison)
+    LessEqual,      // <= (less-than-or-equal comparison)
+    GreaterEqual,   // >= (greater-than-or-equal comparison)
+    BitwiseAnd,     // & (bitwise AND for pattern matching)
+    BitwiseAndMask(u64), // & (bitwise AND with mask value)
 }
 ```
 
@@ -237,8 +245,23 @@ let equal_op = Operator::Equal;
 // Not equal
 let not_equal_op = Operator::NotEqual;
 
+// Less than comparison
+let less_op = Operator::LessThan;
+
+// Greater than comparison
+let greater_op = Operator::GreaterThan;
+
+// Less than or equal
+let less_equal_op = Operator::LessEqual;
+
+// Greater than or equal
+let greater_equal_op = Operator::GreaterEqual;
+
 // Bitwise AND (useful for flag checking)
 let bitwise_op = Operator::BitwiseAnd;
+
+// Bitwise AND with mask
+let bitwise_mask_op = Operator::BitwiseAndMask(0xFF00);
 ```
 
 ## Value Types
@@ -313,7 +336,7 @@ let elf_rules = vec![
         children: vec![
             MagicRule {
                 offset: OffsetSpec::Absolute(4),
-                typ: TypeKind::Byte,
+                typ: TypeKind::Byte { signed: false },
                 op: Operator::Equal,
                 value: Value::Uint(1),
                 message: "32-bit".to_string(),
@@ -322,7 +345,7 @@ let elf_rules = vec![
             },
             MagicRule {
                 offset: OffsetSpec::Absolute(4),
-                typ: TypeKind::Byte,
+                typ: TypeKind::Byte { signed: false },
                 op: Operator::Equal,
                 value: Value::Uint(2),
                 message: "64-bit".to_string(),
@@ -374,8 +397,8 @@ let script_rule = MagicRule {
 
 ### Type Selection
 
-1. **Use `Byte`** for single-byte values and flags
-2. **Use `Short/Long`** with explicit endianness for multi-byte integers
+1. **Use `Byte { signed }`** for single-byte values and flags, specifying signedness
+2. **Use `Short/Long`** with explicit endianness and signedness for multi-byte integers
 3. **Use `String`** with length limits for text patterns
 4. **Use `Bytes`** for exact binary sequences
 

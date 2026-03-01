@@ -225,7 +225,7 @@ mod tests {
         let line = li(1, "0 byte 1 ELF");
         let rule = parse_magic_rule_line(&line).unwrap();
         assert_eq!(rule.level, 0);
-        assert!(matches!(rule.typ, TypeKind::Byte));
+        assert!(matches!(rule.typ, TypeKind::Byte { .. }));
     }
 
     #[test]

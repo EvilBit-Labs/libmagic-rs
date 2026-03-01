@@ -141,6 +141,10 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
 /// Supports both symbolic and text representations of operators:
 /// - `=` or `==` for equality
 /// - `!=` or `<>` for inequality
+/// - `<` for less-than
+/// - `>` for greater-than
+/// - `<=` for less-than-or-equal
+/// - `>=` for greater-than-or-equal
 /// - `&` for bitwise AND
 ///
 /// # Examples
@@ -153,6 +157,10 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
 /// assert_eq!(parse_operator("=="), Ok(("", Operator::Equal)));
 /// assert_eq!(parse_operator("!="), Ok(("", Operator::NotEqual)));
 /// assert_eq!(parse_operator("<>"), Ok(("", Operator::NotEqual)));
+/// assert_eq!(parse_operator("<"), Ok(("", Operator::LessThan)));
+/// assert_eq!(parse_operator(">"), Ok(("", Operator::GreaterThan)));
+/// assert_eq!(parse_operator("<="), Ok(("", Operator::LessEqual)));
+/// assert_eq!(parse_operator(">="), Ok(("", Operator::GreaterEqual)));
 /// assert_eq!(parse_operator("&"), Ok(("", Operator::BitwiseAnd)));
 /// ```
 ///
@@ -188,6 +196,16 @@ pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
         return Ok((remaining, Operator::NotEqual));
     }
 
+    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("<=")(input) {
+        let (remaining, _) = multispace0(remaining)?;
+        return Ok((remaining, Operator::LessEqual));
+    }
+
+    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>(">=")(input) {
+        let (remaining, _) = multispace0(remaining)?;
+        return Ok((remaining, Operator::GreaterEqual));
+    }
+
     if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("=")(input) {
         // Check that we don't have another '=' following (to reject "==")
         if remaining.starts_with('=') {
@@ -210,6 +228,16 @@ pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
         }
         let (remaining, _) = multispace0(remaining)?;
         return Ok((remaining, Operator::BitwiseAnd));
+    }
+
+    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("<")(input) {
+        let (remaining, _) = multispace0(remaining)?;
+        return Ok((remaining, Operator::LessThan));
+    }
+
+    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>(">")(input) {
+        let (remaining, _) = multispace0(remaining)?;
+        return Ok((remaining, Operator::GreaterThan));
     }
 
     // If no operator matches, return an error
@@ -382,7 +410,7 @@ fn parse_escape_sequence(input: &str) -> IResult<&str, char> {
         '"' => '"',
         '\'' => '\'',
         '0' => '\0',
-        _ => escaped_char, // Fallback for other characters
+        _ => unreachable!("one_of constrains input to known escape characters"),
     };
 
     Ok((input, result_char))
@@ -837,11 +865,25 @@ mod tests {
             Ok(("extra", Operator::NotEqual))
         );
 
-        // Test that "<>" is parsed correctly
+        // Test that "<>" is parsed correctly, not as "<" followed by ">"
         assert_eq!(parse_operator("<>"), Ok(("", Operator::NotEqual)));
         assert_eq!(
             parse_operator("<> extra"),
             Ok(("extra", Operator::NotEqual))
+        );
+
+        // Test that "<=" is parsed as LessEqual, not "<" followed by "="
+        assert_eq!(parse_operator("<="), Ok(("", Operator::LessEqual)));
+        assert_eq!(
+            parse_operator("<= extra"),
+            Ok(("extra", Operator::LessEqual))
+        );
+
+        // Test that ">=" is parsed as GreaterEqual, not ">" followed by "="
+        assert_eq!(parse_operator(">="), Ok(("", Operator::GreaterEqual)));
+        assert_eq!(
+            parse_operator(">= extra"),
+            Ok(("extra", Operator::GreaterEqual))
         );
     }
 
@@ -851,8 +893,6 @@ mod tests {
         assert!(parse_operator("").is_err());
         assert!(parse_operator("abc").is_err());
         assert!(parse_operator("123").is_err());
-        assert!(parse_operator(">").is_err());
-        assert!(parse_operator("<").is_err());
         assert!(parse_operator("!").is_err());
         assert!(parse_operator("===").is_err()); // Too many equals
         assert!(parse_operator("&&").is_err()); // Double ampersand not supported
@@ -909,6 +949,10 @@ mod tests {
             ("==", Operator::Equal),
             ("!=", Operator::NotEqual),
             ("<>", Operator::NotEqual),
+            ("<", Operator::LessThan),
+            (">", Operator::GreaterThan),
+            ("<=", Operator::LessEqual),
+            (">=", Operator::GreaterEqual),
             ("&", Operator::BitwiseAnd),
         ];
 
@@ -919,6 +963,80 @@ mod tests {
                 "Failed to parse operator: '{input}'"
             );
         }
+    }
+
+    #[test]
+    fn test_parse_operator_less_than() {
+        // Basic less-than
+        assert_eq!(parse_operator("<"), Ok(("", Operator::LessThan)));
+
+        // With whitespace
+        assert_eq!(parse_operator(" < "), Ok(("", Operator::LessThan)));
+        assert_eq!(parse_operator("  <  "), Ok(("", Operator::LessThan)));
+        assert_eq!(parse_operator("\t<\t"), Ok(("", Operator::LessThan)));
+
+        // With remaining input
+        assert_eq!(parse_operator("< 42"), Ok(("42", Operator::LessThan)));
+    }
+
+    #[test]
+    fn test_parse_operator_greater_than() {
+        // Basic greater-than
+        assert_eq!(parse_operator(">"), Ok(("", Operator::GreaterThan)));
+
+        // With whitespace
+        assert_eq!(parse_operator(" > "), Ok(("", Operator::GreaterThan)));
+        assert_eq!(parse_operator("  >  "), Ok(("", Operator::GreaterThan)));
+        assert_eq!(parse_operator("\t>\t"), Ok(("", Operator::GreaterThan)));
+
+        // With remaining input
+        assert_eq!(parse_operator("> 42"), Ok(("42", Operator::GreaterThan)));
+    }
+
+    #[test]
+    fn test_parse_operator_less_equal() {
+        // Basic less-or-equal
+        assert_eq!(parse_operator("<="), Ok(("", Operator::LessEqual)));
+
+        // With whitespace
+        assert_eq!(parse_operator(" <= "), Ok(("", Operator::LessEqual)));
+        assert_eq!(parse_operator("  <=  "), Ok(("", Operator::LessEqual)));
+        assert_eq!(parse_operator("\t<=\t"), Ok(("", Operator::LessEqual)));
+
+        // With remaining input
+        assert_eq!(parse_operator("<= 42"), Ok(("42", Operator::LessEqual)));
+    }
+
+    #[test]
+    fn test_parse_operator_greater_equal() {
+        // Basic greater-or-equal
+        assert_eq!(parse_operator(">="), Ok(("", Operator::GreaterEqual)));
+
+        // With whitespace
+        assert_eq!(parse_operator(" >= "), Ok(("", Operator::GreaterEqual)));
+        assert_eq!(parse_operator("  >=  "), Ok(("", Operator::GreaterEqual)));
+        assert_eq!(parse_operator("\t>=\t"), Ok(("", Operator::GreaterEqual)));
+
+        // With remaining input
+        assert_eq!(parse_operator(">= 42"), Ok(("42", Operator::GreaterEqual)));
+    }
+
+    #[test]
+    fn test_parse_operator_comparison_disambiguation() {
+        // <> still parses as NotEqual
+        assert_eq!(parse_operator("<>"), Ok(("", Operator::NotEqual)));
+
+        // <= parses as LessEqual, not LessThan with "=" remaining
+        assert_eq!(parse_operator("<="), Ok(("", Operator::LessEqual)));
+
+        // >= parses as GreaterEqual, not GreaterThan with "=" remaining
+        assert_eq!(parse_operator(">="), Ok(("", Operator::GreaterEqual)));
+
+        // "< >" (with space) parses as LessThan with "> " remaining
+        assert_eq!(parse_operator("< >"), Ok((">", Operator::LessThan)));
+
+        // "> =" (with space) parses as GreaterThan with "= " remaining
+        assert_eq!(parse_operator("> ="), Ok(("=", Operator::GreaterThan)));
     }
 
     // Value parsing tests
@@ -1419,8 +1537,8 @@ mod tests {
 /// use libmagic_rs::parser::grammar::parse_type;
 /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
 ///
-/// assert_eq!(parse_type("byte"), Ok(("", TypeKind::Byte)));
-/// assert_eq!(parse_type("leshort"), Ok(("", TypeKind::Short { endian: Endianness::Little, signed: false })));
+/// assert_eq!(parse_type("byte"), Ok(("", TypeKind::Byte { signed: true })));
+/// assert_eq!(parse_type("leshort"), Ok(("", TypeKind::Short { endian: Endianness::Little, signed: true })));
 /// assert_eq!(parse_type("string"), Ok(("", TypeKind::String { max_length: None })));
 /// ```
 /// Parse a type specification with optional attached operator
@@ -1432,6 +1550,15 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
     let (input, _) = multispace0(input)?;
 
     let (input, type_name) = alt((
+        // Unsigned variants (longer names first to avoid partial matches)
+        tag("ubelong"),
+        tag("ulelong"),
+        tag("ubeshort"),
+        tag("uleshort"),
+        tag("ulong"),
+        tag("ushort"),
+        tag("ubyte"),
+        // Signed variants (default in libmagic)
         tag("lelong"),
         tag("belong"),
         tag("leshort"),
@@ -1458,28 +1585,53 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
     let (input, _) = multispace0(input)?;
 
     let type_kind = match type_name {
-        "byte" => TypeKind::Byte,
+        "byte" => TypeKind::Byte { signed: true },
+        "ubyte" => TypeKind::Byte { signed: false },
         "short" => TypeKind::Short {
+            endian: Endianness::Native,
+            signed: true,
+        },
+        "ushort" => TypeKind::Short {
             endian: Endianness::Native,
             signed: false,
         },
         "leshort" => TypeKind::Short {
             endian: Endianness::Little,
+            signed: true,
+        },
+        "uleshort" => TypeKind::Short {
+            endian: Endianness::Little,
             signed: false,
         },
         "beshort" => TypeKind::Short {
+            endian: Endianness::Big,
+            signed: true,
+        },
+        "ubeshort" => TypeKind::Short {
             endian: Endianness::Big,
             signed: false,
         },
         "long" => TypeKind::Long {
             endian: Endianness::Native,
+            signed: true,
+        },
+        "ulong" => TypeKind::Long {
+            endian: Endianness::Native,
             signed: false,
         },
         "lelong" => TypeKind::Long {
             endian: Endianness::Little,
+            signed: true,
+        },
+        "ulelong" => TypeKind::Long {
+            endian: Endianness::Little,
             signed: false,
         },
         "belong" => TypeKind::Long {
+            endian: Endianness::Big,
+            signed: true,
+        },
+        "ubelong" => TypeKind::Long {
             endian: Endianness::Big,
             signed: false,
         },
@@ -1809,14 +1961,17 @@ pub fn has_continuation(input: &str) -> bool {
 
 #[test]
 fn test_parse_type_basic() {
-    assert_eq!(parse_type("byte"), Ok(("", TypeKind::Byte)));
+    assert_eq!(
+        parse_type("byte"),
+        Ok(("", TypeKind::Byte { signed: true }))
+    );
     assert_eq!(
         parse_type("short"),
         Ok((
             "",
             TypeKind::Short {
                 endian: Endianness::Native,
-                signed: false
+                signed: true
             }
         ))
     );
@@ -1826,7 +1981,7 @@ fn test_parse_type_basic() {
             "",
             TypeKind::Long {
                 endian: Endianness::Native,
-                signed: false
+                signed: true
             }
         ))
     );
@@ -1844,7 +1999,7 @@ fn test_parse_type_endianness() {
             "",
             TypeKind::Short {
                 endian: Endianness::Little,
-                signed: false
+                signed: true
             }
         ))
     );
@@ -1854,7 +2009,7 @@ fn test_parse_type_endianness() {
             "",
             TypeKind::Short {
                 endian: Endianness::Big,
-                signed: false
+                signed: true
             }
         ))
     );
@@ -1864,7 +2019,7 @@ fn test_parse_type_endianness() {
             "",
             TypeKind::Long {
                 endian: Endianness::Little,
-                signed: false
+                signed: true
             }
         ))
     );
@@ -1874,7 +2029,7 @@ fn test_parse_type_endianness() {
             "",
             TypeKind::Long {
                 endian: Endianness::Big,
-                signed: false
+                signed: true
             }
         ))
     );
@@ -1882,7 +2037,10 @@ fn test_parse_type_endianness() {
 
 #[test]
 fn test_parse_type_with_whitespace() {
-    assert_eq!(parse_type(" byte "), Ok(("", TypeKind::Byte)));
+    assert_eq!(
+        parse_type(" byte "),
+        Ok(("", TypeKind::Byte { signed: true }))
+    );
     assert_eq!(
         parse_type("\tstring\t"),
         Ok(("", TypeKind::String { max_length: None }))
@@ -1893,7 +2051,7 @@ fn test_parse_type_with_whitespace() {
             "",
             TypeKind::Long {
                 endian: Endianness::Little,
-                signed: false
+                signed: true
             }
         ))
     );
@@ -1901,7 +2059,10 @@ fn test_parse_type_with_whitespace() {
 
 #[test]
 fn test_parse_type_with_remaining_input() {
-    assert_eq!(parse_type("byte ="), Ok(("=", TypeKind::Byte)));
+    assert_eq!(
+        parse_type("byte ="),
+        Ok(("=", TypeKind::Byte { signed: true }))
+    );
     assert_eq!(
         parse_type("string \\x7f"),
         Ok(("\\x7f", TypeKind::String { max_length: None }))
@@ -1914,6 +2075,123 @@ fn test_parse_type_invalid() {
     assert!(parse_type("invalid").is_err());
     assert!(parse_type("int").is_err());
     assert!(parse_type("float").is_err());
+}
+
+#[test]
+fn test_parse_type_unsigned_variants() {
+    assert_eq!(
+        parse_type("ubyte"),
+        Ok(("", TypeKind::Byte { signed: false }))
+    );
+    assert_eq!(
+        parse_type("ushort"),
+        Ok((
+            "",
+            TypeKind::Short {
+                endian: Endianness::Native,
+                signed: false,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("ubeshort"),
+        Ok((
+            "",
+            TypeKind::Short {
+                endian: Endianness::Big,
+                signed: false,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("uleshort"),
+        Ok((
+            "",
+            TypeKind::Short {
+                endian: Endianness::Little,
+                signed: false,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("ulong"),
+        Ok((
+            "",
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: false,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("ubelong"),
+        Ok((
+            "",
+            TypeKind::Long {
+                endian: Endianness::Big,
+                signed: false,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("ulelong"),
+        Ok((
+            "",
+            TypeKind::Long {
+                endian: Endianness::Little,
+                signed: false,
+            }
+        ))
+    );
+}
+
+#[test]
+fn test_parse_type_signed_defaults() {
+    // In libmagic, unprefixed types are signed by default
+    assert_eq!(
+        parse_type("byte"),
+        Ok(("", TypeKind::Byte { signed: true }))
+    );
+    assert_eq!(
+        parse_type("short"),
+        Ok((
+            "",
+            TypeKind::Short {
+                endian: Endianness::Native,
+                signed: true,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("long"),
+        Ok((
+            "",
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: true,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("beshort"),
+        Ok((
+            "",
+            TypeKind::Short {
+                endian: Endianness::Big,
+                signed: true,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("belong"),
+        Ok((
+            "",
+            TypeKind::Long {
+                endian: Endianness::Big,
+                signed: true,
+            }
+        ))
+    );
 }
 
 #[test]
@@ -2041,7 +2319,7 @@ fn test_parse_magic_rule_child() {
     assert_eq!(remaining, "");
     assert_eq!(rule.level, 1);
     assert_eq!(rule.offset, OffsetSpec::Absolute(4));
-    assert_eq!(rule.typ, TypeKind::Byte);
+    assert_eq!(rule.typ, TypeKind::Byte { signed: true });
     assert_eq!(rule.op, Operator::Equal);
     assert_eq!(rule.value, Value::Uint(1));
     assert_eq!(rule.message, "32-bit");
@@ -2059,7 +2337,7 @@ fn test_parse_magic_rule_with_operator() {
         rule.typ,
         TypeKind::Long {
             endian: Endianness::Little,
-            signed: false
+            signed: true
         }
     );
     assert_eq!(rule.op, Operator::BitwiseAndMask(0xf000_0000));
@@ -2075,7 +2353,7 @@ fn test_parse_magic_rule_no_message() {
     assert_eq!(remaining, "");
     assert_eq!(rule.level, 0);
     assert_eq!(rule.offset, OffsetSpec::Absolute(0));
-    assert_eq!(rule.typ, TypeKind::Byte);
+    assert_eq!(rule.typ, TypeKind::Byte { signed: true });
     assert_eq!(rule.op, Operator::Equal);
     assert_eq!(rule.value, Value::Uint(0x7f));
     assert_eq!(rule.message, "");
@@ -2093,7 +2371,7 @@ fn test_parse_magic_rule_nested() {
         rule.typ,
         TypeKind::Short {
             endian: Endianness::Little,
-            signed: false
+            signed: true
         }
     );
     assert_eq!(rule.op, Operator::Equal);
@@ -2109,7 +2387,7 @@ fn test_parse_magic_rule_with_whitespace() {
     assert_eq!(remaining, "");
     assert_eq!(rule.level, 1);
     assert_eq!(rule.offset, OffsetSpec::Absolute(4));
-    assert_eq!(rule.typ, TypeKind::Byte);
+    assert_eq!(rule.typ, TypeKind::Byte { signed: true });
     assert_eq!(rule.op, Operator::Equal);
     assert_eq!(rule.value, Value::Uint(1));
     assert_eq!(rule.message, "32-bit");
@@ -2141,7 +2419,7 @@ fn test_parse_magic_rule_hex_offset() {
         rule.typ,
         TypeKind::Long {
             endian: Endianness::Big,
-            signed: false
+            signed: true
         }
     );
     assert_eq!(rule.op, Operator::Equal);
@@ -2157,7 +2435,7 @@ fn test_parse_magic_rule_negative_offset() {
     assert_eq!(remaining, "");
     assert_eq!(rule.level, 0);
     assert_eq!(rule.offset, OffsetSpec::Absolute(-4));
-    assert_eq!(rule.typ, TypeKind::Byte);
+    assert_eq!(rule.typ, TypeKind::Byte { signed: true });
     assert_eq!(rule.op, Operator::Equal);
     assert_eq!(rule.value, Value::Uint(0));
     assert_eq!(rule.message, "End marker");
@@ -2251,7 +2529,13 @@ fn test_parse_magic_rule_real_world_examples() {
 fn test_parse_magic_rule_edge_cases() {
     // Test various edge cases
     let edge_cases = [
-        ("0 byte 0", 0, TypeKind::Byte, Value::Uint(0), ""),
+        (
+            "0 byte 0",
+            0,
+            TypeKind::Byte { signed: true },
+            Value::Uint(0),
+            "",
+        ),
         (
             ">>>16 string \"\" Empty string",
             3,
@@ -2264,7 +2548,7 @@ fn test_parse_magic_rule_edge_cases() {
             0,
             TypeKind::Long {
                 endian: Endianness::Little,
-                signed: false,
+                signed: true,
             },
             Value::Uint(0xFFFF_FFFF),
             "Max value",
