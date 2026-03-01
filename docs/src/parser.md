@@ -70,6 +70,12 @@ parse_operator("==")   // Ok(("", Operator::Equal))
 parse_operator("!=")   // Ok(("", Operator::NotEqual))
 parse_operator("<>")   // Ok(("", Operator::NotEqual))
 
+// Comparison operators
+parse_operator("<")    // Ok(("", Operator::LessThan))
+parse_operator(">")    // Ok(("", Operator::GreaterThan))
+parse_operator("<=")   // Ok(("", Operator::LessEqual))
+parse_operator(">=")   // Ok(("", Operator::GreaterEqual))
+
 // Bitwise operators
 parse_operator("&")    // Ok(("", Operator::BitwiseAnd))
 ```
@@ -80,6 +86,7 @@ parse_operator("&")    // Ok(("", Operator::BitwiseAnd))
 - ✅ Precedence handling (longer operators matched first)
 - ✅ Whitespace tolerance
 - ✅ Invalid operator rejection with clear errors
+- ✅ Eight comparison and bitwise operators supported
 
 ### Value Parsing (`parse_value`)
 
@@ -180,7 +187,7 @@ fn test_parse_number_edge_cases() {
 
 ## Complete Magic File Parsing
 
-The parser now provides complete magic file parsing through the `parse_text_magic_file()` function:
+The parser provides complete magic file parsing through the `parse_text_magic_file()` function:
 
 ```rust
 use libmagic_rs::parser::parse_text_magic_file;
@@ -196,6 +203,8 @@ let rules = parse_text_magic_file(magic_content)?;
 assert_eq!(rules.len(), 1);           // One root rule
 assert_eq!(rules[0].children.len(), 2); // Two child rules
 ```
+
+The parser distinguishes between signed and unsigned type variants (e.g., `byte` vs `ubyte`, `leshort` vs `uleshort`), mapping them to the `signed` field in `TypeKind::Byte { signed: bool }` and similar type variants. Unprefixed types default to signed in accordance with libmagic conventions.
 
 ### Format Detection
 
