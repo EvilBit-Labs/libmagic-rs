@@ -298,10 +298,12 @@ use libmagic_rs::TypeKind;
 
 | Variant | Description |
 |---------|-------------|
-| `Byte { signed }` | Single byte with explicit signedness |
+| `Byte { signed }` | Single byte with explicit signedness (changed in v0.2.0) |
 | `Short { endian, signed }` | 16-bit integer |
 | `Long { endian, signed }` | 32-bit integer |
 | `String { max_length }` | String data |
+
+**Version Note:** In v0.2.0, the `Byte` variant changed from a unit variant to a struct variant with a `signed` field.
 
 #### Operator
 
@@ -315,12 +317,14 @@ use libmagic_rs::Operator;
 |---------|-------------|
 | `Equal` | Equality comparison (`=` or `==`) |
 | `NotEqual` | Inequality comparison (`!=` or `<>`) |
-| `LessThan` | Less than comparison (`<`) |
-| `GreaterThan` | Greater than comparison (`>`) |
-| `LessEqual` | Less than or equal comparison (`<=`) |
-| `GreaterEqual` | Greater than or equal comparison (`>=`) |
+| `LessThan` | Less than comparison (`<`) (added in v0.2.0) |
+| `GreaterThan` | Greater than comparison (`>`) (added in v0.2.0) |
+| `LessEqual` | Less than or equal comparison (`<=`) (added in v0.2.0) |
+| `GreaterEqual` | Greater than or equal comparison (`>=`) (added in v0.2.0) |
 | `BitwiseAnd` | Bitwise AND (`&`) |
 | `BitwiseAndMask(u64)` | Bitwise AND with mask value |
+
+**Version Note:** The comparison operators `LessThan`, `GreaterThan`, `LessEqual`, and `GreaterEqual` were added in v0.2.0.
 
 #### Value
 
