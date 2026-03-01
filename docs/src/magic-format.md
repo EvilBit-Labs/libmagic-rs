@@ -172,6 +172,8 @@ Example:
 | `!` | Not equal | `4 byte !0` |
 | `>` | Greater than | `8 long >1000` |
 | `<` | Less than | `8 long <100` |
+| `>=` | Greater than or equal | `8 long >=1000` |
+| `<=` | Less than or equal | `8 long <=100` |
 | `&` | Bitwise AND | `4 byte &0x80` |
 | `^` | Bitwise XOR | `4 byte ^0xff` |
 
@@ -437,7 +439,7 @@ Consider:
 - Indirect offsets (basic)
 - Byte, short, long types
 - String type
-- Equal, not-equal operators
+- Comparison operators (equal, not-equal, less-than, greater-than, less-equal, greater-equal)
 - Bitwise AND operator
 - Nested rules
 - Comments
