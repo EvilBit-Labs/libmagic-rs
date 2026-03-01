@@ -110,10 +110,10 @@ Applies comparison operations:
 
 - **Equal** (`=`, `==`): Exact value matching
 - **NotEqual** (`!=`, `<>`): Non-matching values
-- **LessThan** (`<`): Numeric less-than comparison
-- **GreaterThan** (`>`): Numeric greater-than comparison
-- **LessEqual** (`<=`): Numeric less-than-or-equal comparison
-- **GreaterEqual** (`>=`): Numeric greater-than-or-equal comparison
+- **LessThan** (`<`): Less-than comparison (numeric or lexicographic)
+- **GreaterThan** (`>`): Greater-than comparison (numeric or lexicographic)
+- **LessEqual** (`<=`): Less-than-or-equal comparison (numeric or lexicographic)
+- **GreaterEqual** (`>=`): Greater-than-or-equal comparison (numeric or lexicographic)
 - **BitwiseAnd** (`&`): Pattern matching for flags
 - **BitwiseAndMask**: AND with mask then compare
 
