@@ -316,6 +316,19 @@ Releases are automated by two complementary tools:
    - Publishes the Homebrew formula
    - Creates the **GitHub Release** with all artifacts
 
+#### Release PR Merge Handling
+
+Release-plz PRs (with branch names matching `release-plz-*`) are exempt from the standard "CI must pass" merge protection. This exemption exists because:
+
+- release-plz force-pushes when updating existing PRs
+- `GITHUB_TOKEN`-triggered pushes do not trigger workflow events, so CI never runs on the updated HEAD commit
+- Without this exemption, the merge protection would block the PR indefinitely
+- Release-plz PRs only bump versions and update changelogs -- they contain no code changes
+- The code being released was already tested on `main` before the release PR was created
+- CI still runs in the merge queue as a final verification step before the release is completed
+
+This exemption allows the release workflow to proceed smoothly while maintaining the safety of the automated release process.
+
 ### Configuration Files
 
 | File | Purpose |
