@@ -219,6 +219,9 @@ pub fn apply_less_than(left: &Value, right: &Value) -> bool {
         // Lexicographic string comparison
         (Value::String(a), Value::String(b)) => a < b,
 
+        // Lexicographic byte sequence comparison
+        (Value::Bytes(a), Value::Bytes(b)) => a < b,
+
         // Unsupported type combinations
         _ => false,
     }
@@ -277,6 +280,9 @@ pub fn apply_greater_than(left: &Value, right: &Value) -> bool {
 
         // Lexicographic string comparison
         (Value::String(a), Value::String(b)) => a > b,
+
+        // Lexicographic byte sequence comparison
+        (Value::Bytes(a), Value::Bytes(b)) => a > b,
 
         // Unsupported type combinations
         _ => false,
@@ -339,6 +345,9 @@ pub fn apply_less_equal(left: &Value, right: &Value) -> bool {
         // Lexicographic string comparison
         (Value::String(a), Value::String(b)) => a <= b,
 
+        // Lexicographic byte sequence comparison
+        (Value::Bytes(a), Value::Bytes(b)) => a <= b,
+
         // Unsupported type combinations
         _ => false,
     }
@@ -399,6 +408,9 @@ pub fn apply_greater_equal(left: &Value, right: &Value) -> bool {
 
         // Lexicographic string comparison
         (Value::String(a), Value::String(b)) => a >= b,
+
+        // Lexicographic byte sequence comparison
+        (Value::Bytes(a), Value::Bytes(b)) => a >= b,
 
         // Unsupported type combinations
         _ => false,
@@ -1958,10 +1970,27 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_less_than_bytes_false() {
-        assert!(!apply_less_than(
+    fn test_apply_less_than_bytes() {
+        assert!(apply_less_than(
             &Value::Bytes(vec![1]),
             &Value::Bytes(vec![2])
+        ));
+        assert!(!apply_less_than(
+            &Value::Bytes(vec![2]),
+            &Value::Bytes(vec![1])
+        ));
+        assert!(!apply_less_than(
+            &Value::Bytes(vec![1]),
+            &Value::Bytes(vec![1])
+        ));
+        // Different lengths
+        assert!(apply_less_than(
+            &Value::Bytes(vec![1]),
+            &Value::Bytes(vec![1, 2])
+        ));
+        assert!(apply_less_than(
+            &Value::Bytes(vec![]),
+            &Value::Bytes(vec![1])
         ));
     }
 
@@ -2032,10 +2061,27 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_greater_than_bytes_false() {
-        assert!(!apply_greater_than(
+    fn test_apply_greater_than_bytes() {
+        assert!(apply_greater_than(
             &Value::Bytes(vec![2]),
             &Value::Bytes(vec![1])
+        ));
+        assert!(!apply_greater_than(
+            &Value::Bytes(vec![1]),
+            &Value::Bytes(vec![2])
+        ));
+        assert!(!apply_greater_than(
+            &Value::Bytes(vec![1]),
+            &Value::Bytes(vec![1])
+        ));
+        // Different lengths
+        assert!(apply_greater_than(
+            &Value::Bytes(vec![1, 2]),
+            &Value::Bytes(vec![1])
+        ));
+        assert!(apply_greater_than(
+            &Value::Bytes(vec![1]),
+            &Value::Bytes(vec![])
         ));
     }
 
@@ -2086,10 +2132,23 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_less_equal_bytes_false() {
-        assert!(!apply_less_equal(
+    fn test_apply_less_equal_bytes() {
+        assert!(apply_less_equal(
             &Value::Bytes(vec![1]),
             &Value::Bytes(vec![1])
+        ));
+        assert!(apply_less_equal(
+            &Value::Bytes(vec![1]),
+            &Value::Bytes(vec![2])
+        ));
+        assert!(!apply_less_equal(
+            &Value::Bytes(vec![2]),
+            &Value::Bytes(vec![1])
+        ));
+        // Equal content
+        assert!(apply_less_equal(
+            &Value::Bytes(vec![1, 2, 3]),
+            &Value::Bytes(vec![1, 2, 3])
         ));
     }
 
@@ -2132,10 +2191,23 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_greater_equal_bytes_false() {
-        assert!(!apply_greater_equal(
+    fn test_apply_greater_equal_bytes() {
+        assert!(apply_greater_equal(
             &Value::Bytes(vec![1]),
             &Value::Bytes(vec![1])
+        ));
+        assert!(apply_greater_equal(
+            &Value::Bytes(vec![2]),
+            &Value::Bytes(vec![1])
+        ));
+        assert!(!apply_greater_equal(
+            &Value::Bytes(vec![1]),
+            &Value::Bytes(vec![2])
+        ));
+        // Equal content
+        assert!(apply_greater_equal(
+            &Value::Bytes(vec![1, 2, 3]),
+            &Value::Bytes(vec![1, 2, 3])
         ));
     }
 

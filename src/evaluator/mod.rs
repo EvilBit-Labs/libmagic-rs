@@ -273,7 +273,7 @@ impl MatchResult {
 /// // Create a rule to check for ELF magic bytes at offset 0
 /// let rule = MagicRule {
 ///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte,
+///     typ: TypeKind::Byte { signed: true },
 ///     op: Operator::Equal,
 ///     value: Value::Uint(0x7f),
 ///     message: "ELF magic".to_string(),
@@ -352,14 +352,14 @@ pub fn evaluate_single_rule(
 /// // Create a hierarchical rule set for ELF files
 /// let parent_rule = MagicRule {
 ///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte,
+///     typ: TypeKind::Byte { signed: true },
 ///     op: Operator::Equal,
 ///     value: Value::Uint(0x7f),
 ///     message: "ELF".to_string(),
 ///     children: vec![
 ///         MagicRule {
 ///             offset: OffsetSpec::Absolute(4),
-///             typ: TypeKind::Byte,
+///             typ: TypeKind::Byte { signed: true },
 ///             op: Operator::Equal,
 ///             value: Value::Uint(2),
 ///             message: "64-bit".to_string(),
@@ -498,7 +498,7 @@ pub fn evaluate_rules(
 ///
 /// let rule = MagicRule {
 ///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte,
+///     typ: TypeKind::Byte { signed: true },
 ///     op: Operator::Equal,
 ///     value: Value::Uint(0x7f),
 ///     message: "ELF magic".to_string(),
@@ -538,7 +538,7 @@ mod tests {
     fn test_evaluate_single_rule_byte_equal_match() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7f),
             message: "ELF magic".to_string(),
@@ -556,7 +556,7 @@ mod tests {
     fn test_evaluate_single_rule_byte_equal_no_match() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7f),
             message: "ELF magic".to_string(),
@@ -574,7 +574,7 @@ mod tests {
     fn test_evaluate_single_rule_byte_not_equal_match() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::NotEqual,
             value: Value::Uint(0x00),
             message: "Non-zero byte".to_string(),
@@ -592,7 +592,7 @@ mod tests {
     fn test_evaluate_single_rule_byte_not_equal_no_match() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::NotEqual,
             value: Value::Uint(0x7f),
             message: "Not ELF magic".to_string(),
@@ -610,7 +610,7 @@ mod tests {
     fn test_evaluate_single_rule_byte_bitwise_and_match() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::BitwiseAnd,
             value: Value::Uint(0x80), // Check if high bit is set
             message: "High bit set".to_string(),
@@ -628,7 +628,7 @@ mod tests {
     fn test_evaluate_single_rule_byte_bitwise_and_no_match() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::BitwiseAnd,
             value: Value::Uint(0x80), // Check if high bit is set
             message: "High bit set".to_string(),
@@ -814,7 +814,7 @@ mod tests {
     fn test_evaluate_single_rule_different_offsets() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(2), // Read from offset 2
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x4c),
             message: "ELF class byte".to_string(),
@@ -832,7 +832,7 @@ mod tests {
     fn test_evaluate_single_rule_negative_offset() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(-1), // Last byte
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x46),
             message: "Last byte".to_string(),
@@ -850,7 +850,7 @@ mod tests {
     fn test_evaluate_single_rule_from_end_offset() {
         let rule = MagicRule {
             offset: OffsetSpec::FromEnd(-2), // Second to last byte
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x4c),
             message: "Second to last byte".to_string(),
@@ -868,7 +868,7 @@ mod tests {
     fn test_evaluate_single_rule_offset_out_of_bounds() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(10), // Beyond buffer
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x00),
             message: "Out of bounds".to_string(),
@@ -952,7 +952,7 @@ mod tests {
     fn test_evaluate_single_rule_empty_buffer() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x00),
             message: "Empty buffer".to_string(),
@@ -1018,7 +1018,7 @@ fn test_evaluate_single_rule_cross_type_comparison() {
     // Test that cross-type integer comparisons use coercion (Uint(42) == Int(42))
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Int(42), // Int value vs Uint from byte read
         message: "Cross-type comparison".to_string(),
@@ -1128,7 +1128,7 @@ fn test_evaluate_single_rule_all_operators() {
     // Test Equal operator
     let equal_rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x42),
         message: "Equal test".to_string(),
@@ -1141,7 +1141,7 @@ fn test_evaluate_single_rule_all_operators() {
     // Test NotEqual operator
     let not_equal_rule = MagicRule {
         offset: OffsetSpec::Absolute(1),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::NotEqual,
         value: Value::Uint(0x42),
         message: "NotEqual test".to_string(),
@@ -1158,7 +1158,7 @@ fn test_evaluate_single_rule_all_operators() {
     // Test BitwiseAnd operator
     let bitwise_and_rule = MagicRule {
         offset: OffsetSpec::Absolute(3),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::BitwiseAnd,
         value: Value::Uint(0x80),
         message: "BitwiseAnd test".to_string(),
@@ -1216,10 +1216,10 @@ fn test_evaluate_single_rule_edge_case_values() {
 
 #[test]
 fn test_evaluate_single_rule_various_buffer_sizes() {
-    // Test with single byte buffer
+    // Test with single byte buffer (unsigned for values > 127)
     let single_byte_rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: false },
         op: Operator::Equal,
         value: Value::Uint(0xaa),
         message: "Single byte".to_string(),
@@ -1237,7 +1237,7 @@ fn test_evaluate_single_rule_various_buffer_sizes() {
     let large_buffer: Vec<u8> = (0..1024).map(|i| (i % 256) as u8).collect();
     let large_rule = MagicRule {
         offset: OffsetSpec::Absolute(1000),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: false },
         op: Operator::Equal,
         value: Value::Uint((1000 % 256) as u64),
         message: "Large buffer".to_string(),
@@ -1637,7 +1637,7 @@ fn test_evaluate_rules_empty_list() {
 fn test_evaluate_rules_single_matching_rule() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "ELF magic".to_string(),
@@ -1656,14 +1656,15 @@ fn test_evaluate_rules_single_matching_rule() {
     assert_eq!(matches[0].message, "ELF magic");
     assert_eq!(matches[0].offset, 0);
     assert_eq!(matches[0].level, 0);
-    assert_eq!(matches[0].value, Value::Uint(0x7f));
+    // Signed byte read: 0x7f -> Value::Int(127)
+    assert_eq!(matches[0].value, Value::Int(0x7f));
 }
 
 #[test]
 fn test_evaluate_rules_single_non_matching_rule() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x50), // ZIP magic, not ELF
         message: "ZIP magic".to_string(),
@@ -1685,7 +1686,7 @@ fn test_evaluate_rules_single_non_matching_rule() {
 fn test_evaluate_rules_multiple_rules_stop_at_first() {
     let rule1 = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "First match".to_string(),
@@ -1696,7 +1697,7 @@ fn test_evaluate_rules_multiple_rules_stop_at_first() {
 
     let rule2 = MagicRule {
         offset: OffsetSpec::Absolute(1),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x45),
         message: "Second match".to_string(),
@@ -1722,7 +1723,7 @@ fn test_evaluate_rules_multiple_rules_stop_at_first() {
 fn test_evaluate_rules_multiple_rules_find_all() {
     let rule1 = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "First match".to_string(),
@@ -1733,7 +1734,7 @@ fn test_evaluate_rules_multiple_rules_find_all() {
 
     let rule2 = MagicRule {
         offset: OffsetSpec::Absolute(1),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x45),
         message: "Second match".to_string(),
@@ -1760,7 +1761,7 @@ fn test_evaluate_rules_multiple_rules_find_all() {
 fn test_evaluate_rules_hierarchical_parent_child() {
     let child_rule = MagicRule {
         offset: OffsetSpec::Absolute(4),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x02), // ELF class 64-bit
         message: "64-bit".to_string(),
@@ -1771,7 +1772,7 @@ fn test_evaluate_rules_hierarchical_parent_child() {
 
     let parent_rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "ELF".to_string(),
@@ -1797,7 +1798,7 @@ fn test_evaluate_rules_hierarchical_parent_child() {
 fn test_evaluate_rules_hierarchical_parent_no_match() {
     let child_rule = MagicRule {
         offset: OffsetSpec::Absolute(4),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x02),
         message: "64-bit".to_string(),
@@ -1808,7 +1809,7 @@ fn test_evaluate_rules_hierarchical_parent_no_match() {
 
     let parent_rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x50), // ZIP magic, not ELF
         message: "ZIP".to_string(),
@@ -1830,7 +1831,7 @@ fn test_evaluate_rules_hierarchical_parent_no_match() {
 fn test_evaluate_rules_hierarchical_parent_match_child_no_match() {
     let child_rule = MagicRule {
         offset: OffsetSpec::Absolute(4),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x01), // ELF class 32-bit, but buffer has 64-bit
         message: "32-bit".to_string(),
@@ -1841,7 +1842,7 @@ fn test_evaluate_rules_hierarchical_parent_match_child_no_match() {
 
     let parent_rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "ELF".to_string(),
@@ -1865,7 +1866,7 @@ fn test_evaluate_rules_hierarchical_parent_match_child_no_match() {
 fn test_evaluate_rules_deep_hierarchy() {
     let grandchild_rule = MagicRule {
         offset: OffsetSpec::Absolute(5),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x01), // Little endian
         message: "little-endian".to_string(),
@@ -1876,7 +1877,7 @@ fn test_evaluate_rules_deep_hierarchy() {
 
     let child_rule = MagicRule {
         offset: OffsetSpec::Absolute(4),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x02), // 64-bit
         message: "64-bit".to_string(),
@@ -1887,7 +1888,7 @@ fn test_evaluate_rules_deep_hierarchy() {
 
     let parent_rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "ELF".to_string(),
@@ -1915,7 +1916,7 @@ fn test_evaluate_rules_deep_hierarchy() {
 fn test_evaluate_rules_multiple_children() {
     let child1 = MagicRule {
         offset: OffsetSpec::Absolute(4),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x02),
         message: "64-bit".to_string(),
@@ -1926,7 +1927,7 @@ fn test_evaluate_rules_multiple_children() {
 
     let child2 = MagicRule {
         offset: OffsetSpec::Absolute(5),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x01),
         message: "little-endian".to_string(),
@@ -1937,7 +1938,7 @@ fn test_evaluate_rules_multiple_children() {
 
     let parent_rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "ELF".to_string(),
@@ -1966,7 +1967,7 @@ fn test_evaluate_rules_recursion_depth_limit() {
     // Create a deeply nested rule structure that exceeds the limit
     let mut current_rule = MagicRule {
         offset: OffsetSpec::Absolute(10),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x00),
         message: "Deep level".to_string(),
@@ -1979,7 +1980,7 @@ fn test_evaluate_rules_recursion_depth_limit() {
     for i in (0u32..10u32).rev() {
         current_rule = MagicRule {
             offset: OffsetSpec::Absolute(i64::from(i)),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(u64::from(i)),
             message: format!("Level {i}"),
@@ -2013,7 +2014,7 @@ fn test_evaluate_rules_recursion_depth_limit() {
 fn test_evaluate_rules_with_config_convenience() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "ELF magic".to_string(),
@@ -2035,7 +2036,7 @@ fn test_evaluate_rules_with_config_convenience() {
 fn test_evaluate_rules_timeout() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "ELF magic".to_string(),
@@ -2065,7 +2066,7 @@ fn test_evaluate_rules_timeout() {
 fn test_evaluate_rules_empty_buffer() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "Should not match".to_string(),
@@ -2091,7 +2092,7 @@ fn test_evaluate_rules_empty_buffer() {
 fn test_evaluate_rules_mixed_matching_non_matching() {
     let rule1 = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "Matches".to_string(),
@@ -2102,7 +2103,7 @@ fn test_evaluate_rules_mixed_matching_non_matching() {
 
     let rule2 = MagicRule {
         offset: OffsetSpec::Absolute(1),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x99), // Doesn't match
         message: "Doesn't match".to_string(),
@@ -2113,7 +2114,7 @@ fn test_evaluate_rules_mixed_matching_non_matching() {
 
     let rule3 = MagicRule {
         offset: OffsetSpec::Absolute(2),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x4c),
         message: "Also matches".to_string(),
@@ -2140,7 +2141,7 @@ fn test_evaluate_rules_mixed_matching_non_matching() {
 fn test_evaluate_rules_context_state_preservation() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "ELF magic".to_string(),
@@ -2215,7 +2216,7 @@ fn test_error_recovery_skip_problematic_rules() {
         // Valid rule that should match
         MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7f),
             message: "Valid rule".to_string(),
@@ -2226,7 +2227,7 @@ fn test_error_recovery_skip_problematic_rules() {
         // Invalid rule with out-of-bounds offset
         MagicRule {
             offset: OffsetSpec::Absolute(100), // Beyond buffer
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x00),
             message: "Invalid rule".to_string(),
@@ -2237,7 +2238,7 @@ fn test_error_recovery_skip_problematic_rules() {
         // Another valid rule that should match
         MagicRule {
             offset: OffsetSpec::Absolute(1),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x45),
             message: "Another valid rule".to_string(),
@@ -2271,7 +2272,7 @@ fn test_error_recovery_child_rule_failures() {
     // Test that parent evaluation continues when child rules fail
     let rules = vec![MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "Parent rule".to_string(),
@@ -2279,7 +2280,7 @@ fn test_error_recovery_child_rule_failures() {
             // Valid child rule
             MagicRule {
                 offset: OffsetSpec::Absolute(1),
-                typ: TypeKind::Byte,
+                typ: TypeKind::Byte { signed: true },
                 op: Operator::Equal,
                 value: Value::Uint(0x45),
                 message: "Valid child".to_string(),
@@ -2290,7 +2291,7 @@ fn test_error_recovery_child_rule_failures() {
             // Invalid child rule
             MagicRule {
                 offset: OffsetSpec::Absolute(100), // Beyond buffer
-                typ: TypeKind::Byte,
+                typ: TypeKind::Byte { signed: true },
                 op: Operator::Equal,
                 value: Value::Uint(0x00),
                 message: "Invalid child".to_string(),
@@ -2323,7 +2324,7 @@ fn test_error_recovery_mixed_rule_types() {
         // Valid byte rule
         MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7f),
             message: "Valid byte".to_string(),
@@ -2386,7 +2387,7 @@ fn test_error_recovery_all_rules_fail() {
         // Out of bounds offset
         MagicRule {
             offset: OffsetSpec::Absolute(100),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x00),
             message: "Out of bounds".to_string(),
@@ -2424,7 +2425,7 @@ fn test_error_recovery_timeout_propagation() {
     // Test that timeout errors are properly propagated (not gracefully handled)
     let rules = vec![MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "Test rule".to_string(),
@@ -2463,13 +2464,13 @@ fn test_error_recovery_recursion_limit_propagation() {
     // Test that recursion limit errors are properly propagated
     let rules = vec![MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "Parent".to_string(),
         children: vec![MagicRule {
             offset: OffsetSpec::Absolute(1),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x45),
             message: "Child".to_string(),
@@ -2512,7 +2513,7 @@ fn test_error_recovery_preserves_context_state() {
         // Valid rule
         MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7f),
             message: "Valid rule".to_string(),
@@ -2523,7 +2524,7 @@ fn test_error_recovery_preserves_context_state() {
         // Invalid rule
         MagicRule {
             offset: OffsetSpec::Absolute(100),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x00),
             message: "Invalid rule".to_string(),
@@ -2555,7 +2556,7 @@ fn test_debug_error_recovery() {
     // Simple test to debug error recovery
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(100), // Beyond buffer
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x00),
         message: "Out of bounds rule".to_string(),
@@ -2586,7 +2587,7 @@ fn test_debug_mixed_rules() {
         // Valid rule that should match
         MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7f),
             message: "Valid rule".to_string(),
@@ -2597,7 +2598,7 @@ fn test_debug_mixed_rules() {
         // Invalid rule with out-of-bounds offset
         MagicRule {
             offset: OffsetSpec::Absolute(100), // Beyond buffer
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x00),
             message: "Invalid rule".to_string(),
@@ -2608,7 +2609,7 @@ fn test_debug_mixed_rules() {
         // Another valid rule that should match
         MagicRule {
             offset: OffsetSpec::Absolute(1),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x45),
             message: "Another valid rule".to_string(),
