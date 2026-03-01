@@ -330,7 +330,7 @@ fn test_less_than_greater_than_operators() {
 fn test_load_directory_of_magic_files() {
     let temp_dir = TempDir::new().unwrap();
 
-    // Create multiple magic files using belong for binary magic numbers
+    // Create multiple magic files using ubelong for binary magic numbers
     let mut f1 = fs::File::create(temp_dir.path().join("images.magic")).unwrap();
     writeln!(f1, "0 ubelong 0x89504e47 PNG image").unwrap();
 

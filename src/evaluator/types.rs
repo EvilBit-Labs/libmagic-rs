@@ -61,7 +61,7 @@ pub enum TypeReadError {
 /// use libmagic_rs::evaluator::types::read_byte;
 /// use libmagic_rs::parser::ast::Value;
 ///
-/// let buffer = &[0x7f, 0x80, 0x4c, 0x46]; // ELF magic bytes
+/// let buffer = &[0x7f, 0x80, 0x4c, 0x46]; // example bytes
 ///
 /// // Read unsigned byte (0x80 = 128)
 /// let result = read_byte(buffer, 1, false).unwrap();

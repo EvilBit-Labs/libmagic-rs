@@ -477,6 +477,27 @@ mod tests {
     }
 
     #[test]
+    fn test_strength_comparison_operators() {
+        let operators = [
+            Operator::LessThan,
+            Operator::GreaterThan,
+            Operator::LessEqual,
+            Operator::GreaterEqual,
+        ];
+        for op in operators {
+            let rule = make_rule(
+                TypeKind::Byte { signed: true },
+                op.clone(),
+                OffsetSpec::Absolute(0),
+                Value::Uint(0),
+            );
+            let strength = calculate_default_strength(&rule);
+            // Byte: 5, Comparison: 6, Absolute: 10, Numeric: 0 = 21
+            assert_eq!(strength, 21, "Failed for operator: {op:?}");
+        }
+    }
+
+    #[test]
     fn test_strength_offset_indirect() {
         let rule = make_rule(
             TypeKind::Byte { signed: true },

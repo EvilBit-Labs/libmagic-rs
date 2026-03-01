@@ -491,6 +491,22 @@ mod tests {
             "Operator::NotEqual"
         );
         assert_eq!(
+            serialize_operator(&Operator::LessThan),
+            "Operator::LessThan"
+        );
+        assert_eq!(
+            serialize_operator(&Operator::GreaterThan),
+            "Operator::GreaterThan"
+        );
+        assert_eq!(
+            serialize_operator(&Operator::LessEqual),
+            "Operator::LessEqual"
+        );
+        assert_eq!(
+            serialize_operator(&Operator::GreaterEqual),
+            "Operator::GreaterEqual"
+        );
+        assert_eq!(
             serialize_operator(&Operator::BitwiseAnd),
             "Operator::BitwiseAnd"
         );
