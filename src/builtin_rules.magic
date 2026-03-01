@@ -44,10 +44,10 @@
 # ============================================================
 
 # JPEG Images (magic: 0xff 0xd8)
-0    beshort   0xffd8          JPEG image data
+0    ubeshort  0xffd8          JPEG image data
 
 # PNG Images (magic: 0x89 'P' 'N' 'G')
-0    belong    0x89504e47      PNG image data
+0    ubelong   0x89504e47      PNG image data
 
 # GIF Images
 0    string    "GIF8"          GIF image data

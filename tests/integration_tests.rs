@@ -270,7 +270,7 @@ fn test_load_directory_of_magic_files() {
 
     // Create multiple magic files using belong for binary magic numbers
     let mut f1 = fs::File::create(temp_dir.path().join("images.magic")).unwrap();
-    writeln!(f1, "0 belong 0x89504e47 PNG image").unwrap();
+    writeln!(f1, "0 ubelong 0x89504e47 PNG image").unwrap();
 
     let mut f2 = fs::File::create(temp_dir.path().join("docs.magic")).unwrap();
     writeln!(f2, "0 string \"%PDF-\" PDF document").unwrap();

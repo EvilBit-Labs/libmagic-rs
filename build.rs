@@ -269,7 +269,7 @@ fn serialize_offset_spec(offset: &OffsetSpec) -> String {
 
 fn serialize_type_kind(typ: &TypeKind) -> String {
     match typ {
-        TypeKind::Byte => "TypeKind::Byte".to_string(),
+        TypeKind::Byte { signed } => format!("TypeKind::Byte {{ signed: {signed} }}"),
         TypeKind::Short { endian, signed } => format!(
             "TypeKind::Short {{ endian: {}, signed: {} }}",
             serialize_endianness(*endian),

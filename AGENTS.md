@@ -65,7 +65,7 @@ Target File → Memory Mapper → File Buffer
 // Core data structures in lib.rs
 pub struct MagicRule { /* ... */ }
 pub enum TypeKind {
-    Byte,
+    Byte { signed: bool },
     Short { endian: Endianness, signed: bool },
     Long { endian: Endianness, signed: bool },
     String { max_length: Option<usize> },
@@ -187,7 +187,7 @@ cargo test --doc   # Test documentation examples
 ### Currently Implemented (v0.1.0)
 
 - **Offsets**: Absolute and from-end specifications (indirect and relative are parsed but not yet evaluated)
-- **Types**: `byte`, `short`, `long`, `string` with endianness support
+- **Types**: `byte`, `short`, `long`, `string` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`; types are signed by default (libmagic-compatible)
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
 - **String Matching**: Exact string matching with null-termination

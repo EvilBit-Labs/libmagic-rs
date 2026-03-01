@@ -211,7 +211,7 @@ fn serialize_offset_spec(offset: &OffsetSpec) -> String {
 
 fn serialize_type_kind(typ: &TypeKind) -> String {
     match typ {
-        TypeKind::Byte => "TypeKind::Byte".to_string(),
+        TypeKind::Byte { signed } => format!("TypeKind::Byte {{ signed: {signed} }}"),
         TypeKind::Short { endian, signed } => format!(
             "TypeKind::Short {{ endian: {}, signed: {} }}",
             serialize_endianness(*endian),
@@ -441,9 +441,9 @@ mod tests {
 
     #[test]
     fn test_serialize_type_kind_byte() {
-        let typ = TypeKind::Byte;
+        let typ = TypeKind::Byte { signed: true };
         let serialized = serialize_type_kind(&typ);
-        assert_eq!(serialized, "TypeKind::Byte");
+        assert_eq!(serialized, "TypeKind::Byte { signed: true }");
     }
 
     #[test]
@@ -596,7 +596,7 @@ mod tests {
     fn test_generate_builtin_rules_single_rule() {
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(0x7F),
             message: "test".to_string(),
@@ -608,7 +608,7 @@ mod tests {
         let generated = generate_builtin_rules(&[rule]);
 
         assert!(generated.contains("OffsetSpec::Absolute(0)"));
-        assert!(generated.contains("TypeKind::Byte"));
+        assert!(generated.contains("TypeKind::Byte { signed: true }"));
         assert!(generated.contains("Operator::Equal"));
         assert!(generated.contains("Value::Uint(127)"));
         assert!(generated.contains("test"));
@@ -625,7 +625,7 @@ mod tests {
     fn test_serialize_children_with_nested_rule() {
         let child = MagicRule {
             offset: OffsetSpec::Absolute(4),
-            typ: TypeKind::Byte,
+            typ: TypeKind::Byte { signed: true },
             op: Operator::Equal,
             value: Value::Uint(1),
             message: "child".to_string(),
@@ -695,7 +695,7 @@ mod tests {
         assert!(result.is_ok());
         let generated = result.unwrap();
         assert!(generated.contains("OffsetSpec::Absolute(0)"));
-        assert!(generated.contains("TypeKind::Byte"));
+        assert!(generated.contains("TypeKind::Byte { signed: true }"));
         assert!(generated.contains("Value::Uint(127)"));
         assert!(generated.contains("ELF executable"));
     }
