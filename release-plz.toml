@@ -6,3 +6,5 @@ git_tag_enable = true
 publish = true
 semver_check = true
 changelog_config = "cliff.toml"
+# Only bump version for code-affecting commits (skip docs, ci, chore)
+release_commits = "^(feat|fix|refactor|perf)[(:]"
