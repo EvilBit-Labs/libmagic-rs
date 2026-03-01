@@ -143,6 +143,8 @@ pub fn evaluate_magic_rules(
 - Use `LibmagicError::ConfigError` for config validation, not `ParseError::invalid_syntax`
 - Clippy pedantic lints are active (e.g., prefer `trailing_zeros()` over bitwise masks)
 - All public enum variants need `# Examples` rustdoc sections
+- Comparison operators share a `compare_values() -> Option<Ordering>` helper in `operators.rs` -- new comparison logic goes there, not in individual `apply_*` functions
+- libmagic types are signed by default (`byte`, `short`, `long`); unsigned variants use `u` prefix (`ubyte`, `ushort`, `ulong`, etc.)
 
 ### Naming Conventions
 
@@ -181,6 +183,7 @@ cargo test --doc   # Test documentation examples
 - **Property Tests**: Use `proptest` for fuzzing magic rule evaluation
 - **Benchmarks**: Critical path performance tests with `criterion`
 - **Coverage**: Target >85% with `cargo llvm-cov`
+- **Test style**: Prefer table-driven tests over one-assertion-per-function tests; consolidate related cases into a single test with descriptive failure messages
 
 ## Magic File Compatibility
 
