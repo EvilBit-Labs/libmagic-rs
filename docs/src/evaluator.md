@@ -43,9 +43,11 @@ Note: Fields are private; use accessor methods like `current_offset()`, `recursi
 **Key Methods:**
 
 - `new()` - Create context with default configuration
-- `with_config()` - Create context with custom configuration
-- `check_timeout()` - Verify evaluation hasn't exceeded time limit
-- `increment_depth()` / `decrement_depth()` - Track recursion safely
+- `current_offset()` / `set_current_offset()` - Track current buffer position
+- `recursion_depth()` - Query current recursion depth
+- `increment_recursion_depth()` / `decrement_recursion_depth()` - Track recursion safely
+- `timeout_ms()` - Query configured timeout
+- `reset()` - Reset context state for reuse
 
 ### MatchResult (`evaluator/mod.rs`)
 
@@ -61,6 +63,8 @@ pub struct MatchResult {
     pub level: u32,
     /// The matched value (parsed according to rule type)
     pub value: Value,
+    /// Confidence score (0.0 to 1.0) based on rule hierarchy depth
+    pub confidence: f64,
 }
 ```
 
@@ -79,8 +83,7 @@ Handles all offset types safely:
 pub fn resolve_offset(
     spec: &OffsetSpec,
     buffer: &[u8],
-    context: &EvaluationContext,
-) -> Result<usize, EvaluationError>
+) -> Result<usize, LibmagicError>
 ```
 
 ### Type Reading (`evaluator/types.rs`)
@@ -94,11 +97,11 @@ Interprets bytes according to type specifications:
 - **Bounds checking**: Prevents buffer overruns
 
 ```rust
-pub fn read_type_value(
+pub fn read_typed_value(
     buffer: &[u8],
     offset: usize,
     type_kind: &TypeKind,
-) -> Result<TypeValue, TypeReadError>
+) -> Result<Value, TypeReadError>
 ```
 
 ### Operator Application (`evaluator/operators.rs`)
@@ -118,9 +121,9 @@ Comparison operators support numeric comparisons across different integer types 
 
 ```rust
 pub fn apply_operator(
-    op: &Operator,
-    actual: &TypeValue,
-    expected: &Value,
+    operator: &Operator,
+    left: &Value,
+    right: &Value,
 ) -> bool
 ```
 
@@ -210,7 +213,7 @@ The evaluator uses graceful degradation:
 
 - **Invalid offsets**: Skip rule, continue with others
 - **Type mismatches**: Skip rule, continue with others
-- **Timeout exceeded**: Return partial results collected so far
+- **Timeout exceeded**: Return error (partial results are not preserved)
 - **Recursion limit**: Stop descent, continue siblings
 
 ```rust
@@ -243,25 +246,25 @@ let result = evaluate_rules_with_config(&rules, buffer, &config)?;
 ### Primary Functions
 
 ```rust
-/// Evaluate rules with default configuration
+/// Evaluate rules with context for recursion tracking
 pub fn evaluate_rules(
     rules: &[MagicRule],
     buffer: &[u8],
-) -> Result<Vec<MatchResult>, EvaluationError>;
+    context: &mut EvaluationContext,
+) -> Result<Vec<MatchResult>, LibmagicError>;
 
-/// Evaluate rules with custom configuration
+/// Evaluate rules with custom configuration (creates context internally)
 pub fn evaluate_rules_with_config(
     rules: &[MagicRule],
     buffer: &[u8],
     config: &EvaluationConfig,
-) -> Result<Vec<MatchResult>, EvaluationError>;
+) -> Result<Vec<MatchResult>, LibmagicError>;
 
 /// Evaluate a single rule (used internally and for testing)
 pub fn evaluate_single_rule(
     rule: &MagicRule,
     buffer: &[u8],
-    context: &mut EvaluationContext,
-) -> Result<Option<MatchResult>, EvaluationError>;
+) -> Result<Option<(usize, Value)>, LibmagicError>;
 ```
 
 ### Usage Example
