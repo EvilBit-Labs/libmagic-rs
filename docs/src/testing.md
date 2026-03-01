@@ -62,16 +62,16 @@ test result: ok. 98 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 **TypeKind Tests:**
 
-- `test_type_kind_byte` - Single byte type handling
+- `test_type_kind_byte` - Single byte type handling with signedness
 - `test_type_kind_short` - 16-bit integer types with endianness
 - `test_type_kind_long` - 32-bit integer types with endianness
 - `test_type_kind_string` - String types with length limits
-- `test_type_kind_serialization` - All type serialization
+- `test_type_kind_serialization` - All type serialization including signed/unsigned variants
 
 **Operator Tests:**
 
-- `test_operator_variants` - All operator types
-- `test_operator_serialization` - Operator serialization
+- `test_operator_variants` - All operator types (Equal, NotEqual, LessThan, GreaterThan, LessEqual, GreaterEqual, BitwiseAnd, BitwiseAndMask)
+- `test_operator_serialization` - Operator serialization including comparison operators
 
 **MagicRule Tests:**
 
@@ -104,6 +104,7 @@ test result: ok. 98 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 - `test_parse_operator_equality` - Equality operators (= and ==)
 - `test_parse_operator_inequality` - Inequality operators (!= and \<>)
+- `test_parse_operator_comparison` - Comparison operators (\<, >, \<=, >=)
 - `test_parse_operator_bitwise_and` - Bitwise AND operator (&)
 - `test_parse_operator_with_remaining_input` - Partial parsing
 - `test_parse_operator_precedence` - Operator precedence handling
@@ -300,6 +301,40 @@ fn test_parser_error_conditions() {
 }
 ```
 
+**Testing Signed vs Unsigned Byte Behavior:**
+
+```rust
+#[test]
+fn test_signed_unsigned_byte_handling() {
+    // Test signed byte interpretation
+    let signed_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: true },
+        op: Operator::GreaterThan,
+        value: Value::Int(0),
+        message: "Positive signed byte".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    // 0x7f = 127 as signed (positive)
+    // 0x80 = -128 as signed (negative)
+    
+    // Test unsigned byte interpretation
+    let unsigned_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::GreaterThan,
+        value: Value::Uint(127),
+        message: "Large unsigned byte".to_string(),
+        children: vec![],
+        level: 0,
+    };
+
+    // Both 0x7f and 0x80 are > 127 when interpreted as unsigned
+}
+```
+
 ### Test Data Management
 
 **Test Fixtures:**
@@ -313,7 +348,7 @@ const PDF_MAGIC: &str = "%PDF-";
 fn create_test_rule() -> MagicRule {
     MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: true },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "Test rule".to_string(),
