@@ -63,7 +63,7 @@ The parser is responsible for converting magic files (text-based DSL) into an Ab
 
 - ✅ **Number parsing**: Decimal and hexadecimal with overflow protection
 - ✅ **Offset parsing**: Absolute offsets with comprehensive validation
-- ✅ **Operator parsing**: Equality, inequality, and bitwise AND operators
+- ✅ **Operator parsing**: Equality (`=`, `==`), inequality (`!=`, `<>`), comparison (`<`, `>`, `<=`, `>=`), and bitwise AND (`&`) operators
 - ✅ **Value parsing**: Strings, numbers, and hex byte sequences with escape sequences
 - ✅ **Error handling**: Comprehensive nom error handling with meaningful messages
 - ✅ **Rule parsing**: Complete rule parsing via `parse_magic_rule()`
@@ -88,6 +88,24 @@ pub struct MagicRule {
     pub children: Vec<MagicRule>, // Nested rules
     pub level: u32,               // Indentation level
 }
+
+pub enum TypeKind {
+    Byte { signed: bool },        // Single byte with explicit signedness
+    Short { endian: Endianness, signed: bool },
+    Long { endian: Endianness, signed: bool },
+    String { max_length: Option<usize> },
+}
+
+pub enum Operator {
+    Equal,                        // = or ==
+    NotEqual,                     // != or <>
+    LessThan,                     // <
+    GreaterThan,                  // >
+    LessEqual,                    // <=
+    GreaterEqual,                 // >=
+    BitwiseAnd,                   // &
+    BitwiseAndMask(u64),          // & with mask
+}
 ```
 
 **Design Principles:**
@@ -96,6 +114,7 @@ pub struct MagicRule {
 - **Serializable**: Full serde support for caching
 - **Self-contained**: No external dependencies in AST nodes
 - **Type-safe**: Rust's type system prevents invalid rule combinations
+- **Explicit signedness**: `TypeKind::Byte` and integer types distinguish signed from unsigned interpretations
 
 ### 3. Evaluator Module (`src/evaluator/`)
 
@@ -105,7 +124,7 @@ The evaluator executes magic rules against file buffers to identify file types. 
 
 - `mod.rs`: Main evaluation engine with `EvaluationContext` and `MatchResult`
 - `offset.rs`: Offset resolution (absolute, relative, from-end)
-- `types.rs`: Type interpretation with endianness handling
+- `types.rs`: Type interpretation with endianness handling and signedness coercion
 - `operators.rs`: Comparison and bitwise operations
 
 **Implemented Features:**
@@ -117,6 +136,8 @@ The evaluator executes magic rules against file buffers to identify file types. 
 - ✅ **Graceful Degradation**: Skip problematic rules, continue evaluation
 - ✅ **Timeout Protection**: Configurable time limits
 - ✅ **Recursion Limiting**: Prevent stack overflow from deep nesting
+- ✅ **Signedness Coercion**: Automatic value coercion for signed type comparisons (e.g., `0xff` → `-1` for signed byte)
+- ✅ **Comparison Operators**: Full support for `<`, `>`, `<=`, `>=` with numeric and lexicographic ordering
 - 📋 **Indirect Offsets**: Pointer dereferencing (planned)
 
 ### 4. I/O Module (`src/io/`)
@@ -217,8 +238,8 @@ Magic rules form a tree structure where:
 ```mermaid
 flowchart TD
     R[Root Rule<br/>e.g., "0 string PK"]
-    R -->|match| C1[Child Rule 1<br/>e.g., ">4 byte 0x14"]
-    R -->|match| C2[Child Rule 2<br/>e.g., ">4 byte 0x06"]
+    R -->|match| C1[Child Rule 1<br/>e.g., ">4 ubyte 0x14"]
+    R -->|match| C2[Child Rule 2<br/>e.g., ">4 ubyte 0x06"]
     C1 -->|match| G1[Grandchild<br/>ZIP archive v2.0]
     C2 -->|match| G2[Grandchild<br/>ZIP archive v1.0]
 
@@ -228,6 +249,20 @@ flowchart TD
     style G1 fill:#c8e6c9
     style G2 fill:#c8e6c9
 ```
+
+**Operator Support:**
+
+The evaluator supports all comparison and bitwise operators:
+
+- **Equality**: `=` or `==` (exact match)
+- **Inequality**: `!=` or `<>` (not equal)
+- **Less-than**: `<` (numeric or lexicographic)
+- **Greater-than**: `>` (numeric or lexicographic)
+- **Less-equal**: `<=` (numeric or lexicographic)
+- **Greater-equal**: `>=` (numeric or lexicographic)
+- **Bitwise AND**: `&` (bit pattern matching)
+
+Comparison operators support both numeric comparisons (with automatic type coercion between signed and unsigned integers via `i128`) and lexicographic comparisons for strings and byte sequences.
 
 ### Memory-Safe Buffer Access
 

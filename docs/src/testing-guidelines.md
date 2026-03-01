@@ -116,7 +116,7 @@ fn test_magic_rule_evaluation_with_matching_bytes() {
     // Arrange
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte,
+        typ: TypeKind::Byte { signed: false },
         op: Operator::Equal,
         value: Value::Uint(0x7f),
         message: "ELF magic".to_string(),
