@@ -9,6 +9,16 @@ queue_rules:
       - check-success = test-cross-platform (macos-latest, macOS)
       - check-success = test-cross-platform (windows-latest, Windows)
       - check-success = coverage
+    autoqueue: true
+    branch_protection_injection_mode: none
+    queue_conditions:
+      - and:
+          - and:
+              - check-success = DCO
+              - label = lgtm
+          - or:
+              - author = dependabot[bot]
+              - author = dosubot[bot]
 pull_request_rules:
   - name: Auto-approve and queue dependabot PRs
     conditions:
@@ -92,12 +102,15 @@ merge_protections:
       - base = main
     success_conditions:
       - check-success = quality
+      - check-success = test
       - check-success = test-cross-platform (ubuntu-latest, Linux)
+      - check-success = test-cross-platform (ubuntu-22.04, Linux)
       - check-success = test-cross-platform (macos-latest, macOS)
       - check-success = test-cross-platform (windows-latest, Windows)
+      - check-success = coverage
   - name: Do not merge outdated PRs
     description: Make sure PRs are within 10 commits of the base branch before merging
     if:
       - base = main
     success_conditions:
-      - "#commits-behind <= 3"
+      - "#commits-behind <= 10"
