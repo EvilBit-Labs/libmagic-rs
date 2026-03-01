@@ -21,8 +21,10 @@ Add libmagic-rs to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-libmagic-rs = "0.1"
+libmagic-rs = "0.2"
 ```
+
+**Note:** Version 0.2.0 introduces breaking changes. If upgrading from 0.1.x, note that `TypeKind::Byte` changed from a unit variant to a tuple variant, and the `Operator` enum gained new variants (`LessThan`, `GreaterThan`, `LessEqual`, `GreaterEqual`) for comparison operations. Exhaustive pattern matching on these enums requires updates.
 
 ### Build from Source
 
@@ -61,7 +63,7 @@ Edit `Cargo.toml`:
 
 ```toml
 [dependencies]
-libmagic-rs = "0.1"
+libmagic-rs = "0.2"
 ```
 
 #### Step 3: Write Code
