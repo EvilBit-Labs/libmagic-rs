@@ -410,9 +410,20 @@ pub fn evaluate_rules(
         // Evaluate the current rule with graceful error handling
         let match_data = match evaluate_single_rule(rule, buffer) {
             Ok(data) => data,
-            Err(_e) => {
-                // Skip rules with evaluation errors (graceful degradation)
+            Err(
+                LibmagicError::EvaluationError(
+                    crate::error::EvaluationError::BufferOverrun { .. }
+                    | crate::error::EvaluationError::InvalidOffset { .. }
+                    | crate::error::EvaluationError::TypeReadError(_),
+                )
+                | LibmagicError::IoError(_),
+            ) => {
+                // Expected evaluation errors for individual rules -- skip gracefully
                 continue;
+            }
+            Err(e) => {
+                // Unexpected errors (InternalError, UnsupportedType, etc.) should propagate
+                return Err(e);
             }
         };
 
@@ -454,8 +465,20 @@ pub fn evaluate_rules(
                             },
                         ));
                     }
-                    Err(_e) => {
-                        // Non-critical child evaluation errors are skipped (graceful degradation)
+                    Err(
+                        LibmagicError::EvaluationError(
+                            crate::error::EvaluationError::BufferOverrun { .. }
+                            | crate::error::EvaluationError::InvalidOffset { .. }
+                            | crate::error::EvaluationError::TypeReadError(_),
+                        )
+                        | LibmagicError::IoError(_),
+                    ) => {
+                        // Expected child evaluation errors -- skip gracefully
+                    }
+                    Err(e) => {
+                        // Unexpected errors in children should propagate
+                        context.decrement_recursion_depth()?;
+                        return Err(e);
                     }
                 }
 

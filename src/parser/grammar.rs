@@ -410,7 +410,7 @@ fn parse_escape_sequence(input: &str) -> IResult<&str, char> {
         '"' => '"',
         '\'' => '\'',
         '0' => '\0',
-        _ => escaped_char, // Fallback for other characters
+        _ => unreachable!("one_of constrains input to known escape characters"),
     };
 
     Ok((input, result_char))
