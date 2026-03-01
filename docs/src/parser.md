@@ -70,7 +70,7 @@ parse_operator("==")   // Ok(("", Operator::Equal))
 parse_operator("!=")   // Ok(("", Operator::NotEqual))
 parse_operator("<>")   // Ok(("", Operator::NotEqual))
 
-// Comparison operators
+// Comparison operators (v0.2.0+)
 parse_operator("<")    // Ok(("", Operator::LessThan))
 parse_operator(">")    // Ok(("", Operator::GreaterThan))
 parse_operator("<=")   // Ok(("", Operator::LessEqual))
@@ -87,6 +87,8 @@ parse_operator("&")    // Ok(("", Operator::BitwiseAnd))
 - ✅ Whitespace tolerance
 - ✅ Invalid operator rejection with clear errors
 - ✅ Eight comparison and bitwise operators supported
+
+**Note:** Comparison operators (`<`, `>`, `<=`, `>=`) were implemented in v0.2.0 via [#104](https://github.com/EvilBit-Labs/libmagic-rs/pull/104).
 
 ### Value Parsing (`parse_value`)
 

@@ -223,7 +223,7 @@ use libmagic_rs::TypeKind;
 
 | Variant | Description |
 |---------|-------------|
-| `Byte { signed }` | Single byte with explicit signedness |
+| `Byte { signed }` | Single byte with explicit signedness (struct variant since v0.2.0; previously unit variant) |
 | `Short { endian, signed }` | 16-bit integer |
 | `Long { endian, signed }` | 32-bit integer |
 | `String { max_length }` | String data |
@@ -240,10 +240,10 @@ use libmagic_rs::Operator;
 |---------|-------------|
 | `Equal` | Equality comparison (`=`) |
 | `NotEqual` | Inequality comparison (`!=`) |
-| `LessThan` | Less than comparison (`<`) |
-| `GreaterThan` | Greater than comparison (`>`) |
-| `LessEqual` | Less than or equal comparison (`<=`) |
-| `GreaterEqual` | Greater than or equal comparison (`>=`) |
+| `LessThan` | Less than comparison (`<`) (added in v0.2.0) |
+| `GreaterThan` | Greater than comparison (`>`) (added in v0.2.0) |
+| `LessEqual` | Less than or equal comparison (`<=`) (added in v0.2.0) |
+| `GreaterEqual` | Greater than or equal comparison (`>=`) (added in v0.2.0) |
 | `BitwiseAnd` | Bitwise AND |
 | `BitwiseAndMask(u64)` | Bitwise AND with mask |
 
@@ -477,6 +477,12 @@ pub use error::{EvaluationError, LibmagicError, ParseError};
 - **Minimum Rust Version**: 1.85
 - **Edition**: 2024
 - **License**: Apache-2.0
+- **Current Version**: 0.2.0
+
+### Breaking Changes in v0.2.0
+
+- `TypeKind::Byte` changed from a unit variant to a struct variant `Byte { signed }` to support explicit signedness
+- Added comparison operators: `LessThan`, `GreaterThan`, `LessEqual`, `GreaterEqual` to the `Operator` enum (breaking change due to exhaustive enum)
 
 For complete API documentation with examples, run:
 
