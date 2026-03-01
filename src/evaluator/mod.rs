@@ -1247,6 +1247,85 @@ fn test_evaluate_single_rule_comparison_operators() {
 }
 
 #[test]
+fn test_evaluate_comparison_with_signed_byte() {
+    // 0x80 = -128 as signed byte, 128 as unsigned byte
+    let buffer = &[0x80];
+
+    // Signed byte: reads as Int(-128), which IS less than Uint(0)
+    let signed_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: true },
+        op: Operator::LessThan,
+        value: Value::Uint(0),
+        message: "signed less".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+    assert!(
+        evaluate_single_rule(&signed_rule, buffer)
+            .unwrap()
+            .is_some()
+    );
+
+    // Unsigned byte: reads as Uint(128), which is NOT less than Uint(0)
+    let unsigned_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::LessThan,
+        value: Value::Uint(0),
+        message: "unsigned less".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+    assert!(
+        evaluate_single_rule(&unsigned_rule, buffer)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn test_evaluate_comparison_operators_negative_cases() {
+    let buffer = &[0x42]; // 66
+
+    let cases: Vec<(Operator, u64, bool)> = vec![
+        // LessThan: 66 < 66 = false, 66 < 67 = true
+        (Operator::LessThan, 66, false),
+        (Operator::LessThan, 67, true),
+        // GreaterThan: 66 > 66 = false, 66 > 65 = true
+        (Operator::GreaterThan, 66, false),
+        (Operator::GreaterThan, 65, true),
+        // LessEqual: 66 <= 65 = false, 66 <= 66 = true
+        (Operator::LessEqual, 65, false),
+        (Operator::LessEqual, 66, true),
+        // GreaterEqual: 66 >= 67 = false, 66 >= 66 = true
+        (Operator::GreaterEqual, 67, false),
+        (Operator::GreaterEqual, 66, true),
+    ];
+
+    for (op, value, expected) in cases {
+        let rule = MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Byte { signed: false },
+            op: op.clone(),
+            value: Value::Uint(value),
+            message: "test".to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        };
+        let result = evaluate_single_rule(&rule, buffer).unwrap();
+        assert_eq!(
+            result.is_some(),
+            expected,
+            "{op:?} with value {value}: expected {expected}"
+        );
+    }
+}
+
+#[test]
 fn test_evaluate_single_rule_edge_case_values() {
     // Test with maximum values
     let max_uint_rule = MagicRule {

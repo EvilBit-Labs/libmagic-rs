@@ -305,7 +305,14 @@ fn serialize_operator(op: &Operator) -> String {
 fn serialize_value(value: &Value) -> String {
     match value {
         Value::Uint(number) => format!("Value::Uint({})", format_number(*number)),
-        Value::Int(number) => format!("Value::Int({})", format_number(*number as u64)),
+        Value::Int(number) => {
+            if *number < 0 {
+                let abs = number.unsigned_abs();
+                format!("Value::Int(-{})", format_number(abs))
+            } else {
+                format!("Value::Int({})", format_number(*number as u64))
+            }
+        }
         Value::Bytes(bytes) => format!("Value::Bytes({})", format_byte_vec(bytes)),
         Value::String(text) => format!(
             "Value::String(String::from({}))",

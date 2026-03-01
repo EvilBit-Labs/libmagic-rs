@@ -280,8 +280,7 @@ pub fn read_long(
 ///
 /// # Errors
 ///
-/// Returns `TypeReadError::BufferOverrun` if the offset is beyond the buffer bounds,
-/// or if no null terminator is found within the available buffer space when no `max_length` is specified.
+/// Returns `TypeReadError::BufferOverrun` if the offset is greater than or equal to the buffer length.
 pub fn read_string(
     buffer: &[u8],
     offset: usize,
@@ -298,7 +297,7 @@ pub fn read_string(
     // Get the slice starting from offset
     let remaining_buffer = &buffer[offset..];
 
-    // Determine the actual length to read (uses SIMD-accelerated memchr for null scan)
+    // Determine the actual length to read (uses memchr for efficient null byte scanning)
     let read_length = if let Some(max_len) = max_length {
         // Find null terminator within max_length, or use max_length if no null found
         let search_len = std::cmp::min(max_len, remaining_buffer.len());

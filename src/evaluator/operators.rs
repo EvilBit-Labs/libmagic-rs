@@ -14,7 +14,8 @@ use crate::parser::ast::{Operator, Value};
 /// Apply equality comparison between two values
 ///
 /// Compares two `Value` instances for equality, handling proper type matching.
-/// Values of different types are considered unequal.
+/// Cross-type integer comparisons (`Uint` vs `Int`) are supported via `i128`
+/// coercion. Incompatible types (e.g., string vs integer) are considered unequal.
 ///
 /// # Arguments
 ///
@@ -23,7 +24,7 @@ use crate::parser::ast::{Operator, Value};
 ///
 /// # Returns
 ///
-/// `true` if the values are equal and of the same type, `false` otherwise
+/// `true` if the values are equal (including cross-type integer coercion), `false` otherwise
 ///
 /// # Examples
 ///
@@ -48,26 +49,7 @@ use crate::parser::ast::{Operator, Value};
 /// ```
 #[must_use]
 pub fn apply_equal(left: &Value, right: &Value) -> bool {
-    match (left, right) {
-        // Unsigned integer comparison
-        (Value::Uint(a), Value::Uint(b)) => a == b,
-
-        // Signed integer comparison
-        (Value::Int(a), Value::Int(b)) => a == b,
-
-        // Byte sequence comparison
-        (Value::Bytes(a), Value::Bytes(b)) => a == b,
-
-        // String comparison
-        (Value::String(a), Value::String(b)) => a == b,
-
-        // Cross-type integer coercion (safe via i128 to avoid overflow)
-        (Value::Uint(a), Value::Int(b)) => i128::from(*a) == i128::from(*b),
-        (Value::Int(a), Value::Uint(b)) => i128::from(*a) == i128::from(*b),
-
-        // Different non-integer types are never equal
-        _ => false,
-    }
+    compare_values(left, right) == Some(Ordering::Equal)
 }
 
 /// Apply inequality comparison between two values

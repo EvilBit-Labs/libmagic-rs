@@ -7,7 +7,8 @@
 # Format: offset type value message
 # Hierarchical rules use > prefix for nesting
 #
-# Supported types: byte, short, long, leshort, beshort, lelong, belong, string
+# Supported types: byte, ubyte, short, ushort, long, ulong,
+#   leshort, uleshort, beshort, ubeshort, lelong, ulelong, belong, ubelong, string
 # Escape sequences: octal escapes in quoted strings (e.g., "\177ELF")
 
 # ============================================================

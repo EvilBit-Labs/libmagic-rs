@@ -441,9 +441,16 @@ mod tests {
 
     #[test]
     fn test_serialize_type_kind_byte() {
-        let typ = TypeKind::Byte { signed: true };
-        let serialized = serialize_type_kind(&typ);
-        assert_eq!(serialized, "TypeKind::Byte { signed: true }");
+        let signed = TypeKind::Byte { signed: true };
+        assert_eq!(
+            serialize_type_kind(&signed),
+            "TypeKind::Byte { signed: true }"
+        );
+        let unsigned = TypeKind::Byte { signed: false };
+        assert_eq!(
+            serialize_type_kind(&unsigned),
+            "TypeKind::Byte { signed: false }"
+        );
     }
 
     #[test]

@@ -322,6 +322,34 @@ fn test_less_than_greater_than_operators() {
     );
 }
 
+#[test]
+fn test_signed_byte_comparison_integration() {
+    let temp_dir = TempDir::new().unwrap();
+    let magic_path = temp_dir.path().join("signed.magic");
+
+    let mut f = fs::File::create(&magic_path).unwrap();
+    // byte (signed default) with comparison
+    writeln!(f, "0 byte >0 Positive first byte").unwrap();
+
+    let db = MagicDatabase::load_from_file(&magic_path).unwrap();
+
+    // 0x7f = 127 as signed, which is > 0
+    let result = db.evaluate_buffer(b"\x7f").unwrap();
+    assert!(
+        result.description.contains("Positive first byte"),
+        "Expected match for 0x7f (signed 127 > 0), got: {}",
+        result.description
+    );
+
+    // 0x80 = -128 as signed, which is NOT > 0
+    let result = db.evaluate_buffer(b"\x80").unwrap();
+    assert!(
+        !result.description.contains("Positive first byte"),
+        "Expected no match for 0x80 (signed -128 is not > 0), got: {}",
+        result.description
+    );
+}
+
 // ============================================================
 // Load from Directory End-to-End
 // ============================================================
