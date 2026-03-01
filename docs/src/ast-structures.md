@@ -164,6 +164,8 @@ let from_end = OffsetSpec::FromEnd(-16);
 
 The `TypeKind` enum specifies how to interpret bytes at the given offset:
 
+> **Breaking Change in v0.2.0:** The `Byte` variant changed from a unit variant (`Byte`) to a struct variant (`Byte { signed: bool }`). Code that pattern-matches exhaustively on `TypeKind` requires updates.
+
 ### Numeric Types
 
 ```rust
@@ -235,6 +237,8 @@ pub enum Operator {
     BitwiseAndMask(u64), // & (bitwise AND with mask value)
 }
 ```
+
+> **Added in v0.2.0:** The comparison operators `LessThan`, `GreaterThan`, `LessEqual`, and `GreaterEqual` were added. This is a breaking change for exhaustive matches on `Operator`.
 
 **Usage Examples:**
 
