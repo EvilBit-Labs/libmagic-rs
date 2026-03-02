@@ -1664,6 +1664,12 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
                 nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::MapRes))
             })?;
             (rest, Some(Operator::BitwiseAndMask(mask)))
+        } else if after_amp.starts_with('&') {
+            // Reject '&&' -- not valid operator syntax
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Tag,
+            )));
         } else {
             // Standalone '&' (no digits following)
             (after_amp, Some(Operator::BitwiseAnd))

@@ -135,8 +135,12 @@ pub fn read_short(
     endian: Endianness,
     signed: bool,
 ) -> Result<Value, TypeReadError> {
+    let end = offset.checked_add(2).ok_or(TypeReadError::BufferOverrun {
+        offset,
+        buffer_len: buffer.len(),
+    })?;
     let bytes = buffer
-        .get(offset..offset + 2)
+        .get(offset..end)
         .ok_or(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
@@ -197,8 +201,12 @@ pub fn read_long(
     endian: Endianness,
     signed: bool,
 ) -> Result<Value, TypeReadError> {
+    let end = offset.checked_add(4).ok_or(TypeReadError::BufferOverrun {
+        offset,
+        buffer_len: buffer.len(),
+    })?;
     let bytes = buffer
-        .get(offset..offset + 4)
+        .get(offset..end)
         .ok_or(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
@@ -264,8 +272,12 @@ pub fn read_quad(
     endian: Endianness,
     signed: bool,
 ) -> Result<Value, TypeReadError> {
+    let end = offset.checked_add(8).ok_or(TypeReadError::BufferOverrun {
+        offset,
+        buffer_len: buffer.len(),
+    })?;
     let bytes = buffer
-        .get(offset..offset + 8)
+        .get(offset..end)
         .ok_or(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
