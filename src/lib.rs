@@ -128,7 +128,7 @@ pub use parser::ast::{
 };
 
 // Re-export evaluator types for convenience
-pub use evaluator::{EvaluationContext, MatchResult};
+pub use evaluator::{EvaluationContext, RuleMatch};
 
 // Re-export error types for convenience
 pub use error::{EvaluationError, LibmagicError, ParseError};
@@ -651,7 +651,7 @@ impl MagicDatabase {
     /// avoid duplicating the result-construction logic.
     fn build_result(
         &self,
-        matches: Vec<evaluator::MatchResult>,
+        matches: Vec<evaluator::RuleMatch>,
         file_size: u64,
         start_time: std::time::Instant,
     ) -> EvaluationResult {
@@ -689,7 +689,7 @@ impl MagicDatabase {
     ///
     /// Messages are joined with spaces, except when a message starts with
     /// backspace character (\\b) which suppresses the space.
-    fn concatenate_messages(matches: &[evaluator::MatchResult]) -> String {
+    fn concatenate_messages(matches: &[evaluator::RuleMatch]) -> String {
         let capacity: usize = matches.iter().map(|m| m.message.len() + 1).sum();
         let mut result = String::with_capacity(capacity);
         for m in matches {
@@ -835,7 +835,7 @@ pub struct EvaluationResult {
     ///
     /// Contains details about each rule that matched, including
     /// offset, matched value, and per-match confidence.
-    pub matches: Vec<evaluator::MatchResult>,
+    pub matches: Vec<evaluator::RuleMatch>,
     /// Metadata about the evaluation process
     pub metadata: EvaluationMetadata,
 }
@@ -1215,14 +1215,14 @@ mod tests {
     #[test]
     fn test_concatenate_messages_simple() {
         let matches = vec![
-            evaluator::MatchResult {
+            evaluator::RuleMatch {
                 message: "ELF".to_string(),
                 offset: 0,
                 level: 0,
                 value: Value::Bytes(vec![0x7f]),
                 confidence: 0.3,
             },
-            evaluator::MatchResult {
+            evaluator::RuleMatch {
                 message: "64-bit".to_string(),
                 offset: 4,
                 level: 1,
@@ -1238,14 +1238,14 @@ mod tests {
     #[test]
     fn test_concatenate_messages_with_backspace() {
         let matches = vec![
-            evaluator::MatchResult {
+            evaluator::RuleMatch {
                 message: "ELF".to_string(),
                 offset: 0,
                 level: 0,
                 value: Value::Bytes(vec![0x7f]),
                 confidence: 0.3,
             },
-            evaluator::MatchResult {
+            evaluator::RuleMatch {
                 message: "\u{0008}, 64-bit".to_string(), // backspace prefix
                 offset: 4,
                 level: 1,

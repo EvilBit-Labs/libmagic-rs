@@ -17,9 +17,10 @@ use nom::{
     sequence::pair,
 };
 
-use crate::parser::ast::{
-    Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value,
-};
+use crate::parser::ast::{MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value};
+
+#[cfg(test)]
+use crate::parser::ast::Endianness;
 
 /// Parse a decimal number with overflow protection
 fn parse_decimal_number(input: &str) -> IResult<&str, i64> {
@@ -1614,44 +1615,10 @@ mod tests {
 ///
 /// # Errors
 /// Returns a nom parsing error if the input doesn't match the expected format
-#[allow(clippy::too_many_lines)]
 pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<Operator>)> {
     let (input, _) = multispace0(input)?;
 
-    let (input, type_name) = alt((
-        // 64-bit types (6 branches)
-        alt((
-            tag("ubequad"),
-            tag("ulequad"),
-            tag("uquad"),
-            tag("bequad"),
-            tag("lequad"),
-            tag("quad"),
-        )),
-        // 32-bit types (6 branches)
-        alt((
-            tag("ubelong"),
-            tag("ulelong"),
-            tag("ulong"),
-            tag("belong"),
-            tag("lelong"),
-            tag("long"),
-        )),
-        // 16-bit types (6 branches)
-        alt((
-            tag("ubeshort"),
-            tag("uleshort"),
-            tag("ushort"),
-            tag("beshort"),
-            tag("leshort"),
-            tag("short"),
-        )),
-        // 8-bit types (2 branches)
-        alt((tag("ubyte"), tag("byte"))),
-        // String types (1 branch, will grow with pstring/search/regex)
-        tag("string"),
-    ))
-    .parse(input)?;
+    let (input, type_name) = crate::parser::types::parse_type_keyword(input)?;
 
     // Check for attached operator with mask (like &0xf0000000)
     // Uses unsigned parsing so full u64 masks (e.g. 0xffffffffffffffff) are supported.
@@ -1680,84 +1647,7 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
 
     let (input, _) = multispace0(input)?;
 
-    let type_kind = match type_name {
-        "byte" => TypeKind::Byte { signed: true },
-        "ubyte" => TypeKind::Byte { signed: false },
-        "short" => TypeKind::Short {
-            endian: Endianness::Native,
-            signed: true,
-        },
-        "ushort" => TypeKind::Short {
-            endian: Endianness::Native,
-            signed: false,
-        },
-        "leshort" => TypeKind::Short {
-            endian: Endianness::Little,
-            signed: true,
-        },
-        "uleshort" => TypeKind::Short {
-            endian: Endianness::Little,
-            signed: false,
-        },
-        "beshort" => TypeKind::Short {
-            endian: Endianness::Big,
-            signed: true,
-        },
-        "ubeshort" => TypeKind::Short {
-            endian: Endianness::Big,
-            signed: false,
-        },
-        "long" => TypeKind::Long {
-            endian: Endianness::Native,
-            signed: true,
-        },
-        "ulong" => TypeKind::Long {
-            endian: Endianness::Native,
-            signed: false,
-        },
-        "lelong" => TypeKind::Long {
-            endian: Endianness::Little,
-            signed: true,
-        },
-        "ulelong" => TypeKind::Long {
-            endian: Endianness::Little,
-            signed: false,
-        },
-        "belong" => TypeKind::Long {
-            endian: Endianness::Big,
-            signed: true,
-        },
-        "ubelong" => TypeKind::Long {
-            endian: Endianness::Big,
-            signed: false,
-        },
-        "quad" => TypeKind::Quad {
-            endian: Endianness::Native,
-            signed: true,
-        },
-        "uquad" => TypeKind::Quad {
-            endian: Endianness::Native,
-            signed: false,
-        },
-        "lequad" => TypeKind::Quad {
-            endian: Endianness::Little,
-            signed: true,
-        },
-        "ulequad" => TypeKind::Quad {
-            endian: Endianness::Little,
-            signed: false,
-        },
-        "bequad" => TypeKind::Quad {
-            endian: Endianness::Big,
-            signed: true,
-        },
-        "ubequad" => TypeKind::Quad {
-            endian: Endianness::Big,
-            signed: false,
-        },
-        "string" => TypeKind::String { max_length: None },
-        _ => unreachable!("Parser should only match known types"),
-    };
+    let type_kind = crate::parser::types::type_keyword_to_kind(type_name);
 
     Ok((input, (type_kind, attached_op)))
 }
