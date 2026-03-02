@@ -1619,28 +1619,36 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
     let (input, _) = multispace0(input)?;
 
     let (input, type_name) = alt((
-        // Unsigned variants (longer names first to avoid partial matches)
-        tag("ubequad"),
-        tag("ulequad"),
-        tag("ubelong"),
-        tag("ulelong"),
-        tag("ubeshort"),
-        tag("uleshort"),
-        tag("uquad"),
-        tag("ulong"),
-        tag("ushort"),
-        tag("ubyte"),
-        // Signed variants (default in libmagic)
-        tag("lequad"),
-        tag("bequad"),
-        tag("lelong"),
-        tag("belong"),
-        tag("leshort"),
-        tag("beshort"),
-        tag("quad"),
-        tag("long"),
-        tag("short"),
-        tag("byte"),
+        // 64-bit types (6 branches)
+        alt((
+            tag("ubequad"),
+            tag("ulequad"),
+            tag("uquad"),
+            tag("bequad"),
+            tag("lequad"),
+            tag("quad"),
+        )),
+        // 32-bit types (6 branches)
+        alt((
+            tag("ubelong"),
+            tag("ulelong"),
+            tag("ulong"),
+            tag("belong"),
+            tag("lelong"),
+            tag("long"),
+        )),
+        // 16-bit types (6 branches)
+        alt((
+            tag("ubeshort"),
+            tag("uleshort"),
+            tag("ushort"),
+            tag("beshort"),
+            tag("leshort"),
+            tag("short"),
+        )),
+        // 8-bit types (2 branches)
+        alt((tag("ubyte"), tag("byte"))),
+        // String types (1 branch, will grow with pstring/search/regex)
         tag("string"),
     ))
     .parse(input)?;
