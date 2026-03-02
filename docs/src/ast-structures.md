@@ -179,6 +179,9 @@ pub enum TypeKind {
     /// 32-bit integer
     Long { endian: Endianness, signed: bool },
 
+    /// 64-bit integer
+    Quad { endian: Endianness, signed: bool },
+
     /// String data
     String { max_length: Option<usize> },
 }
@@ -201,6 +204,18 @@ let short_le = TypeKind::Short {
 
 // 32-bit big-endian signed integer
 let long_be = TypeKind::Long {
+    endian: Endianness::Big,
+    signed: true
+};
+
+// 64-bit little-endian unsigned integer
+let quad_le = TypeKind::Quad {
+    endian: Endianness::Little,
+    signed: false
+};
+
+// 64-bit big-endian signed integer
+let quad_be = TypeKind::Quad {
     endian: Endianness::Big,
     signed: true
 };
@@ -402,7 +417,7 @@ let script_rule = MagicRule {
 ### Type Selection
 
 1. **Use `Byte { signed }`** for single-byte values and flags, specifying signedness
-2. **Use `Short/Long`** with explicit endianness and signedness for multi-byte integers
+2. **Use `Short/Long/Quad`** with explicit endianness and signedness for multi-byte integers
 3. **Use `String`** with length limits for text patterns
 4. **Use `Bytes`** for exact binary sequences
 

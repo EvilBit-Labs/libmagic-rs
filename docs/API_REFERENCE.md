@@ -301,7 +301,21 @@ use libmagic_rs::TypeKind;
 | `Byte { signed }` | Single byte with explicit signedness (changed in v0.2.0) |
 | `Short { endian, signed }` | 16-bit integer |
 | `Long { endian, signed }` | 32-bit integer |
+| `Quad { endian, signed }` | 64-bit integer |
 | `String { max_length }` | String data |
+
+##### 64-bit Integer Types
+
+The `Quad` variant supports six endian-signedness combinations:
+
+| Type Specifier | Endianness | Signedness | Description |
+|----------------|------------|------------|-------------|
+| `quad` | Native | Signed | Native-endian signed 64-bit integer |
+| `uquad` | Native | Unsigned | Native-endian unsigned 64-bit integer |
+| `lequad` | Little | Signed | Little-endian signed 64-bit integer |
+| `ulequad` | Little | Unsigned | Little-endian unsigned 64-bit integer |
+| `bequad` | Big | Signed | Big-endian signed 64-bit integer |
+| `ubequad` | Big | Unsigned | Big-endian unsigned 64-bit integer |
 
 **Version Note:** In v0.2.0, the `Byte` variant changed from a unit variant to a struct variant with a `signed` field.
 
