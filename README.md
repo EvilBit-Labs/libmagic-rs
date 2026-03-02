@@ -1,24 +1,24 @@
 # libmagic-rs
 
-![GitHub License](https://img.shields.io/github/license/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github)
-![GitHub Sponsors](https://img.shields.io/github/sponsors/EvilBit-Labs?style=flat-square&logo=github)
+![GitHub License][license-badge]
+![GitHub Sponsors][sponsors-badge]
 
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/EvilBit-Labs/libmagic-rs/ci.yml?style=flat-square)
-![docs.rs](https://img.shields.io/docsrs/libmagic-rs?style=flat-square)
-![Deps.rs Repository Dependencies](https://img.shields.io/deps-rs/repo/github/EvilBit-Labs/libmagic-rs?style=flat-square)
+![GitHub Actions Workflow Status][ci-badge]
+![docs.rs][docs-badge]
+![Deps.rs Repository Dependencies][deps-badge]
 
-![Codecov](https://img.shields.io/codecov/c/github/EvilBit-Labs/libmagic-rs?style=flat-square&logoColor=white&logo=codecov)
-[![GitHub issues](https://img.shields.io/github/issues/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github)](https://github.com/EvilBit-Labs/libmagic-rs/issues)
-![GitHub last commit](https://img.shields.io/github/last-commit/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github)
+![Codecov][codecov-badge]
+[![GitHub issues][issues-badge]][issues-link]
+![GitHub last commit][last-commit-badge]
 
-[![Crates.io](https://img.shields.io/crates/v/libmagic-rs?style=flat-square&logo=rust)](https://crates.io/crates/libmagic-rs)
-![GitHub Release Date](https://img.shields.io/github/release-date/EvilBit-Labs/libmagic-rs?display_date=published_at&style=flat-square&logo=github&link=https%3A%2F%2Fgithub.com%2FEvilBit-Labs%2Flibmagic-rs%2Freleases)
-![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/libmagic-rs?style=flat-square&logo=rust)
-![Crates.io MSRV](https://img.shields.io/crates/msrv/libmagic-rs?style=flat-square&logo=rust)
+[![Crates.io][crates-badge]][crates-link]
+![GitHub Release Date][release-date-badge]
+![Crates.io Downloads (latest version)][downloads-badge]
+![Crates.io MSRV][msrv-badge]
 
 ---
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EvilBit-Labs/libmagic-rs/badge?style=flat-square)](https://scorecard.dev/viewer/?uri=github.com/EvilBit-Labs/libmagic-rs)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11947/badge?style=flat-square)](https://www.bestpractices.dev/projects/11947)
+[![OpenSSF Scorecard][scorecard-badge]][scorecard-link]
+[![OpenSSF Best Practices][bestpractices-badge]][bestpractices-link]
 
 ---
 
@@ -209,3 +209,22 @@ Licensed under the Apache License 2.0 - see [LICENSE](LICENSE) for details.
 - [Ian Darwin](https://www.darwinsys.com/file/) for the original file command and libmagic
 - [Christos Zoulas](https://www.darwinsys.com/file/) and the current libmagic maintainers
 - The Rust community for excellent tooling and ecosystem
+
+[license-badge]: https://img.shields.io/github/license/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github
+[sponsors-badge]: https://img.shields.io/github/sponsors/EvilBit-Labs?style=flat-square&logo=github
+[ci-badge]: https://img.shields.io/github/actions/workflow/status/EvilBit-Labs/libmagic-rs/ci.yml?style=flat-square
+[docs-badge]: https://img.shields.io/docsrs/libmagic-rs?style=flat-square
+[deps-badge]: https://img.shields.io/deps-rs/repo/github/EvilBit-Labs/libmagic-rs?style=flat-square
+[codecov-badge]: https://img.shields.io/codecov/c/github/EvilBit-Labs/libmagic-rs?style=flat-square&logoColor=white&logo=codecov
+[issues-badge]: https://img.shields.io/github/issues/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github
+[issues-link]: https://github.com/EvilBit-Labs/libmagic-rs/issues
+[last-commit-badge]: https://img.shields.io/github/last-commit/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github
+[crates-badge]: https://img.shields.io/crates/v/libmagic-rs?style=flat-square&logo=rust
+[crates-link]: https://crates.io/crates/libmagic-rs
+[release-date-badge]: https://img.shields.io/github/release-date/EvilBit-Labs/libmagic-rs?display_date=published_at&style=flat-square&logo=github&link=https%3A%2F%2Fgithub.com%2FEvilBit-Labs%2Flibmagic-rs%2Freleases
+[downloads-badge]: https://img.shields.io/crates/dv/libmagic-rs?style=flat-square&logo=rust
+[msrv-badge]: https://img.shields.io/crates/msrv/libmagic-rs?style=flat-square&logo=rust
+[scorecard-badge]: https://api.scorecard.dev/projects/github.com/EvilBit-Labs/libmagic-rs/badge?style=flat-square
+[scorecard-link]: https://scorecard.dev/viewer/?uri=github.com/EvilBit-Labs/libmagic-rs
+[bestpractices-badge]: https://www.bestpractices.dev/projects/11947/badge?style=flat-square
+[bestpractices-link]: https://www.bestpractices.dev/projects/11947
