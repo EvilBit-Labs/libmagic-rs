@@ -29,6 +29,7 @@ libmagic-rs is a file type detection library and CLI tool. Its security requirem
 | Malicious file author | Exploit the detection tool to gain code execution or cause DoS | Can craft arbitrary file contents |
 | Malicious magic file author | Inject rules that cause crashes, resource exhaustion, or incorrect results | Can craft arbitrary magic rule syntax |
 | Supply chain attacker | Compromise a dependency to inject malicious code | Can publish malicious crate versions |
+
 ### 2.3 Attack Vectors
 
 | ID | Vector | Target SR |
@@ -40,36 +41,38 @@ libmagic-rs is a file type detection library and CLI tool. Its security requirem
 | AV-5 | Malformed magic file causes parser crash | SR-2 |
 | AV-6 | CLI argument with path traversal reads unintended files | SR-4 |
 | AV-7 | Compromised dependency introduces unsafe code | SR-5 |
+
 ## 3. Trust Boundaries
 
-```text
-+------------------------------------------------------------------+
-|  Untrusted                                                        |
-|  +------------------+    +-------------------+                    |
-|  | Input Files      |    | Magic Files       |                    |
-|  | (any content)    |    | (user or system)  |                    |
-|  +--------+---------+    +--------+----------+                    |
-|           |                       |                               |
-+-----------+-----------------------+-------------------------------+
-            |                       |
-   =========|=======================|============ Trust Boundary ====
-            |                       |
-+-----------v-----------------------v-------------------------------+
-|  libmagic-rs                                                      |
-|                                                                   |
-|  +----------------+     +----------------+     +--------------+   |
-|  | Parser         |     | Evaluator      |     | Output       |   |
-|  | - validates    |     | - bounds-check |     | - formats    |   |
-|  |   magic syntax |     |   all access   |     |   results    |   |
-|  +----------------+     +----------------+     +--------------+   |
-|                                                                   |
-|  +----------------+     +----------------+                        |
-|  | I/O Layer      |     | CLI            |                        |
-|  | - mmap files   |     | - clap args    |                        |
-|  | - size limits  |     | - validates    |                        |
-|  +----------------+     +----------------+                        |
-+------------------------------------------------------------------+
+```mermaid
+flowchart TD
+    subgraph Untrusted["Untrusted Zone"]
+        direction LR
+        IF["Input Files<br/>(any content)"]
+        MF["Magic Files<br/>(user or system)"]
+        CA["CLI Arguments<br/>(user paths)"]
+    end
+
+    subgraph libmagic-rs["libmagic-rs (Trusted Zone)"]
+        IO["I/O Layer<br/>mmap files, size limits"]
+        CLI["CLI<br/>clap args, validates paths"]
+        P["Parser<br/>validates magic syntax"]
+        E["Evaluator<br/>bounds-checks all access"]
+        O["Output<br/>formats results"]
+    end
+
+    IF -- "file bytes" --> IO
+    MF -- "magic syntax" --> P
+    CA -- "user paths" --> CLI
+    IO -- "mapped buffer" --> E
+    CLI -- "validated paths" --> IO
+    P -- "validated AST" --> E
+    E -- "match results" --> O
+
+    style Untrusted fill:#fee,stroke:#c00,stroke-width:2px
+    style libmagic-rs fill:#efe,stroke:#090,stroke-width:2px
 ```
+
 All data crossing the trust boundary (file contents, magic file syntax, CLI arguments) is treated as untrusted and validated before use.
 
 ## 4. Secure Design Principles (Saltzer and Schroeder)
@@ -84,6 +87,7 @@ All data crossing the trust boundary (file contents, magic file syntax, CLI argu
 | **Least privilege** | The tool only reads files; it never writes, executes, or modifies them. No network access. No elevated permissions required. |
 | **Least common mechanism** | No shared mutable state between file evaluations. Each evaluation operates on its own data. No global caches that could leak information. |
 | **Psychological acceptability** | CLI follows GNU `file` conventions. Error messages are descriptive and actionable. Default behavior is safe (built-in rules, no network). |
+
 ## 5. Common Weakness Countermeasures
 
 ### 5.1 CWE/SANS Top 25
@@ -104,6 +108,7 @@ All data crossing the trust boundary (file contents, magic file syntax, CLI argu
 | CWE-190 | Integer overflow | Rust panics on integer overflow in debug builds. Offset calculations use checked arithmetic. | Mitigated |
 | CWE-502 | Deserialization of untrusted data | Magic files are parsed with a strict grammar, not deserialized from arbitrary formats. | Mitigated |
 | CWE-400 | Resource exhaustion | Evaluation timeouts prevent unbounded CPU use. Memory-mapped I/O avoids loading entire files into memory. | Mitigated |
+
 ### 5.2 OWASP Top 10 (where applicable)
 
 Most OWASP Top 10 categories target web applications and are not applicable to a file detection library. The applicable items are:
@@ -114,6 +119,7 @@ Most OWASP Top 10 categories target web applications and are not applicable to a
 | A04: Insecure Design | Applicable | Secure design principles applied throughout (see Section 4) |
 | A06: Vulnerable Components | Applicable | `cargo audit` daily, `cargo deny`, Dependabot, `cargo-auditable` |
 | A09: Security Logging | Partial | Evaluation errors logged; security events reported via GitHub Advisories |
+
 ## 6. Supply Chain Security
 
 | Measure | Implementation |
@@ -127,6 +133,7 @@ Most OWASP Top 10 categories target web applications and are not applicable to a
 | Binary auditing | `cargo-auditable` embeds dependency metadata in binaries |
 | CI integrity | All GitHub Actions pinned to SHA hashes |
 | Code review | Required on all PRs; automated by CodeRabbit with security-focused checks |
+
 ## 7. Ongoing Assurance
 
 This assurance case is maintained as a living document. It is updated when:
