@@ -96,21 +96,25 @@ The text module (`src/output/text.rs`) produces output compatible with the GNU `
 ### Examples
 
 Single file, single match:
+
 ```text
 photo.png: PNG image data
 ```
 
 Single file, multiple matches:
+
 ```text
 ls: ELF 64-bit LSB executable, x86-64, dynamically linked
 ```
 
 No matches:
+
 ```text
 unknown.bin: data
 ```
 
 Error case:
+
 ```text
 missing.txt: ERROR: File not found
 ```
@@ -195,24 +199,34 @@ All three return `Result<String, serde_json::Error>`.
 
 The full conversion pipeline from evaluation to output:
 
-```text
-evaluator::RuleMatch ──from_evaluator_match──> output::MatchResult
-                                                        │
-                                          ┌─────────────┼─────────────┐
-                                          v             v             v
-                                   format_text    format_json   format_json_line
-                                     output         output          output
+```mermaid
+flowchart TD
+    EM["evaluator::RuleMatch"]
+    EM -- "from_evaluator_match" --> OM["output::MatchResult"]
+    OM --> FT["format_text_output"]
+    OM --> FJ["format_json_output"]
+    OM --> FL["format_json_line_output"]
+
+    style EM fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
+    style OM fill:#2a1a4a,stroke:#b39ddb,color:#e0e0e0
+    style FT fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
+    style FJ fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
+    style FL fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
 ```
 
 When converting from the library's top-level `EvaluationResult`:
 
-```text
-lib::EvaluationResult ──from_library_result──> output::EvaluationResult
-                                                       │
-                              ┌─────────────────┬──────┘
-                              v                 v
-                    format_evaluation     JsonOutput::from_evaluation_result
-                       _result (text)              (JSON)
+```mermaid
+flowchart TD
+    LE["lib::EvaluationResult"]
+    LE -- "from_library_result" --> OE["output::EvaluationResult"]
+    OE --> FER["format_evaluation_result<br/>(text)"]
+    OE --> JER["JsonOutput::from_evaluation_result<br/>(JSON)"]
+
+    style LE fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
+    style OE fill:#2a1a4a,stroke:#b39ddb,color:#e0e0e0
+    style FER fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
+    style JER fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
 ```
 
 ## Serialization
