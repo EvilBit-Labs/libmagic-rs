@@ -77,6 +77,8 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
             // Add bonus for limited-length strings (more constrained match)
             if max_length.is_some() { base + 5 } else { base }
         }
+        // 64-bit integers are most specific among numerics
+        TypeKind::Quad { .. } => 16,
         // 32-bit integers are fairly specific
         TypeKind::Long { .. } => 15,
         // 16-bit integers are moderately specific
@@ -407,6 +409,22 @@ mod tests {
         let strength = calculate_default_strength(&rule);
         // Long: 15, Equal: 10, Absolute: 10, Numeric: 0 = 35
         assert_eq!(strength, 35);
+    }
+
+    #[test]
+    fn test_strength_type_quad() {
+        let rule = make_rule(
+            TypeKind::Quad {
+                endian: Endianness::Little,
+                signed: false,
+            },
+            Operator::Equal,
+            OffsetSpec::Absolute(0),
+            Value::Uint(0),
+        );
+        let strength = calculate_default_strength(&rule);
+        // Quad: 16, Equal: 10, Absolute: 10, Numeric: 0 = 36
+        assert_eq!(strength, 36);
     }
 
     #[test]

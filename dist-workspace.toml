@@ -53,4 +53,4 @@ publish-jobs = [ "homebrew" ]
 "actions/checkout"                = "v6.0.2"
 "actions/download-artifact"       = "v8"
 "actions/attest-build-provenance" = "v4"
-"actions/upload-artifact"         = "v6.0.0"
+"actions/upload-artifact"         = "v7.0.0"

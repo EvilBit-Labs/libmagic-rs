@@ -93,6 +93,7 @@ pub enum TypeKind {
     Byte { signed: bool },        // Single byte with explicit signedness
     Short { endian: Endianness, signed: bool },
     Long { endian: Endianness, signed: bool },
+    Quad { endian: Endianness, signed: bool },
     String { max_length: Option<usize> },
 }
 
@@ -114,7 +115,7 @@ pub enum Operator {
 - **Serializable**: Full serde support for caching
 - **Self-contained**: No external dependencies in AST nodes
 - **Type-safe**: Rust's type system prevents invalid rule combinations
-- **Explicit signedness**: `TypeKind::Byte` and integer types distinguish signed from unsigned interpretations
+- **Explicit signedness**: `TypeKind::Byte` and integer types (Short, Long, Quad) distinguish signed from unsigned interpretations
 
 ### 3. Evaluator Module (`src/evaluator/`)
 

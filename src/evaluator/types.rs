@@ -135,8 +135,12 @@ pub fn read_short(
     endian: Endianness,
     signed: bool,
 ) -> Result<Value, TypeReadError> {
+    let end = offset.checked_add(2).ok_or(TypeReadError::BufferOverrun {
+        offset,
+        buffer_len: buffer.len(),
+    })?;
     let bytes = buffer
-        .get(offset..offset + 2)
+        .get(offset..end)
         .ok_or(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
@@ -197,8 +201,12 @@ pub fn read_long(
     endian: Endianness,
     signed: bool,
 ) -> Result<Value, TypeReadError> {
+    let end = offset.checked_add(4).ok_or(TypeReadError::BufferOverrun {
+        offset,
+        buffer_len: buffer.len(),
+    })?;
     let bytes = buffer
-        .get(offset..offset + 4)
+        .get(offset..end)
         .ok_or(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
@@ -215,6 +223,77 @@ pub fn read_long(
         Ok(Value::Int(i64::from(value as i32)))
     } else {
         Ok(Value::Uint(u64::from(value)))
+    }
+}
+
+/// Safely reads a 64-bit integer from the buffer at the specified offset
+///
+/// # Arguments
+///
+/// * `buffer` - The byte buffer to read from
+/// * `offset` - The offset position to read the 64-bit value from
+/// * `endian` - The byte order to use for interpretation
+/// * `signed` - Whether to interpret the value as signed or unsigned
+///
+/// # Returns
+///
+/// Returns `Ok(Value::Uint(value))` for unsigned values or `Ok(Value::Int(value))` for signed values
+/// if the read is successful, or `Err(TypeReadError::BufferOverrun)` if there are insufficient bytes.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::evaluator::types::read_quad;
+/// use libmagic_rs::parser::ast::{Endianness, Value};
+///
+/// let buffer = &[0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12];
+///
+/// // Read unsigned little-endian quad (0x1234567890abcdef)
+/// let result = read_quad(buffer, 0, Endianness::Little, false).unwrap();
+/// assert_eq!(result, Value::Uint(0x1234_5678_90ab_cdef));
+///
+/// // Read signed little-endian quad (positive value fits in i64)
+/// let result = read_quad(buffer, 0, Endianness::Little, true).unwrap();
+/// assert_eq!(result, Value::Int(0x1234_5678_90ab_cdef));
+///
+/// // Read signed little-endian quad with high bit set (sign extension)
+/// let neg_buffer = &[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80];
+/// let result = read_quad(neg_buffer, 0, Endianness::Little, true).unwrap();
+/// assert_eq!(result, Value::Int(-9_223_372_036_854_775_808)); // i64::MIN
+/// ```
+///
+/// # Errors
+///
+/// Returns `TypeReadError::BufferOverrun` if there are fewer than 8 bytes available
+/// starting at the specified offset.
+pub fn read_quad(
+    buffer: &[u8],
+    offset: usize,
+    endian: Endianness,
+    signed: bool,
+) -> Result<Value, TypeReadError> {
+    let end = offset.checked_add(8).ok_or(TypeReadError::BufferOverrun {
+        offset,
+        buffer_len: buffer.len(),
+    })?;
+    let bytes = buffer
+        .get(offset..end)
+        .ok_or(TypeReadError::BufferOverrun {
+            offset,
+            buffer_len: buffer.len(),
+        })?;
+
+    let value = match endian {
+        Endianness::Little => LittleEndian::read_u64(bytes),
+        Endianness::Big => BigEndian::read_u64(bytes),
+        Endianness::Native => NativeEndian::read_u64(bytes),
+    };
+
+    if signed {
+        #[allow(clippy::cast_possible_wrap)]
+        Ok(Value::Int(value as i64))
+    } else {
+        Ok(Value::Uint(value))
     }
 }
 
@@ -365,6 +444,7 @@ pub fn read_typed_value(
         TypeKind::Byte { signed } => read_byte(buffer, offset, *signed),
         TypeKind::Short { endian, signed } => read_short(buffer, offset, *endian, *signed),
         TypeKind::Long { endian, signed } => read_long(buffer, offset, *endian, *signed),
+        TypeKind::Quad { endian, signed } => read_quad(buffer, offset, *endian, *signed),
         TypeKind::String { max_length } => read_string(buffer, offset, *max_length),
     }
 }
@@ -414,6 +494,11 @@ pub fn coerce_value_to_type(value: &Value, type_kind: &TypeKind) -> Value {
         {
             #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
             Value::Int(i64::from(*v as u32 as i32))
+        }
+        (Value::Uint(v), TypeKind::Quad { signed: true, .. }) if *v > i64::MAX as u64 =>
+        {
+            #[allow(clippy::cast_possible_wrap)]
+            Value::Int(*v as i64)
         }
         _ => value.clone(),
     }
@@ -783,6 +868,105 @@ mod tests {
         let zero_buffer = &[0x00, 0x00, 0x00, 0x00];
         let zero_result = read_long(zero_buffer, 0, Endianness::Little, false).unwrap();
         assert_eq!(zero_result, Value::Uint(0));
+    }
+
+    // Tests for read_quad function
+    #[test]
+    fn test_read_quad_endianness_and_signedness() {
+        let cases: Vec<(&[u8], Endianness, bool, Value)> = vec![
+            // Little-endian unsigned
+            (
+                &[0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12],
+                Endianness::Little,
+                false,
+                Value::Uint(0x1234_5678_90ab_cdef),
+            ),
+            // Big-endian unsigned
+            (
+                &[0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef],
+                Endianness::Big,
+                false,
+                Value::Uint(0x1234_5678_90ab_cdef),
+            ),
+            // Little-endian signed positive
+            (
+                &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
+                Endianness::Little,
+                true,
+                Value::Int(i64::MAX),
+            ),
+            // Little-endian signed negative
+            (
+                &[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80],
+                Endianness::Little,
+                true,
+                Value::Int(i64::MIN),
+            ),
+            // Big-endian signed negative (-1)
+            (
+                &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+                Endianness::Big,
+                true,
+                Value::Int(-1),
+            ),
+            // Unsigned max value
+            (
+                &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+                Endianness::Little,
+                false,
+                Value::Uint(u64::MAX),
+            ),
+            // Zero
+            (
+                &[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+                Endianness::Little,
+                false,
+                Value::Uint(0),
+            ),
+        ];
+        for (buffer, endian, signed, expected) in cases {
+            let result = read_quad(buffer, 0, endian, signed).unwrap();
+            assert_eq!(result, expected, "endian={endian:?}, signed={signed}");
+        }
+    }
+
+    #[test]
+    fn test_read_quad_buffer_overrun() {
+        // Too few bytes (only 7)
+        let buffer = &[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
+        assert_eq!(
+            read_quad(buffer, 0, Endianness::Little, false).unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 0,
+                buffer_len: 7
+            }
+        );
+
+        // Empty buffer
+        assert_eq!(
+            read_quad(&[], 0, Endianness::Big, false).unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 0,
+                buffer_len: 0
+            }
+        );
+
+        // Offset past end
+        let buffer = &[0x00; 16];
+        assert_eq!(
+            read_quad(buffer, 10, Endianness::Little, false).unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 10,
+                buffer_len: 16
+            }
+        );
+    }
+
+    #[test]
+    fn test_read_quad_at_offset() {
+        let buffer = &[0x00, 0x00, 0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12];
+        let result = read_quad(buffer, 2, Endianness::Little, false).unwrap();
+        assert_eq!(result, Value::Uint(0x1234_5678_90ab_cdef));
     }
 
     #[test]
@@ -1584,6 +1768,41 @@ fn test_coerce_value_to_type() {
                 signed: false,
             },
             Value::Uint(0xffff_ffff),
+        ),
+        // Signed quad: values above i64::MAX get coerced
+        (
+            Value::Uint(0xffff_ffff_ffff_ffff),
+            TypeKind::Quad {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Int(-1),
+        ),
+        (
+            Value::Uint(0x8000_0000_0000_0000),
+            TypeKind::Quad {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Int(i64::MIN),
+        ),
+        // Signed quad: values in signed range pass through
+        (
+            Value::Uint(0x7fff_ffff_ffff_ffff),
+            TypeKind::Quad {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Value::Uint(0x7fff_ffff_ffff_ffff),
+        ),
+        // Unsigned quad: all values pass through
+        (
+            Value::Uint(0xffff_ffff_ffff_ffff),
+            TypeKind::Quad {
+                endian: Endianness::Native,
+                signed: false,
+            },
+            Value::Uint(0xffff_ffff_ffff_ffff),
         ),
         // Non-Uint values pass through unchanged
         (
