@@ -131,11 +131,14 @@
 //! - Non-critical errors (parse failures in individual files): Logs warning to stderr and continues
 
 pub mod ast;
+#[allow(dead_code)]
+pub(crate) mod codegen;
 mod format;
 pub mod grammar;
 mod hierarchy;
 mod loader;
 pub(crate) mod preprocessing;
+pub mod types;
 
 // Re-export AST types for convenience
 pub use ast::{Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value};

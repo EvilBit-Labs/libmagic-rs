@@ -267,10 +267,7 @@ impl MatchResult {
     /// * `m` - The evaluator match result to convert
     /// * `mime_type` - Optional MIME type to associate with this match
     #[must_use]
-    pub fn from_evaluator_match(
-        m: &crate::evaluator::MatchResult,
-        mime_type: Option<&str>,
-    ) -> Self {
+    pub fn from_evaluator_match(m: &crate::evaluator::RuleMatch, mime_type: Option<&str>) -> Self {
         let rule_path =
             DEFAULT_TAG_EXTRACTOR.extract_rule_path(std::iter::once(m.message.as_str()));
 
