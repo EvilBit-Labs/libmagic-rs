@@ -185,6 +185,106 @@ libmagic-rs aims to maintain compatibility with:
 - **GNU file output**: Text output format compatibility
 - **Common use cases**: Drop-in replacement for most applications
 
+## Migrating from v0.1.x to v0.2.0
+
+Version 0.2.0 introduces breaking changes to support comparison operators and improve type handling. Update your code as follows:
+
+### TypeKind::Byte Variant Change
+
+The `Byte` variant changed from a unit variant to a struct variant with a `signed` field.
+
+**Before (v0.1.x):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::TypeKind;
+
+match type_kind {
+    TypeKind::Byte => {
+        // Handle byte type
+    }
+    _ => {}
+}
+
+// Constructing
+let byte_type = TypeKind::Byte;
+```
+
+**After (v0.2.0):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::TypeKind;
+
+match type_kind {
+    TypeKind::Byte { signed } => {
+        // Handle byte type, check signedness if needed
+        if signed {
+            // Handle signed byte
+        } else {
+            // Handle unsigned byte
+        }
+    }
+    _ => {}
+}
+
+// Constructing
+let signed_byte = TypeKind::Byte { signed: true };
+let unsigned_byte = TypeKind::Byte { signed: false };
+```
+
+### New Operator Variants
+
+The `Operator` enum added four comparison operators. Exhaustive matches must handle these variants.
+
+**Before (v0.1.x):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::Operator;
+
+match operator {
+    Operator::Equal => { /* ... */ }
+    Operator::NotEqual => { /* ... */ }
+    // Other existing variants
+}
+```
+
+**After (v0.2.0):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::Operator;
+
+match operator {
+    Operator::Equal => { /* ... */ }
+    Operator::NotEqual => { /* ... */ }
+    Operator::LessThan => { /* ... */ }
+    Operator::GreaterThan => { /* ... */ }
+    Operator::LessEqual => { /* ... */ }
+    Operator::GreaterEqual => { /* ... */ }
+    // Other existing variants
+}
+```
+
+### read_byte Function Signature
+
+The `libmagic_rs::evaluator::types::read_byte` function signature changed from 2 to 3 parameters.
+
+**Before (v0.1.x):**
+
+```rust,ignore
+use libmagic_rs::evaluator::types::read_byte;
+
+let value = read_byte(buffer, offset)?;
+```
+
+**After (v0.2.0):**
+
+```rust,ignore
+use libmagic_rs::evaluator::types::read_byte;
+
+// The third parameter indicates signedness
+let signed_value = read_byte(buffer, offset, true)?;
+let unsigned_value = read_byte(buffer, offset, false)?;
+```
+
 ## Getting Help
 
 If you encounter migration issues:

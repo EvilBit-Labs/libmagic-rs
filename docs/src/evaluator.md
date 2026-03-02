@@ -90,7 +90,7 @@ pub fn resolve_offset(
 
 Interprets bytes according to type specifications:
 
-- **Byte**: Single byte values
+- **Byte**: Single byte values (signed or unsigned)
 - **Short**: 16-bit integers with endianness
 - **Long**: 32-bit integers with endianness
 - **String**: Byte sequences with length limits
@@ -104,16 +104,18 @@ pub fn read_typed_value(
 ) -> Result<Value, TypeReadError>
 ```
 
+The `read_byte` function signature changed in v0.2.0 to accept three parameters (`buffer`, `offset`, and `signed`) instead of two, allowing explicit control over signed vs unsigned byte interpretation.
+
 ### Operator Application (`evaluator/operators.rs`)
 
 Applies comparison operations:
 
 - **Equal** (`=`, `==`): Exact value matching
 - **NotEqual** (`!=`, `<>`): Non-matching values
-- **LessThan** (`<`): Less-than comparison (numeric or lexicographic)
-- **GreaterThan** (`>`): Greater-than comparison (numeric or lexicographic)
-- **LessEqual** (`<=`): Less-than-or-equal comparison (numeric or lexicographic)
-- **GreaterEqual** (`>=`): Greater-than-or-equal comparison (numeric or lexicographic)
+- **LessThan** (`<`): Less-than comparison (numeric or lexicographic) *(added in v0.2.0)*
+- **GreaterThan** (`>`): Greater-than comparison (numeric or lexicographic) *(added in v0.2.0)*
+- **LessEqual** (`<=`): Less-than-or-equal comparison (numeric or lexicographic) *(added in v0.2.0)*
+- **GreaterEqual** (`>=`): Greater-than-or-equal comparison (numeric or lexicographic) *(added in v0.2.0)*
 - **BitwiseAnd** (`&`): Pattern matching for flags
 - **BitwiseAndMask**: AND with mask then compare
 
@@ -125,6 +127,34 @@ pub fn apply_operator(
     left: &Value,
     right: &Value,
 ) -> bool
+```
+
+**Example with comparison operators:**
+
+```rust
+use libmagic_rs::parser::ast::{Operator, Value};
+use libmagic_rs::evaluator::operators::apply_operator;
+
+// Less-than comparison (v0.2.0+)
+assert!(apply_operator(
+    &Operator::LessThan,
+    &Value::Uint(5),
+    &Value::Uint(10)
+));
+
+// Greater-than-or-equal comparison (v0.2.0+)
+assert!(apply_operator(
+    &Operator::GreaterEqual,
+    &Value::Uint(10),
+    &Value::Uint(10)
+));
+
+// Cross-type integer comparison (v0.2.0+)
+assert!(apply_operator(
+    &Operator::LessThan,
+    &Value::Int(-1),
+    &Value::Uint(0)
+));
 ```
 
 ## Evaluation Algorithm
@@ -290,6 +320,26 @@ let matches = evaluate_rules(&rules, &buffer)?;
 for m in matches {
     println!("Match at offset {}: {}", m.offset, m.message);
 }
+```
+
+**Example with comparison operators (v0.2.0+):**
+
+```rust
+use libmagic_rs::{evaluate_rules, EvaluationConfig};
+use libmagic_rs::parser::parse_text_magic_file;
+
+// Parse magic rule with comparison operator
+let magic_content = r#"
+0 leshort <100 Small value detected
+0 leshort >=1000 Large value detected
+"#;
+let rules = parse_text_magic_file(magic_content)?;
+
+let buffer = vec![0x0A, 0x00]; // Little-endian 10
+let matches = evaluate_rules(&rules, &buffer)?;
+
+// Matches first rule (<100)
+assert_eq!(matches[0].message, "Small value detected");
 ```
 
 ## Implementation Status
