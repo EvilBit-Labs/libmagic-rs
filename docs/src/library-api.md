@@ -146,7 +146,7 @@ pub struct EvaluationResult {
     pub description: String,          // Human-readable file type (or "data" if unknown)
     pub mime_type: Option<String>,    // MIME type (only when enable_mime_types is true)
     pub confidence: f64,              // 0.0 to 1.0, based on match depth
-    pub matches: Vec<MatchResult>,    // Individual rule matches with offset/level/value
+    pub matches: Vec<RuleMatch>,      // Individual rule matches with offset/level/value
     pub metadata: EvaluationMetadata, // Diagnostics (timing, file size, etc.)
 }
 ```

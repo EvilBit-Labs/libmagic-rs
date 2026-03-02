@@ -369,9 +369,31 @@ use libmagic_rs::EvaluationContext;
 | `timeout_ms()` | Get timeout value |
 | `reset()` | Reset to initial state |
 
-### MatchResult (Evaluator)
+### RuleMatch (Evaluator)
 
-**Note**: This type was removed in v0.3.0. Match results are handled internally and exposed through the `output::MatchResult` type.
+Internal match result type used during rule evaluation. Renamed from `MatchResult` to `RuleMatch` in v0.3.0 to resolve a naming collision with `output::MatchResult`.
+
+```rust
+use libmagic_rs::RuleMatch;
+```
+
+#### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `message` | `String` | Rule message |
+| `offset` | `usize` | Match offset |
+| `level` | `u32` | Rule nesting level |
+| `value` | `Value` | Matched value |
+| `confidence` | `f64` | Confidence score (0.0-1.0) |
+
+#### Methods
+
+| Method | Description |
+|--------|-------------|
+| `calculate_confidence(level)` | Calculate confidence from rule depth |
+
+**Note**: This type is used internally by the evaluator. User-facing code should use `output::MatchResult` for formatted output.
 
 ## Output Module
 
@@ -449,7 +471,7 @@ The following types are re-exported from the root module for convenience:
 pub use parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value};
 
 // Evaluator types
-pub use evaluator::EvaluationContext;
+pub use evaluator::{EvaluationContext, RuleMatch};
 
 // Error types
 pub use error::{EvaluationError, LibmagicError, ParseError};
@@ -472,6 +494,7 @@ pub use error::{EvaluationError, LibmagicError, ParseError};
 
 - `TypeKind::Quad` variant added to support 64-bit quad integer types (breaking change due to exhaustive enum)
 - `TypeKind::String` discriminant changed from 3 to 4 due to insertion of `Quad` variant
+- `evaluator::MatchResult` renamed to `evaluator::RuleMatch` to resolve naming collision with `output::MatchResult`
 
 ### Breaking Changes in v0.2.0
 
