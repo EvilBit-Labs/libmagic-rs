@@ -1,13 +1,26 @@
 # libmagic-rs
 
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11947/badge)](https://www.bestpractices.dev/projects/11947)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EvilBit-Labs/libmagic-rs/badge)](https://scorecard.dev/viewer/?uri=github.com/EvilBit-Labs/libmagic-rs)
-[![Crates.io](https://img.shields.io/crates/v/libmagic-rs)](https://crates.io/crates/libmagic-rs)
-[![License](https://img.shields.io/crates/l/libmagic-rs)](https://github.com/EvilBit-Labs/libmagic-rs/blob/main/LICENSE)
-[![Mergify Status][mergify-status]][mergify]
+![GitHub License](https://img.shields.io/github/license/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github)
+![GitHub Sponsors](https://img.shields.io/github/sponsors/EvilBit-Labs?style=flat-square&logo=github)
 
-[mergify]: https://mergify.com
-[mergify-status]: https://img.shields.io/endpoint.svg?url=https://api.mergify.com/v1/badges/EvilBit-Labs/libmagic-rs
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/EvilBit-Labs/libmagic-rs/ci.yml?style=flat-square)
+![docs.rs](https://img.shields.io/docsrs/libmagic-rs?style=flat-square)
+![Deps.rs Repository Dependencies](https://img.shields.io/deps-rs/repo/github/EvilBit-Labs/libmagic-rs?style=flat-square)
+
+![Codecov](https://img.shields.io/codecov/c/github/EvilBit-Labs/libmagic-rs?style=flat-square&logoColor=white&logo=codecov)
+[![GitHub issues](https://img.shields.io/github/issues/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github)](https://github.com/EvilBit-Labs/libmagic-rs/issues)
+![GitHub last commit](https://img.shields.io/github/last-commit/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github)
+
+[![Crates.io](https://img.shields.io/crates/v/libmagic-rs?style=flat-square&logo=rust)](https://crates.io/crates/libmagic-rs)
+![GitHub Release Date](https://img.shields.io/github/release-date/EvilBit-Labs/libmagic-rs?display_date=published_at&style=flat-square&logo=github&link=https%3A%2F%2Fgithub.com%2FEvilBit-Labs%2Flibmagic-rs%2Freleases)
+![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/libmagic-rs?style=flat-square&logo=rust)
+![Crates.io MSRV](https://img.shields.io/crates/msrv/libmagic-rs?style=flat-square&logo=rust)
+
+---
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EvilBit-Labs/libmagic-rs/badge?style=flat-square)](https://scorecard.dev/viewer/?uri=github.com/EvilBit-Labs/libmagic-rs)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11947/badge?style=flat-square)](https://www.bestpractices.dev/projects/11947)
+
+---
 
 A pure-Rust implementation of libmagic, the library that powers the `file` command for identifying file types. This project provides a memory-safe, efficient alternative to the C-based libmagic library.
 
