@@ -267,6 +267,13 @@ pub struct MagicRule {
 }
 ```
 
+**TypeKind Variants:**
+- `Byte { signed: bool }` - 8-bit integer
+- `Short { endian: Endianness, signed: bool }` - 16-bit integer
+- `Long { endian: Endianness, signed: bool }` - 32-bit integer
+- `Quad { endian: Endianness, signed: bool }` - 64-bit integer
+- `String { max_length: Option<usize> }` - Null-terminated string
+
 **Hierarchical Structure:**
 - Top-level rules (level 0) are entry points
 - Child rules are evaluated only if parent matches
@@ -467,8 +474,18 @@ The evaluation hot path is optimized for:
 1. Add variant to `TypeKind` enum (`ast.rs`)
 2. Add parsing logic (`grammar.rs`)
 3. Add reading logic (`types.rs`)
-4. Add tests
-5. Update documentation
+4. Add serialization support (`build_helpers.rs`)
+5. Add tests
+6. Update documentation
+
+**Example: Quad Type Implementation**
+
+The `Quad` type (64-bit integer) demonstrates the type system extension pattern. The implementation includes:
+- `TypeKind::Quad { endian: Endianness, signed: bool }` variant in the AST
+- `read_quad()` function for safe buffer access with bounds checking
+- Parsing support for `quad`, `uquad`, `lequad`, `ulequad`, `bequad`, `ubequad` type names
+- Strength calculation (specificity score of 16, highest among numeric types)
+- Serialization for build-time rule compilation
 
 ### Adding New Operators
 
