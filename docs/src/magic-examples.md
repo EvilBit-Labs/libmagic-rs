@@ -35,6 +35,14 @@ This appendix provides comprehensive examples of magic file syntax and patterns,
 0    string    \x7fELF    ELF
 >16  leshort   2         executable
 >18  leshort   62        x86-64
+
+# 64-bit file signature matching
+0    lequad    0x1234567890abcdef    Custom format with 64-bit magic
+0    bequad    0xfeedface00000000    Mach-O universal binary signature
+
+# Large integer value checks
+512  uquad     >0x8000000000000000    Large unsigned 64-bit value
+1024 quad      0xffffffffffffffff    Signed 64-bit match
 ```
 
 ## Hierarchical Rules
@@ -79,14 +87,25 @@ This appendix provides comprehensive examples of magic file syntax and patterns,
 # Little-endian integers
 0    leshort   0x5a4d    MS-DOS executable (little-endian short)
 0    lelong    0x464c457f    ELF (little-endian long)
+0    lequad    0x1234567890abcdef    64-bit little-endian value
 
 # Big-endian integers
 0    beshort   0x4d5a    MS-DOS executable (big-endian short)
 0    belong    0x7f454c46    ELF (big-endian long)
+0    bequad    0xfeedface00000000    64-bit big-endian value
 
 # Native endian (system default)
 0    short     0x5a4d    MS-DOS executable (native endian)
 0    long      0x464c457f    ELF (native endian)
+0    quad      0xffffffffffffffff    64-bit native endian
+
+# Unsigned variants
+0    ubyte     0xff      Unsigned byte
+0    ushort    0xffff    Unsigned short
+0    ulong     0xffffffff    Unsigned long
+0    uquad     0xffffffffffffffff    Unsigned 64-bit value
+0    ulequad   >0x8000000000000000    Unsigned little-endian quad
+0    ubequad   >0x8000000000000000    Unsigned big-endian quad
 ```
 
 ### String Matching

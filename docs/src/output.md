@@ -14,7 +14,7 @@ The output module is organized across three files:
 
 ### `output::MatchResult`
 
-Represents a single magic rule match in the output layer. Created by converting from an evaluator-level `MatchResult`, with additional fields for structured output.
+Represents a single magic rule match in the output layer. Created by converting from an evaluator-level `RuleMatch`, with additional fields for structured output.
 
 ```rust
 pub struct MatchResult {
@@ -32,7 +32,7 @@ Key constructors:
 
 - `MatchResult::new(message, offset, value)` -- Creates a match with default confidence of 50.
 - `MatchResult::with_metadata(...)` -- Creates a fully specified match. Confidence is clamped to 100.
-- `MatchResult::from_evaluator_match(m, mime_type)` -- Converts from the evaluator's `MatchResult`. Scales confidence from 0.0--1.0 to 0--100 and extracts rule path tags using the shared `TagExtractor`.
+- `MatchResult::from_evaluator_match(m, mime_type)` -- Converts from the evaluator's `RuleMatch`. Scales confidence from 0.0--1.0 to 0--100 and extracts rule path tags using the shared `TagExtractor`.
 
 ### `output::EvaluationResult`
 
@@ -196,7 +196,7 @@ All three return `Result<String, serde_json::Error>`.
 The full conversion pipeline from evaluation to output:
 
 ```text
-evaluator::MatchResult ──from_evaluator_match──> output::MatchResult
+evaluator::RuleMatch ──from_evaluator_match──> output::MatchResult
                                                         │
                                           ┌─────────────┼─────────────┐
                                           v             v             v

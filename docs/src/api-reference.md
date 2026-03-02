@@ -226,6 +226,7 @@ use libmagic_rs::TypeKind;
 | `Byte { signed }` | Single byte with explicit signedness (struct variant since v0.2.0; previously unit variant) |
 | `Short { endian, signed }` | 16-bit integer |
 | `Long { endian, signed }` | 32-bit integer |
+| `Quad { endian, signed }` | 64-bit quad integer (quaddouble/lequad/bequad/mequad) |
 | `String { max_length }` | String data |
 
 ### Operator
@@ -368,21 +369,31 @@ use libmagic_rs::EvaluationContext;
 | `timeout_ms()` | Get timeout value |
 | `reset()` | Reset to initial state |
 
-### MatchResult (Evaluator)
+### RuleMatch (Evaluator)
 
-Result from internal evaluation.
+Internal match result type used during rule evaluation. Renamed from `MatchResult` to `RuleMatch` in v0.3.0 to resolve a naming collision with `output::MatchResult`.
 
 ```rust
-use libmagic_rs::evaluator::MatchResult;
+use libmagic_rs::RuleMatch;
 ```
+
+#### Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `message` | `String` | Match description |
+| `message` | `String` | Rule message |
 | `offset` | `usize` | Match offset |
-| `level` | `u32` | Rule level |
+| `level` | `u32` | Rule nesting level |
 | `value` | `Value` | Matched value |
-| `confidence` | `f64` | Confidence score |
+| `confidence` | `f64` | Confidence score (0.0-1.0) |
+
+#### Methods
+
+| Method | Description |
+|--------|-------------|
+| `calculate_confidence(level)` | Calculate confidence from rule depth |
+
+**Note**: This type is used internally by the evaluator. User-facing code should use `output::MatchResult` for formatted output.
 
 ## Output Module
 
@@ -460,7 +471,7 @@ The following types are re-exported from the root module for convenience:
 pub use parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value};
 
 // Evaluator types
-pub use evaluator::{EvaluationContext, MatchResult};
+pub use evaluator::{EvaluationContext, RuleMatch};
 
 // Error types
 pub use error::{EvaluationError, LibmagicError, ParseError};
@@ -477,7 +488,13 @@ pub use error::{EvaluationError, LibmagicError, ParseError};
 - **Minimum Rust Version**: 1.85
 - **Edition**: 2024
 - **License**: Apache-2.0
-- **Current Version**: 0.2.0
+- **Current Version**: 0.3.0
+
+### Breaking Changes in v0.3.0
+
+- `TypeKind::Quad` variant added to support 64-bit quad integer types (breaking change due to exhaustive enum)
+- `TypeKind::String` discriminant changed from 3 to 4 due to insertion of `Quad` variant
+- `evaluator::MatchResult` renamed to `evaluator::RuleMatch` to resolve naming collision with `output::MatchResult`
 
 ### Breaking Changes in v0.2.0
 
