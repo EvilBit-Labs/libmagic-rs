@@ -146,7 +146,7 @@ path = "src/main.rs"
 byteorder = "1.5.0"
 cfg-if = "1.0.4"
 clap = { version = "4.5.60", features = ["derive"] }
-clap-stdin = "0.8.0"
+clap-stdin = "0.8.1"
 memchr = "2.7.6"
 memmap2 = "0.9.10"
 nom = "8.0.0"
