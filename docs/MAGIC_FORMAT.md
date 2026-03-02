@@ -119,6 +119,7 @@ Types for indirect offsets:
 - `.b` - byte (1 byte)
 - `.s` - short (2 bytes)
 - `.l` - long (4 bytes)
+- `.q` - quad (8 bytes)
 
 ### Relative Offset
 
@@ -146,12 +147,22 @@ The `&` prefix indicates relative offset.
 | `long` | 4 bytes | native |
 | `lelong` | 4 bytes | little-endian |
 | `belong` | 4 bytes | big-endian |
+| `quad` | 8 bytes | native |
+| `lequad` | 8 bytes | little-endian |
+| `bequad` | 8 bytes | big-endian |
+
+All integer types have unsigned variants prefixed with `u`:
+- `ubyte`, `ushort`, `uleshort`, `ubeshort`
+- `ulong`, `ulelong`, `ubelong`
+- `uquad`, `ulequad`, `ubequad`
 
 Examples:
 ```
 0       byte      0x7f      (byte match)
 0       leshort   0x5a4d    DOS MZ signature
 0       belong    0xcafebabe Java class file
+0       lequad    0x1234567890abcdef  (64-bit little-endian)
+8       uquad     >0x8000000000000000 (unsigned 64-bit check)
 ```
 
 ### String Type
@@ -469,7 +480,7 @@ Consider:
 - Absolute offsets
 - Relative offsets
 - Indirect offsets (basic)
-- Byte, short, long types
+- Byte, short, long, quad types (8-bit, 16-bit, 32-bit, 64-bit integers)
 - String type
 - Comparison operators (`=`, `!`, `<`, `>`, `<=`, `>=`)
 - Bitwise AND operator
@@ -481,6 +492,7 @@ Consider:
 - Regex patterns
 - Date/time types
 - Float types
+- 128-bit integer types
 - Use/name directives
 - Default rules
 
@@ -488,6 +500,7 @@ Consider:
 
 - **Comparison operators**: Full support for `<`, `>`, `<=`, `>=` operators
 - **Strength modifiers**: The `!:strength` directive for adjusting rule priority
+- **64-bit integers**: `quad` type family (`quad`, `uquad`, `lequad`, `ulequad`, `bequad`, `ubequad`)
 
 ---
 
