@@ -40,6 +40,24 @@ fn parse_decimal_number(input: &str) -> IResult<&str, i64> {
     Ok((input, number))
 }
 
+/// Parse a decimal number as unsigned `u64` with overflow protection
+fn parse_unsigned_decimal_number(input: &str) -> IResult<&str, u64> {
+    let (input, digits) = digit1(input)?;
+
+    // u64::MAX (18446744073709551615) has 20 digits
+    if digits.len() > 20 {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::MapRes,
+        )));
+    }
+
+    let number = digits.parse::<u64>().map_err(|_| {
+        nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::MapRes))
+    })?;
+    Ok((input, number))
+}
+
 /// Parse a hexadecimal number (with 0x prefix) with overflow protection
 fn parse_hex_number(input: &str) -> IResult<&str, i64> {
     let (input, _) = tag("0x")(input)?;
@@ -58,6 +76,38 @@ fn parse_hex_number(input: &str) -> IResult<&str, i64> {
     })?;
 
     Ok((input, number))
+}
+
+/// Parse a hexadecimal number (with 0x prefix) as unsigned `u64`
+fn parse_unsigned_hex_number(input: &str) -> IResult<&str, u64> {
+    let (input, _) = tag("0x")(input)?;
+    let (input, hex_str) = hex_digit1(input)?;
+
+    // u64 can hold up to 16 hex digits (0xFFFFFFFFFFFFFFFF)
+    if hex_str.len() > 16 {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::MapRes,
+        )));
+    }
+
+    let number = u64::from_str_radix(hex_str, 16).map_err(|_| {
+        nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::MapRes))
+    })?;
+
+    Ok((input, number))
+}
+
+/// Parse a non-negative number as unsigned `u64`
+///
+/// Supports both decimal and hexadecimal (0x prefix) formats.
+/// Does not handle a leading minus sign -- callers handle sign detection.
+fn parse_unsigned_number(input: &str) -> IResult<&str, u64> {
+    if input.starts_with("0x") {
+        parse_unsigned_hex_number(input)
+    } else {
+        parse_unsigned_decimal_number(input)
+    }
 }
 
 /// Parse a decimal or hexadecimal number
@@ -452,18 +502,24 @@ fn parse_quoted_string(input: &str) -> IResult<&str, String> {
 }
 
 /// Parse a numeric value (integer)
+///
+/// Non-negative literals are parsed directly as `u64` so the full unsigned
+/// 64-bit range is representable (required for `uquad` values above `i64::MAX`).
+/// Negative literals go through the signed `i64` path.
 fn parse_numeric_value(input: &str) -> IResult<&str, Value> {
     let (input, _) = multispace0(input)?;
-    let (input, number) = parse_number(input)?;
-    let (input, _) = multispace0(input)?;
 
-    // Convert to appropriate Value variant based on sign
-    let value = if number >= 0 {
-        Value::Uint(number.unsigned_abs())
+    let (input, value) = if input.starts_with('-') {
+        // Negative: parse as i64
+        let (input, number) = parse_number(input)?;
+        (input, Value::Int(number))
     } else {
-        Value::Int(number)
+        // Non-negative: parse as u64 to support full unsigned 64-bit range
+        let (input, number) = parse_unsigned_number(input)?;
+        (input, Value::Uint(number))
     };
 
+    let (input, _) = multispace0(input)?;
     Ok((input, value))
 }
 
@@ -1275,6 +1331,38 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_numeric_value_large_unsigned_quad() {
+        // Full u64 range -- values above i64::MAX required for uquad
+        let test_cases = [
+            // u64::MAX in hex
+            ("0xffffffffffffffff", Value::Uint(u64::MAX)),
+            // u64::MAX in decimal
+            ("18446744073709551615", Value::Uint(u64::MAX)),
+            // Exactly i64::MAX + 1 (first value that overflows i64)
+            ("0x8000000000000000", Value::Uint(0x8000_0000_0000_0000)),
+            // i64::MAX + 1 in decimal
+            (
+                "9223372036854775808",
+                Value::Uint(9_223_372_036_854_775_808),
+            ),
+            // i64::MAX still works as Uint
+            ("0x7fffffffffffffff", Value::Uint(i64::MAX as u64)),
+            ("9223372036854775807", Value::Uint(i64::MAX as u64)),
+            // Common magic constant patterns
+            ("0xDEADBEEFDEADBEEF", Value::Uint(0xDEAD_BEEF_DEAD_BEEF)),
+            ("0xCAFEBABECAFEBABE", Value::Uint(0xCAFE_BABE_CAFE_BABE)),
+        ];
+
+        for (input, expected) in test_cases {
+            assert_eq!(
+                parse_numeric_value(input),
+                Ok(("", expected)),
+                "Failed to parse large unsigned quad literal: '{input}'"
+            );
+        }
+    }
+
+    #[test]
     fn test_parse_value_string_literals() {
         // String value parsing
         assert_eq!(
@@ -1384,9 +1472,9 @@ mod tests {
     fn test_parse_value_edge_cases() {
         // Zero values in different formats
         assert_eq!(parse_value("0"), Ok(("", Value::Uint(0))));
-        assert_eq!(parse_value("-0"), Ok(("", Value::Uint(0))));
+        assert_eq!(parse_value("-0"), Ok(("", Value::Int(0))));
         assert_eq!(parse_value("0x0"), Ok(("", Value::Uint(0))));
-        assert_eq!(parse_value("-0x0"), Ok(("", Value::Uint(0))));
+        assert_eq!(parse_value("-0x0"), Ok(("", Value::Int(0))));
 
         // Large values
         assert_eq!(
@@ -1519,50 +1607,37 @@ mod tests {
         }
     }
 }
-/// Parse a type specification (byte, short, long, string, etc.)
+/// Parse a type specification with an optional attached bitwise-AND mask operator
+/// (e.g., `lelong&0xf0000000`).
 ///
-/// Supports various type formats found in magic files:
-/// - `byte` - single byte
-/// - `short` - 16-bit integer (native endian)
-/// - `leshort` - 16-bit little-endian integer
-/// - `beshort` - 16-bit big-endian integer
-/// - `long` - 32-bit integer (native endian)
-/// - `lelong` - 32-bit little-endian integer
-/// - `belong` - 32-bit big-endian integer
-/// - `string` - null-terminated string
-///
-/// # Examples
-///
-/// ```
-/// use libmagic_rs::parser::grammar::parse_type;
-/// use libmagic_rs::parser::ast::{TypeKind, Endianness};
-///
-/// assert_eq!(parse_type("byte"), Ok(("", TypeKind::Byte { signed: true })));
-/// assert_eq!(parse_type("leshort"), Ok(("", TypeKind::Short { endian: Endianness::Little, signed: true })));
-/// assert_eq!(parse_type("string"), Ok(("", TypeKind::String { max_length: None })));
-/// ```
-/// Parse a type specification with optional attached operator
-/// Parse a type specification followed by an optional operator
+/// Returns the `TypeKind` and an optional `Operator`.
 ///
 /// # Errors
 /// Returns a nom parsing error if the input doesn't match the expected format
+#[allow(clippy::too_many_lines)]
 pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<Operator>)> {
     let (input, _) = multispace0(input)?;
 
     let (input, type_name) = alt((
         // Unsigned variants (longer names first to avoid partial matches)
+        tag("ubequad"),
+        tag("ulequad"),
         tag("ubelong"),
         tag("ulelong"),
         tag("ubeshort"),
         tag("uleshort"),
+        tag("uquad"),
         tag("ulong"),
         tag("ushort"),
         tag("ubyte"),
         // Signed variants (default in libmagic)
+        tag("lequad"),
+        tag("bequad"),
         tag("lelong"),
         tag("belong"),
         tag("leshort"),
         tag("beshort"),
+        tag("quad"),
         tag("long"),
         tag("short"),
         tag("byte"),
@@ -1571,16 +1646,23 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
     .parse(input)?;
 
     // Check for attached operator with mask (like &0xf0000000)
-    let (input, attached_op) = opt(alt((
-        // Parse &mask format
-        map(pair(char('&'), parse_number), |(_, mask)| {
-            Operator::BitwiseAndMask(mask.unsigned_abs())
-        }),
-        // Parse standalone & (for backward compatibility)
-        map(char('&'), |_| Operator::BitwiseAnd),
-        // Add more operators as needed
-    )))
-    .parse(input)?;
+    // Uses unsigned parsing so full u64 masks (e.g. 0xffffffffffffffff) are supported.
+    // If '&' is followed by digits/0x but the mask parse fails (overflow, etc.),
+    // we return a hard error instead of silently falling back to standalone '&'.
+    let (input, attached_op) = if let Some(after_amp) = input.strip_prefix('&') {
+        if after_amp.starts_with("0x") || after_amp.starts_with(|c: char| c.is_ascii_digit()) {
+            // '&' followed by what looks like a number -- must parse as mask
+            let (rest, mask) = parse_unsigned_number(after_amp).map_err(|_| {
+                nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::MapRes))
+            })?;
+            (rest, Some(Operator::BitwiseAndMask(mask)))
+        } else {
+            // Standalone '&' (no digits following)
+            (after_amp, Some(Operator::BitwiseAnd))
+        }
+    } else {
+        (input, None)
+    };
 
     let (input, _) = multispace0(input)?;
 
@@ -1635,6 +1717,30 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
             endian: Endianness::Big,
             signed: false,
         },
+        "quad" => TypeKind::Quad {
+            endian: Endianness::Native,
+            signed: true,
+        },
+        "uquad" => TypeKind::Quad {
+            endian: Endianness::Native,
+            signed: false,
+        },
+        "lequad" => TypeKind::Quad {
+            endian: Endianness::Little,
+            signed: true,
+        },
+        "ulequad" => TypeKind::Quad {
+            endian: Endianness::Little,
+            signed: false,
+        },
+        "bequad" => TypeKind::Quad {
+            endian: Endianness::Big,
+            signed: true,
+        },
+        "ubequad" => TypeKind::Quad {
+            endian: Endianness::Big,
+            signed: false,
+        },
         "string" => TypeKind::String { max_length: None },
         _ => unreachable!("Parser should only match known types"),
     };
@@ -1642,8 +1748,32 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
     Ok((input, (type_kind, attached_op)))
 }
 
-/// Parse a type specification (backward compatibility)
-/// Parse a type specification (byte, short, long, string, etc.)
+/// Parse a type specification (byte, short, long, quad, string, etc.)
+///
+/// Supports various type formats found in magic files:
+/// - `byte` / `ubyte` - single byte (signed / unsigned)
+/// - `short` / `ushort` - 16-bit integer (native endian, signed / unsigned)
+/// - `leshort` / `uleshort` - 16-bit little-endian integer
+/// - `beshort` / `ubeshort` - 16-bit big-endian integer
+/// - `long` / `ulong` - 32-bit integer (native endian, signed / unsigned)
+/// - `lelong` / `ulelong` - 32-bit little-endian integer
+/// - `belong` / `ubelong` - 32-bit big-endian integer
+/// - `quad` / `uquad` - 64-bit integer (native endian, signed / unsigned)
+/// - `lequad` / `ulequad` - 64-bit little-endian integer
+/// - `bequad` / `ubequad` - 64-bit big-endian integer
+/// - `string` - null-terminated string
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::grammar::parse_type;
+/// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+///
+/// assert_eq!(parse_type("byte"), Ok(("", TypeKind::Byte { signed: true })));
+/// assert_eq!(parse_type("leshort"), Ok(("", TypeKind::Short { endian: Endianness::Little, signed: true })));
+/// assert_eq!(parse_type("bequad"), Ok(("", TypeKind::Quad { endian: Endianness::Big, signed: true })));
+/// assert_eq!(parse_type("string"), Ok(("", TypeKind::String { max_length: None })));
+/// ```
 ///
 /// # Errors
 /// Returns a nom parsing error if the input doesn't match any known type
@@ -2143,6 +2273,36 @@ fn test_parse_type_unsigned_variants() {
             }
         ))
     );
+    assert_eq!(
+        parse_type("uquad"),
+        Ok((
+            "",
+            TypeKind::Quad {
+                endian: Endianness::Native,
+                signed: false,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("ubequad"),
+        Ok((
+            "",
+            TypeKind::Quad {
+                endian: Endianness::Big,
+                signed: false,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("ulequad"),
+        Ok((
+            "",
+            TypeKind::Quad {
+                endian: Endianness::Little,
+                signed: false,
+            }
+        ))
+    );
 }
 
 #[test]
@@ -2188,6 +2348,36 @@ fn test_parse_type_signed_defaults() {
             "",
             TypeKind::Long {
                 endian: Endianness::Big,
+                signed: true,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("quad"),
+        Ok((
+            "",
+            TypeKind::Quad {
+                endian: Endianness::Native,
+                signed: true,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("bequad"),
+        Ok((
+            "",
+            TypeKind::Quad {
+                endian: Endianness::Big,
+                signed: true,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_type("lequad"),
+        Ok((
+            "",
+            TypeKind::Quad {
+                endian: Endianness::Little,
                 signed: true,
             }
         ))
@@ -2728,4 +2918,55 @@ fn test_is_strength_directive() {
     assert!(!is_strength_directive("# comment"));
     assert!(!is_strength_directive(""));
     assert!(!is_strength_directive("!:mime application/pdf"));
+}
+
+#[test]
+fn test_parse_type_and_operator_quad_full_width_mask() {
+    // Full u64 mask (0xffffffffffffffff) must parse successfully, not silently
+    // fall back to standalone '&' leaving the mask as leftover input.
+    let (remaining, (typ, op)) = parse_type_and_operator("uquad&0xffffffffffffffff").unwrap();
+    assert_eq!(remaining, "");
+    assert_eq!(
+        typ,
+        TypeKind::Quad {
+            endian: Endianness::Native,
+            signed: false,
+        }
+    );
+    assert_eq!(op, Some(Operator::BitwiseAndMask(u64::MAX)));
+}
+
+#[test]
+fn test_parse_type_and_operator_quad_mask_various() {
+    // Hex mask within i64 range
+    let (remaining, (_, op)) = parse_type_and_operator("quad&0x7fffffffffffffff").unwrap();
+    assert_eq!(remaining, "");
+    assert_eq!(op, Some(Operator::BitwiseAndMask(i64::MAX as u64)));
+
+    // Decimal mask
+    let (remaining, (_, op)) = parse_type_and_operator("uquad&255").unwrap();
+    assert_eq!(remaining, "");
+    assert_eq!(op, Some(Operator::BitwiseAndMask(255)));
+
+    // Standalone '&' (no digits following) still works
+    let (remaining, (_, op)) = parse_type_and_operator("uquad& ").unwrap();
+    assert_eq!(remaining, "");
+    assert_eq!(op, Some(Operator::BitwiseAnd));
+}
+
+#[test]
+fn test_parse_type_and_operator_mask_overflow_fails() {
+    // Decimal value exceeding u64::MAX must fail, not silently reinterpret
+    let result = parse_type_and_operator("uquad&99999999999999999999");
+    assert!(
+        result.is_err(),
+        "overflowing mask should produce a parse error"
+    );
+
+    // Hex value exceeding u64 (17 hex digits) must fail
+    let result = parse_type_and_operator("uquad&0x1ffffffffffffffff");
+    assert!(
+        result.is_err(),
+        "overflowing hex mask should produce a parse error"
+    );
 }

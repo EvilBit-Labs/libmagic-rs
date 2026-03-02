@@ -25,7 +25,7 @@ See [GitHub Milestones](https://github.com/EvilBit-Labs/libmagic-rs/milestones) 
 - [ ] Bitwise XOR, NOT, and any-value operators ([#35](https://github.com/EvilBit-Labs/libmagic-rs/issues/35))
 - [ ] Indirect offset resolution ([#37](https://github.com/EvilBit-Labs/libmagic-rs/issues/37))
 - [ ] Relative offset resolution ([#38](https://github.com/EvilBit-Labs/libmagic-rs/issues/38))
-- [ ] Quad (64-bit integer) type ([#36](https://github.com/EvilBit-Labs/libmagic-rs/issues/36))
+- [x] Quad (64-bit integer) type ([#36](https://github.com/EvilBit-Labs/libmagic-rs/issues/36))
 
 ## v0.3.0 - Advanced Features
 

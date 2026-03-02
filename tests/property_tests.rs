@@ -12,7 +12,7 @@
 use proptest::prelude::*;
 
 use libmagic_rs::{
-    EvaluationConfig, MagicDatabase, MagicRule, OffsetSpec, Operator, TypeKind, Value,
+    Endianness, EvaluationConfig, MagicDatabase, MagicRule, OffsetSpec, Operator, TypeKind, Value,
 };
 
 /// Generate a valid OffsetSpec for testing
@@ -24,30 +24,25 @@ fn arb_offset_spec() -> impl Strategy<Value = OffsetSpec> {
     ]
 }
 
+/// Generate a valid endianness for testing (includes Native)
+fn arb_endianness() -> impl Strategy<Value = Endianness> {
+    prop_oneof![
+        Just(Endianness::Little),
+        Just(Endianness::Big),
+        Just(Endianness::Native),
+    ]
+}
+
 /// Generate a valid TypeKind for testing
 fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
     prop_oneof![
         any::<bool>().prop_map(|signed| TypeKind::Byte { signed }),
-        (any::<bool>(), any::<bool>()).prop_map(|(is_big, signed)| {
-            TypeKind::Short {
-                endian: if is_big {
-                    libmagic_rs::Endianness::Big
-                } else {
-                    libmagic_rs::Endianness::Little
-                },
-                signed,
-            }
-        }),
-        (any::<bool>(), any::<bool>()).prop_map(|(is_big, signed)| {
-            TypeKind::Long {
-                endian: if is_big {
-                    libmagic_rs::Endianness::Big
-                } else {
-                    libmagic_rs::Endianness::Little
-                },
-                signed,
-            }
-        }),
+        (arb_endianness(), any::<bool>())
+            .prop_map(|(endian, signed)| { TypeKind::Short { endian, signed } }),
+        (arb_endianness(), any::<bool>())
+            .prop_map(|(endian, signed)| { TypeKind::Long { endian, signed } }),
+        (arb_endianness(), any::<bool>())
+            .prop_map(|(endian, signed)| { TypeKind::Quad { endian, signed } }),
         (0usize..256usize).prop_map(|len| TypeKind::String {
             max_length: Some(len),
         }),

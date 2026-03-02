@@ -68,6 +68,7 @@ pub enum TypeKind {
     Byte { signed: bool },
     Short { endian: Endianness, signed: bool },
     Long { endian: Endianness, signed: bool },
+    Quad { endian: Endianness, signed: bool },
     String { max_length: Option<usize> },
 }
 pub enum Operator {
@@ -144,7 +145,7 @@ pub fn evaluate_magic_rules(
 - Clippy pedantic lints are active (e.g., prefer `trailing_zeros()` over bitwise masks)
 - All public enum variants need `# Examples` rustdoc sections
 - Comparison operators share a `compare_values() -> Option<Ordering>` helper in `operators.rs` -- new comparison logic goes there, not in individual `apply_*` functions
-- libmagic types are signed by default (`byte`, `short`, `long`); unsigned variants use `u` prefix (`ubyte`, `ushort`, `ulong`, etc.)
+- libmagic types are signed by default (`byte`, `short`, `long`, `quad`); unsigned variants use `u` prefix (`ubyte`, `ushort`, `ulong`, `uquad`, etc.)
 
 ### Naming Conventions
 
@@ -190,7 +191,7 @@ cargo test --doc   # Test documentation examples
 ### Currently Implemented (v0.1.0)
 
 - **Offsets**: Absolute and from-end specifications (indirect and relative are parsed but not yet evaluated)
-- **Types**: `byte`, `short`, `long`, `string` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`; types are signed by default (libmagic-compatible)
+- **Types**: `byte`, `short`, `long`, `quad`, `string` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; types are signed by default (libmagic-compatible)
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
 - **String Matching**: Exact string matching with null-termination
@@ -199,7 +200,7 @@ cargo test --doc   # Test documentation examples
 
 - Bitwise XOR operator: `^`
 - Regex type: Pattern matching with binary-safe regex support
-- Additional types: 64-bit integers, floats, doubles, dates
+- Additional types: floats, doubles, dates
 - Search type: Multi-pattern string searching
 
 ### Future Enhancement: Binary-Safe Regex Handling
@@ -222,7 +223,7 @@ impl BinaryRegex for regex::bytes::Regex {
 ### Type System
 
 - No regex/search pattern matching
-- No 64-bit integer types (quad, qquad)
+- 64-bit integer types: `quad`/`uquad`, `bequad`/`ubequad`, `lequad`/`ulequad` are implemented; `qquad` (128-bit) is not yet supported
 - No floating-point types (float, double, befloat, lefloat)
 - No date/time types (date, qdate, ldate, qldate)
 - String evaluation reads until first NUL or end-of-buffer by default; `max_length: Some(_)` is supported internally but no dedicated fixed-length string parser syntax exists yet
@@ -308,7 +309,7 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 
 ### Adding New Type Support
 
-> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, and `String`. Regex and other advanced types are planned for future releases.
+> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Quad`, and `String`. Regex and other advanced types are planned for future releases.
 
 1. Extend `TypeKind` enum in `src/parser/ast.rs`
 2. Add parsing logic in `src/parser/grammar.rs`

@@ -99,6 +99,22 @@ pub enum TypeKind {
         /// Whether value is signed
         signed: bool,
     },
+    /// 64-bit integer
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+    ///
+    /// let quad = TypeKind::Quad { endian: Endianness::Big, signed: true };
+    /// assert_eq!(quad, TypeKind::Quad { endian: Endianness::Big, signed: true });
+    /// ```
+    Quad {
+        /// Byte order
+        endian: Endianness,
+        /// Whether value is signed
+        signed: bool,
+    },
     /// String data
     String {
         /// Maximum length to read
@@ -655,6 +671,14 @@ mod tests {
                 signed: false,
             },
             TypeKind::Long {
+                endian: Endianness::Big,
+                signed: true,
+            },
+            TypeKind::Quad {
+                endian: Endianness::Little,
+                signed: false,
+            },
+            TypeKind::Quad {
                 endian: Endianness::Big,
                 signed: true,
             },

@@ -222,6 +222,11 @@ fn serialize_type_kind(typ: &TypeKind) -> String {
             serialize_endianness(*endian),
             signed
         ),
+        TypeKind::Quad { endian, signed } => format!(
+            "TypeKind::Quad {{ endian: {}, signed: {} }}",
+            serialize_endianness(*endian),
+            signed
+        ),
         TypeKind::String { max_length } => match max_length {
             Some(value) => {
                 format!("TypeKind::String {{ max_length: Some({value}) }}")
@@ -475,6 +480,27 @@ mod tests {
         assert!(serialized.contains("TypeKind::Long"));
         assert!(serialized.contains("Endianness::Big"));
         assert!(serialized.contains("signed: true"));
+    }
+
+    #[test]
+    fn test_serialize_type_kind_quad() {
+        let typ = TypeKind::Quad {
+            endian: Endianness::Little,
+            signed: true,
+        };
+        let serialized = serialize_type_kind(&typ);
+        assert!(serialized.contains("TypeKind::Quad"));
+        assert!(serialized.contains("Endianness::Little"));
+        assert!(serialized.contains("signed: true"));
+
+        let typ2 = TypeKind::Quad {
+            endian: Endianness::Big,
+            signed: false,
+        };
+        let serialized2 = serialize_type_kind(&typ2);
+        assert!(serialized2.contains("TypeKind::Quad"));
+        assert!(serialized2.contains("Endianness::Big"));
+        assert!(serialized2.contains("signed: false"));
     }
 
     #[test]

@@ -280,6 +280,11 @@ fn serialize_type_kind(typ: &TypeKind) -> String {
             serialize_endianness(*endian),
             signed
         ),
+        TypeKind::Quad { endian, signed } => format!(
+            "TypeKind::Quad {{ endian: {}, signed: {} }}",
+            serialize_endianness(*endian),
+            signed
+        ),
         TypeKind::String { max_length } => match max_length {
             Some(value) => {
                 format!("TypeKind::String {{ max_length: Some({value}) }}")
