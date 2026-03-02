@@ -37,5 +37,5 @@ jobs:
             - name: Run cargo outdated
               run: cargo outdated --depth=1 --exit-code=1
 
-            - name: Run cargo dist check
-              run: cargo dist check
+            - name: Run dist plan
+              run: dist plan
