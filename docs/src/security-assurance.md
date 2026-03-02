@@ -69,8 +69,8 @@ flowchart TD
     P -- "validated AST" --> E
     E -- "match results" --> O
 
-    style Untrusted fill:#fee,stroke:#c00,stroke-width:2px
-    style libmagic-rs fill:#efe,stroke:#090,stroke-width:2px
+    style Untrusted fill:#4a1a1a,stroke:#ef5350,color:#e0e0e0,stroke-width:2px
+    style libmagic-rs fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0,stroke-width:2px
 ```
 
 All data crossing the trust boundary (file contents, magic file syntax, CLI arguments) is treated as untrusted and validated before use.

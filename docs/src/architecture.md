@@ -28,15 +28,15 @@ flowchart LR
     TF --> FB --> E
     E --> R --> F --> O
 
-    style MF fill:#e1f5fe
-    style TF fill:#e1f5fe
-    style P fill:#fff3e0
-    style AST fill:#fff3e0
-    style FB fill:#fff3e0
-    style E fill:#fff3e0
-    style R fill:#e8f5e9
-    style F fill:#e8f5e9
-    style O fill:#e8f5e9
+    style MF fill:#1a3a5c,stroke:#4a9eff,color:#e0e0e0
+    style TF fill:#1a3a5c,stroke:#4a9eff,color:#e0e0e0
+    style P fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
+    style AST fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
+    style FB fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
+    style E fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
+    style R fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
+    style F fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
+    style O fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
 ```
 
 ## Core Components
@@ -188,8 +188,8 @@ flowchart LR
     C --> D[Validation]
     D --> E[Cached Rules]
 
-    style A fill:#e3f2fd
-    style E fill:#c8e6c9
+    style A fill:#1a3a5c,stroke:#4a9eff,color:#e0e0e0
+    style E fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
 ```
 
 1. **Parsing**: Convert text DSL to structured AST
@@ -207,8 +207,8 @@ flowchart LR
     D --> E[Results]
     E --> F[Formatting]
 
-    style A fill:#e3f2fd
-    style F fill:#c8e6c9
+    style A fill:#1a3a5c,stroke:#4a9eff,color:#e0e0e0
+    style F fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
 ```
 
 1. **File Access**: Create memory-mapped buffer
@@ -238,17 +238,17 @@ Magic rules form a tree structure where:
 
 ```mermaid
 flowchart TD
-    R[Root Rule<br/>e.g., "0 string PK"]
-    R -->|match| C1[Child Rule 1<br/>e.g., ">4 ubyte 0x14"]
-    R -->|match| C2[Child Rule 2<br/>e.g., ">4 ubyte 0x06"]
-    C1 -->|match| G1[Grandchild<br/>ZIP archive v2.0]
-    C2 -->|match| G2[Grandchild<br/>ZIP archive v1.0]
+    R["Root Rule<br/>e.g., 0 string PK"]
+    R -->|match| C1["Child Rule 1<br/>e.g., #gt;4 ubyte 0x14"]
+    R -->|match| C2["Child Rule 2<br/>e.g., #gt;4 ubyte 0x06"]
+    C1 -->|match| G1["Grandchild<br/>ZIP archive v2.0"]
+    C2 -->|match| G2["Grandchild<br/>ZIP archive v1.0"]
 
-    style R fill:#e3f2fd
-    style C1 fill:#fff3e0
-    style C2 fill:#fff3e0
-    style G1 fill:#c8e6c9
-    style G2 fill:#c8e6c9
+    style R fill:#1a3a5c,stroke:#4a9eff,color:#e0e0e0
+    style C1 fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
+    style C2 fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
+    style G1 fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
+    style G2 fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
 ```
 
 **Operator Support:**
@@ -359,12 +359,12 @@ flowchart TD
     E --> ER
     O --> ER
 
-    style L fill:#e8eaf6
-    style P fill:#fff8e1
-    style E fill:#fff8e1
-    style O fill:#fff8e1
-    style I fill:#e8f5e9
-    style ER fill:#ffebee
+    style L fill:#2a1a4a,stroke:#b39ddb,color:#e0e0e0
+    style P fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
+    style E fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
+    style O fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
+    style I fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
+    style ER fill:#4a1a1a,stroke:#ef5350,color:#e0e0e0
 ```
 
 **Dependency Rules:**
