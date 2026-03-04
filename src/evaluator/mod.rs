@@ -1716,7 +1716,7 @@ fn test_evaluation_context_performance_config() {
 }
 
 #[test]
-fn test_match_result_creation() {
+fn test_rule_match_creation() {
     let match_result = RuleMatch {
         message: "ELF executable".to_string(),
         offset: 0,
@@ -1733,7 +1733,7 @@ fn test_match_result_creation() {
 }
 
 #[test]
-fn test_match_result_clone() {
+fn test_rule_match_clone() {
     let original = RuleMatch {
         message: "Test message".to_string(),
         offset: 42,
@@ -1747,7 +1747,7 @@ fn test_match_result_clone() {
 }
 
 #[test]
-fn test_match_result_debug() {
+fn test_rule_match_debug() {
     let match_result = RuleMatch {
         message: "Debug test".to_string(),
         offset: 10,
