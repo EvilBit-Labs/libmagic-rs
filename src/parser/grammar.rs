@@ -383,7 +383,7 @@ fn parse_hex_bytes_no_prefix(input: &str) -> IResult<&str, Vec<u8>> {
 
     let hex_chars: String = input.chars().take_while(char::is_ascii_hexdigit).collect();
 
-    if hex_chars.is_empty() || hex_chars.len() % 2 != 0 {
+    if hex_chars.is_empty() || !hex_chars.len().is_multiple_of(2) {
         return Err(nom::Err::Error(NomError::new(
             input,
             nom::error::ErrorKind::Tag,
@@ -444,10 +444,9 @@ fn parse_escape_sequence(input: &str) -> IResult<&str, char> {
         ),
     ))
     .parse(input)
+        && let Ok(octal_value) = u8::from_str_radix(octal_str, 8)
     {
-        if let Ok(octal_value) = u8::from_str_radix(octal_str, 8) {
-            return Ok((remaining, octal_value as char));
-        }
+        return Ok((remaining, octal_value as char));
     }
 
     // Parse standard escape sequences

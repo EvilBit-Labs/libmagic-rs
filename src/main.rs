@@ -544,10 +544,10 @@ fn run_analysis(args: &Args, interrupted: &AtomicBool) -> Result<(), LibmagicErr
     writer.flush().map_err(LibmagicError::IoError)?;
 
     // Exit code behavior based on --strict flag
-    if let Some(error) = first_error {
-        if args.strict {
-            return Err(error);
-        }
+    if let Some(error) = first_error
+        && args.strict
+    {
+        return Err(error);
     }
 
     Ok(())
@@ -564,14 +564,14 @@ fn validate_arguments(args: &Args) -> Result<(), LibmagicError> {
     }
 
     // Validate custom magic file path if provided and not using built-in rules
-    if !args.use_builtin {
-        if let Some(ref magic_file) = args.magic_file {
-            let magic_str = magic_file.to_string_lossy();
-            if magic_str.trim().is_empty() {
-                return Err(LibmagicError::ParseError(
-                    libmagic_rs::ParseError::invalid_syntax(0, "Magic file path cannot be empty"),
-                ));
-            }
+    if !args.use_builtin
+        && let Some(ref magic_file) = args.magic_file
+    {
+        let magic_str = magic_file.to_string_lossy();
+        if magic_str.trim().is_empty() {
+            return Err(LibmagicError::ParseError(
+                libmagic_rs::ParseError::invalid_syntax(0, "Magic file path cannot be empty"),
+            ));
         }
     }
 

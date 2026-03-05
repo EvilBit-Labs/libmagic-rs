@@ -402,12 +402,11 @@ pub fn evaluate_rules(
     for rule in rules {
         // Check timeout periodically (every 16 rules) to reduce syscall overhead
         rule_count = rule_count.wrapping_add(1);
-        if rule_count.trailing_zeros() >= 4 {
-            if let Some(timeout_ms) = context.timeout_ms() {
-                if start_time.elapsed().as_millis() > u128::from(timeout_ms) {
-                    return Err(LibmagicError::Timeout { timeout_ms });
-                }
-            }
+        if rule_count.trailing_zeros() >= 4
+            && let Some(timeout_ms) = context.timeout_ms()
+            && start_time.elapsed().as_millis() > u128::from(timeout_ms)
+        {
+            return Err(LibmagicError::Timeout { timeout_ms });
         }
 
         // Evaluate the current rule with graceful error handling
