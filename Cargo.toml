@@ -1,6 +1,6 @@
 [package]
 name = "libmagic-rs"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 authors = [
     "UncleSp1d3r <unclespid3r@evilbitlabs.io>",
