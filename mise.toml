@@ -1,3 +1,5 @@
+
+# Several tools are pinned to "latest" to enable the idiomatic version file support. The version is managed by a version file.
 [tools]
 cargo-binstall              = "latest"
 cargo-insta                 = "1.46.3"
@@ -15,8 +17,8 @@ cargo-insta                 = "1.46.3"
 "cargo:mdbook-open-on-gh"   = "3.0.0"
 "cargo:mdbook-i18n-helpers" = "0.4.0"
 just                        = "latest"
-python                      = "3.14.3"
-rust                        = { version = "1.93.1", components = "llvm-tools,cargo,rustfmt,clippy", profile = "default" }
+python                      = "latest"
+rust                        = { version = "latest", components = "llvm-tools,cargo,rustfmt,clippy", profile = "default" }
 "cargo:cargo-outdated"      = "0.17.0"
 "cargo:cargo-release"       = "1.1.1"
 "cargo:cargo-auditable"     = "0.7.4"
@@ -31,3 +33,21 @@ markdownlint-cli2           = "0.21.0"
 scorecard                   = "5.4.0"
 "cargo:release-plz"         = "0.3.156"
 "pipx:pre-commit"           = "latest"
+"bun"                       = "latest"
+
+# Many of these settings are defaults, but we are explicit in case they change in the future and to make it clear to users what is enabled.
+[settings]
+activate_aggressive                 = true
+idiomatic_version_file_enable_tools = [ "python", "rust", "bun" ]
+env_cache                           = true
+exec_auto_install                   = true
+github_attestations                 = true
+lockfile                            = true
+pin                                 = true
+slsa                                = true
+
+[settings.npm]
+package_manager = "bun"
+
+[settings.pipx]
+uvx = true

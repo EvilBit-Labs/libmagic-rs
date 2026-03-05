@@ -7,6 +7,10 @@ backend = "aqua:rhysd/actionlint"
 "platforms.macos-x64" = { checksum = "sha256:17ffc17fed8f0258ef6ad4aed932d3272464c7ef7d64e1cb0d65aa97c9752107", url = "https://github.com/rhysd/actionlint/releases/download/v1.7.11/actionlint_1.7.11_darwin_amd64.tar.gz"}
 "platforms.windows-x64" = { checksum = "sha256:5414b7124a91f4b5abee62e5c9d84802237734f8d15b9b7032732a32c3ebffa3", url = "https://github.com/rhysd/actionlint/releases/download/v1.7.11/actionlint_1.7.11_windows_amd64.zip"}
 
+[[tools.bun]]
+version = "1.3.10"
+backend = "core:bun"
+
 [[tools.cargo-binstall]]
 version = "1.17.6"
 backend = "aqua:cargo-bins/cargo-binstall"
