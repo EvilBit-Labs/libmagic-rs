@@ -28,55 +28,55 @@ rmagic [OPTIONS] -
 
 ## Arguments
 
-| Argument | Description |
-|----------|-------------|
+| Argument    | Description                  |
+| ----------- | ---------------------------- |
 | `<FILE>...` | One or more files to analyze |
-| `-` | Read from standard input |
+| `-`         | Read from standard input     |
 
 ## Options
 
 ### Output Format
 
-| Option | Description |
-|--------|-------------|
-| `--json` | Output results in JSON format |
-| `--text` | Output results in text format (default) |
+| Option       | Description                             |
+| ------------ | --------------------------------------- |
+| `-j, --json` | Output results in JSON format           |
+| `--text`     | Output results in text format (default) |
 
 **Note:** `--json` and `--text` are mutually exclusive.
 
 ### Magic File Selection
 
-| Option | Description |
-|--------|-------------|
-| `--magic-file <FILE>` | Use custom magic file or directory |
-| `--use-builtin` | Use built-in magic rules |
+| Option                    | Description                        |
+| ------------------------- | ---------------------------------- |
+| `-m, --magic-file <FILE>` | Use custom magic file or directory |
+| `-b, --use-builtin`       | Use built-in magic rules           |
 
-**Note:** When both are specified, `--use-builtin` takes precedence.
+**Note:** `--magic-file` and `--use-builtin` are mutually exclusive.
 
 ### Behavior
 
-| Option | Description |
-|--------|-------------|
-| `--strict` | Exit with non-zero code on any error |
-| `--timeout-ms <MS>` | Set evaluation timeout (1-300000ms) |
+| Option                  | Description                          |
+| ----------------------- | ------------------------------------ |
+| `-s, --strict`          | Exit with non-zero code on any error |
+| `-t, --timeout-ms <MS>` | Set evaluation timeout (1-300000ms)  |
 
 ### Help
 
-| Option | Description |
-|--------|-------------|
-| `-h, --help` | Print help information |
+| Option          | Description               |
+| --------------- | ------------------------- |
+| `-h, --help`    | Print help information    |
 | `-V, --version` | Print version information |
 
 ## Exit Codes
 
-| Code | Description |
-|------|-------------|
-| `0` | Success |
-| `1` | General evaluation error |
-| `2` | Invalid arguments (misuse) |
-| `3` | File not found or access denied |
-| `4` | Magic file not found or invalid |
-| `5` | Evaluation timeout |
+| Code | Description                     |
+| ---- | ------------------------------- |
+| `0`  | Success                         |
+| `1`  | General evaluation error        |
+| `2`  | Invalid arguments (misuse)      |
+| `3`  | File not found or access denied |
+| `4`  | Magic file not found or invalid |
+| `5`  | Evaluation timeout              |
 
 ## Output Formats
 
@@ -108,7 +108,10 @@ binary.exe: PE32 executable
       "offset": 0,
       "length": 4,
       "value": "7f454c46",
-      "rule_path": ["elf", "executable"],
+      "rule_path": [
+        "elf",
+        "executable"
+      ],
       "confidence": 90,
       "mime_type": "application/x-executable"
     }
@@ -141,9 +144,9 @@ When no `--magic-file` is specified and `--use-builtin` is not used, `rmagic` se
 
 ### Binary Files (Fallback)
 
-7. `/usr/share/file/magic.mgc`
-8. `/usr/local/share/misc/magic.mgc`
-9. `/opt/local/share/file/magic.mgc`
+07. `/usr/share/file/magic.mgc`
+08. `/usr/local/share/misc/magic.mgc`
+09. `/opt/local/share/file/magic.mgc`
 10. `/etc/magic.mgc`
 11. `/usr/share/misc/magic.mgc`
 
@@ -158,12 +161,12 @@ When no `--magic-file` is specified and `--use-builtin` is not used, `rmagic` se
 
 The `--use-builtin` flag uses pre-compiled rules for common file types:
 
-| Category | Formats |
-|----------|---------|
-| Executables | ELF, PE/DOS (MZ) |
-| Archives | ZIP, TAR, GZIP |
-| Images | JPEG, PNG, GIF, BMP |
-| Documents | PDF |
+| Category    | Formats             |
+| ----------- | ------------------- |
+| Executables | ELF, PE/DOS (MZ)    |
+| Archives    | ZIP, TAR, GZIP      |
+| Images      | JPEG, PNG, GIF, BMP |
+| Documents   | PDF                 |
 
 ## Examples
 
@@ -251,10 +254,10 @@ fi
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `CI` | Enables CI mode (affects magic file fallback) |
-| `GITHUB_ACTIONS` | Enables GitHub Actions mode |
+| Variable         | Description                                   |
+| ---------------- | --------------------------------------------- |
+| `CI`             | Enables CI mode (affects magic file fallback) |
+| `GITHUB_ACTIONS` | Enables GitHub Actions mode                   |
 
 ## Platform-Specific Behavior
 
@@ -331,14 +334,14 @@ rmagic --strict file.bin
 
 ## Comparison with GNU file
 
-| Feature | rmagic | GNU file |
-|---------|--------|----------|
-| Binary .mgc support | No | Yes |
-| Text magic files | Yes | Yes |
-| Built-in rules | Yes | No |
-| Memory safety | Rust (safe) | C |
-| JSON output | Native | Requires wrapper |
-| Timeout support | Yes | No |
+| Feature             | rmagic      | GNU file         |
+| ------------------- | ----------- | ---------------- |
+| Binary .mgc support | No          | Yes              |
+| Text magic files    | Yes         | Yes              |
+| Built-in rules      | Yes         | No               |
+| Memory safety       | Rust (safe) | C                |
+| JSON output         | Native      | Requires wrapper |
+| Timeout support     | Yes         | No               |
 
 ### Migration from file
 

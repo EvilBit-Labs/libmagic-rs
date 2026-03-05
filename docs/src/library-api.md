@@ -1,7 +1,6 @@
 # Library API
 
-The `libmagic_rs` crate provides a safe, efficient Rust API for file type identification
-through magic rule evaluation.
+The `libmagic_rs` crate provides a safe, efficient Rust API for file type identification through magic rule evaluation.
 
 ## Quick Start
 
@@ -17,13 +16,11 @@ println!("Confidence: {:.0}%", result.confidence * 100.0);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Built-in rules are compiled into the binary at build time and detect common file types
-including ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, and PDF.
+Built-in rules are compiled into the binary at build time and detect common file types including ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, and PDF.
 
 ## MagicDatabase
 
-`MagicDatabase` is the main entry point. It holds parsed rules, an evaluation
-configuration, and a cached MIME mapper. Four constructors are available:
+`MagicDatabase` is the main entry point. It holds parsed rules, an evaluation configuration, and a cached MIME mapper. Four constructors are available:
 
 ```rust,no_run
 use libmagic_rs::{MagicDatabase, EvaluationConfig};
@@ -43,9 +40,7 @@ let db = MagicDatabase::load_from_file_with_config("/usr/share/misc/magic.d", co
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-When a directory path is given, all magic files within it are loaded (the Magdir pattern).
-Binary `.mgc` files are not supported; the library returns a descriptive error if one
-is encountered.
+When a directory path is given, all magic files within it are loaded (the Magdir pattern). Binary `.mgc` files are not supported; the library returns a descriptive error if one is encountered.
 
 ### Evaluation
 
@@ -69,20 +64,19 @@ When no rules match, the description defaults to `"data"` with confidence `0.0`.
 ### Accessors
 
 - `config() -> &EvaluationConfig` -- returns the active configuration.
-- `source_path() -> Option<&Path>` -- returns the path rules were loaded from, or
-  `None` for built-in rules.
+- `source_path() -> Option<&Path>` -- returns the path rules were loaded from, or `None` for built-in rules.
 
 ## EvaluationConfig
 
 Controls evaluation behavior with these fields:
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `max_recursion_depth` | `u32` | `20` | Maximum depth for nested rule evaluation |
-| `max_string_length` | `usize` | `8192` | Maximum bytes read for string types |
-| `stop_at_first_match` | `bool` | `true` | Stop after the first matching rule |
-| `enable_mime_types` | `bool` | `false` | Map descriptions to MIME types |
-| `timeout_ms` | `Option<u64>` | `None` | Evaluation timeout in milliseconds |
+| Field                 | Type          | Default | Description                              |
+| --------------------- | ------------- | ------- | ---------------------------------------- |
+| `max_recursion_depth` | `u32`         | `20`    | Maximum depth for nested rule evaluation |
+| `max_string_length`   | `usize`       | `8192`  | Maximum bytes read for string types      |
+| `stop_at_first_match` | `bool`        | `true`  | Stop after the first matching rule       |
+| `enable_mime_types`   | `bool`        | `false` | Map descriptions to MIME types           |
+| `timeout_ms`          | `Option<u64>` | `None`  | Evaluation timeout in milliseconds       |
 
 ### Presets
 
@@ -119,8 +113,7 @@ let config = EvaluationConfig {
 
 ### Security Validation
 
-Call `validate()` to check that values are within safe bounds. All `MagicDatabase`
-constructors call `validate()` automatically.
+Call `validate()` to check that values are within safe bounds. All `MagicDatabase` constructors call `validate()` automatically.
 
 ```rust
 use libmagic_rs::EvaluationConfig;
@@ -202,8 +195,7 @@ println!("Size: {} bytes, Time: {:.3} ms, Timed out: {}",
 
 ## MIME Type Mapping
 
-MIME type detection is opt-in via `enable_mime_types`. When enabled, descriptions are
-mapped to standard MIME types using an internal lookup table.
+MIME type detection is opt-in via `enable_mime_types`. When enabled, descriptions are mapped to standard MIME types using an internal lookup table.
 
 ```rust,no_run
 use libmagic_rs::{MagicDatabase, EvaluationConfig};
@@ -226,14 +218,14 @@ All fallible operations return `Result<T, LibmagicError>` (aliased as `libmagic_
 
 ### LibmagicError Variants
 
-| Variant | When it occurs |
-|---------|---------------|
-| `ParseError(ParseError)` | Invalid magic file syntax during loading |
+| Variant                            | When it occurs                                             |
+| ---------------------------------- | ---------------------------------------------------------- |
+| `ParseError(ParseError)`           | Invalid magic file syntax during loading                   |
 | `EvaluationError(EvaluationError)` | Rule evaluation failure (buffer overrun, unsupported type) |
-| `IoError(std::io::Error)` | File system errors (not found, permission denied) |
-| `Timeout { timeout_ms }` | Evaluation exceeded the configured timeout |
-| `ConfigError { reason }` | Invalid configuration values |
-| `FileError(String)` | Structured file I/O error with path and operation context |
+| `IoError(std::io::Error)`          | File system errors (not found, permission denied)          |
+| `Timeout { timeout_ms }`           | Evaluation exceeded the configured timeout                 |
+| `ConfigError { reason }`           | Invalid configuration values                               |
+| `FileError(String)`                | Structured file I/O error with path and operation context  |
 
 ### Matching on Errors
 
@@ -283,8 +275,7 @@ println!("{}", db.evaluate_buffer(&buffer)?.description);
 
 ## Evaluating Multiple Files
 
-A single `MagicDatabase` can evaluate any number of files. Rules are parsed once
-and reused:
+A single `MagicDatabase` can evaluate any number of files. Rules are parsed once and reused:
 
 ```rust,no_run
 use libmagic_rs::MagicDatabase;

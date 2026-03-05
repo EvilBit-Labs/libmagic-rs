@@ -143,12 +143,12 @@ Created via `JsonMatchResult::from_match_result(match_result)`, which converts t
 
 The `format_value_as_hex` function converts `Value` variants to hex strings:
 
-| Value Type | Encoding |
-|---|---|
-| `Bytes(vec)` | Direct hex encoding of each byte |
-| `String(s)` | Hex encoding of UTF-8 bytes |
-| `Uint(n)` | Little-endian u64 bytes (16 hex chars) |
-| `Int(n)` | Little-endian i64 bytes (16 hex chars) |
+| Value Type   | Encoding                               |
+| ------------ | -------------------------------------- |
+| `Bytes(vec)` | Direct hex encoding of each byte       |
+| `String(s)`  | Hex encoding of UTF-8 bytes            |
+| `Uint(n)`    | Little-endian u64 bytes (16 hex chars) |
+| `Int(n)`     | Little-endian i64 bytes (16 hex chars) |
 
 Examples: `Bytes([0x7f, 0x45, 0x4c, 0x46])` becomes `"7f454c46"`, `String("PNG")` becomes `"504e47"`.
 
@@ -180,18 +180,31 @@ A compact variant is available via `format_json_output_compact`, which omits whi
 For batch processing, `format_json_line_output` produces compact, single-line JSON with a `filename` field:
 
 ```json
-{"filename":"file1.bin","matches":[{"text":"ELF executable","offset":0,"value":"7f454c46","tags":["executable"],"score":90}]}
+{
+  "filename": "file1.bin",
+  "matches": [
+    {
+      "text": "ELF executable",
+      "offset": 0,
+      "value": "7f454c46",
+      "tags": [
+        "executable"
+      ],
+      "score": 90
+    }
+  ]
+}
 ```
 
 Each file produces exactly one line, making the output suitable for streaming and line-oriented processing tools.
 
 ### Formatting Functions Summary
 
-| Function | Format | Use Case |
-|---|---|---|
-| `format_json_output(matches)` | Pretty-printed JSON | Single file, human-readable |
-| `format_json_output_compact(matches)` | Compact JSON | Single file, machine processing |
-| `format_json_line_output(path, matches)` | JSON Lines | Multiple files, streaming |
+| Function                                 | Format              | Use Case                        |
+| ---------------------------------------- | ------------------- | ------------------------------- |
+| `format_json_output(matches)`            | Pretty-printed JSON | Single file, human-readable     |
+| `format_json_output_compact(matches)`    | Compact JSON        | Single file, machine processing |
+| `format_json_line_output(path, matches)` | JSON Lines          | Multiple files, streaming       |
 
 All three return `Result<String, serde_json::Error>`.
 

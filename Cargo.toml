@@ -13,7 +13,7 @@ homepage = "https://evilbitlabs.io/libmagic-rs"
 documentation = "https://docs.rs/libmagic-rs"
 keywords = ["file", "magic", "libmagic", "file-type", "identification"]
 categories = ["command-line-utilities", "parsing"]
-rust-version = "1.85"
+rust-version = "1.89"
 readme = "README.md"
 exclude = [
     "/spec",
@@ -147,6 +147,8 @@ byteorder = "1.5.0"
 cfg-if = "1.0.4"
 clap = { version = "4.5.60", features = ["derive"] }
 clap-stdin = "0.8.1"
+clap_complete = "4.5"
+ctrlc = { version = "3.4", features = ["termination"] }
 memchr = "2.7.6"
 memmap2 = "0.9.10"
 nom = "8.0.0"
@@ -182,9 +184,11 @@ harness = false
 [profile.release]
 lto = "thin"
 codegen-units = 1
+strip = true
 
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
 lto = "thin"
 overflow-checks = true
+strip = true

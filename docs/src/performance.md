@@ -70,11 +70,11 @@ codegen-units = 1
 
 `EvaluationConfig` provides named presets that trade off between speed and completeness:
 
-| Preset | Recursion Depth | String Length | Stop First | MIME Types | Timeout |
-|--------|---------------:|-------------:|:----------:|:----------:|--------:|
-| `default()` | 20 | 8192 | yes | no | none |
-| `performance()` | 10 | 1024 | yes | no | 1s |
-| `comprehensive()` | 50 | 32768 | no | yes | 30s |
+| Preset            | Recursion Depth | String Length | Stop First | MIME Types | Timeout |
+| ----------------- | --------------: | ------------: | :--------: | :--------: | ------: |
+| `default()`       |              20 |          8192 |    yes     |     no     |    none |
+| `performance()`   |              10 |          1024 |    yes     |     no     |      1s |
+| `comprehensive()` |              50 |         32768 |     no     |    yes     |     30s |
 
 Use the performance preset when throughput matters more than detail:
 

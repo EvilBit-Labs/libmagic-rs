@@ -431,10 +431,10 @@ impl EvaluationResult {
             .collect();
 
         // Enrich the first match with tags from the overall description
-        if let Some(first) = output_matches.first_mut() {
-            if first.rule_path.is_empty() {
-                first.rule_path = DEFAULT_TAG_EXTRACTOR.extract_tags(&result.description);
-            }
+        if let Some(first) = output_matches.first_mut()
+            && first.rule_path.is_empty()
+        {
+            first.rule_path = DEFAULT_TAG_EXTRACTOR.extract_tags(&result.description);
         }
 
         #[allow(clippy::cast_possible_truncation)]

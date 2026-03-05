@@ -258,7 +258,7 @@ pub fn format_number(num: u64) -> String {
         let len = num_str.len();
 
         for (i, ch) in num_str.chars().enumerate() {
-            if i > 0 && (len - i) % 3 == 0 {
+            if i > 0 && (len - i).is_multiple_of(3) {
                 result.push('_');
             }
             result.push(ch);

@@ -6,14 +6,18 @@
 //! This binary provides a CLI tool for file type identification using magic rules,
 //! serving as a drop-in replacement for the GNU `file` command.
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::Shell;
 use clap_stdin::FileOrStdin;
 use libmagic_rs::output::json::{format_json_line_output, format_json_output};
 use libmagic_rs::parser::{MagicFileFormat, detect_format};
 use libmagic_rs::{LibmagicError, MagicDatabase};
 use std::fs;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// A pure-Rust implementation of libmagic for file type identification
 ///
@@ -21,32 +25,34 @@ use std::process;
 /// processed sequentially with independent error handling.
 ///
 /// Output formats:
-/// - Text (default): One line per file in format "filename: description"
-/// - JSON (single file): Pretty-printed JSON with matches array
-/// - JSON (multiple files): JSON Lines format with compact output per file
-///
-/// Examples:
-///   rmagic file1.bin file2.txt file3.dat
-///   rmagic --json file.bin              # Single file: pretty-printed JSON
-///   rmagic --json file1.bin file2.txt   # Multiple files: JSON Lines format
-///   rmagic --strict --magic-file custom.magic file1 file2
-///   rmagic --use-builtin file.bin
-///   rmagic --use-builtin --strict --json *.bin
-///   rmagic - < input.dat  # Read from stdin
+///   Text (default): One line per file in format "filename: description"
+///   JSON (single file): Pretty-printed JSON with matches array
+///   JSON (multiple files): JSON Lines format with compact output per file
 #[derive(Parser, Debug)]
 #[command(
     name = "rmagic",
     version = env!("CARGO_PKG_VERSION"),
     author = "Rust Libmagic Contributors",
-    about = "A pure-Rust implementation of libmagic for file type identification. Supports multiple files and stdin input."
+    about = "A pure-Rust implementation of libmagic for file type identification. Supports multiple files and stdin input.",
+    after_help = "\
+Examples:
+  rmagic file1.bin file2.txt file3.dat
+  rmagic -j file.bin              # Single file: pretty-printed JSON
+  rmagic -j file1.bin file2.txt   # Multiple files: JSON Lines format
+  rmagic -s -m custom.magic file1 file2
+  rmagic -b file.bin              # Use built-in rules
+  rmagic -b -s -j *.bin
+  rmagic - < input.dat            # Read from stdin
+  rmagic --generate-completion bash > rmagic.bash",
+    group(clap::ArgGroup::new("format").args(["json", "text"]))
 )]
 pub struct Args {
     /// Files to analyze (use '-' for stdin)
-    #[arg(value_name = "FILE", required = true, num_args = 1..)]
+    #[arg(value_name = "FILE", required_unless_present = "generate_completion", num_args = 1..)]
     pub files: Vec<FileOrStdin>,
 
     /// Output results in JSON format
-    #[arg(long, conflicts_with = "text")]
+    #[arg(short = 'j', long)]
     pub json: bool,
 
     /// Output results in text format (default)
@@ -54,14 +60,14 @@ pub struct Args {
     pub text: bool,
 
     /// Use custom magic file
-    #[arg(long = "magic-file", value_name = "FILE")]
+    #[arg(short = 'm', long = "magic-file", value_name = "FILE")]
     pub magic_file: Option<PathBuf>,
 
     /// Exit with non-zero code on failures (I/O, parse, or evaluation errors).
     ///
     /// A "data" result (unknown file type) is not considered an error and will
     /// not cause a non-zero exit code, even in strict mode.
-    #[arg(long)]
+    #[arg(short = 's', long)]
     pub strict: bool,
 
     /// Use built-in magic rules instead of loading from file.
@@ -69,9 +75,8 @@ pub struct Args {
     /// Loads pre-compiled built-in rules for common file types (ELF, PE/DOS,
     /// ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, PDF). These rules are compiled
     /// at build time and provide basic file type detection without requiring
-    /// external magic files. When provided alongside --magic-file, --use-builtin
-    /// takes precedence.
-    #[arg(long)]
+    /// external magic files.
+    #[arg(short = 'b', long, conflicts_with = "magic_file")]
     pub use_builtin: bool,
 
     /// Timeout for evaluation in milliseconds (1-300000ms, 5 minutes max).
@@ -79,8 +84,13 @@ pub struct Args {
     /// Sets a per-file timeout for magic rule evaluation. If evaluation takes
     /// longer than this duration, the file is skipped with a timeout error.
     /// Each file gets its own independent timeout window.
-    #[arg(long = "timeout-ms", value_name = "MS")]
+    #[arg(short = 't', long = "timeout-ms", value_name = "MS",
+          value_parser = clap::value_parser!(u64).range(1..=300_000))]
     pub timeout_ms: Option<u64>,
+
+    /// Generate shell completions and exit
+    #[arg(long, value_name = "SHELL")]
+    pub generate_completion: Option<Shell>,
 }
 
 impl Args {
@@ -240,8 +250,31 @@ pub enum OutputFormat {
 fn main() {
     let args = Args::parse();
 
-    let exit_code = match run_analysis(&args) {
-        Ok(()) => 0,
+    // Handle shell completion generation
+    if let Some(shell) = args.generate_completion {
+        let mut cmd = Args::command();
+        clap_complete::generate(shell, &mut cmd, "rmagic", &mut std::io::stdout());
+        return;
+    }
+
+    // Set up signal handler for graceful Ctrl+C handling
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let interrupted_clone = Arc::clone(&interrupted);
+    if let Err(e) = ctrlc::set_handler(move || {
+        interrupted_clone.store(true, Ordering::SeqCst);
+    }) {
+        eprintln!("Warning: failed to set signal handler: {e}");
+    }
+
+    let exit_code = match run_analysis(&args, &interrupted) {
+        Ok(()) => {
+            if interrupted.load(Ordering::SeqCst) {
+                eprintln!("Interrupted");
+                130
+            } else {
+                0
+            }
+        }
         Err(e) => handle_error(e),
     };
 
@@ -372,17 +405,14 @@ fn load_magic_database(args: &Args) -> Result<MagicDatabase, LibmagicError> {
 /// For multiple files with JSON format, outputs JSON Lines (compact, one per line).
 /// For single file with JSON format, outputs pretty-printed JSON.
 ///
-/// Flushes stdout after each write to ensure results appear immediately when piped.
+/// Writes to the provided buffered writer. The caller is responsible for flushing.
 fn output_result(
+    writer: &mut impl Write,
     file_path: &Path,
     result: &libmagic_rs::EvaluationResult,
     args: &Args,
     is_multiple_files: bool,
 ) -> Result<(), LibmagicError> {
-    use std::io::Write;
-
-    let mut stdout = std::io::stdout();
-
     match args.output_format() {
         OutputFormat::Json => {
             // Convert library result to output format (handles match conversion + tag enrichment)
@@ -398,8 +428,7 @@ fn output_result(
 
             match json_result {
                 Ok(json_str) => {
-                    writeln!(stdout, "{json_str}").map_err(LibmagicError::IoError)?;
-                    stdout.flush().map_err(LibmagicError::IoError)?;
+                    writeln!(writer, "{json_str}").map_err(LibmagicError::IoError)?;
                 }
                 Err(e) => {
                     return Err(LibmagicError::EvaluationError(
@@ -411,9 +440,8 @@ fn output_result(
             }
         }
         OutputFormat::Text => {
-            writeln!(stdout, "{}: {}", file_path.display(), result.description)
+            writeln!(writer, "{}: {}", file_path.display(), result.description)
                 .map_err(LibmagicError::IoError)?;
-            stdout.flush().map_err(LibmagicError::IoError)?;
         }
     }
     Ok(())
@@ -424,6 +452,7 @@ fn output_result(
 /// Handles file validation, evaluation, and output.
 /// Returns Ok(()) on success or an error if processing fails.
 fn process_file(
+    writer: &mut impl Write,
     file_or_stdin: &FileOrStdin,
     db: &MagicDatabase,
     args: &Args,
@@ -460,7 +489,7 @@ fn process_file(
         let result = db.evaluate_buffer(&buffer)?;
         let stdin_path = PathBuf::from("stdin");
         let is_multiple_files = args.files.len() > 1;
-        output_result(&stdin_path, &result, args, is_multiple_files)?;
+        output_result(writer, &stdin_path, &result, args, is_multiple_files)?;
         return Ok(());
     }
 
@@ -476,23 +505,29 @@ fn process_file(
 
     // Output results based on format
     let is_multiple_files = args.files.len() > 1;
-    output_result(&file_path, &result, args, is_multiple_files)?;
+    output_result(writer, &file_path, &result, args, is_multiple_files)?;
 
     Ok(())
 }
 
-fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
+fn run_analysis(args: &Args, interrupted: &AtomicBool) -> Result<(), LibmagicError> {
     // Validate input arguments
     validate_arguments(args)?;
 
     // Load magic database once (shared across all files)
     let db = load_magic_database(args)?;
 
+    let mut writer = BufWriter::new(std::io::stdout().lock());
     let mut first_error: Option<LibmagicError> = None;
 
     // Process each file sequentially
     for file_or_stdin in &args.files {
-        match process_file(file_or_stdin, &db, args) {
+        // Check for Ctrl+C between files
+        if interrupted.load(Ordering::SeqCst) {
+            break;
+        }
+
+        match process_file(&mut writer, file_or_stdin, &db, args) {
             Ok(()) => {} // Success, continue
             Err(e) => {
                 // Print error with filename context but continue processing other files
@@ -505,11 +540,14 @@ fn run_analysis(args: &Args) -> Result<(), LibmagicError> {
         }
     }
 
+    // Flush buffered output
+    writer.flush().map_err(LibmagicError::IoError)?;
+
     // Exit code behavior based on --strict flag
-    if let Some(error) = first_error {
-        if args.strict {
-            return Err(error);
-        }
+    if let Some(error) = first_error
+        && args.strict
+    {
+        return Err(error);
     }
 
     Ok(())
@@ -526,14 +564,14 @@ fn validate_arguments(args: &Args) -> Result<(), LibmagicError> {
     }
 
     // Validate custom magic file path if provided and not using built-in rules
-    if !args.use_builtin {
-        if let Some(ref magic_file) = args.magic_file {
-            let magic_str = magic_file.to_string_lossy();
-            if magic_str.trim().is_empty() {
-                return Err(LibmagicError::ParseError(
-                    libmagic_rs::ParseError::invalid_syntax(0, "Magic file path cannot be empty"),
-                ));
-            }
+    if !args.use_builtin
+        && let Some(ref magic_file) = args.magic_file
+    {
+        let magic_str = magic_file.to_string_lossy();
+        if magic_str.trim().is_empty() {
+            return Err(LibmagicError::ParseError(
+                libmagic_rs::ParseError::invalid_syntax(0, "Magic file path cannot be empty"),
+            ));
         }
     }
 
@@ -627,6 +665,7 @@ mod tests {
     use std::fs;
     #[cfg(unix)]
     use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
 
     /// Static mutex to serialize access to file descriptor operations.
     /// This is necessary because dup/dup2 operations on stdin/stdout/stderr
@@ -1051,6 +1090,7 @@ mod tests {
             strict: false,
             use_builtin: false,
             timeout_ms: None,
+            generate_completion: None,
         };
         let result = validate_arguments(&args_empty);
         assert!(result.is_err());
@@ -1077,6 +1117,7 @@ mod tests {
             strict: false,
             use_builtin: false,
             timeout_ms: None,
+            generate_completion: None,
         };
         let result = validate_arguments(&args_with_empty_magic);
         assert!(result.is_err());
@@ -1100,6 +1141,7 @@ mod tests {
             strict: false,
             use_builtin: false,
             timeout_ms: None,
+            generate_completion: None,
         };
         let result = validate_arguments(&args_with_magic);
         assert!(result.is_ok());
@@ -1452,17 +1494,16 @@ mod tests {
     }
 
     #[test]
-    fn test_use_builtin_with_magic_file() {
-        let args = Args::try_parse_from([
+    fn test_use_builtin_conflicts_with_magic_file() {
+        // --use-builtin and --magic-file now conflict
+        let result = Args::try_parse_from([
             "rmagic",
             "--use-builtin",
             "--magic-file",
             "custom.magic",
             "test.bin",
-        ])
-        .unwrap();
-        assert!(args.use_builtin);
-        assert_eq!(args.magic_file, Some(PathBuf::from("custom.magic")));
+        ]);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -1543,7 +1584,10 @@ mod tests {
         let input = vec![b'a'; max_string_length + 10];
 
         let (result, stderr_output) = capture_stderr(|| {
-            with_mocked_stdin(&input, || process_file(&args.files[0], &db, &args))
+            with_mocked_stdin(&input, || {
+                let mut w = std::io::stdout();
+                process_file(&mut w, &args.files[0], &db, &args)
+            })
         });
 
         assert!(result.is_ok());
@@ -1569,7 +1613,10 @@ mod tests {
         let input = vec![b'a'; max_string_length];
 
         let (result, stderr_output) = capture_stderr(|| {
-            with_mocked_stdin(&input, || process_file(&args.files[0], &db, &args))
+            with_mocked_stdin(&input, || {
+                let mut w = std::io::stdout();
+                process_file(&mut w, &args.files[0], &db, &args)
+            })
         });
 
         assert!(result.is_ok());
@@ -1591,8 +1638,12 @@ mod tests {
                 .unwrap();
         let db = MagicDatabase::load_from_file(&magic_file).unwrap();
 
-        let (result, stdout_output) =
-            capture_stdout(|| with_mocked_stdin(&[], || process_file(&args.files[0], &db, &args)));
+        let (result, stdout_output) = capture_stdout(|| {
+            with_mocked_stdin(&[], || {
+                let mut w = std::io::stdout();
+                process_file(&mut w, &args.files[0], &db, &args)
+            })
+        });
 
         assert!(result.is_ok());
         assert!(stdout_output.contains("stdin: data"));
@@ -1611,7 +1662,10 @@ mod tests {
         let db = MagicDatabase::load_from_file(&magic_file).unwrap();
 
         let (result, stdout_output) = capture_stdout(|| {
-            with_mocked_stdin(b"sample", || process_file(&args.files[0], &db, &args))
+            with_mocked_stdin(b"sample", || {
+                let mut w = std::io::stdout();
+                process_file(&mut w, &args.files[0], &db, &args)
+            })
         });
 
         assert!(result.is_ok());
@@ -1638,10 +1692,12 @@ mod tests {
             Args::try_parse_from(["rmagic", "--magic-file", magic_file.to_str().unwrap(), "-"])
                 .unwrap();
 
-        let strict_result = with_invalid_stdin(|| run_analysis(&args_strict));
+        let not_interrupted = AtomicBool::new(false);
+        let strict_result = with_invalid_stdin(|| run_analysis(&args_strict, &not_interrupted));
         assert!(strict_result.is_err());
 
-        let non_strict_result = with_invalid_stdin(|| run_analysis(&args_non_strict));
+        let non_strict_result =
+            with_invalid_stdin(|| run_analysis(&args_non_strict, &not_interrupted));
         assert!(non_strict_result.is_ok());
     }
 }

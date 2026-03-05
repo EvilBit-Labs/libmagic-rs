@@ -1,24 +1,16 @@
 # libmagic-rs
 
-[![GitHub License][license-badge]][license-link]
-[![GitHub Sponsors][sponsors-badge]][sponsors-link]
+[![GitHub License][license-badge]][license-link] [![GitHub Sponsors][sponsors-badge]][sponsors-link]
 
-[![GitHub Actions Workflow Status][ci-badge]][ci-link]
-[![docs.rs][docs-badge]][docs-link]
-[![Deps.rs Repository Dependencies][deps-badge]][deps-link]
+[![GitHub Actions Workflow Status][ci-badge]][ci-link] [![docs.rs][docs-badge]][docs-link] [![Deps.rs Repository Dependencies][deps-badge]][deps-link]
 
-[![Codecov][codecov-badge]][codecov-link]
-[![GitHub issues][issues-badge]][issues-link]
-[![GitHub last commit][last-commit-badge]][commits-link]
+[![Codecov][codecov-badge]][codecov-link] [![GitHub issues][issues-badge]][issues-link] [![GitHub last commit][last-commit-badge]][commits-link]
 
-[![Crates.io][crates-badge]][crates-link]
-[![GitHub Release Date][release-date-badge]][releases-link]
-[![Crates.io Downloads (latest version)][downloads-badge]][crates-link]
-[![Crates.io MSRV][msrv-badge]][crates-link]
+[![Crates.io][crates-badge]][crates-link] [![GitHub Release Date][release-date-badge]][releases-link] [![Crates.io Downloads (latest version)][downloads-badge]][crates-link] [![Crates.io MSRV][msrv-badge]][crates-link]
 
 ---
-[![OpenSSF Scorecard][scorecard-badge]][scorecard-link]
-[![OpenSSF Best Practices][bestpractices-badge]][bestpractices-link]
+
+[![OpenSSF Scorecard][scorecard-badge]][scorecard-link] [![OpenSSF Best Practices][bestpractices-badge]][bestpractices-link]
 
 ---
 
@@ -49,12 +41,12 @@ A pure-Rust implementation of libmagic, the library that powers the `file` comma
 
 ### Supported Magic File Syntax
 
-| Category | Supported |
-|----------|-----------|
-| **Types** | `byte`, `short`, `long`, `string` (with endianness and sign options) |
-| **Operators** | `=`, `!=`, `&` (bitwise AND with optional mask) |
-| **Offsets** | Absolute, from-end (indirect and relative are parsed but not yet evaluated) |
-| **Directives** | `!:strength` (parsed; `!:mime`, `!:ext`, `!:apple` planned) |
+| Category       | Supported                                                                   |
+| -------------- | --------------------------------------------------------------------------- |
+| **Types**      | `byte`, `short`, `long`, `string` (with endianness and sign options)        |
+| **Operators**  | `=`, `!=`, `&` (bitwise AND with optional mask)                             |
+| **Offsets**    | Absolute, from-end (indirect and relative are parsed but not yet evaluated) |
+| **Directives** | `!:strength` (parsed; `!:mime`, `!:ext`, `!:apple` planned)                 |
 
 ## Quick Start
 
@@ -119,12 +111,12 @@ Magic File --> Parser --> AST --> Evaluator --> Match Results --> Output Formatt
 Target File --> Memory Mapper --> File Buffer
 ```
 
-| Module | Purpose |
-|--------|---------|
-| `parser/` | Magic file DSL parsing into AST (nom-based) |
+| Module       | Purpose                                                                        |
+| ------------ | ------------------------------------------------------------------------------ |
+| `parser/`    | Magic file DSL parsing into AST (nom-based)                                    |
 | `evaluator/` | Rule evaluation with offset resolution, type interpretation, operator matching |
-| `output/` | Text (GNU `file` compatible) and JSON formatting |
-| `io/` | Memory-mapped file buffers with safe bounds checking |
+| `output/`    | Text (GNU `file` compatible) and JSON formatting                               |
+| `io/`        | Memory-mapped file buffers with safe bounds checking                           |
 
 ### Key Types
 
@@ -182,13 +174,13 @@ See the [release verification guide](https://evilbitlabs.io/libmagic-rs/release-
 
 See [ROADMAP.md](ROADMAP.md) for the full roadmap, or [GitHub Milestones](https://github.com/EvilBit-Labs/libmagic-rs/milestones) for issue tracking.
 
-| Milestone | Focus |
-|-----------|-------|
-| **v0.1.x** (current) | MVP: parser, evaluator, CLI, built-in rules, 94%+ test coverage |
-| **v0.2.0** | Comparison operators, bitwise XOR/NOT, indirect/relative offsets, 64-bit integers |
-| **v0.3.0** | Regex, float/double, date/timestamp, pascal strings, meta-types |
-| **v0.4.0** | Builder API, JSON metadata, parse warnings, improved errors |
-| **v1.0.0** | 95%+ GNU `file` compatibility, stable API |
+| Milestone            | Focus                                                                             |
+| -------------------- | --------------------------------------------------------------------------------- |
+| **v0.1.x** (current) | MVP: parser, evaluator, CLI, built-in rules, 94%+ test coverage                   |
+| **v0.2.0**           | Comparison operators, bitwise XOR/NOT, indirect/relative offsets, 64-bit integers |
+| **v0.3.0**           | Regex, float/double, date/timestamp, pascal strings, meta-types                   |
+| **v0.4.0**           | Builder API, JSON metadata, parse warnings, improved errors                       |
+| **v1.0.0**           | 95%+ GNU `file` compatibility, stable API                                         |
 
 ## Contributing
 
@@ -210,29 +202,29 @@ Licensed under the Apache License 2.0 - see [LICENSE](LICENSE) for details.
 - [Christos Zoulas](https://www.darwinsys.com/file/) and the current libmagic maintainers
 - The Rust community for excellent tooling and ecosystem
 
-[license-badge]: https://img.shields.io/github/license/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github
-[license-link]: https://github.com/EvilBit-Labs/libmagic-rs/blob/main/LICENSE
-[sponsors-badge]: https://img.shields.io/github/sponsors/EvilBit-Labs?style=flat-square&logo=github
-[sponsors-link]: https://github.com/sponsors/EvilBit-Labs
+[bestpractices-badge]: https://www.bestpractices.dev/projects/11947/badge?style=flat-square
+[bestpractices-link]: https://www.bestpractices.dev/projects/11947
 [ci-badge]: https://img.shields.io/github/actions/workflow/status/EvilBit-Labs/libmagic-rs/ci.yml?style=flat-square
 [ci-link]: https://github.com/EvilBit-Labs/libmagic-rs/actions/workflows/ci.yml
-[docs-badge]: https://img.shields.io/docsrs/libmagic-rs?style=flat-square
-[docs-link]: https://docs.rs/libmagic-rs
-[deps-badge]: https://img.shields.io/deps-rs/repo/github/EvilBit-Labs/libmagic-rs?style=flat-square
-[deps-link]: https://deps.rs/repo/github/EvilBit-Labs/libmagic-rs
 [codecov-badge]: https://img.shields.io/codecov/c/github/EvilBit-Labs/libmagic-rs?style=flat-square&logoColor=white&logo=codecov
 [codecov-link]: https://app.codecov.io/gh/EvilBit-Labs/libmagic-rs
-[issues-badge]: https://img.shields.io/github/issues/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github
-[issues-link]: https://github.com/EvilBit-Labs/libmagic-rs/issues
-[last-commit-badge]: https://img.shields.io/github/last-commit/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github
 [commits-link]: https://github.com/EvilBit-Labs/libmagic-rs/commits/main
 [crates-badge]: https://img.shields.io/crates/v/libmagic-rs?style=flat-square&logo=rust
 [crates-link]: https://crates.io/crates/libmagic-rs
+[deps-badge]: https://img.shields.io/deps-rs/repo/github/EvilBit-Labs/libmagic-rs?style=flat-square
+[deps-link]: https://deps.rs/repo/github/EvilBit-Labs/libmagic-rs
+[docs-badge]: https://img.shields.io/docsrs/libmagic-rs?style=flat-square
+[docs-link]: https://docs.rs/libmagic-rs
+[downloads-badge]: https://img.shields.io/crates/dv/libmagic-rs?style=flat-square&logo=rust
+[issues-badge]: https://img.shields.io/github/issues/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github
+[issues-link]: https://github.com/EvilBit-Labs/libmagic-rs/issues
+[last-commit-badge]: https://img.shields.io/github/last-commit/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github
+[license-badge]: https://img.shields.io/github/license/EvilBit-Labs/libmagic-rs?style=flat-square&logo=github
+[license-link]: https://github.com/EvilBit-Labs/libmagic-rs/blob/main/LICENSE
+[msrv-badge]: https://img.shields.io/crates/msrv/libmagic-rs?style=flat-square&logo=rust
 [release-date-badge]: https://img.shields.io/github/release-date/EvilBit-Labs/libmagic-rs?display_date=published_at&style=flat-square&logo=github
 [releases-link]: https://github.com/EvilBit-Labs/libmagic-rs/releases
-[downloads-badge]: https://img.shields.io/crates/dv/libmagic-rs?style=flat-square&logo=rust
-[msrv-badge]: https://img.shields.io/crates/msrv/libmagic-rs?style=flat-square&logo=rust
 [scorecard-badge]: https://api.scorecard.dev/projects/github.com/EvilBit-Labs/libmagic-rs/badge?style=flat-square
 [scorecard-link]: https://scorecard.dev/viewer/?uri=github.com/EvilBit-Labs/libmagic-rs
-[bestpractices-badge]: https://www.bestpractices.dev/projects/11947/badge?style=flat-square
-[bestpractices-link]: https://www.bestpractices.dev/projects/11947
+[sponsors-badge]: https://img.shields.io/github/sponsors/EvilBit-Labs?style=flat-square&logo=github
+[sponsors-link]: https://github.com/sponsors/EvilBit-Labs

@@ -44,7 +44,7 @@ cargo test
 
 ### Required Tools
 
-- **Rust 1.85+** with the 2021 edition
+- **Rust 1.89+** (2024 edition)
 - **Git** for version control
 - **Cargo** (included with Rust)
 
@@ -83,7 +83,7 @@ cd libmagic-rs
 
 ```bash
 # Check Rust version
-rustc --version  # Should be 1.85+
+rustc --version  # Should be 1.89+
 
 # Verify project builds
 cargo check

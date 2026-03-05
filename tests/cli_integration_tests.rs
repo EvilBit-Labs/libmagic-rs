@@ -697,13 +697,12 @@ fn test_use_builtin_flag() {
     );
 }
 
-/// Test that `--use-builtin` takes precedence over `--magic-file`.
+/// Test that `--use-builtin` and `--magic-file` conflict.
 #[test]
-fn test_use_builtin_with_magic_file_precedence() {
+fn test_use_builtin_conflicts_with_magic_file() {
     let temp_dir = tempfile::tempdir().unwrap();
     let test_file = create_test_file_with_content(temp_dir.path(), "test.txt", b"test content");
 
-    // Use a non-existent magic file path - should still work because --use-builtin takes precedence
     let output = run_cli_with_args(&[
         "--use-builtin",
         "--magic-file",
@@ -712,17 +711,7 @@ fn test_use_builtin_with_magic_file_precedence() {
     ])
     .unwrap();
 
-    assert_exit_code(
-        &output,
-        0,
-        "--use-builtin should take precedence over --magic-file",
-    );
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("data"),
-        "Built-in stub should return 'data'"
-    );
+    assert_exit_code(&output, 2, "--use-builtin and --magic-file should conflict");
 }
 
 /// Test that `--use-builtin` works with multiple files and detects different file types.
@@ -1564,7 +1553,10 @@ fn test_timeout_per_file_independent() {
         stderr.contains("timeout") || stderr.contains("Timeout"),
         "Timeout error should mention timeout"
     );
-    assert!(stderr.contains("50ms"), "Timeout error should include 50ms");
+    assert!(
+        stderr.contains("50ms"),
+        "Timeout error should include 50ms (non-strict)"
+    );
 }
 
 /// Test that strict mode returns exit code 5 on timeout while still processing
@@ -1620,5 +1612,122 @@ fn test_timeout_per_file_independent_strict() {
         stderr.contains("timeout") || stderr.contains("Timeout"),
         "Timeout error should mention timeout"
     );
-    assert!(stderr.contains("50ms"), "Timeout error should include 50ms");
+    assert!(
+        stderr.contains("50ms"),
+        "Timeout error should include 50ms (strict)"
+    );
+}
+
+// =============================================================================
+// Help, Version, and Shell Completion Tests
+// =============================================================================
+
+/// Test that --help exits 0 and contains expected content.
+#[test]
+fn test_help_flag() {
+    let output = run_cli_with_args(&["--help"]).unwrap();
+    assert_exit_code(&output, 0, "--help should exit 0");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Usage:"), "--help should contain Usage:");
+    assert!(stdout.contains("--json"), "--help should mention --json");
+    assert!(
+        stdout.contains("--magic-file"),
+        "--help should mention --magic-file"
+    );
+    assert!(
+        stdout.contains("Examples:"),
+        "--help should contain Examples section in after_help"
+    );
+}
+
+/// Test that -h (short help) exits 0.
+#[test]
+fn test_short_help_flag() {
+    let output = run_cli_with_args(&["-h"]).unwrap();
+    assert_exit_code(&output, 0, "-h should exit 0");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Usage:"), "-h should contain Usage:");
+}
+
+/// Test that --version exits 0 and contains a version string.
+#[test]
+fn test_version_flag() {
+    let output = run_cli_with_args(&["--version"]).unwrap();
+    assert_exit_code(&output, 0, "--version should exit 0");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(env!("CARGO_PKG_VERSION")),
+        "--version should contain package version, got: {}",
+        stdout
+    );
+}
+
+/// Test that --generate-completion bash produces shell completion output.
+#[test]
+fn test_generate_completion_bash() {
+    let output = run_cli_with_args(&["--generate-completion", "bash"]).unwrap();
+    assert_exit_code(&output, 0, "--generate-completion bash should exit 0");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("rmagic"),
+        "Bash completion output should reference rmagic, got: {}",
+        stdout
+    );
+}
+
+/// Test that --json and --text together is rejected.
+#[test]
+fn test_json_text_conflict_cli() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let test_file = create_test_file_with_content(temp_dir.path(), "test.txt", b"test");
+
+    let output = run_cli_with_args(&["--json", "--text", test_file.to_str().unwrap()]).unwrap();
+
+    assert_exit_code(
+        &output,
+        2,
+        "--json and --text should conflict and exit non-zero",
+    );
+}
+
+/// Test short flags work correctly.
+#[test]
+fn test_short_flags() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    // Create an ELF file for detection
+    let elf_header = b"\x7fELF\x00\x00\x00\x00";
+    let test_file = create_test_file_with_content(temp_dir.path(), "test.elf", elf_header);
+
+    // Test -j (json) and -b (use-builtin)
+    let output = run_cli_with_args(&["-j", "-b", test_file.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output, 0, "-j -b should work");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // JSON output should be parseable
+    assert!(
+        stdout.contains('{'),
+        "JSON output should contain braces, got: {}",
+        stdout
+    );
+}
+
+/// Test that --timeout-ms validates range.
+#[test]
+fn test_timeout_ms_range_validation() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let test_file = create_test_file_with_content(temp_dir.path(), "test.txt", b"test");
+
+    // 0 should be rejected (minimum is 1)
+    let output = run_cli_with_args(&["--timeout-ms", "0", test_file.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output, 2, "--timeout-ms 0 should be rejected");
+
+    // 300001 should be rejected (maximum is 300000)
+    let output =
+        run_cli_with_args(&["--timeout-ms", "300001", test_file.to_str().unwrap()]).unwrap();
+    assert_exit_code(&output, 2, "--timeout-ms 300001 should be rejected");
 }

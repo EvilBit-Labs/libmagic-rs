@@ -172,6 +172,7 @@ pub fn evaluate_rules(
 **Algorithm:**
 
 1. For each root rule:
+
    - Resolve offset from buffer
    - Read value at offset according to type
    - Apply operator to compare actual vs expected
@@ -179,6 +180,7 @@ pub fn evaluate_rules(
    - If no match: skip children, continue to next rule
 
 2. Child rules inherit context from parent match
+
 3. Results accumulate hierarchically (parent message + child details)
 
 ### Hierarchical Processing

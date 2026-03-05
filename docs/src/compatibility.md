@@ -144,9 +144,9 @@ $ rmagic --json example.elf
 
 | Rust Version | Status           | Notes                          |
 | ------------ | ---------------- | ------------------------------ |
-| **1.85+**    | ✅ Required      | Minimum supported version      |
-| **1.84**     | ❌ Not supported | Missing required features      |
-| **1.83**     | ❌ Not supported | Missing required features      |
+| **1.89+**    | ✅ Required      | Minimum supported version      |
+| **1.88**     | ❌ Not supported | Missing required features      |
+| **1.87**     | ❌ Not supported | Missing required features      |
 | **Stable**   | ✅ Supported     | Always targets stable Rust     |
 | **Beta**     | ✅ Supported     | Should work with beta releases |
 | **Nightly**  | ⚠️ Best effort   | May work but not guaranteed    |

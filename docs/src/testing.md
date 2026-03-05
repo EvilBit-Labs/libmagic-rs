@@ -628,11 +628,11 @@ cargo bench -- --noplot
 
 ### Available Benchmarks
 
-| Benchmark | Description |
-|-----------|-------------|
-| `parser_bench` | Magic file parsing performance |
+| Benchmark          | Description                                |
+| ------------------ | ------------------------------------------ |
+| `parser_bench`     | Magic file parsing performance             |
 | `evaluation_bench` | Rule evaluation against various file types |
-| `io_bench` | Memory-mapped I/O operations |
+| `io_bench`         | Memory-mapped I/O operations               |
 
 ### Benchmark CI
 

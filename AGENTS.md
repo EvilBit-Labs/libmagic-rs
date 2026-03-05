@@ -86,10 +86,18 @@ parser/
 
 // Evaluator module structure
 evaluator/
-├── mod.rs       // Main evaluation engine
-├── offset.rs    // Offset resolution (absolute, indirect, relative)
-├── types.rs     // Type interpretation with endianness
-└── operators.rs // Equality and bitwise operations
+├── mod.rs          // Main evaluation engine
+├── types.rs        // Type interpretation with endianness
+├── offset/         // Offset resolution submodule
+│   ├── mod.rs      // Dispatcher (resolve_offset) and re-exports
+│   ├── absolute.rs // OffsetError, resolve_absolute_offset
+│   ├── indirect.rs // resolve_indirect_offset stub (issue #37)
+│   └── relative.rs // resolve_relative_offset stub (issue #38)
+└── operators/      // Operator application submodule
+    ├── mod.rs      // Dispatcher (apply_operator) and re-exports
+    ├── equality.rs // apply_equal, apply_not_equal
+    ├── comparison.rs // compare_values, apply_less_than/greater_than/less_equal/greater_equal
+    └── bitwise.rs  // apply_bitwise_and, apply_bitwise_and_mask
 ```
 
 ## Code Quality Standards
@@ -440,10 +448,7 @@ All pull requests require review before merging. Reviews are performed by mainta
 - **Style**: Follows project conventions, passes `cargo fmt` and `cargo clippy -- -D warnings`
 - **Documentation**: Public APIs have rustdoc with examples, AGENTS.md updated if architecture changes
 
-CI must pass before merge. Mergify merge protections enforce these checks.
-Bot PRs from dependabot and dosubot are auto-merged by Mergify when all required CI checks pass.
-Bot PRs from release-plz are auto-merged by Mergify when their required DCO check passes (they are exempt from full CI in `.mergify.yml`).
-Human PRs are merged manually by maintainers.
+CI must pass before merge. Mergify merge protections enforce these checks. Bot PRs from dependabot and dosubot are auto-merged by Mergify when all required CI checks pass. Bot PRs from release-plz are auto-merged by Mergify when their required DCO check passes (they are exempt from full CI in `.mergify.yml`). Human PRs are merged manually by maintainers.
 
 ## Project Context
 

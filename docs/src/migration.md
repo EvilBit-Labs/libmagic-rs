@@ -35,15 +35,15 @@ println!("File type: {}", result.description);
 
 ## API Mapping
 
-| C libmagic | libmagic-rs | Notes |
-|---|---|---|
-| `magic_open(flags)` | `MagicDatabase::with_builtin_rules()` | No manual flag management |
-| `magic_load(magic, path)` | `MagicDatabase::load_from_file(path)` | Auto-detects format |
-| `magic_file(magic, path)` | `db.evaluate_file(path)` | Returns structured result |
-| `magic_buffer(magic, buf, len)` | `db.evaluate_buffer(buf)` | Safe slice, no length needed |
-| `magic_error(magic)` | `Result<T, LibmagicError>` | Typed errors, no global state |
-| `magic_close(magic)` | (automatic) | RAII cleanup on drop |
-| `MAGIC_MIME_TYPE` | `EvaluationConfig { enable_mime_types: true, .. }` | Opt-in configuration |
+| C libmagic                      | libmagic-rs                                        | Notes                         |
+| ------------------------------- | -------------------------------------------------- | ----------------------------- |
+| `magic_open(flags)`             | `MagicDatabase::with_builtin_rules()`              | No manual flag management     |
+| `magic_load(magic, path)`       | `MagicDatabase::load_from_file(path)`              | Auto-detects format           |
+| `magic_file(magic, path)`       | `db.evaluate_file(path)`                           | Returns structured result     |
+| `magic_buffer(magic, buf, len)` | `db.evaluate_buffer(buf)`                          | Safe slice, no length needed  |
+| `magic_error(magic)`            | `Result<T, LibmagicError>`                         | Typed errors, no global state |
+| `magic_close(magic)`            | (automatic)                                        | RAII cleanup on drop          |
+| `MAGIC_MIME_TYPE`               | `EvaluationConfig { enable_mime_types: true, .. }` | Opt-in configuration          |
 
 ## Key Differences
 
