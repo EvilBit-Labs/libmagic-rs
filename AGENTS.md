@@ -86,10 +86,14 @@ parser/
 
 // Evaluator module structure
 evaluator/
-├── mod.rs       // Main evaluation engine
-├── offset.rs    // Offset resolution (absolute, indirect, relative)
-├── types.rs     // Type interpretation with endianness
-└── operators.rs // Equality and bitwise operations
+├── mod.rs          // Main evaluation engine
+├── offset.rs       // Offset resolution (absolute, indirect, relative)
+├── types.rs        // Type interpretation with endianness
+└── operators/      // Operator application submodule
+    ├── mod.rs      // Dispatcher (apply_operator) and re-exports
+    ├── equality.rs // apply_equal, apply_not_equal
+    ├── comparison.rs // compare_values, apply_less_than/greater_than/less_equal/greater_equal
+    └── bitwise.rs  // apply_bitwise_and, apply_bitwise_and_mask
 ```
 
 ## Code Quality Standards
