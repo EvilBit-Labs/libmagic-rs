@@ -163,16 +163,16 @@ fn test_multiple_files_cli() {
 Add to `file:.github/workflows/ci.yml`:
 
 ```yaml
-- name: Test Coverage
-  run: |
-    cargo install cargo-llvm-cov
-    cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+  - name: Test Coverage
+    run: |
+      cargo install cargo-llvm-cov
+      cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
 
-- name: Upload Coverage
-  uses: codecov/codecov-action@v3
-  with:
-    files: lcov.info
-    fail_ci_if_error: true
+  - name: Upload Coverage
+    uses: codecov/codecov-action@v3
+    with:
+      files: lcov.info
+      fail_ci_if_error: true
 ```
 
 ### 5. Test Utilities
@@ -205,7 +205,7 @@ pub fn calculate_common_type_compatibility(results: &HashMap<PathBuf, bool>) -> 
 - [ ] CI/CD runs all tests automatically
 - [ ] Coverage report uploaded to codecov
 - [ ] Test failures show clear diagnostics
-- [ ] Test suite runs in <5 minutes
+- [ ] Test suite runs in \<5 minutes
 
 ## Dependencies
 

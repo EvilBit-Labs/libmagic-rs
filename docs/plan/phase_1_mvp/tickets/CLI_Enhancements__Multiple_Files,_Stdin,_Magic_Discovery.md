@@ -9,18 +9,21 @@ Enhance the CLI to support multiple file arguments, stdin input, improved magic 
 **Bugs in Existing Code to Fix:**
 
 1. **BUG: Magic file search order wrong** (`file:src/main.rs` lines 64-76)
+
    - Current: Binary .mgc files searched FIRST
    - Required: Text files/directories FIRST (OpenBSD approach)
    - Impact: Users will encounter unsupported binary .mgc before finding text files
    - Fix: Reorder search candidates to prioritize Magdir directories and text files
 
 2. **BUG: create_basic_magic_content() should not exist** (`file:src/main.rs` lines 428-484)
+
    - Current: 483 lines of basic magic file generation code
    - Required: Remove entirely (--create-magic flag was eliminated from scope)
    - Impact: Dead code, maintenance burden
    - Fix: Delete function and all references
 
 3. **BUG: Missing --use-builtin and --strict flags** (`file:src/main.rs` lines 23-39)
+
    - Current: Flags not defined in Args struct
    - Required: Add both flags per Core Flow 3 and Technical Plan
    - Impact: Users cannot use built-in rules or control exit code behavior
