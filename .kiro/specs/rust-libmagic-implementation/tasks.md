@@ -56,7 +56,7 @@
 
 - [x] 10. Create comprehensive CLI interface
 
-  **Completed**: Implemented complete CLI interface in `src/main.rs` using clap with argument parsing for input files, output format flags (--text, --json), and custom magic file paths. Added platform-specific magic file discovery (Unix: /usr/share/file, /etc/magic; Windows: %APPDATA%\Magic), comprehensive error handling with proper exit codes, and fallback magic file creation for CI/CD environments. Includes extensive unit tests and integration tests.
+  **Completed**: Implemented complete CLI interface in `src/main.rs` using clap with argument parsing for input files, output format flags (--text, --json), and custom magic file paths. Added platform-specific magic file discovery (Unix: /usr/share/file, /etc/magic; Windows: %APPDATA%\\Magic), comprehensive error handling with proper exit codes, and fallback magic file creation for CI/CD environments. Includes extensive unit tests and integration tests.
 
   _Requirements: 5.1, 5.2, 5.3, 5.5, 6.5_
 
@@ -82,8 +82,10 @@
 
 **Note: Magic files come in two formats:**
 
-- **Text format (.magic)**: Human-readable files with lines like "0 string \x7fELF ELF executable"
+- **Text format (.magic)**: Human-readable files with lines like "0 string \\x7fELF ELF executable"
+
 - **Binary format (.mgc)**: Compiled binary files with magic signature, optimized for fast loading
+
 - **Priority**: Implement text format first (more common in development), then binary format for compatibility
 
 - [x] 14.1 Implement complete magic rule parsing for text format
@@ -118,8 +120,11 @@
 **Note: Binary .mgc files are compiled versions of text magic files:**
 
 - **Structure**: Header + Rule entries + String tables + Metadata
+
 - **Advantages**: Faster loading, pre-validated rules, optimized for production use
+
 - **Challenges**: Format is not officially documented, requires reverse engineering or libmagic source analysis
+
 - **Detection**: Usually start with specific magic bytes (e.g., 0x0d0a1a0a) and have .mgc extension
 
 - [ ] 15.1 Add binary magic file format detection and basic parsing
