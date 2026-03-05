@@ -40,28 +40,28 @@ rmagic [OPTIONS] -
 
 ### Output Format
 
-| Option   | Description                             |
-| -------- | --------------------------------------- |
-| `--json` | Output results in JSON format           |
-| `--text` | Output results in text format (default) |
+| Option       | Description                             |
+| ------------ | --------------------------------------- |
+| `-j, --json` | Output results in JSON format           |
+| `--text`     | Output results in text format (default) |
 
 **Note:** `--json` and `--text` are mutually exclusive.
 
 ### Magic File Selection
 
-| Option                | Description                        |
-| --------------------- | ---------------------------------- |
-| `--magic-file <FILE>` | Use custom magic file or directory |
-| `--use-builtin`       | Use built-in magic rules           |
+| Option                    | Description                        |
+| ------------------------- | ---------------------------------- |
+| `-m, --magic-file <FILE>` | Use custom magic file or directory |
+| `-b, --use-builtin`       | Use built-in magic rules           |
 
 **Note:** `--magic-file` and `--use-builtin` are mutually exclusive.
 
 ### Behavior
 
-| Option              | Description                          |
-| ------------------- | ------------------------------------ |
-| `--strict`          | Exit with non-zero code on any error |
-| `--timeout-ms <MS>` | Set evaluation timeout (1-300000ms)  |
+| Option                  | Description                          |
+| ----------------------- | ------------------------------------ |
+| `-s, --strict`          | Exit with non-zero code on any error |
+| `-t, --timeout-ms <MS>` | Set evaluation timeout (1-300000ms)  |
 
 ### Help
 

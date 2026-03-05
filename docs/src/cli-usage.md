@@ -31,28 +31,28 @@ rmagic --help
 
 ### Output Format Flags
 
-| Flag     | Description                                             |
-| -------- | ------------------------------------------------------- |
-| `--text` | Output results in text format. This is the default.     |
-| `--json` | Output results in JSON format. Conflicts with `--text`. |
+| Flag         | Description                                             |
+| ------------ | ------------------------------------------------------- |
+| `--text`     | Output results in text format. This is the default.     |
+| `-j, --json` | Output results in JSON format. Conflicts with `--text`. |
 
 These two flags are mutually exclusive. Passing both `--json` and `--text` produces an error.
 
 ### Magic File Flags
 
-| Flag                | Description                                                                                |
-| ------------------- | ------------------------------------------------------------------------------------------ |
-| `--magic-file FILE` | Use a custom magic file instead of the system default.                                     |
-| `--use-builtin`     | Use built-in magic rules compiled into the binary. Mutually exclusive with `--magic-file`. |
+| Flag                    | Description                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| `-m, --magic-file FILE` | Use a custom magic file instead of the system default.                                     |
+| `-b, --use-builtin`     | Use built-in magic rules compiled into the binary. Mutually exclusive with `--magic-file`. |
 
 The built-in rules cover common file types: ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, and PDF. They are compiled at build time and require no external files.
 
 ### Behavior Flags
 
-| Flag              | Description                                                                                                                                              |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--strict`        | Exit with a non-zero code on processing failures (I/O, parse, or evaluation errors). A "data" result (unknown file type) is **not** considered an error. |
-| `--timeout-ms MS` | Per-file evaluation timeout in milliseconds. Valid range: 1--300000 (5 minutes).                                                                         |
+| Flag                  | Description                                                                                                                                              |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-s, --strict`        | Exit with a non-zero code on processing failures (I/O, parse, or evaluation errors). A "data" result (unknown file type) is **not** considered an error. |
+| `-t, --timeout-ms MS` | Per-file evaluation timeout in milliseconds. Valid range: 1--300000 (5 minutes).                                                                         |
 
 ## Output Formats
 
