@@ -1,21 +1,35 @@
 [[tools.actionlint]]
-version = "1.7.10"
+version = "1.7.11"
 backend = "aqua:rhysd/actionlint"
+"platforms.linux-arm64" = { checksum = "sha256:21bc0dfb57a913fe175298c2a9e906ee630f747cb66d0a934d0d4b69f4ee1235", url = "https://github.com/rhysd/actionlint/releases/download/v1.7.11/actionlint_1.7.11_linux_arm64.tar.gz"}
+"platforms.linux-x64" = { checksum = "sha256:900919a84f2229bac68ca9cd4103ea297abc35e9689ebb842c6e34a3d1b01b0a", url = "https://github.com/rhysd/actionlint/releases/download/v1.7.11/actionlint_1.7.11_linux_amd64.tar.gz"}
+"platforms.macos-arm64" = { checksum = "sha256:a21ba7366d8329e7223faee0ed69eb13da27fe8acabb356bb7eb0b7f1e1cb6d8", url = "https://github.com/rhysd/actionlint/releases/download/v1.7.11/actionlint_1.7.11_darwin_arm64.tar.gz"}
+"platforms.macos-x64" = { checksum = "sha256:17ffc17fed8f0258ef6ad4aed932d3272464c7ef7d64e1cb0d65aa97c9752107", url = "https://github.com/rhysd/actionlint/releases/download/v1.7.11/actionlint_1.7.11_darwin_amd64.tar.gz"}
+"platforms.windows-x64" = { checksum = "sha256:5414b7124a91f4b5abee62e5c9d84802237734f8d15b9b7032732a32c3ebffa3", url = "https://github.com/rhysd/actionlint/releases/download/v1.7.11/actionlint_1.7.11_windows_amd64.zip"}
 
 [[tools.cargo-binstall]]
-version = "1.17.5"
+version = "1.17.6"
 backend = "aqua:cargo-bins/cargo-binstall"
+"platforms.linux-arm64" = { checksum = "sha256:e5f2c4b79b10370dff707b86a14e7a0ad399c5dc5853824e933432910741992c", url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.6/cargo-binstall-aarch64-unknown-linux-musl.tgz"}
+"platforms.linux-x64" = { checksum = "sha256:f926d96e9f0822ded35c4ac2071ce190bd1311565695c49c45e295de0d685aaa", url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.6/cargo-binstall-x86_64-unknown-linux-musl.tgz"}
+"platforms.macos-arm64" = { checksum = "sha256:101447fa30a723ca8e1a13cec11bb1350b7179331b2aa7054d27bef7a3e19021", url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.6/cargo-binstall-aarch64-apple-darwin.zip"}
+"platforms.macos-x64" = { checksum = "sha256:cd07fd79e2848b13b994e3f83fa5377b631625b847f0734219f2706feb518258", url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.6/cargo-binstall-x86_64-apple-darwin.zip"}
+"platforms.windows-x64" = { checksum = "sha256:5fcbddde2d415704d2432bbe606a5767ddaf1ef4ee2c16b7828f8be2ed1e5a5c", url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.6/cargo-binstall-x86_64-pc-windows-msvc.zip"}
 
 [[tools.cargo-insta]]
-version = "1.46.1"
+version = "1.46.3"
 backend = "aqua:mitsuhiko/insta"
+"platforms.linux-x64" = { checksum = "sha256:c738c47f8d7e834a0277dddb9410a1f7369d37818738fc6a380f22904a83f6e4", url = "https://github.com/mitsuhiko/insta/releases/download/1.46.3/cargo-insta-x86_64-unknown-linux-musl.tar.xz"}
+"platforms.macos-arm64" = { checksum = "sha256:1e620252db7964d876da6b4956872ad84d099ee281753ac7c850ae24413947df", url = "https://github.com/mitsuhiko/insta/releases/download/1.46.3/cargo-insta-aarch64-apple-darwin.tar.xz"}
+"platforms.macos-x64" = { checksum = "sha256:d55ff42a08ad0fc6deed64bb9ab700c069da9c6da40947d9b658cc33fda3dcda", url = "https://github.com/mitsuhiko/insta/releases/download/1.46.3/cargo-insta-x86_64-apple-darwin.tar.xz"}
+"platforms.windows-x64" = { checksum = "sha256:fa0cd6810e393392cf347decacd8a710de9ac95b6747a753f037c46b649209aa", url = "https://github.com/mitsuhiko/insta/releases/download/1.46.3/cargo-insta-x86_64-pc-windows-msvc.zip"}
 
 [[tools."cargo:cargo-audit"]]
-version = "0.22.0"
+version = "0.22.1"
 backend = "cargo:cargo-audit"
 
 [[tools."cargo:cargo-auditable"]]
-version = "0.7.2"
+version = "0.7.4"
 backend = "cargo:cargo-auditable"
 
 [[tools."cargo:cargo-cyclonedx"]]
@@ -27,11 +41,11 @@ version = "0.19.0"
 backend = "cargo:cargo-deny"
 
 [[tools."cargo:cargo-dist"]]
-version = "0.30.3"
+version = "0.31.0"
 backend = "cargo:cargo-dist"
 
 [[tools."cargo:cargo-llvm-cov"]]
-version = "0.6.24"
+version = "0.8.4"
 backend = "cargo:cargo-llvm-cov"
 
 [[tools."cargo:cargo-machete"]]
@@ -39,7 +53,7 @@ version = "0.9.1"
 backend = "cargo:cargo-machete"
 
 [[tools."cargo:cargo-nextest"]]
-version = "0.9.123-b.4"
+version = "0.9.129"
 backend = "cargo:cargo-nextest"
 
 [[tools."cargo:cargo-outdated"]]
@@ -47,7 +61,7 @@ version = "0.17.0"
 backend = "cargo:cargo-outdated"
 
 [[tools."cargo:cargo-release"]]
-version = "0.25.22"
+version = "1.1.1"
 backend = "cargo:cargo-release"
 
 [[tools."cargo:git-cliff"]]
@@ -87,7 +101,7 @@ version = "0.15.3"
 backend = "cargo:mdbook-toc"
 
 [[tools."cargo:release-plz"]]
-version = "0.3.155"
+version = "0.3.156"
 backend = "cargo:release-plz"
 
 [[tools.just]]
@@ -95,11 +109,15 @@ version = "1.46.0"
 backend = "aqua:casey/just"
 
 [[tools.lychee]]
-version = "0.22.0"
+version = "0.23.0"
 backend = "aqua:lycheeverse/lychee"
+"platforms.linux-arm64" = { checksum = "sha256:97eb93b02a7d78a752fc33e5b0983439ccaadbf3db952b68a0a4401acd92e6e0", url = "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.23.0/lychee-aarch64-unknown-linux-gnu.tar.gz"}
+"platforms.linux-x64" = { checksum = "sha256:5538440d2c69a45a0a09983271e5dee0c2fe7137d8035d25b2632e10a66a090a", url = "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.23.0/lychee-x86_64-unknown-linux-musl.tar.gz"}
+"platforms.macos-arm64" = { checksum = "sha256:4c8034900e11083b68ac6f6582c377ff1f704e268991999e09d717973e493e7f", url = "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.23.0/lychee-arm64-macos.dmg"}
+"platforms.windows-x64" = { checksum = "sha256:0fda7ff0a60c0250939fc25361c2d4e6e7853c31c996733fdd5a1dd760bcb824", url = "https://github.com/lycheeverse/lychee/releases/download/lychee-v0.23.0/lychee-x86_64-windows.exe"}
 
 [[tools.markdownlint-cli2]]
-version = "0.20.0"
+version = "0.21.0"
 backend = "npm:markdownlint-cli2"
 
 [[tools."pipx:mdformat"]]
@@ -118,11 +136,16 @@ version = "3.8.1"
 backend = "npm:prettier"
 
 [[tools.python]]
-version = "3.13.11"
+version = "3.14.3"
 backend = "core:python"
+"platforms.linux-arm64" = { checksum = "sha256:be0f4dc2932f762292b27d46ea7d3e8e66ddf3969a5eb0254a229015ed402625", url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.14.3+20260303-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"}
+"platforms.linux-x64" = { checksum = "sha256:0a73413f89efd417871876c9accaab28a9d1e3cd6358fbfff171a38ec99302f0", url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.14.3+20260303-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"}
+"platforms.macos-arm64" = { checksum = "sha256:4703cdf18b26798fde7b49b6b66149674c25f97127be6a10dbcf29309bdcdcdb", url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.14.3+20260303-aarch64-apple-darwin-install_only_stripped.tar.gz"}
+"platforms.macos-x64" = { checksum = "sha256:76f1cc26e3d262eae8ca546a93e8bded10cf0323613f7e246fea2e10a8115eb7", url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.14.3+20260303-x86_64-apple-darwin-install_only_stripped.tar.gz"}
+"platforms.windows-x64" = { checksum = "sha256:950c5f21a015c1bdd1337f233456df2470fab71e4d794407d27a84cb8b9909a0", url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.14.3+20260303-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"}
 
 [[tools.rust]]
-version = "1.91.0"
+version = "1.93.1"
 backend = "core:rust"
 
 [[tools.scorecard]]
