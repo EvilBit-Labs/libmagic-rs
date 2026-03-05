@@ -34,6 +34,7 @@ scorecard                   = "5.4.0"
 "cargo:release-plz"         = "0.3.156"
 "pipx:pre-commit"           = "latest"
 "bun"                       = "latest"
+shellcheck                  = "0.11.0"
 
 # Many of these settings are defaults, but we are explicit in case they change in the future and to make it clear to users what is enabled.
 [settings]
