@@ -27,24 +27,24 @@ mdbook build
 
 For quick access without building the mdbook:
 
-| Document | Description |
-|----------|-------------|
-| [Getting Started](GETTING_STARTED.md) | Quick start guide and tutorials |
-| [API Reference](API_REFERENCE.md) | Complete library API documentation |
-| [CLI Reference](CLI_REFERENCE.md) | Command-line tool documentation |
-| [Architecture Guide](ARCHITECTURE.md) | System design and internals |
-| [Magic File Format](MAGIC_FORMAT.md) | Guide to writing magic rules |
+| Document                              | Description                        |
+| ------------------------------------- | ---------------------------------- |
+| [Getting Started](GETTING_STARTED.md) | Quick start guide and tutorials    |
+| [API Reference](API_REFERENCE.md)     | Complete library API documentation |
+| [CLI Reference](CLI_REFERENCE.md)     | Command-line tool documentation    |
+| [Architecture Guide](ARCHITECTURE.md) | System design and internals        |
+| [Magic File Format](MAGIC_FORMAT.md)  | Guide to writing magic rules       |
 
 ## Architecture Diagrams
 
 Mermaid diagrams are available in `docs/diagrams/`:
 
-| Diagram | Description |
-|---------|-------------|
-| [architecture.mmd](diagrams/architecture.mmd) | System architecture |
-| [evaluation-flow.mmd](diagrams/evaluation-flow.mmd) | Rule evaluation flowchart |
-| [error-handling.mmd](diagrams/error-handling.mmd) | Error hierarchy |
-| [module-structure.mmd](diagrams/module-structure.mmd) | Module dependencies |
+| Diagram                                               | Description               |
+| ----------------------------------------------------- | ------------------------- |
+| [architecture.mmd](diagrams/architecture.mmd)         | System architecture       |
+| [evaluation-flow.mmd](diagrams/evaluation-flow.mmd)   | Rule evaluation flowchart |
+| [error-handling.mmd](diagrams/error-handling.mmd)     | Error hierarchy           |
+| [module-structure.mmd](diagrams/module-structure.mmd) | Module dependencies       |
 
 Render with: `mmdc -i diagram.mmd -o diagram.svg`
 
@@ -101,12 +101,12 @@ rmagic --use-builtin *.bin
 
 ### Supported File Types (Built-in)
 
-| Category | Formats |
-|----------|---------|
-| Executables | ELF, PE/DOS (MZ) |
-| Archives | ZIP, TAR, GZIP |
-| Images | JPEG, PNG, GIF, BMP |
-| Documents | PDF |
+| Category    | Formats             |
+| ----------- | ------------------- |
+| Executables | ELF, PE/DOS (MZ)    |
+| Archives    | ZIP, TAR, GZIP      |
+| Images      | JPEG, PNG, GIF, BMP |
+| Documents   | PDF                 |
 
 ### Security Features
 
@@ -122,6 +122,7 @@ rmagic --use-builtin *.bin
 This documentation is for **libmagic-rs v0.1.0**.
 
 For the latest documentation, visit:
+
 - [docs.rs/libmagic-rs](https://docs.rs/libmagic-rs) - API documentation
 - [GitHub](https://github.com/EvilBit-Labs/libmagic-rs) - Source and issues
 

@@ -227,6 +227,7 @@ pub struct MagicDatabase {
 ```
 
 **Responsibilities:**
+
 - Load rules from files, directories, or built-in
 - Coordinate evaluation with configuration
 - Present results in a user-friendly format
@@ -246,6 +247,7 @@ pub struct EvaluationConfig {
 ```
 
 **Security Limits:**
+
 - Recursion depth: 1-1000 (default: 20)
 - String length: 1-1MB (default: 8192)
 - Timeout: 1-300000ms (5 minutes max)
@@ -268,6 +270,7 @@ pub struct MagicRule {
 ```
 
 **TypeKind Variants:**
+
 - `Byte { signed: bool }` - 8-bit integer
 - `Short { endian: Endianness, signed: bool }` - 16-bit integer
 - `Long { endian: Endianness, signed: bool }` - 32-bit integer
@@ -275,11 +278,13 @@ pub struct MagicRule {
 - `String { max_length: Option<usize> }` - Null-terminated string
 
 **Hierarchical Structure:**
+
 - Top-level rules (level 0) are entry points
 - Child rules are evaluated only if parent matches
 - Deeper matches = higher confidence
 
 **Operator Support:**
+
 - Supports comparison operators (`<`, `>`, `<=`, `>=`) in addition to equality (`=`, `!=`) and bitwise operators (`&`)
 
 ### EvaluationContext
@@ -295,6 +300,7 @@ pub struct EvaluationContext {
 ```
 
 **State Management:**
+
 - Offset tracking for relative offsets
 - Recursion depth monitoring
 - Configuration access
@@ -316,6 +322,7 @@ pub trait SafeBufferAccess {
 ```
 
 **Safety Features:**
+
 - Bounds checking on all accesses
 - No direct indexing
 - Empty file handling
@@ -329,6 +336,7 @@ pub trait SafeBufferAccess {
 **Decision:** Separate parsing from evaluation with an AST intermediary.
 
 **Rationale:**
+
 - Allows rule caching and reuse
 - Enables different evaluation strategies
 - Simplifies testing and debugging
@@ -339,6 +347,7 @@ pub trait SafeBufferAccess {
 **Decision:** Use nom parser combinators for magic file parsing.
 
 **Rationale:**
+
 - Zero-copy parsing where possible
 - Composable parser fragments
 - Strong error handling
@@ -349,6 +358,7 @@ pub trait SafeBufferAccess {
 **Decision:** Use memmap2 for file access.
 
 **Rationale:**
+
 - Efficient for large files
 - Lazy loading (only read what's needed)
 - OS-managed caching
@@ -359,6 +369,7 @@ pub trait SafeBufferAccess {
 **Decision:** All buffer access through `.get()` methods.
 
 **Rationale:**
+
 - Prevents buffer overruns
 - No panic on invalid offsets
 - Safe handling of truncated files
@@ -369,6 +380,7 @@ pub trait SafeBufferAccess {
 **Decision:** Validate configuration at creation time.
 
 **Rationale:**
+
 - Fail fast on invalid settings
 - Prevent security issues
 - Clear error messages
@@ -379,6 +391,7 @@ pub trait SafeBufferAccess {
 **Decision:** Prefer text magic files over binary .mgc files.
 
 **Rationale:**
+
 - Text files are debuggable
 - Better for version control
 - Easier development workflow
@@ -390,14 +403,14 @@ pub trait SafeBufferAccess {
 
 ### Threat Model
 
-| Threat | Mitigation |
-|--------|------------|
-| Stack overflow via deep nesting | `max_recursion_depth` limit |
-| Memory exhaustion via large strings | `max_string_length` limit |
-| DoS via infinite evaluation | `timeout_ms` limit |
-| Buffer overrun | Bounds checking everywhere |
-| Malformed input | Graceful error handling |
-| Integer overflow | Checked arithmetic |
+| Threat                              | Mitigation                  |
+| ----------------------------------- | --------------------------- |
+| Stack overflow via deep nesting     | `max_recursion_depth` limit |
+| Memory exhaustion via large strings | `max_string_length` limit   |
+| DoS via infinite evaluation         | `timeout_ms` limit          |
+| Buffer overrun                      | Bounds checking everywhere  |
+| Malformed input                     | Graceful error handling     |
+| Integer overflow                    | Checked arithmetic          |
 
 ### Security Layers
 
@@ -436,6 +449,7 @@ pub trait SafeBufferAccess {
 ### Dependency Safety
 
 Vetted dependencies with minimal unsafe:
+
 - `memmap2` - Memory mapping (audited)
 - `byteorder` - Endianness (no unsafe)
 - `nom` - Parsing (no unsafe)
@@ -448,6 +462,7 @@ Vetted dependencies with minimal unsafe:
 ### Hot Path Optimization
 
 The evaluation hot path is optimized for:
+
 1. Minimal allocations
 2. Zero-copy buffer access
 3. Early exit on mismatch
@@ -481,6 +496,7 @@ The evaluation hot path is optimized for:
 **Example: Quad Type Implementation**
 
 The `Quad` type (64-bit integer) demonstrates the type system extension pattern. The implementation includes:
+
 - `TypeKind::Quad { endian: Endianness, signed: bool }` variant in the AST
 - `read_quad()` function for safe buffer access with bounds checking
 - Parsing support for `quad`, `uquad`, `lequad`, `ulequad`, `bequad`, `ubequad` type names
@@ -497,6 +513,7 @@ The `Quad` type (64-bit integer) demonstrates the type system extension pattern.
 6. Update documentation
 
 **Implemented Operators:**
+
 - `Equal` (`=`, `==`)
 - `NotEqual` (`!=`, `<>`)
 - `LessThan` (`<`)
