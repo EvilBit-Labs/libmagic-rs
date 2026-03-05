@@ -448,10 +448,7 @@ All pull requests require review before merging. Reviews are performed by mainta
 - **Style**: Follows project conventions, passes `cargo fmt` and `cargo clippy -- -D warnings`
 - **Documentation**: Public APIs have rustdoc with examples, AGENTS.md updated if architecture changes
 
-CI must pass before merge. Mergify merge protections enforce these checks.
-Bot PRs from dependabot and dosubot are auto-merged by Mergify when all required CI checks pass.
-Bot PRs from release-plz are auto-merged by Mergify when their required DCO check passes (they are exempt from full CI in `.mergify.yml`).
-Human PRs are merged manually by maintainers.
+CI must pass before merge. Mergify merge protections enforce these checks. Bot PRs from dependabot and dosubot are auto-merged by Mergify when all required CI checks pass. Bot PRs from release-plz are auto-merged by Mergify when their required DCO check passes (they are exempt from full CI in `.mergify.yml`). Human PRs are merged manually by maintainers.
 
 ## Project Context
 
