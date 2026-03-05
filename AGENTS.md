@@ -87,8 +87,12 @@ parser/
 // Evaluator module structure
 evaluator/
 ├── mod.rs          // Main evaluation engine
-├── offset.rs       // Offset resolution (absolute, indirect, relative)
 ├── types.rs        // Type interpretation with endianness
+├── offset/         // Offset resolution submodule
+│   ├── mod.rs      // Dispatcher (resolve_offset) and re-exports
+│   ├── absolute.rs // OffsetError, resolve_absolute_offset
+│   ├── indirect.rs // resolve_indirect_offset stub (issue #37)
+│   └── relative.rs // resolve_relative_offset stub (issue #38)
 └── operators/      // Operator application submodule
     ├── mod.rs      // Dispatcher (apply_operator) and re-exports
     ├── equality.rs // apply_equal, apply_not_equal
