@@ -519,6 +519,6 @@ Currently, libmagic-rs does not have optional feature flags. All functionality i
 
 ## Version Compatibility
 
-- **Minimum Rust Version**: 1.85
+- **Minimum Rust Version**: 1.89
 - **Edition**: 2024
 - **License**: Apache-2.0

@@ -485,10 +485,10 @@ pub use error::{EvaluationError, LibmagicError, ParseError};
 
 ## Version Compatibility
 
-- **Minimum Rust Version**: 1.85
+- **Minimum Rust Version**: 1.89
 - **Edition**: 2024
 - **License**: Apache-2.0
-- **Current Version**: 0.3.0
+- **Current Version**: 0.3.1
 
 ### Breaking Changes in v0.3.0
 

@@ -23,7 +23,7 @@ This project follows the [Rust Code of Conduct](https://www.rust-lang.org/polici
 
 ### Prerequisites
 
-- **Rust 1.85+** (edition 2024)
+- **Rust 1.89+** (edition 2024)
 - **Cargo** (comes with Rust)
 - **Git** for version control
 
