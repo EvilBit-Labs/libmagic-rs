@@ -127,6 +127,10 @@ backend = "pipx:mdformat"
 [tools."pipx:mdformat".options]
 uvx_args = "--with mdformat-gfm --with mdformat-frontmatter --with mdformat-footnote --with mdformat-simple-breaks --with mdformat-gfm-alerts --with mdformat-toc --with mdformat-wikilink --with mdformat-tables"
 
+[[tools."pipx:pre-commit"]]
+version = "4.5.1"
+backend = "pipx:pre-commit"
+
 [[tools.pre-commit]]
 version = "4.5.1"
 backend = "aqua:pre-commit/pre-commit"
