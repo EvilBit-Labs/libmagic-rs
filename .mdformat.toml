@@ -20,7 +20,6 @@ extensions = [
     "frontmatter",
     "footnote",
     "simple_breaks",
-    "tables",
     "gfm_alerts",
     "toc",
     "wikilink",
@@ -28,5 +27,4 @@ extensions = [
 
 [plugin.mkdocs]
 align_semantic_breaks_in_lists = true
-ignore_missing_references = true
-
+ignore_missing_references      = true
