@@ -1,6 +1,7 @@
 
 # Several tools are pinned to "latest" to enable the idiomatic version file support. The version is managed by a version file.
 [tools]
+rust                        = { version = "stable", components = "llvm-tools,cargo,rustfmt,clippy,rust-mingw", profile = "default", targets = "aarch64-apple-darwin,aarch64-unknown-linux-gnu,aarch64-pc-windows-msvc,x86_64-apple-darwin,x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl,x86_64-pc-windows-msvc" }
 cargo-binstall              = "latest"
 cargo-insta                 = "1.46.3"
 "cargo:cargo-audit"         = "0.22.1"
@@ -18,7 +19,6 @@ cargo-insta                 = "1.46.3"
 "cargo:mdbook-i18n-helpers" = "0.4.0"
 just                        = "latest"
 python                      = "latest"
-rust                        = { version = "latest", components = "llvm-tools,cargo,rustfmt,clippy", profile = "default" }
 "cargo:cargo-outdated"      = "0.17.0"
 "cargo:cargo-release"       = "1.1.1"
 "cargo:cargo-auditable"     = "0.7.4"
