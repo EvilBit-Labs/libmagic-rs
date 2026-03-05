@@ -55,24 +55,25 @@ repos:
           - id: cargo-machete
 
     # Markdown formatting and linting (temporarily disabled due to rust code block formatting issues)
-    # - repo: https://github.com/hukkin/mdformat
-    #   rev: 0.7.22
-    #   hooks:
-    #       - id: mdformat
-    #         additional_dependencies:
-    #             - mdformat-gfm
-    #             - mdformat-admon
-    #             - mdformat-config
-    #             - mdformat-footnote
-    #             - mdformat-front-matters
-    #             - mdformat-simple-breaks
-    #             - mdformat-tables
-    #             - mdformat-web
-    #             - mdformat-wikilink
-    #             - mdformat-gfm-alerts
-    #             - mdformat-toc
-    #         files: \.(md|mdx)$
-    #         exclude: ^target/|
+    - repo: https://github.com/hukkin/mdformat
+      rev: 0.7.22
+      hooks:
+          - id: mdformat
+            additional_dependencies:
+                - mdformat-gfm
+                - mdformat-admon
+                - mdformat-config
+                - mdformat-footnote
+                - mdformat-front-matters
+                - mdformat-simple-breaks
+                - mdformat-tables
+                - mdformat-web
+                - mdformat-wikilink
+                - mdformat-gfm-alerts
+                - mdformat-toc
+            types:
+                - markdown
+            exclude: ^target/|
 
     - repo: https://github.com/DevinR528/cargo-sort
       rev: v2.0.2
