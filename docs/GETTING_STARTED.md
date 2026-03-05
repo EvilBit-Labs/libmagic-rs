@@ -21,7 +21,7 @@ Add libmagic-rs to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-libmagic-rs = "0.3.0"
+libmagic-rs = "0.3.1"
 ```
 
 **Note:** Version 0.3.0 introduces breaking changes. If upgrading from 0.2.x, note that a new `TypeKind::Quad` enum variant was added for 64-bit quad integer types with endian variants, `TypeKind::String` variant discriminant changed from 3 to 4, and `evaluator::MatchResult` was renamed to `evaluator::RuleMatch` to resolve a naming collision with `output::MatchResult`. The public re-export is `RuleMatch`. Exhaustive pattern matching on `TypeKind` requires updates.
@@ -65,7 +65,7 @@ Edit `Cargo.toml`:
 
 ```toml
 [dependencies]
-libmagic-rs = "0.3.0"
+libmagic-rs = "0.3.1"
 ```
 
 #### Step 3: Write Code
