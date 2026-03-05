@@ -54,7 +54,7 @@ rmagic [OPTIONS] -
 | `--magic-file <FILE>` | Use custom magic file or directory |
 | `--use-builtin`       | Use built-in magic rules           |
 
-**Note:** When both are specified, `--use-builtin` takes precedence.
+**Note:** `--magic-file` and `--use-builtin` are mutually exclusive.
 
 ### Behavior
 

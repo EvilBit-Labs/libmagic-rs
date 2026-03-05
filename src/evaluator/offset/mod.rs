@@ -15,6 +15,23 @@ pub use absolute::{OffsetError, resolve_absolute_offset};
 use crate::LibmagicError;
 use crate::parser::ast::OffsetSpec;
 
+/// Map an `OffsetError` to a `LibmagicError` for a given original offset value
+fn map_offset_error(e: &OffsetError, original_offset: i64) -> LibmagicError {
+    match e {
+        OffsetError::BufferOverrun {
+            offset,
+            buffer_len: _,
+        } => LibmagicError::EvaluationError(crate::error::EvaluationError::BufferOverrun {
+            offset: *offset,
+        }),
+        OffsetError::InvalidOffset { reason: _ } | OffsetError::ArithmeticOverflow => {
+            LibmagicError::EvaluationError(crate::error::EvaluationError::InvalidOffset {
+                offset: original_offset,
+            })
+        }
+    }
+}
+
 /// Resolve any offset specification to an absolute position
 ///
 /// This is a higher-level function that handles all types of offset specifications.
@@ -49,37 +66,13 @@ use crate::parser::ast::OffsetSpec;
 pub fn resolve_offset(spec: &OffsetSpec, buffer: &[u8]) -> Result<usize, LibmagicError> {
     match spec {
         OffsetSpec::Absolute(offset) => {
-            resolve_absolute_offset(*offset, buffer).map_err(|e| match e {
-                OffsetError::BufferOverrun {
-                    offset,
-                    buffer_len: _,
-                } => LibmagicError::EvaluationError(crate::error::EvaluationError::BufferOverrun {
-                    offset,
-                }),
-                OffsetError::InvalidOffset { reason: _ } | OffsetError::ArithmeticOverflow => {
-                    LibmagicError::EvaluationError(crate::error::EvaluationError::InvalidOffset {
-                        offset: *offset,
-                    })
-                }
-            })
+            resolve_absolute_offset(*offset, buffer).map_err(|e| map_offset_error(&e, *offset))
         }
         OffsetSpec::Indirect { .. } => indirect::resolve_indirect_offset(spec, buffer),
         OffsetSpec::Relative(_) => relative::resolve_relative_offset(spec, buffer),
         OffsetSpec::FromEnd(offset) => {
             // FromEnd is handled the same as negative Absolute offsets
-            resolve_absolute_offset(*offset, buffer).map_err(|e| match e {
-                OffsetError::BufferOverrun {
-                    offset,
-                    buffer_len: _,
-                } => LibmagicError::EvaluationError(crate::error::EvaluationError::BufferOverrun {
-                    offset,
-                }),
-                OffsetError::InvalidOffset { reason: _ } | OffsetError::ArithmeticOverflow => {
-                    LibmagicError::EvaluationError(crate::error::EvaluationError::InvalidOffset {
-                        offset: *offset,
-                    })
-                }
-            })
+            resolve_absolute_offset(*offset, buffer).map_err(|e| map_offset_error(&e, *offset))
         }
     }
 }

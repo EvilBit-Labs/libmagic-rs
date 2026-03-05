@@ -40,10 +40,10 @@ These two flags are mutually exclusive. Passing both `--json` and `--text` produ
 
 ### Magic File Flags
 
-| Flag                | Description                                                                                                   |
-| ------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `--magic-file FILE` | Use a custom magic file instead of the system default.                                                        |
-| `--use-builtin`     | Use built-in magic rules compiled into the binary. Takes precedence over `--magic-file` if both are provided. |
+| Flag                | Description                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------ |
+| `--magic-file FILE` | Use a custom magic file instead of the system default.                                     |
+| `--use-builtin`     | Use built-in magic rules compiled into the binary. Mutually exclusive with `--magic-file`. |
 
 The built-in rules cover common file types: ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, and PDF. They are compiled at build time and require no external files.
 
