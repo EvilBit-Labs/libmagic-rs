@@ -123,7 +123,7 @@ The evaluator executes magic rules against file buffers to identify file types. 
 
 **Structure:**
 
-- `mod.rs`: Main evaluation engine with `EvaluationContext` and `MatchResult`
+- `mod.rs`: Main evaluation engine with `EvaluationContext` and `RuleMatch`
 - `offset.rs`: Offset resolution (absolute, relative, from-end)
 - `types.rs`: Type interpretation with endianness handling and signedness coercion
 - `operators.rs`: Comparison and bitwise operations
