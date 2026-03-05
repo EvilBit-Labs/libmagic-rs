@@ -124,9 +124,17 @@ The evaluator executes magic rules against file buffers to identify file types. 
 **Structure:**
 
 - `mod.rs`: Main evaluation engine with `EvaluationContext` and `RuleMatch`
-- `offset.rs`: Offset resolution (absolute, relative, from-end)
 - `types.rs`: Type interpretation with endianness handling and signedness coercion
-- `operators.rs`: Comparison and bitwise operations
+- `offset/`: Offset resolution submodule
+  - `mod.rs`: Dispatcher (`resolve_offset`) and re-exports
+  - `absolute.rs`: `OffsetError`, `resolve_absolute_offset`
+  - `indirect.rs`: `resolve_indirect_offset` stub (issue #37)
+  - `relative.rs`: `resolve_relative_offset` stub (issue #38)
+- `operators/`: Operator application submodule
+  - `mod.rs`: Dispatcher (`apply_operator`) and re-exports
+  - `equality.rs`: `apply_equal`, `apply_not_equal`
+  - `comparison.rs`: `compare_values`, `apply_less_than`/`greater_than`/`less_equal`/`greater_equal`
+  - `bitwise.rs`: `apply_bitwise_and`, `apply_bitwise_and_mask`
 
 **Implemented Features:**
 
