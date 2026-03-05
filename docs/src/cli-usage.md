@@ -25,34 +25,34 @@ rmagic --help
 
 ### Positional Arguments
 
-| Argument | Description |
-|----------|-------------|
+| Argument  | Description                                                          |
+| --------- | -------------------------------------------------------------------- |
 | `FILE...` | One or more files to analyze (required). Use `-` to read from stdin. |
 
 ### Output Format Flags
 
-| Flag | Description |
-|------|-------------|
-| `--text` | Output results in text format. This is the default. |
+| Flag     | Description                                             |
+| -------- | ------------------------------------------------------- |
+| `--text` | Output results in text format. This is the default.     |
 | `--json` | Output results in JSON format. Conflicts with `--text`. |
 
 These two flags are mutually exclusive. Passing both `--json` and `--text` produces an error.
 
 ### Magic File Flags
 
-| Flag | Description |
-|------|-------------|
-| `--magic-file FILE` | Use a custom magic file instead of the system default. |
-| `--use-builtin` | Use built-in magic rules compiled into the binary. Takes precedence over `--magic-file` if both are provided. |
+| Flag                | Description                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `--magic-file FILE` | Use a custom magic file instead of the system default.                                                        |
+| `--use-builtin`     | Use built-in magic rules compiled into the binary. Takes precedence over `--magic-file` if both are provided. |
 
 The built-in rules cover common file types: ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, and PDF. They are compiled at build time and require no external files.
 
 ### Behavior Flags
 
-| Flag | Description |
-|------|-------------|
-| `--strict` | Exit with a non-zero code on processing failures (I/O, parse, or evaluation errors). A "data" result (unknown file type) is **not** considered an error. |
-| `--timeout-ms MS` | Per-file evaluation timeout in milliseconds. Valid range: 1--300000 (5 minutes). |
+| Flag              | Description                                                                                                                                              |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--strict`        | Exit with a non-zero code on processing failures (I/O, parse, or evaluation errors). A "data" result (unknown file type) is **not** considered an error. |
+| `--timeout-ms MS` | Per-file evaluation timeout in milliseconds. Valid range: 1--300000 (5 minutes).                                                                         |
 
 ## Output Formats
 
@@ -89,7 +89,10 @@ $ rmagic --json image.png
     {
       "description": "PNG image data",
       "offset": 0,
-      "tags": ["image", "png"],
+      "tags": [
+        "image",
+        "png"
+      ],
       "mime_type": "image/png",
       "score": 90
     }
@@ -136,14 +139,14 @@ $ rmagic --use-builtin file1.bin - file2.txt < input.dat
 
 ## Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | General error (evaluation failure, configuration error) |
-| 2 | Invalid arguments (bad command-line usage) |
-| 3 | File not found or access denied |
-| 4 | Magic file not found or invalid |
-| 5 | Evaluation timeout |
+| Code | Meaning                                                 |
+| ---- | ------------------------------------------------------- |
+| 0    | Success                                                 |
+| 1    | General error (evaluation failure, configuration error) |
+| 2    | Invalid arguments (bad command-line usage)              |
+| 3    | File not found or access denied                         |
+| 4    | Magic file not found or invalid                         |
+| 5    | Evaluation timeout                                      |
 
 ### Strict Mode and Exit Codes
 
@@ -179,19 +182,19 @@ When `--use-builtin` is not specified and no `--magic-file` is provided, `rmagic
 
 Text directories and files are checked first. If a text-format file or directory is found, it is used immediately. If only binary `.mgc` files exist, the first one found is used as a fallback.
 
-| Priority | Path | Format |
-|----------|------|--------|
-| 1 | `/usr/share/file/magic/Magdir` | Text directory |
-| 2 | `/usr/share/file/magic` | Text directory/file |
-| 3 | `/usr/share/misc/magic` | Text file |
-| 4 | `/usr/local/share/misc/magic` | Text file |
-| 5 | `/etc/magic` | Text file |
-| 6 | `/opt/local/share/file/magic` | Text file |
-| 7 | `/usr/share/file/magic.mgc` | Binary |
-| 8 | `/usr/local/share/misc/magic.mgc` | Binary |
-| 9 | `/opt/local/share/file/magic.mgc` | Binary |
-| 10 | `/etc/magic.mgc` | Binary |
-| 11 | `/usr/share/misc/magic.mgc` | Binary |
+| Priority | Path                              | Format              |
+| -------- | --------------------------------- | ------------------- |
+| 1        | `/usr/share/file/magic/Magdir`    | Text directory      |
+| 2        | `/usr/share/file/magic`           | Text directory/file |
+| 3        | `/usr/share/misc/magic`           | Text file           |
+| 4        | `/usr/local/share/misc/magic`     | Text file           |
+| 5        | `/etc/magic`                      | Text file           |
+| 6        | `/opt/local/share/file/magic`     | Text file           |
+| 7        | `/usr/share/file/magic.mgc`       | Binary              |
+| 8        | `/usr/local/share/misc/magic.mgc` | Binary              |
+| 9        | `/opt/local/share/file/magic.mgc` | Binary              |
+| 10       | `/etc/magic.mgc`                  | Binary              |
+| 11       | `/usr/share/misc/magic.mgc`       | Binary              |
 
 If none of these paths exist, `rmagic` falls back to `/usr/share/file/magic.mgc`.
 

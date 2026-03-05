@@ -344,15 +344,18 @@ Releases are automated by two complementary tools:
 ### How It Works
 
 1. Every push to `main` triggers release-plz, which opens (or updates) a **release PR** with:
+
    - Version bump in `Cargo.toml`
    - Updated `CHANGELOG.md` (generated via git-cliff)
    - Semantic versioning based on conventional commits
 
 2. When the release PR is **merged**, release-plz:
+
    - Publishes the crate to **crates.io**
    - Creates a **git tag** (e.g., `v0.2.0`)
 
 3. The git tag triggers **cargo-dist**, which:
+
    - Builds binaries for all target platforms
    - Generates SLSA attestations and SBOM
    - Publishes the Homebrew formula
@@ -375,11 +378,11 @@ PRs must be within 3 commits of `main` before merging. This exemption allows the
 
 ### Configuration Files
 
-| File | Purpose |
-|------|---------|
-| `release-plz.toml` | release-plz configuration (crates.io, tags, changelog) |
+| File                  | Purpose                                                     |
+| --------------------- | ----------------------------------------------------------- |
+| `release-plz.toml`    | release-plz configuration (crates.io, tags, changelog)      |
 | `dist-workspace.toml` | cargo-dist v0.31.0 configuration (binaries, Homebrew, SBOM) |
-| `cliff.toml` | git-cliff changelog template (shared by both tools) |
+| `cliff.toml`          | git-cliff changelog template (shared by both tools)         |
 
 ### Workflow Protection
 

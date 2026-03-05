@@ -18,6 +18,7 @@ offset  type  value  message
 ```
 
 Example:
+
 ```
 0       string  PK    ZIP archive data
 ```
@@ -32,14 +33,14 @@ This rule matches files starting with "PK" and labels them as "ZIP archive data"
 [level>]offset    type    [operator]value    message
 ```
 
-| Component | Required | Description |
-|-----------|----------|-------------|
-| `level>` | No | Indentation level for nested rules |
-| `offset` | Yes | Where to read data |
-| `type` | Yes | Data type to read |
-| `operator` | No | Comparison operator (default: `=`) |
-| `value` | Yes | Expected value |
-| `message` | Yes | Description text |
+| Component  | Required | Description                        |
+| ---------- | -------- | ---------------------------------- |
+| `level>`   | No       | Indentation level for nested rules |
+| `offset`   | Yes      | Where to read data                 |
+| `type`     | Yes      | Data type to read                  |
+| `operator` | No       | Comparison operator (default: `=`) |
+| `value`    | Yes      | Expected value                     |
+| `message`  | Yes      | Description text                   |
 
 ### Comments
 
@@ -94,10 +95,12 @@ Read pointer value and use as offset:
 ```
 
 Indirect offset syntax:
+
 - `(base.type)` - Read pointer at base, interpret as type
 - `(base.type+adj)` - Add adjustment to pointer value
 
 Types for indirect offsets:
+
 - `.b` - byte (1 byte)
 - `.s` - short (2 bytes)
 - `.l` - long (4 bytes)
@@ -118,25 +121,27 @@ The `&` prefix indicates relative offset.
 
 ### Integer Types
 
-| Type | Size | Endianness |
-|------|------|------------|
-| `byte` | 1 byte | N/A |
-| `short` | 2 bytes | native |
+| Type      | Size    | Endianness    |
+| --------- | ------- | ------------- |
+| `byte`    | 1 byte  | N/A           |
+| `short`   | 2 bytes | native        |
 | `leshort` | 2 bytes | little-endian |
-| `beshort` | 2 bytes | big-endian |
-| `long` | 4 bytes | native |
-| `lelong` | 4 bytes | little-endian |
-| `belong` | 4 bytes | big-endian |
-| `quad` | 8 bytes | native |
-| `lequad` | 8 bytes | little-endian |
-| `bequad` | 8 bytes | big-endian |
+| `beshort` | 2 bytes | big-endian    |
+| `long`    | 4 bytes | native        |
+| `lelong`  | 4 bytes | little-endian |
+| `belong`  | 4 bytes | big-endian    |
+| `quad`    | 8 bytes | native        |
+| `lequad`  | 8 bytes | little-endian |
+| `bequad`  | 8 bytes | big-endian    |
 
 All integer types have unsigned variants prefixed with `u`:
+
 - `ubyte`, `ushort`, `uleshort`, `ubeshort`
 - `ulong`, `ulelong`, `ubelong`
 - `uquad`, `ulequad`, `ubequad`
 
 Examples:
+
 ```
 0       byte      0x7f      (byte match)
 0       leshort   0x5a4d    DOS MZ signature
@@ -155,6 +160,7 @@ Match literal string data:
 ```
 
 String escape sequences:
+
 - `\x00` - hex byte
 - `\n` - newline
 - `\t` - tab
@@ -164,13 +170,14 @@ String escape sequences:
 
 > **Note:** String flags are documented for libmagic compatibility reference but are not yet implemented in libmagic-rs.
 
-| Flag | Description |
-|------|-------------|
+| Flag | Description            |
+| ---- | ---------------------- |
 | `/c` | Case-insensitive match |
 | `/w` | Whitespace-insensitive |
 | `/b` | Match at word boundary |
 
 Example:
+
 ```
 0       string/c  <!doctype  HTML document
 ```
@@ -179,16 +186,16 @@ Example:
 
 ### Comparison Operators
 
-| Operator | Description | Example |
-|----------|-------------|---------|
-| `=` | Equal (default) | `0 long =0xcafebabe` |
-| `!=` | Not equal | `4 byte !=0` |
-| `>` | Greater than | `8 long >1000` |
-| `<` | Less than | `8 long <100` |
-| `>=` | Greater than or equal | `8 long >=1000` |
-| `<=` | Less than or equal | `8 long <=100` |
-| `&` | Bitwise AND | `4 byte &0x80` |
-| `^` | Bitwise XOR (not yet implemented) | `4 byte ^0xff` |
+| Operator | Description                       | Example              |
+| -------- | --------------------------------- | -------------------- |
+| `=`      | Equal (default)                   | `0 long =0xcafebabe` |
+| `!=`     | Not equal                         | `4 byte !=0`         |
+| `>`      | Greater than                      | `8 long >1000`       |
+| `<`      | Less than                         | `8 long <100`        |
+| `>=`     | Greater than or equal             | `8 long >=1000`      |
+| `<=`     | Less than or equal                | `8 long <=100`       |
+| `&`      | Bitwise AND                       | `4 byte &0x80`       |
+| `^`      | Bitwise XOR (not yet implemented) | `4 byte ^0xff`       |
 
 ### Bitwise AND with Mask
 
@@ -241,11 +248,12 @@ Prefix operator with `!` for negation:
 
 ### Special Values
 
-| Value | Description |
-|-------|-------------|
-| `x` | Match any value (always true) |
+| Value | Description                   |
+| ----- | ----------------------------- |
+| `x`   | Match any value (always true) |
 
 Example:
+
 ```
 0       string  PK        ZIP archive
 >4      short   x         version %d
@@ -270,6 +278,7 @@ Use `>` prefix for nested rules:
 ```
 
 Evaluation:
+
 1. Check offset 0 for ELF magic
 2. If matched, check offset 4 for bit size
 3. If matched, check offset 5 for endianness
@@ -417,6 +426,7 @@ Put more specific rules first:
 ### 4. Test Edge Cases
 
 Consider:
+
 - Empty files
 - Truncated files
 - Minimum valid file size

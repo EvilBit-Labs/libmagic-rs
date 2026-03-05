@@ -1,8 +1,6 @@
 # Configuration
 
-libmagic-rs provides a single configuration struct, `EvaluationConfig`, that controls
-how magic rules are evaluated. All fields have safe defaults, and the `validate()`
-method enforces security bounds before any evaluation begins.
+libmagic-rs provides a single configuration struct, `EvaluationConfig`, that controls how magic rules are evaluated. All fields have safe defaults, and the `validate()` method enforces security bounds before any evaluation begins.
 
 ## EvaluationConfig
 
@@ -20,13 +18,13 @@ pub struct EvaluationConfig {
 
 ### Field Reference
 
-| Field | Type | Default | Bounds | Purpose |
-|---|---|---|---|---|
-| `max_recursion_depth` | `u32` | 20 | 1 -- 1000 | Limits nested rule traversal depth to prevent stack overflow |
-| `max_string_length` | `usize` | 8192 | 1 -- 1_048_576 | Caps bytes read for string types to prevent memory exhaustion |
-| `stop_at_first_match` | `bool` | `true` | -- | When true, evaluation stops after the first matching rule |
-| `enable_mime_types` | `bool` | `false` | -- | When true, maps file type descriptions to standard MIME types |
-| `timeout_ms` | `Option<u64>` | `None` | 1 -- 300_000 | Per-file evaluation timeout in milliseconds; `None` disables |
+| Field                 | Type          | Default | Bounds         | Purpose                                                       |
+| --------------------- | ------------- | ------- | -------------- | ------------------------------------------------------------- |
+| `max_recursion_depth` | `u32`         | 20      | 1 -- 1000      | Limits nested rule traversal depth to prevent stack overflow  |
+| `max_string_length`   | `usize`       | 8192    | 1 -- 1_048_576 | Caps bytes read for string types to prevent memory exhaustion |
+| `stop_at_first_match` | `bool`        | `true`  | --             | When true, evaluation stops after the first matching rule     |
+| `enable_mime_types`   | `bool`        | `false` | --             | When true, maps file type descriptions to standard MIME types |
+| `timeout_ms`          | `Option<u64>` | `None`  | 1 -- 300_000   | Per-file evaluation timeout in milliseconds; `None` disables  |
 
 ## Constructor Presets
 
@@ -89,9 +87,7 @@ let config = EvaluationConfig {
 
 ## Validation
 
-Call `validate()` to check that all values fall within safe bounds. The `MagicDatabase`
-constructors call `validate()` automatically, so you only need to call it explicitly
-when creating a config that will be stored for later use.
+Call `validate()` to check that all values fall within safe bounds. The `MagicDatabase` constructors call `validate()` automatically, so you only need to call it explicitly when creating a config that will be stored for later use.
 
 ```rust
 use libmagic_rs::EvaluationConfig;
@@ -110,22 +106,13 @@ assert!(bad.validate().is_err());
 
 The `validate()` method enforces four categories of security constraints:
 
-**Recursion depth** -- must be between 1 and 1000. A value of 0 is rejected
-because evaluation cannot proceed without at least one level. Values above 1000
-risk stack overflow.
+**Recursion depth** -- must be between 1 and 1000. A value of 0 is rejected because evaluation cannot proceed without at least one level. Values above 1000 risk stack overflow.
 
-**String length** -- must be between 1 and 1_048_576 (1 MB). A value of 0 is
-rejected because no string matching could occur. Values above 1 MB risk memory
-exhaustion.
+**String length** -- must be between 1 and 1_048_576 (1 MB). A value of 0 is rejected because no string matching could occur. Values above 1 MB risk memory exhaustion.
 
-**Timeout** -- if `Some`, must be between 1 and 300_000 (5 minutes). A value of 0
-is rejected as meaningless. Values above 5 minutes risk denial-of-service. `None`
-(no timeout) is always accepted.
+**Timeout** -- if `Some`, must be between 1 and 300_000 (5 minutes). A value of 0 is rejected as meaningless. Values above 5 minutes risk denial-of-service. `None` (no timeout) is always accepted.
 
-**Resource combination** -- a recursion depth above 100 combined with a string length
-above 65_536 is rejected. Deep recursion with large string reads at every level can
-compound into excessive resource consumption even when each value individually
-falls within safe bounds.
+**Resource combination** -- a recursion depth above 100 combined with a string length above 65_536 is rejected. Deep recursion with large string reads at every level can compound into excessive resource consumption even when each value individually falls within safe bounds.
 
 ## Using Configuration with MagicDatabase
 
@@ -159,14 +146,11 @@ let config = EvaluationConfig::performance();
 let db = MagicDatabase::load_from_file_with_config("custom.magic", config)?;
 ```
 
-All three constructors call `config.validate()` internally and return an error
-if the configuration is invalid. There is no way to create a `MagicDatabase`
-with an invalid configuration.
+All three constructors call `config.validate()` internally and return an error if the configuration is invalid. There is no way to create a `MagicDatabase` with an invalid configuration.
 
 ## CLI Usage
 
-The command-line interface exposes the `timeout_ms` field via the `--timeout-ms` flag.
-All other configuration values use their defaults when running from the CLI.
+The command-line interface exposes the `timeout_ms` field via the `--timeout-ms` flag. All other configuration values use their defaults when running from the CLI.
 
 ```bash
 # No timeout (default)
@@ -176,15 +160,14 @@ libmagic-rs sample.bin
 libmagic-rs --timeout-ms 5000 sample.bin
 ```
 
-If evaluation exceeds the timeout, the file is skipped and an error message is printed
-to stderr with exit code 5.
+If evaluation exceeds the timeout, the file is skipped and an error message is printed to stderr with exit code 5.
 
 ## Choosing a Preset
 
-| Scenario | Preset | Why |
-|---|---|---|
-| General file identification | `default()` | Balanced depth and limits |
-| Batch processing many files | `performance()` | Low limits, 1s timeout, early exit |
-| Forensic analysis | `comprehensive()` | Deep traversal, all matches, MIME types |
-| Untrusted input | `performance()` | Tight bounds reduce attack surface |
-| Custom requirements | Struct update syntax | Override specific fields from any preset |
+| Scenario                    | Preset               | Why                                      |
+| --------------------------- | -------------------- | ---------------------------------------- |
+| General file identification | `default()`          | Balanced depth and limits                |
+| Batch processing many files | `performance()`      | Low limits, 1s timeout, early exit       |
+| Forensic analysis           | `comprehensive()`    | Deep traversal, all matches, MIME types  |
+| Untrusted input             | `performance()`      | Tight bounds reduce attack surface       |
+| Custom requirements         | Struct update syntax | Override specific fields from any preset |
