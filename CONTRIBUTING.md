@@ -75,14 +75,14 @@ libmagic-rs follows a **parser-evaluator architecture**:
 
 ### Module Overview
 
-| Module | Purpose | Status |
-|--------|---------|--------|
-| `parser/` | Magic file parsing with nom | In Development |
-| `parser/ast.rs` | AST data structures | Complete |
-| `parser/grammar.rs` | Parsing combinators | Partial |
-| `evaluator/` | Rule evaluation engine | Planned |
-| `io/` | Memory-mapped file I/O | Complete |
-| `output/` | Result formatting | Planned |
+| Module              | Purpose                     | Status         |
+| ------------------- | --------------------------- | -------------- |
+| `parser/`           | Magic file parsing with nom | In Development |
+| `parser/ast.rs`     | AST data structures         | Complete       |
+| `parser/grammar.rs` | Parsing combinators         | Partial        |
+| `evaluator/`        | Rule evaluation engine      | Planned        |
+| `io/`               | Memory-mapped file I/O      | Complete       |
+| `output/`           | Result formatting           | Planned        |
 
 See [Architecture Documentation](docs/src/architecture.md) for detailed information.
 
@@ -97,6 +97,7 @@ See [Architecture Documentation](docs/src/architecture.md) for detailed informat
    ```
 
 2. Use conventional commit prefixes:
+
    - `feat:` - New features
    - `fix:` - Bug fixes
    - `docs:` - Documentation changes
@@ -193,7 +194,7 @@ mod tests {
 
 Example:
 
-```rust
+````rust
 /// Parses a magic rule from the input string.
 ///
 /// # Arguments
@@ -220,7 +221,7 @@ Example:
 pub fn parse_rule(input: &str) -> Result<MagicRule, ParseError> {
     // implementation
 }
-```
+````
 
 ### mdbook Guidelines
 
@@ -310,12 +311,12 @@ Run `cargo fmt` before committing.
 
 ### Naming Conventions
 
-| Item | Convention | Example |
-|------|------------|---------|
-| Types | PascalCase | `MagicRule`, `ParseError` |
-| Functions | snake_case | `parse_rule`, `read_bytes` |
-| Constants | SCREAMING_SNAKE_CASE | `MAX_BUFFER_SIZE` |
-| Modules | snake_case | `parser`, `evaluator` |
+| Item      | Convention           | Example                    |
+| --------- | -------------------- | -------------------------- |
+| Types     | PascalCase           | `MagicRule`, `ParseError`  |
+| Functions | snake_case           | `parse_rule`, `read_bytes` |
+| Constants | SCREAMING_SNAKE_CASE | `MAX_BUFFER_SIZE`          |
+| Modules   | snake_case           | `parser`, `evaluator`      |
 
 ### Error Handling
 
@@ -343,10 +344,10 @@ libmagic-rs uses a **maintainer-driven** governance model. Decisions are made by
 
 ### Roles
 
-| Role | Responsibilities | Current |
-|------|-----------------|---------|
-| **Maintainer** | Merge PRs, manage releases, set project direction, review security reports | [@unclesp1d3r](https://github.com/unclesp1d3r), [@KryptoKat08](https://github.com/KryptoKat08) |
-| **Contributor** | Submit issues, PRs, and participate in discussions | Anyone following this guide |
+| Role            | Responsibilities                                                           | Current                                                                                        |
+| --------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| **Maintainer**  | Merge PRs, manage releases, set project direction, review security reports | [@unclesp1d3r](https://github.com/unclesp1d3r), [@KryptoKat08](https://github.com/KryptoKat08) |
+| **Contributor** | Submit issues, PRs, and participate in discussions                         | Anyone following this guide                                                                    |
 
 ### How Decisions Are Made
 
