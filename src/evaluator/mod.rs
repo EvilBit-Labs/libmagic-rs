@@ -307,10 +307,17 @@ pub fn evaluate_single_rule(
     let expected_value = types::coerce_value_to_type(&rule.value, &rule.typ);
 
     // Step 4: Apply the operator to compare the read value with the expected value
-    Ok(
-        operators::apply_operator(&rule.op, &read_value, &expected_value)
-            .then_some((absolute_offset, read_value)),
-    )
+    // BitwiseNot needs type-aware bit-width masking so the complement is computed
+    // at the type's natural width (e.g., byte NOT of 0x00 = 0xFF, not u64::MAX).
+    let matched = match &rule.op {
+        crate::parser::ast::Operator::BitwiseNot => operators::apply_bitwise_not_with_width(
+            &read_value,
+            &expected_value,
+            rule.typ.bit_width(),
+        ),
+        op => operators::apply_operator(op, &read_value, &expected_value),
+    };
+    Ok(matched.then_some((absolute_offset, read_value)))
 }
 
 /// Evaluate a list of magic rules against a file buffer with hierarchical processing
