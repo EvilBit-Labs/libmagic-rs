@@ -102,6 +102,10 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
         Operator::BitwiseAndMask(_) => 7,
         // Plain bitwise AND is least specific
         Operator::BitwiseAnd => 3,
+        // Bitwise XOR and NOT are moderately specific
+        Operator::BitwiseXor | Operator::BitwiseNot => 4,
+        // Any value always matches, least specific
+        Operator::AnyValue => 1,
     };
 
     // Offset contribution: absolute offsets are most reliable
@@ -179,8 +183,8 @@ pub fn apply_strength_modifier(base_strength: i32, modifier: &StrengthModifier) 
         StrengthModifier::Multiply(n) => base_strength.saturating_mul(*n),
         StrengthModifier::Divide(n) => {
             if *n == 0 {
-                // Division by zero: log warning and return base strength unchanged
-                eprintln!("Warning: strength modifier !:strength /0 ignored (division by zero)");
+                // Division by zero: return base strength unchanged
+                // (magic file contains !:strength /0 which is invalid)
                 base_strength
             } else {
                 base_strength / n

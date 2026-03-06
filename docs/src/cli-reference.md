@@ -17,7 +17,7 @@ cargo install --path .
 
 ## Synopsis
 
-```
+```text
 rmagic [OPTIONS] <FILE>...
 rmagic [OPTIONS] -
 ```
@@ -84,13 +84,13 @@ rmagic [OPTIONS] -
 
 One line per file in the format:
 
-```
+```text
 filename: description
 ```
 
 **Examples:**
 
-```
+```text
 document.pdf: PDF document
 image.png: PNG image data
 binary.exe: PE32 executable
@@ -277,7 +277,7 @@ fi
 
 ### Common Issues
 
-**"Magic file not found"**
+#### "Magic file not found"
 
 ```bash
 # Solution 1: Use built-in rules
@@ -290,7 +290,7 @@ rmagic --magic-file /path/to/magic file.bin
 ls -la /usr/share/misc/magic /usr/share/file/magic* 2>/dev/null
 ```
 
-**"Unsupported format: binary .mgc"**
+#### "Unsupported format: binary .mgc"
 
 ```bash
 # Binary .mgc files are not supported
@@ -299,7 +299,7 @@ ls -la /usr/share/misc/magic /usr/share/file/magic* 2>/dev/null
 rmagic --use-builtin file.bin
 ```
 
-**"Evaluation timeout"**
+#### "Evaluation timeout"
 
 ```bash
 # Increase timeout
@@ -309,7 +309,7 @@ rmagic --timeout-ms 30000 large-file.bin
 rmagic --use-builtin large-file.bin
 ```
 
-**"Permission denied"**
+#### "Permission denied"
 
 ```bash
 # Check file permissions

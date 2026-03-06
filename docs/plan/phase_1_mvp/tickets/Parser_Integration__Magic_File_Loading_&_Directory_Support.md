@@ -97,7 +97,7 @@ impl MagicDatabase {
 
 ### 5. Binary .mgc Error Message
 
-```
+```text
 Error: Binary magic file format not supported in Phase 1 MVP
 
 Found: /usr/share/file/magic.mgc (binary format)

@@ -207,6 +207,9 @@ pub fn serialize_operator(op: &Operator) -> String {
         Operator::GreaterEqual => "Operator::GreaterEqual".to_string(),
         Operator::BitwiseAnd => "Operator::BitwiseAnd".to_string(),
         Operator::BitwiseAndMask(mask) => format!("Operator::BitwiseAndMask({mask})"),
+        Operator::BitwiseXor => "Operator::BitwiseXor".to_string(),
+        Operator::BitwiseNot => "Operator::BitwiseNot".to_string(),
+        Operator::AnyValue => "Operator::AnyValue".to_string(),
     }
 }
 

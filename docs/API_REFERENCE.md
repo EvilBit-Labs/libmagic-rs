@@ -337,6 +337,9 @@ use libmagic_rs::Operator;
 | `GreaterEqual`        | Greater than or equal comparison (`>=`) (added in v0.2.0) |
 | `BitwiseAnd`          | Bitwise AND (`&`)                                         |
 | `BitwiseAndMask(u64)` | Bitwise AND with mask value                               |
+| `BitwiseXor`          | Bitwise XOR (`^`)                                         |
+| `BitwiseNot`          | Bitwise NOT/complement (`~`)                              |
+| `AnyValue`            | Match any value unconditionally (`x`)                     |
 
 **Version Note:** The comparison operators `LessThan`, `GreaterThan`, `LessEqual`, and `GreaterEqual` were added in v0.2.0.
 

@@ -122,6 +122,32 @@ pub enum TypeKind {
     },
 }
 
+impl TypeKind {
+    /// Returns the bit width of integer types, or `None` for non-integer types (e.g., String).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+    ///
+    /// assert_eq!(TypeKind::Byte { signed: false }.bit_width(), Some(8));
+    /// assert_eq!(TypeKind::Short { endian: Endianness::Native, signed: true }.bit_width(), Some(16));
+    /// assert_eq!(TypeKind::Long { endian: Endianness::Native, signed: true }.bit_width(), Some(32));
+    /// assert_eq!(TypeKind::Quad { endian: Endianness::Native, signed: true }.bit_width(), Some(64));
+    /// assert_eq!(TypeKind::String { max_length: None }.bit_width(), None);
+    /// ```
+    #[must_use]
+    pub const fn bit_width(&self) -> Option<u32> {
+        match self {
+            Self::Byte { .. } => Some(8),
+            Self::Short { .. } => Some(16),
+            Self::Long { .. } => Some(32),
+            Self::Quad { .. } => Some(64),
+            Self::String { .. } => None,
+        }
+    }
+}
+
 /// Comparison and bitwise operators
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Operator {
@@ -213,6 +239,39 @@ pub enum Operator {
     /// assert_eq!(op, Operator::BitwiseAndMask(0xFF00));
     /// ```
     BitwiseAndMask(u64),
+    /// Bitwise XOR operation (`^`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::BitwiseXor;
+    /// assert_eq!(op, Operator::BitwiseXor);
+    /// ```
+    BitwiseXor,
+    /// Bitwise NOT/complement operation (`~`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::BitwiseNot;
+    /// assert_eq!(op, Operator::BitwiseNot);
+    /// ```
+    BitwiseNot,
+    /// Match any value; condition always succeeds (`x`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::AnyValue;
+    /// assert_eq!(op, Operator::AnyValue);
+    /// ```
+    AnyValue,
 }
 
 /// Value types for rule matching
@@ -699,7 +758,14 @@ mod tests {
     // Operator tests
     #[test]
     fn test_operator_variants() {
-        let operators = [Operator::Equal, Operator::NotEqual, Operator::BitwiseAnd];
+        let operators = [
+            Operator::Equal,
+            Operator::NotEqual,
+            Operator::BitwiseAnd,
+            Operator::BitwiseXor,
+            Operator::BitwiseNot,
+            Operator::AnyValue,
+        ];
 
         for (i, op) in operators.iter().enumerate() {
             for (j, other) in operators.iter().enumerate() {
@@ -714,7 +780,14 @@ mod tests {
 
     #[test]
     fn test_operator_serialization() {
-        let operators = vec![Operator::Equal, Operator::NotEqual, Operator::BitwiseAnd];
+        let operators = vec![
+            Operator::Equal,
+            Operator::NotEqual,
+            Operator::BitwiseAnd,
+            Operator::BitwiseXor,
+            Operator::BitwiseNot,
+            Operator::AnyValue,
+        ];
 
         for op in operators {
             let json = serde_json::to_string(&op).expect("Failed to serialize Operator");

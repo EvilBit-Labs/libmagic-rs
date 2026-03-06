@@ -14,26 +14,26 @@ use libmagic_rs::MagicDatabase;
 
 #### Constructor Methods
 
-| Method | Description |
-|--------|-------------|
-| `with_builtin_rules()` | Create database with built-in rules |
-| `with_builtin_rules_and_config(config)` | Create with built-in rules and custom config |
-| `load_from_file(path)` | Load rules from a file or directory |
-| `load_from_file_with_config(path, config)` | Load from file with custom config |
+| Method                                     | Description                                  |
+| ------------------------------------------ | -------------------------------------------- |
+| `with_builtin_rules()`                     | Create database with built-in rules          |
+| `with_builtin_rules_and_config(config)`    | Create with built-in rules and custom config |
+| `load_from_file(path)`                     | Load rules from a file or directory          |
+| `load_from_file_with_config(path, config)` | Load from file with custom config            |
 
 #### Evaluation Methods
 
-| Method | Description |
-|--------|-------------|
-| `evaluate_file(path)` | Evaluate a file and return results |
-| `evaluate_buffer(buffer)` | Evaluate an in-memory buffer |
+| Method                    | Description                        |
+| ------------------------- | ---------------------------------- |
+| `evaluate_file(path)`     | Evaluate a file and return results |
+| `evaluate_buffer(buffer)` | Evaluate an in-memory buffer       |
 
 #### Accessor Methods
 
-| Method | Return Type | Description |
-|--------|-------------|-------------|
-| `config()` | `&EvaluationConfig` | Get evaluation configuration |
-| `source_path()` | `Option<&Path>` | Get path rules were loaded from |
+| Method          | Return Type         | Description                     |
+| --------------- | ------------------- | ------------------------------- |
+| `config()`      | `&EvaluationConfig` | Get evaluation configuration    |
+| `source_path()` | `Option<&Path>`     | Get path rules were loaded from |
 
 #### Example
 
@@ -67,13 +67,13 @@ use libmagic_rs::EvaluationResult;
 
 #### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `description` | `String` | Human-readable file type description |
-| `mime_type` | `Option<String>` | MIME type (if enabled) |
-| `confidence` | `f64` | Confidence score (0.0-1.0) |
-| `matches` | `Vec<MatchResult>` | Individual match results |
-| `metadata` | `EvaluationMetadata` | Evaluation diagnostics |
+| Field         | Type                 | Description                          |
+| ------------- | -------------------- | ------------------------------------ |
+| `description` | `String`             | Human-readable file type description |
+| `mime_type`   | `Option<String>`     | MIME type (if enabled)               |
+| `confidence`  | `f64`                | Confidence score (0.0-1.0)           |
+| `matches`     | `Vec<MatchResult>`   | Individual match results             |
+| `metadata`    | `EvaluationMetadata` | Evaluation diagnostics               |
 
 #### Example
 
@@ -100,13 +100,13 @@ use libmagic_rs::EvaluationConfig;
 
 #### Fields
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `max_recursion_depth` | `u32` | 20 | Maximum nesting depth for rules (1-1000) |
-| `max_string_length` | `usize` | 8192 | Maximum string bytes to read (1-1MB) |
-| `stop_at_first_match` | `bool` | `true` | Stop after first match |
-| `enable_mime_types` | `bool` | `false` | Map results to MIME types |
-| `timeout_ms` | `Option<u64>` | `None` | Evaluation timeout (1-300000ms) |
+| Field                 | Type          | Default | Description                              |
+| --------------------- | ------------- | ------- | ---------------------------------------- |
+| `max_recursion_depth` | `u32`         | 20      | Maximum nesting depth for rules (1-1000) |
+| `max_string_length`   | `usize`       | 8192    | Maximum string bytes to read (1-1MB)     |
+| `stop_at_first_match` | `bool`        | `true`  | Stop after first match                   |
+| `enable_mime_types`   | `bool`        | `false` | Map results to MIME types                |
+| `timeout_ms`          | `Option<u64>` | `None`  | Evaluation timeout (1-300000ms)          |
 
 #### Preset Configurations
 
@@ -153,13 +153,13 @@ use libmagic_rs::EvaluationMetadata;
 
 #### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `file_size` | `u64` | Size of analyzed file in bytes |
-| `evaluation_time_ms` | `f64` | Time taken in milliseconds |
-| `rules_evaluated` | `usize` | Number of rules tested |
-| `magic_file` | `Option<PathBuf>` | Source magic file path |
-| `timed_out` | `bool` | Whether evaluation timed out |
+| Field                | Type              | Description                    |
+| -------------------- | ----------------- | ------------------------------ |
+| `file_size`          | `u64`             | Size of analyzed file in bytes |
+| `evaluation_time_ms` | `f64`             | Time taken in milliseconds     |
+| `rules_evaluated`    | `usize`           | Number of rules tested         |
+| `magic_file`         | `Option<PathBuf>` | Source magic file path         |
+| `timed_out`          | `bool`            | Whether evaluation timed out   |
 
 ## AST Types
 
@@ -171,15 +171,15 @@ Represents a parsed magic rule.
 use libmagic_rs::MagicRule;
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `offset` | `OffsetSpec` | Where to read data |
-| `typ` | `TypeKind` | Type of data to read |
-| `op` | `Operator` | Comparison operator |
-| `value` | `Value` | Expected value |
-| `message` | `String` | Description message |
-| `children` | `Vec<MagicRule>` | Nested rules |
-| `level` | `u32` | Indentation level |
+| Field               | Type                       | Description                                            |
+| ------------------- | -------------------------- | ------------------------------------------------------ |
+| `offset`            | `OffsetSpec`               | Where to read data                                     |
+| `typ`               | `TypeKind`                 | Type of data to read                                   |
+| `op`                | `Operator`                 | Comparison operator                                    |
+| `value`             | `Value`                    | Expected value                                         |
+| `message`           | `String`                   | Description message                                    |
+| `children`          | `Vec<MagicRule>`           | Nested rules                                           |
+| `level`             | `u32`                      | Indentation level                                      |
 | `strength_modifier` | `Option<StrengthModifier>` | Optional strength modifier from `!:strength` directive |
 
 ### StrengthModifier
@@ -190,13 +190,13 @@ Optional modifier for rule strength calculation.
 use libmagic_rs::StrengthModifier;
 ```
 
-| Variant | Description |
-|---------|-------------|
-| `Add(i32)` | Add to base strength |
+| Variant         | Description                 |
+| --------------- | --------------------------- |
+| `Add(i32)`      | Add to base strength        |
 | `Subtract(i32)` | Subtract from base strength |
-| `Multiply(i32)` | Multiply base strength |
-| `Divide(i32)` | Divide base strength |
-| `Set(i32)` | Set strength to fixed value |
+| `Multiply(i32)` | Multiply base strength      |
+| `Divide(i32)`   | Divide base strength        |
+| `Set(i32)`      | Set strength to fixed value |
 
 ### OffsetSpec
 
@@ -206,12 +206,12 @@ Offset specification for locating data.
 use libmagic_rs::OffsetSpec;
 ```
 
-| Variant | Description |
-|---------|-------------|
-| `Absolute(i64)` | Absolute offset from file start |
-| `Indirect { base_offset, pointer_type, adjustment, endian }` | Indirect through pointer |
-| `Relative(i64)` | Relative to previous match |
-| `FromEnd(i64)` | Offset from end of file |
+| Variant                                                      | Description                     |
+| ------------------------------------------------------------ | ------------------------------- |
+| `Absolute(i64)`                                              | Absolute offset from file start |
+| `Indirect { base_offset, pointer_type, adjustment, endian }` | Indirect through pointer        |
+| `Relative(i64)`                                              | Relative to previous match      |
+| `FromEnd(i64)`                                               | Offset from end of file         |
 
 ### TypeKind
 
@@ -221,31 +221,61 @@ Data type specifications.
 use libmagic_rs::TypeKind;
 ```
 
-| Variant | Description |
-|---------|-------------|
-| `Byte { signed }` | Single byte with explicit signedness (struct variant since v0.2.0; previously unit variant) |
-| `Short { endian, signed }` | 16-bit integer |
-| `Long { endian, signed }` | 32-bit integer |
-| `String { max_length }` | String data |
+| Variant                    | Description                                                                                 |
+| -------------------------- | ------------------------------------------------------------------------------------------- |
+| `Byte { signed }`          | Single byte with explicit signedness (struct variant since v0.2.0; previously unit variant) |
+| `Short { endian, signed }` | 16-bit integer                                                                              |
+| `Long { endian, signed }`  | 32-bit integer                                                                              |
+| `String { max_length }`    | String data                                                                                 |
 
 ### Operator
 
-Comparison operators.
+Comparison and bitwise operators for magic rule matching.
 
 ```rust
 use libmagic_rs::Operator;
 ```
 
-| Variant | Description |
-|---------|-------------|
-| `Equal` | Equality comparison (`=`) |
-| `NotEqual` | Inequality comparison (`!=`) |
-| `LessThan` | Less than comparison (`<`) (added in v0.2.0) |
-| `GreaterThan` | Greater than comparison (`>`) (added in v0.2.0) |
-| `LessEqual` | Less than or equal comparison (`<=`) (added in v0.2.0) |
-| `GreaterEqual` | Greater than or equal comparison (`>=`) (added in v0.2.0) |
-| `BitwiseAnd` | Bitwise AND |
-| `BitwiseAndMask(u64)` | Bitwise AND with mask |
+| Variant               | Description                                                               |
+| --------------------- | ------------------------------------------------------------------------- |
+| `Equal`               | Equality comparison (`=`)                                                 |
+| `NotEqual`            | Inequality comparison (`!=`)                                              |
+| `LessThan`            | Less than comparison (`<`) (added in v0.2.0)                              |
+| `GreaterThan`         | Greater than comparison (`>`) (added in v0.2.0)                           |
+| `LessEqual`           | Less than or equal comparison (`<=`) (added in v0.2.0)                    |
+| `GreaterEqual`        | Greater than or equal comparison (`>=`) (added in v0.2.0)                 |
+| `BitwiseAnd`          | Bitwise AND (`&`) - matches if any bits overlap                           |
+| `BitwiseAndMask(u64)` | Bitwise AND with mask - masked comparison of file data                    |
+| `BitwiseXor`          | Bitwise XOR (`^`) - matches if XOR result is non-zero                     |
+| `BitwiseNot`          | Bitwise NOT (`~`) - compares complement of file value with expected value |
+| `AnyValue`            | Match any value (`x`) - unconditional match                               |
+
+#### Examples
+
+```rust
+use libmagic_rs::{MagicDatabase, Operator};
+use libmagic_rs::parser::grammar::parse_magic_rule;
+
+// Equal operator (default)
+let (_, rule) = parse_magic_rule("0 byte =0x7f").unwrap();
+assert_eq!(rule.op, Operator::Equal);
+
+// Bitwise AND - check if bit is set
+let (_, rule) = parse_magic_rule("0 byte &0x80").unwrap();
+assert_eq!(rule.op, Operator::BitwiseAnd);
+
+// Bitwise XOR - check for difference
+let (_, rule) = parse_magic_rule("0 byte ^0xFF").unwrap();
+assert_eq!(rule.op, Operator::BitwiseXor);
+
+// Bitwise NOT - check complement
+let (_, rule) = parse_magic_rule("0 byte ~0xFF").unwrap();
+assert_eq!(rule.op, Operator::BitwiseNot);
+
+// Any value - always matches
+let (_, rule) = parse_magic_rule("0 byte x").unwrap();
+assert_eq!(rule.op, Operator::AnyValue);
+```
 
 ### Value
 
@@ -255,12 +285,12 @@ Value types for matching.
 use libmagic_rs::Value;
 ```
 
-| Variant | Description |
-|---------|-------------|
-| `Uint(u64)` | Unsigned integer |
-| `Int(i64)` | Signed integer |
-| `Bytes(Vec<u8>)` | Byte sequence |
-| `String(String)` | String value |
+| Variant          | Description      |
+| ---------------- | ---------------- |
+| `Uint(u64)`      | Unsigned integer |
+| `Int(i64)`       | Signed integer   |
+| `Bytes(Vec<u8>)` | Byte sequence    |
+| `String(String)` | String value     |
 
 ### Endianness
 
@@ -270,10 +300,10 @@ Byte order specification.
 use libmagic_rs::Endianness;
 ```
 
-| Variant | Description |
-|---------|-------------|
+| Variant  | Description   |
+| -------- | ------------- |
 | `Little` | Little-endian |
-| `Big` | Big-endian |
+| `Big`    | Big-endian    |
 | `Native` | System native |
 
 ## Error Types
@@ -288,42 +318,42 @@ use libmagic_rs::LibmagicError;
 
 #### Variants
 
-| Variant | Description |
-|---------|-------------|
-| `ParseError(ParseError)` | Magic file parsing error |
-| `EvaluationError(EvaluationError)` | Rule evaluation error |
-| `IoError(std::io::Error)` | File I/O error |
-| `Timeout { timeout_ms }` | Evaluation timeout exceeded |
+| Variant                            | Description                 |
+| ---------------------------------- | --------------------------- |
+| `ParseError(ParseError)`           | Magic file parsing error    |
+| `EvaluationError(EvaluationError)` | Rule evaluation error       |
+| `IoError(std::io::Error)`          | File I/O error              |
+| `Timeout { timeout_ms }`           | Evaluation timeout exceeded |
 
 ### ParseError
 
 Errors during magic file parsing.
 
-| Variant | Description |
-|---------|-------------|
-| `InvalidSyntax { line, message }` | Invalid syntax in magic file |
-| `UnsupportedFeature { line, feature }` | Unsupported feature encountered |
-| `InvalidOffset { line, offset }` | Invalid offset specification |
-| `InvalidType { line, type_spec }` | Invalid type specification |
-| `InvalidOperator { line, operator }` | Invalid operator |
-| `InvalidValue { line, value }` | Invalid value |
-| `UnsupportedFormat { line, format_type, message }` | Unsupported file format |
-| `IoError(std::io::Error)` | I/O error during parsing |
+| Variant                                            | Description                     |
+| -------------------------------------------------- | ------------------------------- |
+| `InvalidSyntax { line, message }`                  | Invalid syntax in magic file    |
+| `UnsupportedFeature { line, feature }`             | Unsupported feature encountered |
+| `InvalidOffset { line, offset }`                   | Invalid offset specification    |
+| `InvalidType { line, type_spec }`                  | Invalid type specification      |
+| `InvalidOperator { line, operator }`               | Invalid operator                |
+| `InvalidValue { line, value }`                     | Invalid value                   |
+| `UnsupportedFormat { line, format_type, message }` | Unsupported file format         |
+| `IoError(std::io::Error)`                          | I/O error during parsing        |
 
 ### EvaluationError
 
 Errors during rule evaluation.
 
-| Variant | Description |
-|---------|-------------|
-| `BufferOverrun { offset }` | Read beyond buffer bounds |
-| `InvalidOffset { offset }` | Invalid offset calculation |
-| `UnsupportedType { type_name }` | Unsupported type during evaluation |
-| `RecursionLimitExceeded { depth }` | Max recursion depth exceeded |
-| `StringLengthExceeded { length, max_length }` | String too long |
-| `InvalidStringEncoding { offset }` | Invalid string encoding |
-| `Timeout { timeout_ms }` | Evaluation timeout |
-| `InternalError { message }` | Internal error (bug) |
+| Variant                                       | Description                        |
+| --------------------------------------------- | ---------------------------------- |
+| `BufferOverrun { offset }`                    | Read beyond buffer bounds          |
+| `InvalidOffset { offset }`                    | Invalid offset calculation         |
+| `UnsupportedType { type_name }`               | Unsupported type during evaluation |
+| `RecursionLimitExceeded { depth }`            | Max recursion depth exceeded       |
+| `StringLengthExceeded { length, max_length }` | String too long                    |
+| `InvalidStringEncoding { offset }`            | Invalid string encoding            |
+| `Timeout { timeout_ms }`                      | Evaluation timeout                 |
+| `InternalError { message }`                   | Internal error (bug)               |
 
 #### Example
 
@@ -354,19 +384,19 @@ use libmagic_rs::EvaluationContext;
 
 #### Methods
 
-| Method | Description |
-|--------|-------------|
-| `new(config)` | Create new context |
-| `current_offset()` | Get current position |
-| `set_current_offset(offset)` | Set current position |
-| `recursion_depth()` | Get recursion depth |
-| `increment_recursion_depth()` | Increment depth (with limit check) |
-| `decrement_recursion_depth()` | Decrement depth |
-| `should_stop_at_first_match()` | Check stop behavior |
-| `max_string_length()` | Get max string length |
-| `enable_mime_types()` | Check MIME type setting |
-| `timeout_ms()` | Get timeout value |
-| `reset()` | Reset to initial state |
+| Method                         | Description                        |
+| ------------------------------ | ---------------------------------- |
+| `new(config)`                  | Create new context                 |
+| `current_offset()`             | Get current position               |
+| `set_current_offset(offset)`   | Set current position               |
+| `recursion_depth()`            | Get recursion depth                |
+| `increment_recursion_depth()`  | Increment depth (with limit check) |
+| `decrement_recursion_depth()`  | Decrement depth                    |
+| `should_stop_at_first_match()` | Check stop behavior                |
+| `max_string_length()`          | Get max string length              |
+| `enable_mime_types()`          | Check MIME type setting            |
+| `timeout_ms()`                 | Get timeout value                  |
+| `reset()`                      | Reset to initial state             |
 
 ### MatchResult (Evaluator)
 
@@ -376,13 +406,13 @@ Result from internal evaluation.
 use libmagic_rs::evaluator::MatchResult;
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `message` | `String` | Match description |
-| `offset` | `usize` | Match offset |
-| `level` | `u32` | Rule level |
-| `value` | `Value` | Matched value |
-| `confidence` | `f64` | Confidence score |
+| Field        | Type     | Description       |
+| ------------ | -------- | ----------------- |
+| `message`    | `String` | Match description |
+| `offset`     | `usize`  | Match offset      |
+| `level`      | `u32`    | Rule level        |
+| `value`      | `Value`  | Matched value     |
+| `confidence` | `f64`    | Confidence score  |
 
 ## Output Module
 
@@ -396,15 +426,15 @@ use libmagic_rs::output::MatchResult;
 
 #### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `message` | `String` | File type description |
-| `offset` | `usize` | Match offset |
-| `length` | `usize` | Bytes examined |
-| `value` | `Value` | Matched value |
-| `rule_path` | `Vec<String>` | Rule hierarchy |
-| `confidence` | `u8` | Confidence (0-100) |
-| `mime_type` | `Option<String>` | MIME type |
+| Field        | Type             | Description           |
+| ------------ | ---------------- | --------------------- |
+| `message`    | `String`         | File type description |
+| `offset`     | `usize`          | Match offset          |
+| `length`     | `usize`          | Bytes examined        |
+| `value`      | `Value`          | Matched value         |
+| `rule_path`  | `Vec<String>`    | Rule hierarchy        |
+| `confidence` | `u8`             | Confidence (0-100)    |
+| `mime_type`  | `Option<String>` | MIME type             |
 
 #### Methods
 
@@ -447,8 +477,8 @@ let json_line = format_json_line_output(path, &matches)?;
 
 ## Type Aliases
 
-| Alias | Definition | Description |
-|-------|------------|-------------|
+| Alias       | Definition                              | Description         |
+| ----------- | --------------------------------------- | ------------------- |
 | `Result<T>` | `std::result::Result<T, LibmagicError>` | Library result type |
 
 ## Re-exports

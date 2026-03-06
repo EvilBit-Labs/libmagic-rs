@@ -5,19 +5,55 @@
 //!
 //! This module provides functions for applying comparison and bitwise operators
 //! to values during magic rule evaluation. It handles type-safe comparisons
-//! between different Value variants.
+//! between different Value variants. Supports XOR (`^`), NOT (`~`), and
+//! any-value (`x`) matching in addition to equality, comparison, and bitwise AND.
 
 mod bitwise;
 mod comparison;
 mod equality;
 
-pub use bitwise::{apply_bitwise_and, apply_bitwise_and_mask};
+pub use bitwise::{
+    apply_bitwise_and, apply_bitwise_and_mask, apply_bitwise_not, apply_bitwise_not_with_width,
+    apply_bitwise_xor,
+};
 pub use comparison::{
     apply_greater_equal, apply_greater_than, apply_less_equal, apply_less_than, compare_values,
 };
 pub use equality::{apply_equal, apply_not_equal};
 
 use crate::parser::ast::{Operator, Value};
+
+/// Apply any-value operator: always returns true (unconditional match).
+///
+/// The `x` operator in libmagic matches any value unconditionally. This is used
+/// for rules that should always match at a given offset regardless of the data.
+///
+/// # Arguments
+///
+/// * `_left` - The left-hand side value (ignored)
+/// * `_right` - The right-hand side value (ignored)
+///
+/// # Returns
+///
+/// Always returns `true`.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::Value;
+/// use libmagic_rs::evaluator::operators::apply_any_value;
+///
+/// // Always returns true regardless of values
+/// assert!(apply_any_value(&Value::Uint(0), &Value::Uint(0)));
+/// assert!(apply_any_value(
+///     &Value::String("anything".to_string()),
+///     &Value::Uint(42),
+/// ));
+/// ```
+#[must_use]
+pub fn apply_any_value(_left: &Value, _right: &Value) -> bool {
+    true
+}
 
 /// Apply operator to two values using the specified operator type
 ///
@@ -28,7 +64,8 @@ use crate::parser::ast::{Operator, Value};
 /// # Arguments
 ///
 /// * `operator` - The operator to apply (`Equal`, `NotEqual`, `LessThan`,
-///   `GreaterThan`, `LessEqual`, `GreaterEqual`, `BitwiseAnd`, or `BitwiseAndMask`)
+///   `GreaterThan`, `LessEqual`, `GreaterEqual`, `BitwiseAnd`, `BitwiseAndMask`,
+///   `BitwiseXor`, `BitwiseNot`, or `AnyValue`)
 /// * `left` - The left-hand side value (typically from file data)
 /// * `right` - The right-hand side value (typically from magic rule)
 ///
@@ -97,6 +134,18 @@ use crate::parser::ast::{Operator, Value};
 ///     &Value::Uint(42),
 ///     &Value::Int(42)
 /// ));
+///
+/// // Bitwise XOR, NOT, and any-value
+/// assert!(apply_operator(
+///     &Operator::BitwiseXor,
+///     &Value::Uint(0xFF),
+///     &Value::Uint(0x0F)
+/// ));
+/// assert!(apply_operator(
+///     &Operator::AnyValue,
+///     &Value::Uint(0),
+///     &Value::Uint(0)
+/// ));
 /// ```
 #[must_use]
 pub fn apply_operator(operator: &Operator, left: &Value, right: &Value) -> bool {
@@ -109,6 +158,9 @@ pub fn apply_operator(operator: &Operator, left: &Value, right: &Value) -> bool 
         Operator::GreaterEqual => apply_greater_equal(left, right),
         Operator::BitwiseAnd => apply_bitwise_and(left, right),
         Operator::BitwiseAndMask(mask) => apply_bitwise_and_mask(*mask, left, right),
+        Operator::BitwiseXor => apply_bitwise_xor(left, right),
+        Operator::BitwiseNot => apply_bitwise_not(left, right),
+        Operator::AnyValue => apply_any_value(left, right),
     }
 }
 
@@ -389,6 +441,23 @@ mod tests {
                 apply_bitwise_and(&left, &right),
                 "apply_operator(BitwiseAnd) should match apply_bitwise_and for {left:?}, {right:?}"
             );
+
+            assert_eq!(
+                apply_operator(&Operator::BitwiseXor, &left, &right),
+                apply_bitwise_xor(&left, &right),
+                "apply_operator(BitwiseXor) should match apply_bitwise_xor for {left:?}, {right:?}"
+            );
+
+            assert_eq!(
+                apply_operator(&Operator::BitwiseNot, &left, &right),
+                apply_bitwise_not(&left, &right),
+                "apply_operator(BitwiseNot) should match apply_bitwise_not for {left:?}, {right:?}"
+            );
+
+            assert!(
+                apply_operator(&Operator::AnyValue, &left, &right),
+                "apply_operator(AnyValue) should always be true for {left:?}, {right:?}"
+            );
         }
     }
 
@@ -511,6 +580,78 @@ mod tests {
     }
 
     #[test]
+    fn test_apply_operator_bitwise_xor() {
+        assert!(apply_operator(
+            &Operator::BitwiseXor,
+            &Value::Uint(0xFF),
+            &Value::Uint(0x0F)
+        ));
+        assert!(!apply_operator(
+            &Operator::BitwiseXor,
+            &Value::Uint(42),
+            &Value::Uint(42)
+        ));
+        assert!(!apply_operator(
+            &Operator::BitwiseXor,
+            &Value::String("x".to_string()),
+            &Value::Uint(1)
+        ));
+    }
+
+    #[test]
+    fn test_apply_operator_bitwise_not() {
+        assert!(apply_operator(
+            &Operator::BitwiseNot,
+            &Value::Uint(0),
+            &Value::Uint(u64::MAX)
+        ));
+        assert!(apply_operator(
+            &Operator::BitwiseNot,
+            &Value::Int(-1),
+            &Value::Int(0)
+        ));
+        assert!(!apply_operator(
+            &Operator::BitwiseNot,
+            &Value::Bytes(vec![0]),
+            &Value::Uint(0xFF)
+        ));
+    }
+
+    #[test]
+    fn test_apply_operator_any_value() {
+        assert!(apply_operator(
+            &Operator::AnyValue,
+            &Value::Uint(0),
+            &Value::Uint(0)
+        ));
+        assert!(apply_operator(
+            &Operator::AnyValue,
+            &Value::Int(42),
+            &Value::Int(0)
+        ));
+        assert!(apply_operator(
+            &Operator::AnyValue,
+            &Value::Bytes(vec![1, 2, 3]),
+            &Value::Bytes(vec![])
+        ));
+        assert!(apply_operator(
+            &Operator::AnyValue,
+            &Value::String("x".to_string()),
+            &Value::String("y".to_string())
+        ));
+        assert!(apply_operator(
+            &Operator::AnyValue,
+            &Value::Uint(1),
+            &Value::String(String::new())
+        ));
+        assert!(apply_operator(
+            &Operator::AnyValue,
+            &Value::Bytes(vec![]),
+            &Value::Bytes(vec![])
+        ));
+    }
+
+    #[test]
     fn test_apply_operator_all_combinations() {
         let operators = [
             Operator::Equal,
@@ -521,6 +662,9 @@ mod tests {
             Operator::GreaterEqual,
             Operator::BitwiseAnd,
             Operator::BitwiseAndMask(0xFF),
+            Operator::BitwiseXor,
+            Operator::BitwiseNot,
+            Operator::AnyValue,
         ];
         let values = [
             Value::Uint(42),
@@ -548,6 +692,9 @@ mod tests {
                         Operator::BitwiseAndMask(mask) => {
                             apply_bitwise_and_mask(*mask, left, right)
                         }
+                        Operator::BitwiseXor => apply_bitwise_xor(left, right),
+                        Operator::BitwiseNot => apply_bitwise_not(left, right),
+                        Operator::AnyValue => apply_any_value(left, right),
                     };
 
                     assert_eq!(

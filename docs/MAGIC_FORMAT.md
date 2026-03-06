@@ -27,13 +27,13 @@ Magic files contain rules that describe file formats by specifying byte patterns
 
 ### Basic Format
 
-```
+```text
 offset  type  value  message
 ```
 
 Example:
 
-```
+```text
 0       string  PK    ZIP archive data
 ```
 
@@ -45,7 +45,7 @@ This rule matches files starting with "PK" and labels them as "ZIP archive data"
 
 ### Rule Structure
 
-```
+```text
 [level>]offset    type    [operator]value    message
 ```
 
@@ -62,7 +62,7 @@ This rule matches files starting with "PK" and labels them as "ZIP archive data"
 
 Lines starting with `#` are comments:
 
-```
+```text
 # This is a comment
 0  string  PK  ZIP archive
 ```
@@ -81,7 +81,7 @@ Lines starting with `#` are comments:
 
 Direct byte position from file start:
 
-```
+```text
 0       string  \x7fELF   ELF executable
 16      short   2         (shared object)
 ```
@@ -90,7 +90,7 @@ Direct byte position from file start:
 
 Use `0x` prefix for hex offsets:
 
-```
+```text
 0x0     string  MZ        DOS executable
 0x3c    long    >0        (PE offset present)
 ```
@@ -99,7 +99,7 @@ Use `0x` prefix for hex offsets:
 
 Read from end of file:
 
-```
+```text
 -4      string  .ZIP      ZIP file (end marker)
 ```
 
@@ -107,7 +107,7 @@ Read from end of file:
 
 Read pointer value and use as offset:
 
-```
+```text
 # Read 4-byte pointer at offset 60, then check that location
 (0x3c.l)   string  PE\0\0  PE executable
 ```
@@ -128,7 +128,7 @@ Types for indirect offsets:
 
 Offset relative to previous match:
 
-```
+```text
 0       string  PK\x03\x04   ZIP archive
 &2      short   >0           (with data)
 ```
@@ -162,7 +162,7 @@ All integer types have unsigned variants prefixed with `u`:
 
 Examples:
 
-```
+```text
 0       byte      0x7f      (byte match)
 0       leshort   0x5a4d    DOS MZ signature
 0       belong    0xcafebabe Java class file
@@ -174,7 +174,7 @@ Examples:
 
 Match literal string data:
 
-```
+```text
 0       string    %PDF      PDF document
 0       string    GIF89a    GIF image data
 ```
@@ -196,7 +196,7 @@ String escape sequences:
 
 Example:
 
-```
+```text
 0       string/c  <!doctype  HTML document
 ```
 
@@ -216,12 +216,14 @@ Example:
 | `>=`     | Greater than or equal | `8 long >=1000`      |
 | `&`      | Bitwise AND           | `4 byte &0x80`       |
 | `^`      | Bitwise XOR           | `4 byte ^0xff`       |
+| `~`      | Bitwise NOT           | `4 byte ~0xff`       |
+| `x`      | Match any value       | `4 byte x`           |
 
 ### Bitwise AND with Mask
 
 Test specific bits:
 
-```
+```text
 # Check if bit 7 is set
 4       byte    &0x80     (compressed)
 
@@ -233,7 +235,7 @@ Test specific bits:
 
 Prefix operator with `!` for negation:
 
-```
+```text
 # Match if NOT equal to zero
 4       long    !0        (non-zero)
 ```
@@ -244,7 +246,7 @@ Prefix operator with `!` for negation:
 
 ### Numeric Values
 
-```
+```text
 # Decimal
 0       long    1234
 
@@ -257,7 +259,7 @@ Prefix operator with `!` for negation:
 
 ### String Values
 
-```
+```text
 # Plain string
 0       string  RIFF
 
@@ -268,15 +270,13 @@ Prefix operator with `!` for negation:
 0       string  \xff\xfe
 ```
 
-### Special Values
+### Any-Value Operator
 
-| Value | Description                   |
-| ----- | ----------------------------- |
-| `x`   | Match any value (always true) |
+The `x` operator matches unconditionally at the given offset. It is typically used in child rules to extract and format a value without testing it:
 
 Example:
 
-```
+```text
 0       string  PK        ZIP archive
 >4      short   x         version %d
 ```
@@ -293,7 +293,7 @@ Rules can be nested to create hierarchical matches. Deeper matches indicate more
 
 Use `>` prefix for nested rules:
 
-```
+```text
 0       string  \x7fELF   ELF
 >4      byte    1         32-bit
 >4      byte    2         64-bit
@@ -309,7 +309,7 @@ Evaluation:
 
 ### Multiple Nesting Levels
 
-```
+```text
 0       string  \x7fELF       ELF
 >4      byte    2             64-bit
 >>5     byte    1             LSB
@@ -321,7 +321,7 @@ Evaluation:
 
 Use `\b` (backspace) to suppress space before message:
 
-```
+```text
 0       string  GIF8      GIF image data
 >4      byte    7a        \b, version 87a
 >4      byte    9a        \b, version 89a
@@ -335,7 +335,7 @@ Output: `GIF image data, version 89a`
 
 ### ELF Executable
 
-```
+```text
 # ELF (Executable and Linkable Format)
 0       string  \x7fELF       ELF
 >4      byte    1             32-bit
@@ -348,7 +348,7 @@ Output: `GIF image data, version 89a`
 
 ### ZIP Archive
 
-```
+```text
 # ZIP archive
 0       string  PK\x03\x04    ZIP archive data
 >4      leshort x             \b, version %d.%d to extract
@@ -358,7 +358,7 @@ Output: `GIF image data, version 89a`
 
 ### JPEG Image
 
-```
+```text
 # JPEG
 0       string  \xff\xd8\xff  JPEG image data
 >3      byte    0xe0          \b, JFIF standard
@@ -367,7 +367,7 @@ Output: `GIF image data, version 89a`
 
 ### PDF Document
 
-```
+```text
 # PDF
 0       string  %PDF-         PDF document
 >5      string  1.            \b, version 1.x
@@ -376,7 +376,7 @@ Output: `GIF image data, version 89a`
 
 ### PE Executable
 
-```
+```text
 # DOS MZ executable with PE header
 0       string  MZ            DOS executable
 >0x3c   lelong  >0            (PE offset)
@@ -385,7 +385,7 @@ Output: `GIF image data, version 89a`
 
 ### GZIP Compressed
 
-```
+```text
 # GZIP
 0       string  \x1f\x8b      gzip compressed data
 >2      byte    8             \b, deflated
@@ -398,7 +398,7 @@ Output: `GIF image data, version 89a`
 
 ### PNG Image
 
-```
+```text
 # PNG
 0       string  \x89PNG\r\n\x1a\n   PNG image data
 >16     belong  x                   \b, %d x
@@ -418,7 +418,7 @@ Output: `GIF image data, version 89a`
 
 Put more specific rules first:
 
-```
+```text
 # Good: Specific before general
 0       string  PK\x03\x04   ZIP archive
 0       string  PK           (generic PK signature)
@@ -430,7 +430,7 @@ Put more specific rules first:
 
 ### 2. Use Nested Rules for Details
 
-```
+```text
 # Good: Hierarchical structure
 0       string  \x7fELF   ELF
 >4      byte    2         64-bit
@@ -444,7 +444,7 @@ Put more specific rules first:
 
 ### 3. Document Complex Rules
 
-```
+```text
 # JPEG with Exif metadata
 # The Exif APP1 marker (0xFFE1) contains camera metadata
 0       string  \xff\xd8\xff    JPEG image data
@@ -462,7 +462,7 @@ Consider:
 
 ### 5. Use Appropriate Types
 
-```
+```text
 # Good: Match exact size needed
 0       leshort 0x5a4d   DOS executable
 
@@ -472,7 +472,7 @@ Consider:
 
 ### 6. Handle Endianness Explicitly
 
-```
+```text
 # Good: Explicit endianness
 0       lelong  0xcafebabe   (little-endian)
 0       belong  0xcafebabe   (big-endian)

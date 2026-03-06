@@ -602,7 +602,7 @@ Loaded 1,247 valid rules from /usr/share/file/magic/Magdir/
 
 **CLI Output**:
 
-```
+```text
 Warning: Evaluation timed out after 5000ms
 Partial result: sample.bin: ELF (incomplete analysis)
 ```

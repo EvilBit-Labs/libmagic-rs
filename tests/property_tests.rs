@@ -60,6 +60,9 @@ fn arb_operator() -> impl Strategy<Value = Operator> {
         Just(Operator::GreaterEqual),
         Just(Operator::BitwiseAnd),
         (0u64..=255u64).prop_map(Operator::BitwiseAndMask),
+        Just(Operator::BitwiseXor),
+        Just(Operator::BitwiseNot),
+        Just(Operator::AnyValue),
     ]
 }
 

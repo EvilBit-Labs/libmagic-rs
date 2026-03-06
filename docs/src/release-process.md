@@ -16,7 +16,7 @@ libmagic-rs follows [Semantic Versioning](https://semver.org/) (SemVer):
 
 Commit messages follow the [Conventional Commits](https://www.conventionalcommits.org/) specification for automated semantic versioning and changelog generation. The required format is:
 
-```
+```text
 <type>(<scope>): <description>
 
 [optional body]
@@ -34,7 +34,7 @@ Commit messages follow the [Conventional Commits](https://www.conventionalcommit
 
 To trigger a major version bump (X.0.0), indicate breaking changes using a `BREAKING CHANGE:` footer in the commit body:
 
-```
+```text
 feat(api): redesign evaluation interface
 
 Replace EvaluationConfig::new() with a builder pattern
@@ -336,15 +336,18 @@ Releases are automated by two complementary tools:
 ### How It Works
 
 1. Every push to `main` triggers release-plz, which opens (or updates) a **release PR** with:
+
    - Version bump in `Cargo.toml`
    - Updated `CHANGELOG.md` (generated via git-cliff)
    - Semantic versioning based on conventional commits
 
 2. When the release PR is **merged**, release-plz:
+
    - Publishes the crate to **crates.io**
    - Creates a **git tag** (e.g., `v0.2.0`)
 
 3. The git tag triggers **cargo-dist**, which:
+
    - Builds binaries for all target platforms
    - Generates SLSA attestations and SBOM
    - Publishes the Homebrew formula
@@ -367,11 +370,11 @@ PRs must be within 10 commits of `main` before merging. This exemption allows th
 
 ### Configuration Files
 
-| File | Purpose |
-|------|---------|
-| `release-plz.toml` | release-plz configuration (crates.io, tags, changelog) |
-| `dist-workspace.toml` | cargo-dist configuration (binaries, Homebrew, SBOM) |
-| `cliff.toml` | git-cliff changelog template (shared by both tools) |
+| File                  | Purpose                                                |
+| --------------------- | ------------------------------------------------------ |
+| `release-plz.toml`    | release-plz configuration (crates.io, tags, changelog) |
+| `dist-workspace.toml` | cargo-dist configuration (binaries, Homebrew, SBOM)    |
+| `cliff.toml`          | git-cliff changelog template (shared by both tools)    |
 
 ### Authentication
 

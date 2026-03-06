@@ -18,6 +18,7 @@ description: Security review for Rust systems code. Covers memory safety, buffer
 ### 1. Memory Safety
 
 #### Bounds-Checked Buffer Access
+
 ```rust
 // WRONG: Direct indexing can panic
 let byte = buffer[offset];
@@ -30,6 +31,7 @@ let slice = buffer.get(start..end).ok_or(MagicError::OutOfBounds)?;
 ```
 
 #### Safe String Operations
+
 ```rust
 // WRONG: Direct slicing can panic on non-UTF-8 boundaries
 let rest = &input[2..];
@@ -39,6 +41,7 @@ let rest = input.strip_prefix("0x").unwrap_or(input);
 ```
 
 #### Verification Steps
+
 - [ ] All buffer access uses `.get()` with bounds checking
 - [ ] No direct indexing (`buffer[i]`) on untrusted data
 - [ ] String operations use `strip_prefix`/`strip_suffix` instead of slicing
@@ -47,12 +50,14 @@ let rest = input.strip_prefix("0x").unwrap_or(input);
 ### 2. Unsafe Code Policy
 
 #### Zero Tolerance
+
 ```rust
 // This is enforced project-wide
 #![forbid(unsafe_code)]
 ```
 
 #### Verification Steps
+
 - [ ] `#![forbid(unsafe_code)]` present in `lib.rs`
 - [ ] No `unsafe` blocks anywhere in project source
 - [ ] Dependencies with `unsafe` are vetted (memmap2, byteorder, nom)
@@ -61,6 +66,7 @@ let rest = input.strip_prefix("0x").unwrap_or(input);
 ### 3. Integer Safety
 
 #### Overflow Protection
+
 ```rust
 // WRONG: Can overflow silently in release builds
 let offset = base + adjustment;
@@ -74,6 +80,7 @@ let score = base_score.saturating_add(bonus);
 ```
 
 #### Verification Steps
+
 - [ ] Offset calculations use checked arithmetic
 - [ ] No implicit integer truncation (e.g., `u64 as u32`)
 - [ ] Cast operations use `TryFrom`/`try_into()` where overflow is possible
@@ -82,6 +89,7 @@ let score = base_score.saturating_add(bonus);
 ### 4. Input Validation (Magic Files)
 
 #### Parser Robustness
+
 ```rust
 // Magic files are untrusted input -- strict validation required
 fn parse_magic_line(line: &str) -> Result<MagicRule, ParseError> {
@@ -92,6 +100,7 @@ fn parse_magic_line(line: &str) -> Result<MagicRule, ParseError> {
 ```
 
 #### Verification Steps
+
 - [ ] Parser returns `Err` on invalid syntax, never panics
 - [ ] Deeply nested rules have depth limits
 - [ ] Unrecognized directives are skipped with warnings
@@ -101,6 +110,7 @@ fn parse_magic_line(line: &str) -> Result<MagicRule, ParseError> {
 ### 5. Input Validation (Target Files)
 
 #### File Buffer Safety
+
 ```rust
 // All file access through FileBuffer with bounds checking
 let fb = FileBuffer::open(path)?;
@@ -116,6 +126,7 @@ let data = fb.get(offset, length)?;
 ```
 
 #### Verification Steps
+
 - [ ] File size limits enforced before processing
 - [ ] Memory-mapped I/O used (not reading entire file into memory)
 - [ ] All `FileBuffer` access is bounds-checked
@@ -125,6 +136,7 @@ let data = fb.get(offset, length)?;
 ### 6. Resource Exhaustion Prevention
 
 #### CPU Limits
+
 ```rust
 // Evaluation timeout prevents infinite loops
 let config = EvaluationConfig {
@@ -135,6 +147,7 @@ let config = EvaluationConfig {
 ```
 
 #### Memory Limits
+
 ```rust
 // Limit collected results to prevent unbounded growth
 const MAX_MATCHES: usize = 100;
@@ -144,6 +157,7 @@ if matches.len() >= MAX_MATCHES {
 ```
 
 #### Verification Steps
+
 - [ ] Evaluation has configurable timeout
 - [ ] Maximum rule evaluation count enforced
 - [ ] Match results bounded
@@ -153,6 +167,7 @@ if matches.len() >= MAX_MATCHES {
 ### 7. Supply Chain Security
 
 #### Dependency Audit
+
 ```bash
 # Check for known vulnerabilities
 cargo audit
@@ -165,6 +180,7 @@ cargo tree --depth 2
 ```
 
 #### Verification Steps
+
 - [ ] `cargo audit` clean (no known vulnerabilities)
 - [ ] `cargo deny` passes (license compliance)
 - [ ] Minimal dependency surface
@@ -175,6 +191,7 @@ cargo tree --depth 2
 ### 8. Error Information Leakage
 
 #### Safe Error Messages
+
 ```rust
 // WRONG: Exposes internal paths or system info
 Err(format!("Failed to read {}: {}", full_path, system_error))
@@ -187,6 +204,7 @@ Err(MagicError::IoError(std::io::Error::new(
 ```
 
 #### Verification Steps
+
 - [ ] Error messages don't expose absolute file paths to end users
 - [ ] System-level errors wrapped before surfacing to CLI
 - [ ] Debug output gated behind `RUST_LOG` / verbose flags
@@ -194,6 +212,7 @@ Err(MagicError::IoError(std::io::Error::new(
 ### 9. CLI Argument Safety
 
 #### Path Handling
+
 ```rust
 // clap validates arguments before they reach application code
 // No shell expansion or command injection possible
@@ -209,6 +228,7 @@ struct Args {
 ```
 
 #### Verification Steps
+
 - [ ] CLI arguments parsed by `clap` (no manual parsing)
 - [ ] File paths treated as opaque -- no string manipulation
 - [ ] No shell invocation or command execution from user input

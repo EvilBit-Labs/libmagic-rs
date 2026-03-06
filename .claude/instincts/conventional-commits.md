@@ -26,6 +26,7 @@ Optional scope: `chore(deps):`, `chore(ci):`
 PR references: Include `(#N)` suffix when applicable.
 
 Examples from this repo:
+
 - `feat: implement comprehensive test infrastructure`
 - `feat: evaluation enhancements with confidence, MIME, tags, metadata (#29)`
 - `chore(deps): update dependencies in mise.toml for improved tooling`

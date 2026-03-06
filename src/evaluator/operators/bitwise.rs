@@ -108,6 +108,117 @@ pub fn apply_bitwise_and(left: &Value, right: &Value) -> bool {
     }
 }
 
+/// Apply bitwise XOR operation for pattern matching
+///
+/// Performs bitwise XOR between two integer values. Returns `true` if the result is non-zero.
+/// Only works with integer types (Uint and Int), returns `false` for other types.
+///
+/// # Arguments
+///
+/// * `left` - The left-hand side value (typically from file data)
+/// * `right` - The right-hand side value (typically from magic rule)
+///
+/// # Returns
+///
+/// `true` if the bitwise XOR result is non-zero, `false` otherwise or for non-integer types
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::Value;
+/// use libmagic_rs::evaluator::operators::apply_bitwise_xor;
+///
+/// // XOR of different values is non-zero (true)
+/// assert!(apply_bitwise_xor(&Value::Uint(0xFF), &Value::Uint(0x0F)));
+///
+/// // XOR of same values is zero (false)
+/// assert!(!apply_bitwise_xor(&Value::Uint(42), &Value::Uint(42)));
+///
+/// // Non-integer types return false
+/// assert!(!apply_bitwise_xor(
+///     &Value::String("test".to_string()),
+///     &Value::Uint(0x01),
+/// ));
+/// ```
+#[must_use]
+pub fn apply_bitwise_xor(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::Uint(a), Value::Uint(b)) => (a ^ b) != 0,
+        #[allow(clippy::cast_sign_loss)]
+        (Value::Int(a), Value::Int(b)) => ((*a as u64) ^ (*b as u64)) != 0,
+        #[allow(clippy::cast_sign_loss)]
+        (Value::Uint(a), Value::Int(b)) => (a ^ (*b as u64)) != 0,
+        #[allow(clippy::cast_sign_loss)]
+        (Value::Int(a), Value::Uint(b)) => ((*a as u64) ^ b) != 0,
+        _ => false,
+    }
+}
+
+/// Apply bitwise NOT then compare with right value
+///
+/// Computes bitwise complement of the left (file) value, then checks equality with the right
+/// (magic rule) value. Unlike `&` and `^` which test whether a bitwise result is non-zero,
+/// `~` compares the complement against a specific expected value.
+/// Only works with integer types, returns `false` for other types.
+///
+/// # Arguments
+///
+/// * `left` - The left-hand side value (typically from file data)
+/// * `right` - The right-hand side value to compare `!left` against
+///
+/// # Returns
+///
+/// `true` if `!left == right`, `false` otherwise or for non-integer types
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::Value;
+/// use libmagic_rs::evaluator::operators::apply_bitwise_not;
+///
+/// // NOT of 0 is all bits set (u64::MAX)
+/// assert!(apply_bitwise_not(&Value::Uint(0), &Value::Uint(u64::MAX)));
+///
+/// // NOT of -1 (all bits set) is 0
+/// assert!(apply_bitwise_not(&Value::Int(-1), &Value::Int(0)));
+///
+/// // Non-integer types return false
+/// assert!(!apply_bitwise_not(&Value::Bytes(vec![0xff]), &Value::Uint(0)));
+/// ```
+#[must_use]
+pub fn apply_bitwise_not(left: &Value, right: &Value) -> bool {
+    apply_bitwise_not_with_width(left, right, None)
+}
+
+/// Apply bitwise NOT with type-aware bit-width masking
+///
+/// When `bit_width` is provided, the complement is masked to the type's natural width.
+/// For example, a `ubyte` (8-bit) NOT of `0x00` yields `0xFF`, not `u64::MAX`.
+/// Without a bit width, the full 64-bit complement is used.
+///
+/// # Arguments
+///
+/// * `left` - The left-hand side value (typically from file data)
+/// * `right` - The right-hand side value to compare `!left` against
+/// * `bit_width` - Optional bit width for masking (8, 16, 32, or 64)
+///
+/// # Returns
+///
+/// `true` if the width-masked complement of `left` equals `right`
+#[must_use]
+pub fn apply_bitwise_not_with_width(left: &Value, right: &Value, bit_width: Option<u32>) -> bool {
+    let complemented = match (left, bit_width) {
+        (Value::Uint(val), Some(width)) if width < 64 => {
+            let mask = (1u64 << width) - 1;
+            Value::Uint(!val & mask)
+        }
+        (Value::Uint(val), _) => Value::Uint(!val),
+        (Value::Int(val), _) => Value::Int(!*val),
+        _ => return false,
+    };
+    apply_equal(&complemented, right)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,5 +469,146 @@ mod tests {
         assert!(apply_bitwise_and(&value, &mask1));
         assert!(apply_bitwise_and(&value, &mask2));
         assert!(apply_bitwise_and(&value, &combined_mask));
+    }
+
+    #[test]
+    fn test_apply_bitwise_xor_uint() {
+        assert!(apply_bitwise_xor(&Value::Uint(0xFF), &Value::Uint(0x0F)));
+        assert!(!apply_bitwise_xor(&Value::Uint(0xFF), &Value::Uint(0xFF)));
+        assert!(apply_bitwise_xor(&Value::Uint(1), &Value::Uint(2)));
+        assert!(!apply_bitwise_xor(&Value::Uint(0), &Value::Uint(0)));
+    }
+
+    #[test]
+    fn test_apply_bitwise_xor_int() {
+        assert!(apply_bitwise_xor(&Value::Int(0xFF), &Value::Int(0x0F)));
+        assert!(!apply_bitwise_xor(&Value::Int(42), &Value::Int(42)));
+        assert!(apply_bitwise_xor(&Value::Int(-1), &Value::Int(0)));
+    }
+
+    #[test]
+    fn test_apply_bitwise_xor_cross_type() {
+        assert!(apply_bitwise_xor(&Value::Uint(0xFF), &Value::Int(0x0F)));
+        assert!(apply_bitwise_xor(&Value::Int(0xFF), &Value::Uint(0x0F)));
+        assert!(!apply_bitwise_xor(&Value::Uint(42), &Value::Int(42)));
+    }
+
+    #[test]
+    fn test_apply_bitwise_xor_same_value() {
+        assert!(!apply_bitwise_xor(&Value::Uint(100), &Value::Uint(100)));
+        assert!(!apply_bitwise_xor(&Value::Int(-1), &Value::Int(-1)));
+    }
+
+    #[test]
+    fn test_apply_bitwise_xor_non_numeric() {
+        assert!(!apply_bitwise_xor(
+            &Value::Bytes(vec![1, 2]),
+            &Value::Uint(1)
+        ));
+        assert!(!apply_bitwise_xor(
+            &Value::String("x".to_string()),
+            &Value::Uint(0xFF)
+        ));
+    }
+
+    #[test]
+    fn test_apply_bitwise_not_uint() {
+        assert!(apply_bitwise_not(&Value::Uint(0), &Value::Uint(u64::MAX)));
+        assert!(apply_bitwise_not(&Value::Uint(u64::MAX), &Value::Uint(0)));
+        assert!(!apply_bitwise_not(&Value::Uint(0xFF), &Value::Uint(0)));
+    }
+
+    #[test]
+    fn test_apply_bitwise_not_int() {
+        assert!(apply_bitwise_not(&Value::Int(0), &Value::Int(-1)));
+        assert!(apply_bitwise_not(&Value::Int(-1), &Value::Int(0)));
+    }
+
+    #[test]
+    fn test_apply_bitwise_not_all_bits_set() {
+        assert!(apply_bitwise_not(
+            &Value::Uint(0xFFFF_FFFF_FFFF_FFFF),
+            &Value::Uint(0)
+        ));
+    }
+
+    #[test]
+    fn test_apply_bitwise_not_non_numeric() {
+        assert!(!apply_bitwise_not(
+            &Value::Bytes(vec![0xff]),
+            &Value::Uint(0)
+        ));
+        assert!(!apply_bitwise_not(
+            &Value::String("x".to_string()),
+            &Value::Uint(0)
+        ));
+    }
+
+    #[test]
+    fn test_apply_bitwise_not_with_byte_width() {
+        // At byte width (8 bits), ~0x00 = 0xFF
+        assert!(apply_bitwise_not_with_width(
+            &Value::Uint(0x00),
+            &Value::Uint(0xFF),
+            Some(8)
+        ));
+        // At byte width, ~0xFF = 0x00
+        assert!(apply_bitwise_not_with_width(
+            &Value::Uint(0xFF),
+            &Value::Uint(0x00),
+            Some(8)
+        ));
+        // At byte width, ~0x42 = 0xBD
+        assert!(apply_bitwise_not_with_width(
+            &Value::Uint(0x42),
+            &Value::Uint(0xBD),
+            Some(8)
+        ));
+    }
+
+    #[test]
+    fn test_apply_bitwise_not_with_short_width() {
+        // At short width (16 bits), ~0x0000 = 0xFFFF
+        assert!(apply_bitwise_not_with_width(
+            &Value::Uint(0x0000),
+            &Value::Uint(0xFFFF),
+            Some(16)
+        ));
+        // At short width, ~0x1234 = 0xEDCB
+        assert!(apply_bitwise_not_with_width(
+            &Value::Uint(0x1234),
+            &Value::Uint(0xEDCB),
+            Some(16)
+        ));
+    }
+
+    #[test]
+    fn test_apply_bitwise_not_with_long_width() {
+        // At long width (32 bits), ~0x00000000 = 0xFFFFFFFF
+        assert!(apply_bitwise_not_with_width(
+            &Value::Uint(0x0000_0000),
+            &Value::Uint(0xFFFF_FFFF),
+            Some(32)
+        ));
+    }
+
+    #[test]
+    fn test_apply_bitwise_not_with_quad_width() {
+        // At quad width (64 bits), ~0 = u64::MAX (no masking needed)
+        assert!(apply_bitwise_not_with_width(
+            &Value::Uint(0),
+            &Value::Uint(u64::MAX),
+            Some(64)
+        ));
+    }
+
+    #[test]
+    fn test_apply_bitwise_not_with_no_width() {
+        // No width specified: full 64-bit complement (same as apply_bitwise_not)
+        assert!(apply_bitwise_not_with_width(
+            &Value::Uint(0),
+            &Value::Uint(u64::MAX),
+            None
+        ));
     }
 }

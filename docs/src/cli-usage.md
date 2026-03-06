@@ -80,7 +80,7 @@ JSON output varies based on the number of files being analyzed.
 **Single file** -- pretty-printed JSON with a matches array:
 
 ```bash
-$ rmagic --json image.png
+rmagic --json image.png
 ```
 
 ```json
@@ -134,7 +134,7 @@ stdin: data
 Stdin can be combined with regular file arguments:
 
 ```bash
-$ rmagic --use-builtin file1.bin - file2.txt < input.dat
+rmagic --use-builtin file1.bin - file2.txt < input.dat
 ```
 
 ## Exit Codes
@@ -255,7 +255,7 @@ $ rmagic --use-builtin --json binary.elf | jq '.matches[0].mime_type'
 ### Process files from a directory listing
 
 ```bash
-$ ls *.bin | xargs rmagic --use-builtin --strict
+ls *.bin | xargs rmagic --use-builtin --strict
 ```
 
 ### Custom magic file

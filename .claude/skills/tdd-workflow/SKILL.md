@@ -16,9 +16,11 @@ description: Enforces test-driven development for Rust. Write tests first with c
 ## Core Principles
 
 ### 1. Tests BEFORE Code
+
 ALWAYS write tests first, then implement code to make tests pass.
 
 ### 2. Coverage Requirements
+
 - Minimum 85% coverage (project target per AGENTS.md)
 - All edge cases covered
 - Error scenarios tested
@@ -28,21 +30,25 @@ ALWAYS write tests first, then implement code to make tests pass.
 ### 3. Test Types
 
 #### Unit Tests
+
 - Inline `#[cfg(test)]` modules alongside source
 - Individual functions, parsers, evaluators
 - Pure logic and data transformations
 
 #### Integration Tests
+
 - In `tests/` directory with real magic files
 - End-to-end rule parsing and evaluation
 - CLI argument handling and output formatting
 
 #### Property Tests
+
 - Use `proptest` for fuzzing magic rule evaluation
 - Random input generation for parser robustness
 - Boundary value exploration
 
 #### Benchmarks
+
 - Use `criterion` for performance-critical code
 - Evaluator hot paths, parser throughput
 - Memory-mapped I/O performance
@@ -50,6 +56,7 @@ ALWAYS write tests first, then implement code to make tests pass.
 ## TDD Workflow Steps
 
 ### Step 1: Define the Behavior
+
 ```
 Given [a magic rule with specific offset/type/operator],
 When [evaluated against a file buffer with known contents],
@@ -57,6 +64,7 @@ Then [the evaluator should return the expected match result].
 ```
 
 ### Step 2: Write Failing Tests
+
 ```rust
 #[cfg(test)]
 mod tests {
@@ -96,31 +104,38 @@ mod tests {
 ```
 
 ### Step 3: Run Tests (They Should Fail)
+
 ```bash
 cargo test test_new_feature -- --nocapture
 # Tests should fail -- we haven't implemented yet
 ```
 
 ### Step 4: Implement Code
+
 Write minimal code to make tests pass. Follow project patterns:
+
 - Use `.get()` for bounds-checked buffer access
 - Return `Result<T, MagicError>` consistently
 - No `unsafe`, no `.unwrap()`, no `panic!`
 
 ### Step 5: Run Tests Again
+
 ```bash
 cargo nextest run
 # All tests should pass
 ```
 
 ### Step 6: Refactor
+
 Improve code quality while keeping tests green:
+
 - Remove duplication
 - Improve naming
 - Extract modules if file exceeds 500 lines
 - Ensure clippy compliance
 
 ### Step 7: Verify Coverage
+
 ```bash
 cargo llvm-cov --html
 # Verify 85%+ coverage achieved
@@ -130,6 +145,7 @@ cargo llvm-cov --html
 ## Testing Patterns
 
 ### Property-Based Testing
+
 ```rust
 use proptest::prelude::*;
 
@@ -151,6 +167,7 @@ proptest! {
 ```
 
 ### Parameterized Tests
+
 ```rust
 #[test]
 fn test_endianness_variants() {
@@ -167,6 +184,7 @@ fn test_endianness_variants() {
 ```
 
 ### Test Fixtures
+
 ```rust
 fn create_elf_header() -> Vec<u8> {
     vec![0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00]
@@ -211,11 +229,13 @@ benches/
 ## Common Testing Mistakes to Avoid
 
 ### WRONG: Testing internal state
+
 ```rust
 assert_eq!(parser.line_number, 5); // Implementation detail
 ```
 
 ### CORRECT: Test observable behavior
+
 ```rust
 let rules = parse_magic_file(input)?;
 assert_eq!(rules.len(), 5);
@@ -223,11 +243,13 @@ assert_eq!(rules[0].message, "ELF");
 ```
 
 ### WRONG: Ignoring error paths
+
 ```rust
 let result = evaluate_rule(&rule, buffer).unwrap(); // Will panic
 ```
 
 ### CORRECT: Test both success and error
+
 ```rust
 assert!(evaluate_rule(&rule, buffer).is_ok());
 assert!(evaluate_rule(&rule, &[]).is_ok()); // Empty buffer

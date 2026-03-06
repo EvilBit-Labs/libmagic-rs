@@ -46,6 +46,7 @@
     ],
     "ignores": [
         "CHANGELOG.md",
+        ".claude/**",
         ".venv/**",
         "**/node_modules/**",
         "**/__pycache__/**",
