@@ -23,16 +23,16 @@ Memory Map    Context State      Endian Handling   Match Logic      Hierarchical
 
 ## Module Organization
 
-The evaluator module is organized into focused submodules:
+The evaluator module separates public interface from implementation:
 
-- **`evaluator/engine/mod.rs`** - Core evaluation logic (`evaluate_single_rule`, `evaluate_rules`, `evaluate_rules_with_config`)
-- **`evaluator/mod.rs`** - Public API surface (types, context, re-exports)
+- **`evaluator/mod.rs`** - Public API surface: defines `EvaluationContext` and `RuleMatch` types, re-exports core evaluation functions from the engine submodule
+- **`evaluator/engine/mod.rs`** - Core evaluation implementation: `evaluate_single_rule`, `evaluate_rules`, `evaluate_rules_with_config`
 - **`evaluator/offset/mod.rs`** - Offset resolution
 - **`evaluator/operators/mod.rs`** - Operator application
 - **`evaluator/types.rs`** - Type reading and coercion
 - **`evaluator/strength.rs`** - Rule strength calculation
 
-From a public API perspective, all types and functions are imported from the `evaluator` module as before -- the internal organization is transparent to library users.
+The refactoring improves organization by separating concerns: `mod.rs` handles the public API surface and data types, while `engine/` contains the core evaluation logic. From a public API perspective, all types and functions are imported from the `evaluator` module as before -- the internal organization is transparent to library users.
 
 ## Core Components
 
