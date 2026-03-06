@@ -29,10 +29,14 @@ The evaluator module separates public interface from implementation:
 - **`evaluator/engine/mod.rs`** - Core evaluation implementation: `evaluate_single_rule`, `evaluate_rules`, `evaluate_rules_with_config`
 - **`evaluator/offset/mod.rs`** - Offset resolution
 - **`evaluator/operators/mod.rs`** - Operator application
-- **`evaluator/types.rs`** - Type reading and coercion
+- **`evaluator/types/`** - Type reading and coercion (organized as submodules as of v0.4.2)
+  - **`types/mod.rs`** - Public API surface: `read_typed_value`, `coerce_value_to_type`, re-exports type functions
+  - **`types/numeric.rs`** - Numeric type handling: `read_byte`, `read_short`, `read_long`, `read_quad` with endianness and signedness support
+  - **`types/string.rs`** - String type handling: `read_string` with null-termination and UTF-8 conversion
+  - **`types/tests.rs`** - Module tests
 - **`evaluator/strength.rs`** - Rule strength calculation
 
-The refactoring improves organization by separating concerns: `mod.rs` handles the public API surface and data types, while `engine/` contains the core evaluation logic. From a public API perspective, all types and functions are imported from the `evaluator` module as before -- the internal organization is transparent to library users.
+The refactoring improves organization by separating concerns: `mod.rs` handles the public API surface and data types, while `engine/` contains the core evaluation logic. The types module was refactored in v0.4.2 from a single 1,836-line file into focused submodules for numeric and string handling, improving maintainability without changing the public API. From a public API perspective, all types and functions are imported from the `evaluator` module as before -- the internal organization is transparent to library users.
 
 ## Core Components
 
@@ -99,9 +103,9 @@ pub fn resolve_offset(
 ) -> Result<usize, LibmagicError>
 ```
 
-### Type Reading (`evaluator/types.rs`)
+### Type Reading (`evaluator/types/`)
 
-Interprets bytes according to type specifications:
+Interprets bytes according to type specifications. The types module is organized into submodules for numeric and string type handling (refactored from a single file in v0.4.2):
 
 - **Byte**: Single byte values (signed or unsigned)
 - **Short**: 16-bit integers with endianness
