@@ -307,6 +307,13 @@ pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
     }
 
     if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("x")(input) {
+        // Ensure 'x' is not followed by alphanumeric (e.g., "x42" is not AnyValue)
+        if remaining.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Tag,
+            )));
+        }
         let (remaining, _) = multispace0(remaining)?;
         return Ok((remaining, Operator::AnyValue));
     }
@@ -1001,7 +1008,5 @@ pub fn is_comment_line(input: &str) -> bool {
 pub fn has_continuation(input: &str) -> bool {
     input.trim_end().ends_with('\\')
 }
-// Tests for new magic rule parsing functions
-
 #[cfg(test)]
 mod tests;
