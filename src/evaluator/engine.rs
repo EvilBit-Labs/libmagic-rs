@@ -145,18 +145,16 @@ pub fn evaluate_rules(
                     Ok(child_matches) => {
                         matches.extend(child_matches);
                     }
-                    Err(LibmagicError::Timeout { .. }) => {
+                    Err(LibmagicError::Timeout { timeout_ms }) => {
                         // Timeout is critical, propagate it up
-                        context.decrement_recursion_depth()?;
-                        return Err(LibmagicError::Timeout {
-                            timeout_ms: context.timeout_ms().unwrap_or(0),
-                        });
+                        let _ = context.decrement_recursion_depth();
+                        return Err(LibmagicError::Timeout { timeout_ms });
                     }
                     Err(LibmagicError::EvaluationError(
                         crate::error::EvaluationError::RecursionLimitExceeded { .. },
                     )) => {
                         // Recursion limit is critical, propagate it up
-                        context.decrement_recursion_depth()?;
+                        let _ = context.decrement_recursion_depth();
                         return Err(LibmagicError::EvaluationError(
                             crate::error::EvaluationError::RecursionLimitExceeded {
                                 depth: context.recursion_depth(),
@@ -175,7 +173,7 @@ pub fn evaluate_rules(
                     }
                     Err(e) => {
                         // Unexpected errors in children should propagate
-                        context.decrement_recursion_depth()?;
+                        let _ = context.decrement_recursion_depth();
                         return Err(e);
                     }
                 }
