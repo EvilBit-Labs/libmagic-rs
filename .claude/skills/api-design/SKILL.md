@@ -16,6 +16,7 @@ description: Rust library API design patterns including builder pattern, error h
 ## Library API Design
 
 ### Builder Pattern
+
 ```rust
 // For types with many optional configuration fields
 pub struct EvaluationConfig {
@@ -48,6 +49,7 @@ impl EvaluationConfigBuilder {
 ### Error Design
 
 #### Three-Tier Error Hierarchy
+
 ```rust
 // Top-level: user-facing errors
 pub enum LibmagicError {
@@ -69,6 +71,7 @@ impl std::error::Error for LibmagicError { /* ... */ }
 ```
 
 #### Error Guidelines
+
 - Use `thiserror` for deriving Error implementations
 - Errors should be actionable (include line numbers, context)
 - Never expose internal paths or system details in public errors
@@ -77,6 +80,7 @@ impl std::error::Error for LibmagicError { /* ... */ }
 ### Type Safety
 
 #### Newtype Pattern
+
 ```rust
 // Wrap primitives to prevent misuse
 pub struct Offset(i64);
@@ -88,6 +92,7 @@ fn evaluate_at(offset: Offset, buffer: &[u8]) -> Result<Score, EvaluationError>;
 ```
 
 #### Enum-Based Type Discrimination
+
 ```rust
 // Use enums to make invalid states unrepresentable
 pub enum OffsetSpec {
@@ -102,6 +107,7 @@ pub enum OffsetSpec {
 ### Public API Surface
 
 #### Minimize Exposure
+
 ```rust
 // Only expose what users need
 pub use crate::evaluator::EvaluationResult;
@@ -112,6 +118,7 @@ pub(crate) use crate::evaluator::EvaluationContext;
 ```
 
 #### Document Everything Public
+
 ```rust
 /// Evaluate magic rules against a file buffer.
 ///
@@ -137,6 +144,7 @@ pub fn evaluate_buffer(&self, buffer: &[u8]) -> Result<Option<EvaluationResult>,
 ```
 
 ### Trait Design
+
 ```rust
 // Small, focused traits
 pub trait SafeBufferAccess {
@@ -153,6 +161,7 @@ impl SafeBufferAccess for &[u8] { /* ... */ }
 ## CLI Design (clap)
 
 ### Argument Structure
+
 ```rust
 #[derive(Parser)]
 #[command(name = "rmagic", about = "Identify file types")]
@@ -172,6 +181,7 @@ struct Args {
 ```
 
 ### CLI Conventions
+
 - Follow GNU `file` command conventions where possible
 - Short flags for common options (`-j` for JSON)
 - Long flags for all options (`--json`)
@@ -180,6 +190,7 @@ struct Args {
 - Exit code 0 for success, 1 for errors
 
 ### Output Format Consistency
+
 - Text output: `filename: description` (matches GNU `file`)
 - JSON output: structured with `filename`, `matches`, `metadata`
 - Errors to stderr, results to stdout
@@ -188,12 +199,14 @@ struct Args {
 ## API Evolution
 
 ### Non-Breaking Changes (patch/minor version)
+
 - Adding new enum variants (if `#[non_exhaustive]`)
 - Adding new optional fields to builders
 - Adding new methods to existing types
 - Loosening input constraints
 
 ### Breaking Changes (major version)
+
 - Removing or renaming public types/functions
 - Changing function signatures
 - Adding required fields to structs
@@ -201,6 +214,7 @@ struct Args {
 - Changing error types
 
 ### Defensive Techniques
+
 ```rust
 // Mark enums as non-exhaustive for future extension
 #[non_exhaustive]
@@ -216,6 +230,7 @@ pub enum TypeKind {
 ## API Review Checklist
 
 Before exposing new public API:
+
 - [ ] All public items have rustdoc with examples
 - [ ] Error types are descriptive and actionable
 - [ ] Builder pattern used for types with >3 optional fields
