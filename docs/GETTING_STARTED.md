@@ -21,10 +21,12 @@ Add libmagic-rs to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-libmagic-rs = "0.3.2"
+libmagic-rs = "0.4.0"
 ```
 
-**Note:** Version 0.3.0 introduces breaking changes. If upgrading from 0.2.x, note that a new `TypeKind::Quad` enum variant was added for 64-bit quad integer types with endian variants, `TypeKind::String` variant discriminant changed from 3 to 4, and `evaluator::MatchResult` was renamed to `evaluator::RuleMatch` to resolve a naming collision with `output::MatchResult`. The public re-export is `RuleMatch`. Exhaustive pattern matching on `TypeKind` requires updates.
+**Note:** Version 0.4.0 introduces breaking changes. If upgrading from 0.3.x, the `Operator` enum gained three new variants (`BitwiseXor`, `BitwiseNot`, `AnyValue`) for bitwise and any-value operations. Exhaustive pattern matching on `Operator` requires updates.
+
+Version 0.3.0 introduced breaking changes from 0.2.x: a new `TypeKind::Quad` enum variant was added for 64-bit quad integer types with endian variants, `TypeKind::String` variant discriminant changed from 3 to 4, and `evaluator::MatchResult` was renamed to `evaluator::RuleMatch` to resolve a naming collision with `output::MatchResult`. The public re-export is `RuleMatch`. Exhaustive pattern matching on `TypeKind` requires updates.
 
 Version 0.2.0 introduced breaking changes from 0.1.x: `TypeKind::Byte` changed from a unit variant to a tuple variant, and the `Operator` enum gained new variants (`LessThan`, `GreaterThan`, `LessEqual`, `GreaterEqual`) for comparison operations.
 
@@ -65,7 +67,7 @@ Edit `Cargo.toml`:
 
 ```toml
 [dependencies]
-libmagic-rs = "0.3.2"
+libmagic-rs = "0.4.0"
 ```
 
 #### Step 3: Write Code
