@@ -213,6 +213,39 @@ pub enum Operator {
     /// assert_eq!(op, Operator::BitwiseAndMask(0xFF00));
     /// ```
     BitwiseAndMask(u64),
+    /// Bitwise XOR operation (`^`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::BitwiseXor;
+    /// assert_eq!(op, Operator::BitwiseXor);
+    /// ```
+    BitwiseXor,
+    /// Bitwise NOT/complement operation (`~`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::BitwiseNot;
+    /// assert_eq!(op, Operator::BitwiseNot);
+    /// ```
+    BitwiseNot,
+    /// Match any value; condition always succeeds (`x`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Operator;
+    ///
+    /// let op = Operator::AnyValue;
+    /// assert_eq!(op, Operator::AnyValue);
+    /// ```
+    AnyValue,
 }
 
 /// Value types for rule matching
@@ -699,7 +732,14 @@ mod tests {
     // Operator tests
     #[test]
     fn test_operator_variants() {
-        let operators = [Operator::Equal, Operator::NotEqual, Operator::BitwiseAnd];
+        let operators = [
+            Operator::Equal,
+            Operator::NotEqual,
+            Operator::BitwiseAnd,
+            Operator::BitwiseXor,
+            Operator::BitwiseNot,
+            Operator::AnyValue,
+        ];
 
         for (i, op) in operators.iter().enumerate() {
             for (j, other) in operators.iter().enumerate() {
@@ -714,7 +754,14 @@ mod tests {
 
     #[test]
     fn test_operator_serialization() {
-        let operators = vec![Operator::Equal, Operator::NotEqual, Operator::BitwiseAnd];
+        let operators = vec![
+            Operator::Equal,
+            Operator::NotEqual,
+            Operator::BitwiseAnd,
+            Operator::BitwiseXor,
+            Operator::BitwiseNot,
+            Operator::AnyValue,
+        ];
 
         for op in operators {
             let json = serde_json::to_string(&op).expect("Failed to serialize Operator");

@@ -102,6 +102,10 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
         Operator::BitwiseAndMask(_) => 7,
         // Plain bitwise AND is least specific
         Operator::BitwiseAnd => 3,
+        // Bitwise XOR and NOT are moderately specific
+        Operator::BitwiseXor | Operator::BitwiseNot => 4,
+        // Any value always matches, least specific
+        Operator::AnyValue => 1,
     };
 
     // Offset contribution: absolute offsets are most reliable

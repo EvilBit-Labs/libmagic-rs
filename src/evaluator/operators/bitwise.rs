@@ -108,6 +108,38 @@ pub fn apply_bitwise_and(left: &Value, right: &Value) -> bool {
     }
 }
 
+/// Apply bitwise XOR operation for pattern matching
+///
+/// Performs bitwise XOR between two integer values. Returns `true` if the result is non-zero.
+/// Only works with integer types (Uint and Int), returns `false` for other types.
+#[must_use]
+pub fn apply_bitwise_xor(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::Uint(a), Value::Uint(b)) => (a ^ b) != 0,
+        #[allow(clippy::cast_sign_loss)]
+        (Value::Int(a), Value::Int(b)) => ((*a as u64) ^ (*b as u64)) != 0,
+        #[allow(clippy::cast_sign_loss)]
+        (Value::Uint(a), Value::Int(b)) => (a ^ (*b as u64)) != 0,
+        #[allow(clippy::cast_sign_loss)]
+        (Value::Int(a), Value::Uint(b)) => ((*a as u64) ^ b) != 0,
+        _ => false,
+    }
+}
+
+/// Apply bitwise NOT then compare with right value
+///
+/// Computes bitwise complement of the left (file) value, then checks equality with the right value.
+/// Only works with integer types, returns `false` for other types.
+#[must_use]
+pub fn apply_bitwise_not(left: &Value, right: &Value) -> bool {
+    let complemented = match left {
+        Value::Uint(val) => Value::Uint(!val),
+        Value::Int(val) => Value::Int(!*val),
+        _ => return false,
+    };
+    apply_equal(&complemented, right)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,5 +390,78 @@ mod tests {
         assert!(apply_bitwise_and(&value, &mask1));
         assert!(apply_bitwise_and(&value, &mask2));
         assert!(apply_bitwise_and(&value, &combined_mask));
+    }
+
+    #[test]
+    fn test_apply_bitwise_xor_uint() {
+        assert!(apply_bitwise_xor(&Value::Uint(0xFF), &Value::Uint(0x0F)));
+        assert!(!apply_bitwise_xor(&Value::Uint(0xFF), &Value::Uint(0xFF)));
+        assert!(apply_bitwise_xor(&Value::Uint(1), &Value::Uint(2)));
+        assert!(!apply_bitwise_xor(&Value::Uint(0), &Value::Uint(0)));
+    }
+
+    #[test]
+    fn test_apply_bitwise_xor_int() {
+        assert!(apply_bitwise_xor(&Value::Int(0xFF), &Value::Int(0x0F)));
+        assert!(!apply_bitwise_xor(&Value::Int(42), &Value::Int(42)));
+        assert!(apply_bitwise_xor(&Value::Int(-1), &Value::Int(0)));
+    }
+
+    #[test]
+    fn test_apply_bitwise_xor_cross_type() {
+        assert!(apply_bitwise_xor(&Value::Uint(0xFF), &Value::Int(0x0F)));
+        assert!(apply_bitwise_xor(&Value::Int(0xFF), &Value::Uint(0x0F)));
+        assert!(!apply_bitwise_xor(&Value::Uint(42), &Value::Int(42)));
+    }
+
+    #[test]
+    fn test_apply_bitwise_xor_same_value() {
+        assert!(!apply_bitwise_xor(&Value::Uint(100), &Value::Uint(100)));
+        assert!(!apply_bitwise_xor(&Value::Int(-1), &Value::Int(-1)));
+    }
+
+    #[test]
+    fn test_apply_bitwise_xor_non_numeric() {
+        assert!(!apply_bitwise_xor(
+            &Value::Bytes(vec![1, 2]),
+            &Value::Uint(1)
+        ));
+        assert!(!apply_bitwise_xor(
+            &Value::String("x".to_string()),
+            &Value::Uint(0xFF)
+        ));
+    }
+
+    #[test]
+    fn test_apply_bitwise_not_uint() {
+        assert!(apply_bitwise_not(&Value::Uint(0), &Value::Uint(u64::MAX)));
+        assert!(apply_bitwise_not(&Value::Uint(u64::MAX), &Value::Uint(0)));
+        assert!(!apply_bitwise_not(&Value::Uint(0xFF), &Value::Uint(0)));
+    }
+
+    #[test]
+    fn test_apply_bitwise_not_int() {
+        assert!(apply_bitwise_not(&Value::Int(0), &Value::Int(-1)));
+        assert!(apply_bitwise_not(&Value::Int(-1), &Value::Int(0)));
+    }
+
+    #[test]
+    fn test_apply_bitwise_not_all_bits_set() {
+        assert!(apply_bitwise_not(
+            &Value::Uint(0xFFFF_FFFF_FFFF_FFFF),
+            &Value::Uint(0)
+        ));
+    }
+
+    #[test]
+    fn test_apply_bitwise_not_non_numeric() {
+        assert!(!apply_bitwise_not(
+            &Value::Bytes(vec![0xff]),
+            &Value::Uint(0)
+        ));
+        assert!(!apply_bitwise_not(
+            &Value::String("x".to_string()),
+            &Value::Uint(0)
+        ));
     }
 }

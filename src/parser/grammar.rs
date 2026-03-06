@@ -197,6 +197,9 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
 /// - `<=` for less-than-or-equal
 /// - `>=` for greater-than-or-equal
 /// - `&` for bitwise AND
+/// - `^` for bitwise XOR
+/// - `~` for bitwise NOT
+/// - `x` for any value (always matches)
 ///
 /// # Examples
 ///
@@ -213,6 +216,9 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
 /// assert_eq!(parse_operator("<="), Ok(("", Operator::LessEqual)));
 /// assert_eq!(parse_operator(">="), Ok(("", Operator::GreaterEqual)));
 /// assert_eq!(parse_operator("&"), Ok(("", Operator::BitwiseAnd)));
+/// assert_eq!(parse_operator("^"), Ok(("", Operator::BitwiseXor)));
+/// assert_eq!(parse_operator("~"), Ok(("", Operator::BitwiseNot)));
+/// assert_eq!(parse_operator("x"), Ok(("", Operator::AnyValue)));
 /// ```
 ///
 /// # Errors
@@ -279,6 +285,33 @@ pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
         }
         let (remaining, _) = multispace0(remaining)?;
         return Ok((remaining, Operator::BitwiseAnd));
+    }
+
+    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("^")(input) {
+        if remaining.starts_with('^') {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Tag,
+            )));
+        }
+        let (remaining, _) = multispace0(remaining)?;
+        return Ok((remaining, Operator::BitwiseXor));
+    }
+
+    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("~")(input) {
+        if remaining.starts_with('~') {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Tag,
+            )));
+        }
+        let (remaining, _) = multispace0(remaining)?;
+        return Ok((remaining, Operator::BitwiseNot));
+    }
+
+    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("x")(input) {
+        let (remaining, _) = multispace0(remaining)?;
+        return Ok((remaining, Operator::AnyValue));
     }
 
     if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("<")(input) {
@@ -892,6 +925,39 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_operator_bitwise_xor() {
+        assert_eq!(parse_operator("^"), Ok(("", Operator::BitwiseXor)));
+        assert_eq!(parse_operator(" ^ "), Ok(("", Operator::BitwiseXor)));
+        assert_eq!(parse_operator("  ^  "), Ok(("", Operator::BitwiseXor)));
+        assert_eq!(parse_operator("\t^\t"), Ok(("", Operator::BitwiseXor)));
+        assert_eq!(parse_operator("^ 0xFF"), Ok(("0xFF", Operator::BitwiseXor)));
+        assert!(parse_operator("^^").is_err());
+    }
+
+    #[test]
+    fn test_parse_operator_bitwise_not() {
+        assert_eq!(parse_operator("~"), Ok(("", Operator::BitwiseNot)));
+        assert_eq!(parse_operator(" ~ "), Ok(("", Operator::BitwiseNot)));
+        assert_eq!(parse_operator("  ~  "), Ok(("", Operator::BitwiseNot)));
+        assert_eq!(parse_operator("\t~\t"), Ok(("", Operator::BitwiseNot)));
+        assert_eq!(parse_operator("~ 0xff"), Ok(("0xff", Operator::BitwiseNot)));
+        assert!(parse_operator("~~").is_err());
+    }
+
+    #[test]
+    fn test_parse_operator_any_value() {
+        assert_eq!(parse_operator("x"), Ok(("", Operator::AnyValue)));
+        assert_eq!(parse_operator(" x "), Ok(("", Operator::AnyValue)));
+        assert_eq!(parse_operator("  x  "), Ok(("", Operator::AnyValue)));
+        assert_eq!(parse_operator("\tx\t"), Ok(("", Operator::AnyValue)));
+        assert_eq!(parse_operator("x 42"), Ok(("42", Operator::AnyValue)));
+        assert_eq!(
+            parse_operator("x version"),
+            Ok(("version", Operator::AnyValue))
+        );
+    }
+
+    #[test]
     fn test_parse_operator_with_remaining_input() {
         // Should parse operator and leave remaining input
         assert_eq!(parse_operator("= 123"), Ok(("123", Operator::Equal)));
@@ -900,6 +966,9 @@ mod tests {
             Ok(("value", Operator::NotEqual))
         );
         assert_eq!(parse_operator("& 0xFF"), Ok(("0xFF", Operator::BitwiseAnd)));
+        assert_eq!(parse_operator("^ 0xFF"), Ok(("0xFF", Operator::BitwiseXor)));
+        assert_eq!(parse_operator("~ 0xff"), Ok(("0xff", Operator::BitwiseNot)));
+        assert_eq!(parse_operator("x 42"), Ok(("42", Operator::AnyValue)));
         assert_eq!(
             parse_operator("== \"string\""),
             Ok(("\"string\"", Operator::Equal))
@@ -952,6 +1021,8 @@ mod tests {
         assert!(parse_operator("!").is_err());
         assert!(parse_operator("===").is_err()); // Too many equals
         assert!(parse_operator("&&").is_err()); // Double ampersand not supported
+        assert!(parse_operator("^^").is_err()); // Double caret not supported
+        assert!(parse_operator("~~").is_err()); // Double tilde not supported
     }
 
     #[test]
@@ -965,6 +1036,9 @@ mod tests {
         assert_eq!(parse_operator(" \t = \t "), Ok(("", Operator::Equal)));
         assert_eq!(parse_operator("\t != \t"), Ok(("", Operator::NotEqual)));
         assert_eq!(parse_operator(" \t& \t "), Ok(("", Operator::BitwiseAnd)));
+        assert_eq!(parse_operator(" ^\n"), Ok(("", Operator::BitwiseXor)));
+        assert_eq!(parse_operator(" ~\r\n"), Ok(("", Operator::BitwiseNot)));
+        assert_eq!(parse_operator(" x\t\t"), Ok(("", Operator::AnyValue)));
     }
 
     #[test]
@@ -984,6 +1058,12 @@ mod tests {
             Ok(("\"ELF\"", Operator::Equal))
         );
         assert_eq!(parse_operator("<> \"\""), Ok(("\"\"", Operator::NotEqual)));
+        assert_eq!(parse_operator("^ 0xff"), Ok(("0xff", Operator::BitwiseXor)));
+        assert_eq!(parse_operator("~ 0x80"), Ok(("0x80", Operator::BitwiseNot)));
+        assert_eq!(
+            parse_operator("x version"),
+            Ok(("version", Operator::AnyValue))
+        );
 
         // Test with various spacing patterns found in real magic files
         assert_eq!(
@@ -1890,8 +1970,12 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
     let (input, separate_op) = opt(parse_operator).parse(input)?;
     let op = attached_op.or(separate_op).unwrap_or(Operator::Equal);
 
-    // Parse the value
-    let (input, value) = parse_value(input)?;
+    // For AnyValue (`x`), no operand is needed -- treat remaining text as message
+    let (input, value) = if op == Operator::AnyValue {
+        (input, Value::Uint(0))
+    } else {
+        parse_value(input)?
+    };
 
     // Parse the message (optional - everything remaining on the line)
     let (input, message) = if input.trim().is_empty() {
@@ -2675,6 +2759,51 @@ fn test_parse_magic_rule_invalid_input() {
             "Should fail to parse invalid input: '{invalid_input}'"
         );
     }
+}
+
+// AnyValue (`x`) operator tests -- no operand required
+#[test]
+fn test_parse_magic_rule_any_value_with_paren_message() {
+    // Message starting with `(` must not be consumed as a value
+    let input = ">0 byte x (0)";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+    assert!(remaining.is_empty(), "remaining: {remaining:?}");
+    assert_eq!(rule.level, 1);
+    assert_eq!(rule.op, Operator::AnyValue);
+    assert_eq!(rule.value, Value::Uint(0));
+    assert_eq!(rule.message, "(0)");
+}
+
+#[test]
+fn test_parse_magic_rule_any_value_with_backslash_message() {
+    // Message starting with `\b,` (backspace escape) must be preserved exactly
+    let input = "0 long x \\b, data";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+    assert!(remaining.is_empty(), "remaining: {remaining:?}");
+    assert_eq!(rule.level, 0);
+    assert_eq!(rule.op, Operator::AnyValue);
+    assert_eq!(rule.value, Value::Uint(0));
+    assert_eq!(rule.message, "\\b, data");
+}
+
+#[test]
+fn test_parse_magic_rule_any_value_no_message() {
+    let input = "0 byte x";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+    assert!(remaining.is_empty(), "remaining: {remaining:?}");
+    assert_eq!(rule.op, Operator::AnyValue);
+    assert_eq!(rule.value, Value::Uint(0));
+    assert_eq!(rule.message, "");
+}
+
+#[test]
+fn test_parse_magic_rule_any_value_plain_message() {
+    let input = ">0 short x version";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+    assert!(remaining.is_empty(), "remaining: {remaining:?}");
+    assert_eq!(rule.level, 1);
+    assert_eq!(rule.op, Operator::AnyValue);
+    assert_eq!(rule.message, "version");
 }
 
 // Strength directive tests

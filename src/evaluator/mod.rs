@@ -2728,6 +2728,59 @@ fn test_error_recovery_preserves_context_state() {
     assert_eq!(context.current_offset(), initial_offset);
     assert_eq!(context.recursion_depth(), initial_depth);
 }
+
+// End-to-end tests: parse rules with `x` operator and evaluate them
+#[test]
+fn test_any_value_parse_and_evaluate_paren_message() {
+    use crate::parser::grammar::parse_magic_rule;
+
+    let input = ">0 byte x (0)";
+    let (_, rule) = parse_magic_rule(input).unwrap();
+    assert_eq!(rule.op, Operator::AnyValue);
+    assert_eq!(rule.message, "(0)");
+
+    // AnyValue should match unconditionally regardless of buffer content
+    let buffer = &[0x00, 0x01, 0x02, 0x03];
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(
+        result.is_some(),
+        "AnyValue rule should match unconditionally"
+    );
+}
+
+#[test]
+fn test_any_value_parse_and_evaluate_backslash_message() {
+    use crate::parser::grammar::parse_magic_rule;
+
+    let input = "0 long x \\b, data";
+    let (_, rule) = parse_magic_rule(input).unwrap();
+    assert_eq!(rule.op, Operator::AnyValue);
+    assert_eq!(rule.message, "\\b, data");
+
+    let buffer = &[0xFF, 0xFE, 0xFD, 0xFC];
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(
+        result.is_some(),
+        "AnyValue rule should match unconditionally"
+    );
+}
+
+#[test]
+fn test_any_value_parse_and_evaluate_no_message() {
+    use crate::parser::grammar::parse_magic_rule;
+
+    let input = "0 byte x";
+    let (_, rule) = parse_magic_rule(input).unwrap();
+    assert_eq!(rule.op, Operator::AnyValue);
+
+    let buffer = &[0x42];
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(
+        result.is_some(),
+        "AnyValue rule should match unconditionally"
+    );
+}
+
 #[test]
 fn test_debug_error_recovery() {
     // Simple test to debug error recovery
