@@ -147,7 +147,9 @@ pub fn apply_bitwise_xor(left: &Value, right: &Value) -> bool {
 
 /// Apply bitwise NOT then compare with right value
 ///
-/// Computes bitwise complement of the left (file) value, then checks equality with the right value.
+/// Computes bitwise complement of the left (file) value, then checks equality with the right
+/// (magic rule) value. Unlike `&` and `^` which test whether a bitwise result is non-zero,
+/// `~` compares the complement against a specific expected value.
 /// Only works with integer types, returns `false` for other types.
 ///
 /// # Examples

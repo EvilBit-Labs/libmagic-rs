@@ -23,6 +23,23 @@ pub use equality::{apply_equal, apply_not_equal};
 use crate::parser::ast::{Operator, Value};
 
 /// Apply any-value operator: always returns true (unconditional match).
+///
+/// The `x` operator in libmagic matches any value unconditionally. This is used
+/// for rules that should always match at a given offset regardless of the data.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::Value;
+/// use libmagic_rs::evaluator::operators::apply_any_value;
+///
+/// // Always returns true regardless of values
+/// assert!(apply_any_value(&Value::Uint(0), &Value::Uint(0)));
+/// assert!(apply_any_value(
+///     &Value::String("anything".to_string()),
+///     &Value::Uint(42),
+/// ));
+/// ```
 #[must_use]
 pub fn apply_any_value(_left: &Value, _right: &Value) -> bool {
     true
