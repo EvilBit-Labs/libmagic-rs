@@ -9,7 +9,7 @@ Common issues and solutions when using libmagic-rs.
 **Problem**: Build fails with older Rust versions
 
 ```text
-error: package `libmagic-rs v0.3.2` cannot be built because it requires rustc 1.89 or newer
+error: package `libmagic-rs v0.4.0` cannot be built because it requires rustc 1.89 or newer
 ```
 
 **Solution**: Update Rust to version 1.89 or newer
