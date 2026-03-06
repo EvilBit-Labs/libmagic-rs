@@ -108,7 +108,7 @@ git-repository-url = "https://github.com/EvilBit-Labs/libmagic-rs"
 
 **Documentation Structure:**
 
-```
+```text
 docs/src/
 ├── SUMMARY.md
 ├── introduction.md

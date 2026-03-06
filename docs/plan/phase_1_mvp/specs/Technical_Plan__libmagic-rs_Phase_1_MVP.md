@@ -31,25 +31,25 @@ All successful independent reimplementations parse text format only:
 
 OpenBSD's implementation demonstrates key design principles we adopt:
 
-**1. Runtime Text Parsing**
+#### 1. Runtime Text Parsing
 
 - No pre-compilation step
 - Parse magic files at runtime using efficient parsers
 - Simpler codebase (~1,500 lines vs. ~3,000 lines in libmagic's apprentice.c)
 
-**2. Efficient Data Structures**
+#### 2. Efficient Data Structures
 
 - OpenBSD uses Red-Black trees for rule organization
 - libmagic-rs uses Rust's Vec and HashMap with hierarchical AST
 - Both avoid the 432-byte struct overhead of libmagic's binary format
 
-**3. Cleaner Separation of Concerns**
+#### 3. Cleaner Separation of Concerns
 
 - Explicit field separation in data structures
 - Clear module boundaries
 - Easier to maintain and extend
 
-**4. Performance Trade-offs**
+#### 4. Performance Trade-offs
 
 | Aspect        | libmagic (binary .mgc) | OpenBSD / libmagic-rs (text) |
 | ------------- | ---------------------- | ---------------------------- |
