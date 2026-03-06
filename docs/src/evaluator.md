@@ -25,10 +25,10 @@ Memory Map    Context State      Endian Handling   Match Logic      Hierarchical
 
 The evaluator module is organized into focused submodules:
 
-- **`evaluator/engine.rs`** - Core evaluation logic (`evaluate_single_rule`, `evaluate_rules`, `evaluate_rules_with_config`)
+- **`evaluator/engine/mod.rs`** - Core evaluation logic (`evaluate_single_rule`, `evaluate_rules`, `evaluate_rules_with_config`)
 - **`evaluator/mod.rs`** - Public API surface (types, context, re-exports)
-- **`evaluator/offset.rs`** - Offset resolution
-- **`evaluator/operators.rs`** - Operator application
+- **`evaluator/offset/mod.rs`** - Offset resolution
+- **`evaluator/operators/mod.rs`** - Operator application
 - **`evaluator/types.rs`** - Type reading and coercion
 - **`evaluator/strength.rs`** - Rule strength calculation
 
