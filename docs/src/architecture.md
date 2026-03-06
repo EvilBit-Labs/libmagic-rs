@@ -126,7 +126,8 @@ The evaluator executes magic rules against file buffers to identify file types. 
 
 **Structure:**
 
-- `mod.rs`: Main evaluation engine with `EvaluationContext` and `RuleMatch`
+- `mod.rs`: Public API surface (~720 lines) with `EvaluationContext`, `RuleMatch` types, and re-exports
+- `engine.rs`: Core evaluation engine (~2,096 lines) with `evaluate_single_rule`, `evaluate_rules`, and `evaluate_rules_with_config` functions
 - `types.rs`: Type interpretation with endianness handling and signedness coercion
 - `offset/`: Offset resolution submodule
   - `mod.rs`: Dispatcher (`resolve_offset`) and re-exports
@@ -138,6 +139,8 @@ The evaluator executes magic rules against file buffers to identify file types. 
   - `equality.rs`: `apply_equal`, `apply_not_equal`
   - `comparison.rs`: `compare_values`, `apply_less_than`/`greater_than`/`less_equal`/`greater_equal`
   - `bitwise.rs`: `apply_bitwise_and`, `apply_bitwise_and_mask`, `apply_bitwise_xor`, `apply_bitwise_not`
+
+**Organization Note:** The evaluator module was refactored to split a monolithic 2,638-line `mod.rs` into focused submodules, keeping the public API surface in `mod.rs` and moving core evaluation logic to `engine.rs`. This maintains the same public API through re-exports (no breaking changes) while improving code organization and staying within the 500-600 line module guideline.
 
 **Implemented Features:**
 
