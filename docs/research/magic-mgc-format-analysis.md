@@ -107,11 +107,11 @@ file_private int
 apprentice_compile(struct magic_set *ms, struct magic_map *map, const char *fn)
 ```
 
-**Step 1: Parse Text Files**
+#### Step 1: Parse Text Files
 
 The compiler first parses all text magic files from the Magdir directory, building an in-memory representation using `struct magic` entries.
 
-**Step 2: Write Header**
+#### Step 2: Write Header
 
 ```c
 // Header structure written to .mgc file
@@ -122,7 +122,7 @@ struct {
 } header;
 ```
 
-**Step 3: Serialize Entries**
+#### Step 3: Serialize Entries
 
 The compiler iterates through each magic set and writes raw `struct magic` entries:
 
@@ -268,7 +268,7 @@ OpenBSD's implementation lives in `/usr/src/usr.bin/file/` with these key files:
 
 ### Key Design Differences
 
-**1. Runtime Text Parsing (No Compilation)**
+#### 1. Runtime Text Parsing (No Compilation)
 
 OpenBSD parses magic files at runtime using `getline()`, with no pre-compilation step:
 
@@ -279,7 +279,7 @@ while ((line = getline(&buf, &bufsize, f)) != -1) {
 }
 ```
 
-**2. Red-Black Tree Organization**
+#### 2. Red-Black Tree Organization
 
 Instead of linear arrays, OpenBSD uses RB-trees for efficient rule lookup:
 
@@ -291,7 +291,7 @@ struct magic {
 };
 ```
 
-**3. Cleaner Data Structures**
+#### 3. Cleaner Data Structures
 
 OpenBSD's `struct magic_line` has explicit field separation:
 
@@ -354,7 +354,7 @@ The compiled `.mgc` format version changes frequently between libmagic releases,
 
 From community reports:
 
-```
+```text
 File 5.41 supports only version 16 magic files. magic.mgc is version 14
 File 5.19 supports only version 12 magic files. magic.mgc is version 8
 File 5.38 supports only version 14 magic files. magic.mgc is version 16
@@ -413,7 +413,7 @@ libmagic-rs should continue parsing text-format magic files. This aligns with:
 
 If startup performance becomes critical, consider:
 
-```
+```text
 Text Parser → AST → libmagic-rs compiled format (version-stable)
 ```
 
@@ -434,7 +434,7 @@ This approach provides fast loading without the maintenance burden of tracking l
 
 The text magic files (Magdir) are licensed under a **BSD 2-Clause License**, making them suitable for bundling with libmagic-rs:
 
-```
+```text
 Copyright (c) Ian F. Darwin 1986, 1987, 1989, 1990, 1991, 1992, 1994, 1995.
 Software written by Ian F. Darwin and others;
 maintained 1994- Christos Zoulas.
@@ -470,7 +470,7 @@ If bundling Magdir files with libmagic-rs:
 
 2. Add a note in `README.md` or `NOTICE` file:
 
-   ```
+   ```text
    This software includes magic file definitions from the file(1) command,
    Copyright (c) Ian F. Darwin and Christos Zoulas, licensed under BSD 2-Clause.
    ```
@@ -531,7 +531,7 @@ OpenBSD ships the upstream Magdir files with their independent `file` implementa
 
 The text magic format (documented in `man 5 magic`) uses this structure:
 
-```
+```text
 offset    type      test      message
 ```
 
