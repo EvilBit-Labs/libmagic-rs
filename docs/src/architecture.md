@@ -130,7 +130,11 @@ The evaluator executes magic rules against file buffers to identify file types. 
 - `engine/`: Core evaluation engine submodule
   - `mod.rs`: `evaluate_single_rule`, `evaluate_rules`, and `evaluate_rules_with_config` functions
   - `tests.rs`: Engine unit tests
-- `types.rs`: Type interpretation with endianness handling and signedness coercion
+- `types/`: Type interpretation submodule
+  - `mod.rs`: Public API surface with `read_typed_value`, `coerce_value_to_type`, and type re-exports
+  - `numeric.rs`: Numeric type handling (`read_byte`, `read_short`, `read_long`, `read_quad`) with endianness and signedness support
+  - `string.rs`: String type handling (`read_string`) with null-termination and UTF-8 conversion
+  - `tests.rs`: Module tests
 - `offset/`: Offset resolution submodule
   - `mod.rs`: Dispatcher (`resolve_offset`) and re-exports
   - `absolute.rs`: `OffsetError`, `resolve_absolute_offset`
@@ -142,7 +146,7 @@ The evaluator executes magic rules against file buffers to identify file types. 
   - `comparison.rs`: `compare_values`, `apply_less_than`/`greater_than`/`less_equal`/`greater_equal`
   - `bitwise.rs`: `apply_bitwise_and`, `apply_bitwise_and_mask`, `apply_bitwise_xor`, `apply_bitwise_not`
 
-**Organization Note:** The evaluator module was refactored to split a monolithic 2,638-line `mod.rs` into focused submodules, keeping the public API surface in `mod.rs` and moving core evaluation logic to `engine/mod.rs`. This maintains the same public API through re-exports (no breaking changes) while improving code organization and staying within the 500-600 line module guideline.
+**Organization Note:** The evaluator module has been refactored to split monolithic files into focused submodules. The initial refactoring split a 2,638-line `mod.rs` into `engine/` submodules, and a subsequent refactoring reorganized the 1,836-line `types.rs` into `types/` submodules for numeric and string handling. The public API surface remains in `mod.rs` with core logic distributed across focused submodules. This maintains the same public API through re-exports (no breaking changes) while improving code organization and staying within the 500-600 line module guideline.
 
 **Implemented Features:**
 
