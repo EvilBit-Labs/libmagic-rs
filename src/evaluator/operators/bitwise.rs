@@ -113,6 +113,15 @@ pub fn apply_bitwise_and(left: &Value, right: &Value) -> bool {
 /// Performs bitwise XOR between two integer values. Returns `true` if the result is non-zero.
 /// Only works with integer types (Uint and Int), returns `false` for other types.
 ///
+/// # Arguments
+///
+/// * `left` - The left-hand side value (typically from file data)
+/// * `right` - The right-hand side value (typically from magic rule)
+///
+/// # Returns
+///
+/// `true` if the bitwise XOR result is non-zero, `false` otherwise or for non-integer types
+///
 /// # Examples
 ///
 /// ```
@@ -151,6 +160,15 @@ pub fn apply_bitwise_xor(left: &Value, right: &Value) -> bool {
 /// (magic rule) value. Unlike `&` and `^` which test whether a bitwise result is non-zero,
 /// `~` compares the complement against a specific expected value.
 /// Only works with integer types, returns `false` for other types.
+///
+/// # Arguments
+///
+/// * `left` - The left-hand side value (typically from file data)
+/// * `right` - The right-hand side value to compare `!left` against
+///
+/// # Returns
+///
+/// `true` if `!left == right`, `false` otherwise or for non-integer types
 ///
 /// # Examples
 ///

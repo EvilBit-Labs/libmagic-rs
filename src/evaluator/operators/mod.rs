@@ -27,6 +27,15 @@ use crate::parser::ast::{Operator, Value};
 /// The `x` operator in libmagic matches any value unconditionally. This is used
 /// for rules that should always match at a given offset regardless of the data.
 ///
+/// # Arguments
+///
+/// * `_left` - The left-hand side value (ignored)
+/// * `_right` - The right-hand side value (ignored)
+///
+/// # Returns
+///
+/// Always returns `true`.
+///
 /// # Examples
 ///
 /// ```
