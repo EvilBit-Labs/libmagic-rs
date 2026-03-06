@@ -44,7 +44,7 @@ cargo test
 
 ### Required Tools
 
-- **Rust 1.89+** (2024 edition)
+- **Rust 1.85+** with the 2021 edition
 - **Git** for version control
 - **Cargo** (included with Rust)
 
@@ -83,7 +83,7 @@ cd libmagic-rs
 
 ```bash
 # Check Rust version
-rustc --version  # Should be 1.89+
+rustc --version  # Should be 1.85+
 
 # Verify project builds
 cargo check
@@ -480,8 +480,8 @@ For maintainers:
 # Update version in Cargo.toml
 # Update CHANGELOG.md
 # Commit changes
-git commit -m "chore: bump version to 0.2.0"
-git tag v0.2.0
+git commit -m "chore: bump version to 0.3.0"
+git tag v0.3.0
 git push origin main --tags
 ```
 
