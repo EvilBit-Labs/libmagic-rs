@@ -63,7 +63,7 @@ The parser is responsible for converting magic files (text-based DSL) into an Ab
 
 - ✅ **Number parsing**: Decimal and hexadecimal with overflow protection
 - ✅ **Offset parsing**: Absolute offsets with comprehensive validation
-- ✅ **Operator parsing**: Equality (`=`, `==`), inequality (`!=`, `<>`), comparison (`<`, `>`, `<=`, `>=`), and bitwise AND (`&`) operators
+- ✅ **Operator parsing**: Equality (`=`, `==`), inequality (`!=`, `<>`), comparison (`<`, `>`, `<=`, `>=`), bitwise (`&`, `^`, `~`), and any-value (`x`) operators
 - ✅ **Value parsing**: Strings, numbers, and hex byte sequences with escape sequences
 - ✅ **Error handling**: Comprehensive nom error handling with meaningful messages
 - ✅ **Rule parsing**: Complete rule parsing via `parse_magic_rule()`
@@ -106,6 +106,9 @@ pub enum Operator {
     GreaterEqual,                 // >=
     BitwiseAnd,                   // &
     BitwiseAndMask(u64),          // & with mask
+    BitwiseXor,                   // ^
+    BitwiseNot,                   // ~
+    AnyValue,                     // x (always matches)
 }
 ```
 
@@ -134,7 +137,7 @@ The evaluator executes magic rules against file buffers to identify file types. 
   - `mod.rs`: Dispatcher (`apply_operator`) and re-exports
   - `equality.rs`: `apply_equal`, `apply_not_equal`
   - `comparison.rs`: `compare_values`, `apply_less_than`/`greater_than`/`less_equal`/`greater_equal`
-  - `bitwise.rs`: `apply_bitwise_and`, `apply_bitwise_and_mask`
+  - `bitwise.rs`: `apply_bitwise_and`, `apply_bitwise_and_mask`, `apply_bitwise_xor`, `apply_bitwise_not`
 
 **Implemented Features:**
 
@@ -261,7 +264,7 @@ flowchart TD
 
 **Operator Support:**
 
-The evaluator supports all comparison and bitwise operators:
+The evaluator supports all comparison, bitwise, and special matching operators:
 
 - **Equality**: `=` or `==` (exact match)
 - **Inequality**: `!=` or `<>` (not equal)
@@ -270,6 +273,9 @@ The evaluator supports all comparison and bitwise operators:
 - **Less-equal**: `<=` (numeric or lexicographic)
 - **Greater-equal**: `>=` (numeric or lexicographic)
 - **Bitwise AND**: `&` (bit pattern matching)
+- **Bitwise XOR**: `^` (exclusive OR pattern matching)
+- **Bitwise NOT**: `~` (bitwise complement comparison)
+- **Any-value**: `x` (unconditional match, always succeeds)
 
 Comparison operators support both numeric comparisons (with automatic type coercion between signed and unsigned integers via `i128`) and lexicographic comparisons for strings and byte sequences.
 
