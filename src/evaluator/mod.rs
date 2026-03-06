@@ -3,8 +3,9 @@
 
 //! Rule evaluation engine
 //!
-//! This module contains the core evaluation logic for executing magic rules
-//! against file buffers to identify file types.
+//! This module provides the public interface for magic rule evaluation,
+//! including data types for evaluation state and match results, and
+//! re-exports the core evaluation functions from submodules.
 
 use crate::{EvaluationConfig, LibmagicError};
 use serde::{Deserialize, Serialize};
@@ -204,8 +205,8 @@ impl EvaluationContext {
 
 /// Result of evaluating a magic rule
 ///
-/// Contains information about a successful rule match, including the rule
-/// that matched and its associated message.
+/// Contains information extracted from a successful rule match, including
+/// the matched value, position, and confidence score.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuleMatch {
     /// The message associated with the matching rule

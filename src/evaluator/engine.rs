@@ -20,7 +20,8 @@ use super::{EvaluationContext, RuleMatch, offset, operators, types};
 /// This function performs the core rule evaluation by:
 /// 1. Resolving the rule's offset specification to an absolute position
 /// 2. Reading and interpreting bytes at that position according to the rule's type
-/// 3. Applying the rule's operator to compare the read value with the expected value
+/// 3. Coercing the expected value to match the type's signedness and bit width
+/// 4. Applying the rule's operator to compare the read value with the expected value
 ///
 /// # Arguments
 ///
@@ -32,6 +33,33 @@ use super::{EvaluationContext, RuleMatch, offset, operators, types};
 /// Returns `Ok(Some((offset, value)))` if the rule matches (with the resolved offset and
 /// read value), `Ok(None)` if it doesn't match, or `Err(LibmagicError)` if evaluation
 /// fails due to buffer access issues or other errors.
+///
+/// # Examples
+///
+/// ```rust
+/// use libmagic_rs::evaluator::evaluate_single_rule;
+/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
+///
+/// // Create a rule to check for ELF magic bytes at offset 0
+/// let rule = MagicRule {
+///     offset: OffsetSpec::Absolute(0),
+///     typ: TypeKind::Byte { signed: true },
+///     op: Operator::Equal,
+///     value: Value::Uint(0x7f),
+///     message: "ELF magic".to_string(),
+///     children: vec![],
+///     level: 0,
+///     strength_modifier: None,
+/// };
+///
+/// let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
+/// let result = evaluate_single_rule(&rule, elf_buffer).unwrap();
+/// assert!(result.is_some()); // Should match
+///
+/// let non_elf_buffer = &[0x50, 0x4b, 0x03, 0x04]; // ZIP magic bytes
+/// let result = evaluate_single_rule(&rule, non_elf_buffer).unwrap();
+/// assert!(result.is_none()); // Should not match
+/// ```
 ///
 /// # Errors
 ///
@@ -82,10 +110,63 @@ pub fn evaluate_single_rule(
 /// - Recursion depth is limited to prevent infinite loops
 /// - Problematic rules are skipped to allow evaluation to continue
 ///
+/// # Arguments
+///
+/// * `rules` - The list of magic rules to evaluate
+/// * `buffer` - The file buffer to evaluate against
+/// * `context` - Mutable evaluation context for state management
+///
+/// # Returns
+///
+/// Returns `Ok(Vec<RuleMatch>)` containing all matches found. Errors in individual rules
+/// are skipped to allow evaluation to continue. Only returns `Err(LibmagicError)`
+/// for critical failures like timeout or recursion limit exceeded.
+///
+/// # Examples
+///
+/// ```rust
+/// use libmagic_rs::evaluator::{evaluate_rules, EvaluationContext, RuleMatch};
+/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
+/// use libmagic_rs::EvaluationConfig;
+///
+/// // Create a hierarchical rule set for ELF files
+/// let parent_rule = MagicRule {
+///     offset: OffsetSpec::Absolute(0),
+///     typ: TypeKind::Byte { signed: true },
+///     op: Operator::Equal,
+///     value: Value::Uint(0x7f),
+///     message: "ELF".to_string(),
+///     children: vec![
+///         MagicRule {
+///             offset: OffsetSpec::Absolute(4),
+///             typ: TypeKind::Byte { signed: true },
+///             op: Operator::Equal,
+///             value: Value::Uint(2),
+///             message: "64-bit".to_string(),
+///             children: vec![],
+///             level: 1,
+///             strength_modifier: None,
+///         }
+///     ],
+///     level: 0,
+///     strength_modifier: None,
+/// };
+///
+/// let rules = vec![parent_rule];
+/// let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 header
+/// let config = EvaluationConfig::default();
+/// let mut context = EvaluationContext::new(config);
+///
+/// let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
+/// assert_eq!(matches.len(), 2); // Parent and child should both match
+/// ```
+///
 /// # Errors
 ///
 /// * `LibmagicError::Timeout` - If evaluation exceeds configured timeout
-/// * `LibmagicError::EvaluationError` - For critical failures (e.g. recursion limit exceeded)
+/// * `LibmagicError::EvaluationError` - Only for critical failures like recursion limit exceeded
+///
+/// Individual rule evaluation errors are handled gracefully and do not stop the overall evaluation.
 pub fn evaluate_rules(
     rules: &[MagicRule],
     buffer: &[u8],
@@ -196,6 +277,44 @@ pub fn evaluate_rules(
 ///
 /// This is a convenience function that creates a new evaluation context
 /// and evaluates the rules. Useful for simple evaluation scenarios.
+///
+/// # Arguments
+///
+/// * `rules` - The list of magic rules to evaluate
+/// * `buffer` - The file buffer to evaluate against
+/// * `config` - Configuration for evaluation behavior
+///
+/// # Returns
+///
+/// Returns `Ok(Vec<RuleMatch>)` containing all matches found, or `Err(LibmagicError)`
+/// if evaluation fails.
+///
+/// # Examples
+///
+/// ```rust
+/// use libmagic_rs::evaluator::{evaluate_rules_with_config, RuleMatch};
+/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
+/// use libmagic_rs::EvaluationConfig;
+///
+/// let rule = MagicRule {
+///     offset: OffsetSpec::Absolute(0),
+///     typ: TypeKind::Byte { signed: true },
+///     op: Operator::Equal,
+///     value: Value::Uint(0x7f),
+///     message: "ELF magic".to_string(),
+///     children: vec![],
+///     level: 0,
+///     strength_modifier: None,
+/// };
+///
+/// let rules = vec![rule];
+/// let buffer = &[0x7f, 0x45, 0x4c, 0x46];
+/// let config = EvaluationConfig::default();
+///
+/// let matches = evaluate_rules_with_config(&rules, buffer, &config).unwrap();
+/// assert_eq!(matches.len(), 1);
+/// assert_eq!(matches[0].message, "ELF magic");
+/// ```
 ///
 /// # Errors
 ///
