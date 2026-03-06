@@ -16,7 +16,7 @@ libmagic-rs follows [Semantic Versioning](https://semver.org/) (SemVer):
 
 Commit messages follow the [Conventional Commits](https://www.conventionalcommits.org/) specification for automated semantic versioning and changelog generation. The required format is:
 
-```
+```text
 <type>(<scope>): <description>
 
 [optional body]
@@ -34,7 +34,7 @@ Commit messages follow the [Conventional Commits](https://www.conventionalcommit
 
 To trigger a major version bump (X.0.0), indicate breaking changes using a `BREAKING CHANGE:` footer in the commit body:
 
-```
+```text
 feat(api): redesign evaluation interface
 
 Replace EvaluationConfig::new() with a builder pattern

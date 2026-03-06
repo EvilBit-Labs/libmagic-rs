@@ -29,7 +29,7 @@ libmagic-rs is a pure-Rust implementation of the libmagic library for file type 
 
 ## System Architecture
 
-```
+```text
 +-------------------+     +-------------------+     +-------------------+
 |   Magic File(s)   |     |   Target File     |     |   Configuration   |
 +-------------------+     +-------------------+     +-------------------+
@@ -70,7 +70,7 @@ libmagic-rs is a pure-Rust implementation of the libmagic library for file type 
 
 ## Module Organization
 
-```
+```text
 libmagic-rs/
 ├── src/
 │   ├── lib.rs              # Public API, MagicDatabase, EvaluationConfig
@@ -116,7 +116,7 @@ libmagic-rs/
 
 ### 1. Magic File Loading
 
-```
+```text
 Magic File Path
        |
        v
@@ -149,7 +149,7 @@ Magic File Path
 
 ### 2. Rule Evaluation
 
-```
+```text
 +------------------+     +------------------+
 |   Vec<MagicRule> |     |   File Buffer    |
 +------------------+     +------------------+
@@ -186,7 +186,7 @@ Magic File Path
 
 ### 3. Output Generation
 
-```
+```text
 +------------------+     +------------------+
 |  EvaluationResult|     |   OutputFormat   |
 +------------------+     +------------------+
@@ -414,7 +414,7 @@ pub trait SafeBufferAccess {
 
 ### Security Layers
 
-```
+```text
 +----------------------------------+
 |     Configuration Validation     |  Layer 1: Prevent bad configs
 +----------------------------------+
@@ -493,7 +493,7 @@ The evaluation hot path is optimized for:
 5. Add tests
 6. Update documentation
 
-**Example: Quad Type Implementation**
+#### Example: Quad Type Implementation
 
 The `Quad` type (64-bit integer) demonstrates the type system extension pattern. The implementation includes:
 
@@ -535,7 +535,7 @@ The `Quad` type (64-bit integer) demonstrates the type system extension pattern.
 
 ## Diagram: Component Interaction
 
-```
+```text
                     User Application
                            |
                            v
