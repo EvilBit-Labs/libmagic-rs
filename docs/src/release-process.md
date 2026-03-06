@@ -12,6 +12,40 @@ libmagic-rs follows [Semantic Versioning](https://semver.org/) (SemVer):
 - **Minor version** (0.X.0): New features, backward compatible
 - **Patch version** (0.0.X): Bug fixes, backward compatible
 
+### Conventional Commits
+
+Commit messages follow the [Conventional Commits](https://www.conventionalcommits.org/) specification for automated semantic versioning and changelog generation. The required format is:
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+#### Commit Types
+
+- `feat`: Triggers minor version bump (0.X.0)
+- `fix`: Triggers patch version bump (0.0.X)
+- `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`: No version bump
+
+#### Breaking Changes
+
+To trigger a major version bump (X.0.0), indicate breaking changes using a `BREAKING CHANGE:` footer in the commit body:
+
+```
+feat(api): redesign evaluation interface
+
+Replace EvaluationConfig::new() with a builder pattern
+for better ergonomics.
+
+BREAKING CHANGE: EvaluationConfig::new() removed, use
+EvaluationConfig::builder() instead.
+```
+
+The `!` indicator after the type/scope (e.g., `feat!:` or `feat(scope)!:`) is not validated by the Mergify conventional commit enforcement. Use the `BREAKING CHANGE:` footer for reliable detection by both Mergify and release-plz.
+
 ### Pre-release Versions
 
 - **Alpha** (0.1.0-alpha.1): Early development, unstable API
@@ -315,6 +349,21 @@ Releases are automated by two complementary tools:
    - Generates SLSA attestations and SBOM
    - Publishes the Homebrew formula
    - Creates the **GitHub Release** with all artifacts
+
+#### Release PR Merge Handling
+
+Release-plz PRs (with branch names matching `release-plz-*`) are exempt from the standard "CI must pass" merge protection. This exemption exists because:
+
+- release-plz force-pushes when updating existing PRs
+- `GITHUB_TOKEN`-triggered pushes do not trigger workflow events, so CI never runs on the updated HEAD commit
+- Without this exemption, the merge protection would block the PR indefinitely
+- Release-plz PRs only bump versions and update changelogs -- they contain no code changes
+- The code being released was already tested on `main` before the release PR was created
+- CI still runs in the merge queue as a final verification step before the release is completed
+
+The "CI must pass" merge protection requires 7 checks: `quality`, `test`, `test-cross-platform (ubuntu-latest, Linux)`, `test-cross-platform (ubuntu-22.04, Linux)`, `test-cross-platform (macos-latest, macOS)`, `test-cross-platform (windows-latest, Windows)`, and `coverage`.
+
+PRs must be within 10 commits of `main` before merging. This exemption allows the release workflow to proceed smoothly while maintaining the safety of the automated release process.
 
 ### Configuration Files
 
