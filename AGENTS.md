@@ -571,3 +571,34 @@ This project has the OSSF Best Practices passing badge. Maintain these standards
 - SECURITY.md documents vulnerability reporting with scope, safe harbor, and PGP key
 - AGENTS.md must accurately reflect implemented features (not aspirational)
 - `docs/src/release-verification.md` documents artifact signing for users
+
+## Cursor Cloud specific instructions
+
+This project is a pure-Rust library + CLI (`rmagic`) with no external services or databases required.
+
+### Environment prerequisites
+
+- **mise** must be installed and trusted (`mise trust` in the repo root). The update script handles `mise install` automatically.
+- **uv** (from Astral) is needed for mise's `pipx` tools (mdformat, pre-commit) since `mise.toml` sets `uvx = true`. Install with `curl -LsSf https://astral.sh/uv/install.sh | sh`.
+- mise activation: run `eval "$(mise activate bash)"` or prefix commands with `mise exec --`.
+
+### Running services
+
+No services to start. All commands are local:
+
+| Task | Command |
+|------|---------|
+| Build | `mise exec -- cargo build` |
+| Test | `mise exec -- cargo nextest run --workspace` |
+| Lint | `mise exec -- cargo clippy --workspace --all-targets --all-features -- -D warnings` |
+| Format check | `mise exec -- cargo fmt --all --check` |
+| Run CLI | `mise exec -- cargo run -- --use-builtin <file>` |
+| Full CI check | `just ci-check` (requires all mise tools) |
+
+### Gotchas
+
+- The project requires Rust edition 2024 (MSRV 1.89). The `rust-toolchain.toml` pins `stable` channel, which resolves to 1.89+.
+- `build.rs` compiles `src/builtin_rules.magic` at build time; if this file has syntax errors, `cargo build` will fail with a build script error.
+- Commits must be signed off with `git commit -s` (DCO enforced).
+- `unsafe_code = "forbid"` is enforced project-wide; do not add unsafe blocks.
+- `cargo clippy -- -D warnings` with pedantic lints is strict; fix all warnings before committing.
