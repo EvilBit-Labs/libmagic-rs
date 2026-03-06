@@ -380,6 +380,62 @@ let match_result = RuleMatch {
 
 Update all references from `MatchResult` to `RuleMatch` in type annotations, function signatures, and construction sites.
 
+## Migrating from v0.3.x to v0.4.0
+
+Version 0.4.0 adds three new operator variants to the `Operator` enum for extended bitwise operations and pattern matching capabilities.
+
+### New Operator Enum Variants
+
+Three variants were added to the `Operator` enum:
+
+- `BitwiseXor` (magic file symbol: `^`)
+- `BitwiseNot` (magic file symbol: `~`)
+- `AnyValue` (magic file symbol: `x`)
+
+**Impact:** Since the `Operator` enum is exhaustive (not marked with `#[non_exhaustive]`), any code with exhaustive pattern matching on `Operator` must be updated to handle these variants.
+
+**Before (v0.3.x):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::Operator;
+
+match operator {
+    Operator::Equal => { /* ... */ }
+    Operator::NotEqual => { /* ... */ }
+    Operator::BitwiseAnd => { /* ... */ }
+    Operator::BitwiseOr => { /* ... */ }
+    // ... other existing variants
+}
+```
+
+**After (v0.4.0):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::Operator;
+
+match operator {
+    Operator::Equal => { /* ... */ }
+    Operator::NotEqual => { /* ... */ }
+    Operator::BitwiseAnd => { /* ... */ }
+    Operator::BitwiseOr => { /* ... */ }
+    Operator::BitwiseXor => { /* handle XOR */ }
+    Operator::BitwiseNot => { /* handle NOT */ }
+    Operator::AnyValue => { /* handle any value x */ }
+    // ... other existing variants
+}
+```
+
+**Alternative:** If your code does not need to handle all operators specifically, use a wildcard pattern:
+
+```rust,ignore
+match operator {
+    Operator::Equal => { /* specific handling */ }
+    _ => { /* generic handling for all other operators */ }
+}
+```
+
+These operators enable fuller support for libmagic file format specifications and extend bitwise operation capabilities.
+
 ## Getting Help
 
 If you encounter migration issues:
