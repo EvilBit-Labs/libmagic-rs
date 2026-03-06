@@ -228,7 +228,7 @@ pub fn read_typed_value(
 
 **Text Output**:
 
-```
+```text
 ELF 64-bit LSB executable, x86-64, version 1 (SYSV), dynamically linked
 ```
 
@@ -466,7 +466,7 @@ pub enum EvaluationError {
 
 ### Test Data Organization
 
-```
+```text
 tests/
 ├── fixtures/
 │   ├── samples/          # Various file types for testing
