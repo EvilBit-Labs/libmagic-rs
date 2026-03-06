@@ -361,7 +361,9 @@ Release-plz PRs (with branch names matching `release-plz-*`) are exempt from the
 - The code being released was already tested on `main` before the release PR was created
 - CI still runs in the merge queue as a final verification step before the release is completed
 
-This exemption allows the release workflow to proceed smoothly while maintaining the safety of the automated release process.
+The "CI must pass" merge protection requires 7 checks: `quality`, `test`, `test-cross-platform (ubuntu-latest, Linux)`, `test-cross-platform (ubuntu-22.04, Linux)`, `test-cross-platform (macos-latest, macOS)`, `test-cross-platform (windows-latest, Windows)`, and `coverage`.
+
+PRs must be within 10 commits of `main` before merging. This exemption allows the release workflow to proceed smoothly while maintaining the safety of the automated release process.
 
 ### Configuration Files
 
