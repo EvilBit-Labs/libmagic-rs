@@ -89,7 +89,9 @@ parser/
 // Evaluator module structure
 evaluator/
 ├── mod.rs          // Public interface, EvaluationContext, RuleMatch, re-exports
-├── engine.rs       // Core evaluation engine (evaluate_single_rule, evaluate_rules, evaluate_rules_with_config)
+├── engine/         // Core evaluation engine submodule
+│   ├── mod.rs      // evaluate_single_rule, evaluate_rules, evaluate_rules_with_config
+│   └── tests.rs    // Engine unit tests
 ├── types.rs        // Type interpretation with endianness
 ├── strength.rs     // Strength modifier application
 ├── offset/         // Offset resolution submodule
