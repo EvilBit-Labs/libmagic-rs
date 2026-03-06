@@ -216,6 +216,7 @@ Example:
 | `>=`     | Greater than or equal | `8 long >=1000`      |
 | `&`      | Bitwise AND           | `4 byte &0x80`       |
 | `^`      | Bitwise XOR           | `4 byte ^0xff`       |
+| `~`      | Bitwise NOT           | `4 byte ~0xff`       |
 
 ### Bitwise AND with Mask
 
