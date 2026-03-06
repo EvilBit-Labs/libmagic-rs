@@ -86,7 +86,8 @@ libmagic-rs/
 │   │   └── grammar.rs      # nom-based parsing combinators
 │   │
 │   ├── evaluator/          # Rule evaluation engine
-│   │   ├── mod.rs          # Main evaluation logic, EvaluationContext
+│   │   ├── mod.rs          # Public API surface with re-exports, EvaluationContext, RuleMatch
+│   │   ├── engine.rs       # Core evaluation logic (evaluate_single_rule, evaluate_rules, evaluate_rules_with_config)
 │   │   ├── offset.rs       # Offset resolution
 │   │   ├── types.rs        # Type reading with bounds checking
 │   │   ├── operators.rs    # Comparison operations
