@@ -22,15 +22,16 @@ use crate::parser::ast::Value;
 ///
 /// # Returns
 ///
-/// Returns `Ok(Value::String(string))` if the read is successful, or an appropriate error
-/// if the read fails due to buffer overrun or invalid UTF-8 sequences.
+/// Returns `Ok(Value::String(string))` if the read is successful. Invalid UTF-8 byte
+/// sequences are replaced with the Unicode replacement character (U+FFFD) rather than
+/// producing an error.
 ///
 /// # Security
 ///
 /// This function provides several security guarantees:
 /// - Bounds checking prevents reading beyond buffer limits
 /// - Length limits prevent excessive memory allocation
-/// - UTF-8 validation ensures string safety
+/// - Invalid UTF-8 sequences are safely replaced with U+FFFD, preventing undefined behavior
 /// - Null termination handling prevents runaway reads
 ///
 /// # Examples

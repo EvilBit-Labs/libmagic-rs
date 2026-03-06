@@ -6,6 +6,13 @@ use crate::parser::ast::{Endianness, Value};
 use byteorder::{BigEndian, ByteOrder, LittleEndian, NativeEndian};
 
 /// Safely reads a single byte from the buffer at the specified offset.
+///
+/// # Arguments
+///
+/// * `buffer` - The byte buffer to read from
+/// * `offset` - The offset position to read the byte from
+/// * `signed` - Whether to interpret the byte as signed (`i8`) or unsigned (`u8`)
+///
 /// # Examples
 ///
 /// ```
@@ -40,6 +47,14 @@ pub fn read_byte(buffer: &[u8], offset: usize, signed: bool) -> Result<Value, Ty
 }
 
 /// Safely reads a 16-bit integer from the buffer at the specified offset.
+///
+/// # Arguments
+///
+/// * `buffer` - The byte buffer to read from
+/// * `offset` - The offset position to start reading from
+/// * `endian` - The byte order to use when interpreting the bytes
+/// * `signed` - Whether to interpret the value as signed (`i16`) or unsigned (`u16`)
+///
 /// # Examples
 ///
 /// ```
@@ -89,6 +104,14 @@ pub fn read_short(
 }
 
 /// Safely reads a 32-bit integer from the buffer at the specified offset.
+///
+/// # Arguments
+///
+/// * `buffer` - The byte buffer to read from
+/// * `offset` - The offset position to start reading from
+/// * `endian` - The byte order to use when interpreting the bytes
+/// * `signed` - Whether to interpret the value as signed (`i32`) or unsigned (`u32`)
+///
 /// # Examples
 ///
 /// ```
@@ -138,6 +161,14 @@ pub fn read_long(
 }
 
 /// Safely reads a 64-bit integer from the buffer at the specified offset.
+///
+/// # Arguments
+///
+/// * `buffer` - The byte buffer to read from
+/// * `offset` - The offset position to start reading from
+/// * `endian` - The byte order to use when interpreting the bytes
+/// * `signed` - Whether to interpret the value as signed (`i64`) or unsigned (`u64`)
+///
 /// # Examples
 ///
 /// ```
@@ -578,6 +609,45 @@ mod tests {
         let buffer = &[0x00, 0x00, 0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12];
         let result = read_quad(buffer, 2, Endianness::Little, false).unwrap();
         assert_eq!(result, Value::Uint(0x1234_5678_90ab_cdef));
+    }
+
+    #[test]
+    fn test_read_short_offset_overflow() {
+        let buffer = &[0x12, 0x34];
+        let result = read_short(buffer, usize::MAX, Endianness::Little, false);
+        assert_eq!(
+            result.unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: usize::MAX,
+                buffer_len: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn test_read_long_offset_overflow() {
+        let buffer = &[0x12, 0x34, 0x56, 0x78];
+        let result = read_long(buffer, usize::MAX, Endianness::Little, false);
+        assert_eq!(
+            result.unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: usize::MAX,
+                buffer_len: 4,
+            }
+        );
+    }
+
+    #[test]
+    fn test_read_quad_offset_overflow() {
+        let buffer = &[0x01; 8];
+        let result = read_quad(buffer, usize::MAX, Endianness::Little, false);
+        assert_eq!(
+            result.unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: usize::MAX,
+                buffer_len: 8,
+            }
+        );
     }
 
     #[test]

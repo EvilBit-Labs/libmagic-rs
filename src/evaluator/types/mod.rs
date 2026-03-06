@@ -28,7 +28,8 @@ pub enum TypeReadError {
         /// The actual length of the buffer.
         buffer_len: usize,
     },
-    /// Unsupported type variant.
+    /// Unsupported type variant (reserved for future types not yet evaluatable,
+    /// e.g., regex, float, date).
     #[error("Unsupported type: {type_name}")]
     UnsupportedType {
         /// The name of the unsupported type.
