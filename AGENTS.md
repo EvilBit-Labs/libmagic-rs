@@ -72,32 +72,36 @@ pub enum TypeKind {
     String { max_length: Option<usize> },
 }
 pub enum Operator {
-    Equal, NotEqual, BitwiseAnd, BitwiseAndMask(u64),
+    Equal, NotEqual, LessThan, GreaterThan, LessEqual, GreaterEqual,
+    BitwiseAnd, BitwiseAndMask(u64), BitwiseXor, BitwiseNot, AnyValue,
 }
-// Additional types and operators are planned -- see Current Limitations below
 
 // Parser module structure
 parser/
 ├── mod.rs      // Public parser interface
 ├── ast.rs      // AST node definitions
-├── grammar.rs  // Magic file DSL parsing (nom)
+├── grammar/    // Magic file DSL parsing (nom)
+│   ├── mod.rs  // Grammar parsing logic
+│   └── tests.rs // Grammar parser tests
 ├── types.rs    // Type keyword parsing and TypeKind conversion
 └── codegen.rs  // Serialization for code generation (shared with build.rs)
 
 // Evaluator module structure
 evaluator/
 ├── mod.rs          // Main evaluation engine
+├── tests.rs        // Evaluator tests
 ├── types.rs        // Type interpretation with endianness
+├── strength.rs     // Strength modifier application
 ├── offset/         // Offset resolution submodule
 │   ├── mod.rs      // Dispatcher (resolve_offset) and re-exports
 │   ├── absolute.rs // OffsetError, resolve_absolute_offset
 │   ├── indirect.rs // resolve_indirect_offset stub (issue #37)
 │   └── relative.rs // resolve_relative_offset stub (issue #38)
 └── operators/      // Operator application submodule
-    ├── mod.rs      // Dispatcher (apply_operator) and re-exports
+    ├── mod.rs      // Dispatcher (apply_operator, apply_any_value) and re-exports
     ├── equality.rs // apply_equal, apply_not_equal
     ├── comparison.rs // compare_values, apply_less_than/greater_than/less_equal/greater_equal
-    └── bitwise.rs  // apply_bitwise_and, apply_bitwise_and_mask
+    └── bitwise.rs  // apply_bitwise_and, apply_bitwise_and_mask, apply_bitwise_xor, apply_bitwise_not
 ```
 
 ## Code Quality Standards
@@ -154,7 +158,7 @@ pub fn evaluate_magic_rules(
 - Use `LibmagicError::ConfigError` for config validation, not `ParseError::invalid_syntax`
 - Clippy pedantic lints are active (e.g., prefer `trailing_zeros()` over bitwise masks)
 - All public enum variants need `# Examples` rustdoc sections
-- Comparison operators share a `compare_values() -> Option<Ordering>` helper in `operators.rs` -- new comparison logic goes there, not in individual `apply_*` functions
+- Comparison operators share a `compare_values() -> Option<Ordering>` helper in `operators/comparison.rs` -- new comparison logic goes there, not in individual `apply_*` functions
 - libmagic types are signed by default (`byte`, `short`, `long`, `quad`); unsigned variants use `u` prefix (`ubyte`, `ushort`, `ulong`, `uquad`, etc.)
 
 ### Naming Conventions
@@ -202,13 +206,12 @@ cargo test --doc   # Test documentation examples
 
 - **Offsets**: Absolute and from-end specifications (indirect and relative are parsed but not yet evaluated)
 - **Types**: `byte`, `short`, `long`, `quad`, `string` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; types are signed by default (libmagic-compatible)
-- **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask)
+- **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
 - **String Matching**: Exact string matching with null-termination
 
 ### Planned Features (v1.0+)
 
-- Bitwise XOR operator: `^`
 - Regex type: Pattern matching with binary-safe regex support
 - Additional types: floats, doubles, dates
 - Search type: Multi-pattern string searching
@@ -240,8 +243,6 @@ impl BinaryRegex for regex::bytes::Regex {
 
 ### Operators
 
-- No XOR operator (`^`)
-- No negation operator (`~`)
 - BitwiseAnd supports mask values but not all libmagic mask syntax
 
 ### Offset Specifications
@@ -323,7 +324,7 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 
 1. Extend `TypeKind` enum in `src/parser/ast.rs`
 2. Add keyword parsing in `src/parser/types.rs` (`parse_type_keyword` and `type_keyword_to_kind`)
-3. Add value/operator parsing in `src/parser/grammar.rs` if needed
+3. Add value/operator parsing in `src/parser/grammar/mod.rs` if needed
 4. Implement reading logic in `src/evaluator/types.rs`
 5. Update `serialize_type_kind()` in `src/parser/codegen.rs`
 6. Add tests for the new type
@@ -331,11 +332,11 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 
 ### Adding New Operators
 
-> **Note:** Currently implemented operators are `Equal`, `NotEqual`, `LessThan`, `GreaterThan`, `LessEqual`, `GreaterEqual`, and `BitwiseAnd` (with `BitwiseAndMask`). XOR (`^`) is planned for future releases.
+> **Note:** Currently implemented operators are `Equal`, `NotEqual`, `LessThan`, `GreaterThan`, `LessEqual`, `GreaterEqual`, `BitwiseAnd` (with `BitwiseAndMask`), `BitwiseXor`, `BitwiseNot`, and `AnyValue`.
 
 1. Extend `Operator` enum in `src/parser/ast.rs`
-2. Add parsing logic in `src/parser/grammar.rs`
-3. Implement operator logic in `src/evaluator/operators.rs`
+2. Add parsing logic in `src/parser/grammar/mod.rs`
+3. Implement operator logic in `src/evaluator/operators/` submodule
 4. Update `serialize_operator()` in `src/parser/codegen.rs`
 5. Update strength calculation match in `src/evaluator/strength.rs`
 6. Update `arb_operator()` in `tests/property_tests.rs`
