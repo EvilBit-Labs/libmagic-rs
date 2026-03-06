@@ -19,6 +19,7 @@ Follow these testing patterns:
 5. **Benchmarks**: Add to `benches/` using `criterion` with `harness = false`
 
 Run tests with:
+
 ```bash
 cargo nextest run --workspace --no-capture   # Standard
 just ci-check                                 # Full CI parity
