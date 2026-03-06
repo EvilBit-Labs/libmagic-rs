@@ -21,9 +21,22 @@ File Buffer → Offset Resolution → Type Reading → Operator Application → 
 Memory Map    Context State      Endian Handling   Match Logic      Hierarchical
 ```
 
+## Module Organization
+
+The evaluator module is organized into focused submodules:
+
+- **`evaluator/engine.rs`** - Core evaluation logic (`evaluate_single_rule`, `evaluate_rules`, `evaluate_rules_with_config`)
+- **`evaluator/mod.rs`** - Public API surface (types, context, re-exports)
+- **`evaluator/offset.rs`** - Offset resolution
+- **`evaluator/operators.rs`** - Operator application
+- **`evaluator/types.rs`** - Type reading and coercion
+- **`evaluator/strength.rs`** - Rule strength calculation
+
+From a public API perspective, all types and functions are imported from the `evaluator` module as before -- the internal organization is transparent to library users.
+
 ## Core Components
 
-### EvaluationContext (`evaluator/mod.rs`)
+### EvaluationContext
 
 Maintains state during rule processing:
 
@@ -49,7 +62,7 @@ Note: Fields are private; use accessor methods like `current_offset()`, `recursi
 - `timeout_ms()` - Query configured timeout
 - `reset()` - Reset context state for reuse
 
-### RuleMatch (`evaluator/mod.rs`)
+### RuleMatch
 
 Represents a successful rule match:
 
