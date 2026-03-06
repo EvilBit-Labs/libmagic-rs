@@ -231,22 +231,52 @@ use libmagic_rs::TypeKind;
 
 ### Operator
 
-Comparison operators.
+Comparison and bitwise operators for magic rule matching.
 
 ```rust
 use libmagic_rs::Operator;
 ```
 
-| Variant               | Description                                               |
-| --------------------- | --------------------------------------------------------- |
-| `Equal`               | Equality comparison (`=`)                                 |
-| `NotEqual`            | Inequality comparison (`!=`)                              |
-| `LessThan`            | Less than comparison (`<`) (added in v0.2.0)              |
-| `GreaterThan`         | Greater than comparison (`>`) (added in v0.2.0)           |
-| `LessEqual`           | Less than or equal comparison (`<=`) (added in v0.2.0)    |
-| `GreaterEqual`        | Greater than or equal comparison (`>=`) (added in v0.2.0) |
-| `BitwiseAnd`          | Bitwise AND                                               |
-| `BitwiseAndMask(u64)` | Bitwise AND with mask                                     |
+| Variant               | Description                                                               |
+| --------------------- | ------------------------------------------------------------------------- |
+| `Equal`               | Equality comparison (`=`)                                                 |
+| `NotEqual`            | Inequality comparison (`!=`)                                              |
+| `LessThan`            | Less than comparison (`<`) (added in v0.2.0)                              |
+| `GreaterThan`         | Greater than comparison (`>`) (added in v0.2.0)                           |
+| `LessEqual`           | Less than or equal comparison (`<=`) (added in v0.2.0)                    |
+| `GreaterEqual`        | Greater than or equal comparison (`>=`) (added in v0.2.0)                 |
+| `BitwiseAnd`          | Bitwise AND (`&`) - matches if any bits overlap                           |
+| `BitwiseAndMask(u64)` | Bitwise AND with mask - masked comparison of file data                    |
+| `BitwiseXor`          | Bitwise XOR (`^`) - matches if XOR result is non-zero                     |
+| `BitwiseNot`          | Bitwise NOT (`~`) - compares complement of file value with expected value |
+| `AnyValue`            | Match any value (`x`) - unconditional match                               |
+
+#### Examples
+
+```rust
+use libmagic_rs::{MagicDatabase, Operator};
+use libmagic_rs::parser::grammar::parse_magic_rule;
+
+// Equal operator (default)
+let (_, rule) = parse_magic_rule("0 byte =0x7f").unwrap();
+assert_eq!(rule.op, Operator::Equal);
+
+// Bitwise AND - check if bit is set
+let (_, rule) = parse_magic_rule("0 byte &0x80").unwrap();
+assert_eq!(rule.op, Operator::BitwiseAnd);
+
+// Bitwise XOR - check for difference
+let (_, rule) = parse_magic_rule("0 byte ^0xFF").unwrap();
+assert_eq!(rule.op, Operator::BitwiseXor);
+
+// Bitwise NOT - check complement
+let (_, rule) = parse_magic_rule("0 byte ~0xFF").unwrap();
+assert_eq!(rule.op, Operator::BitwiseNot);
+
+// Any value - always matches
+let (_, rule) = parse_magic_rule("0 byte x").unwrap();
+assert_eq!(rule.op, Operator::AnyValue);
+```
 
 ### Value
 
