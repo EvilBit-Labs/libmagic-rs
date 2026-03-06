@@ -6,7 +6,7 @@ This guide will help you get up and running with libmagic-rs, whether you want t
 
 ### Prerequisites
 
-- **Rust 1.91+** (2024 edition)
+- **Rust 1.89+** (2024 edition)
 - **Git** for cloning the repository
 - **Cargo** (comes with Rust)
 

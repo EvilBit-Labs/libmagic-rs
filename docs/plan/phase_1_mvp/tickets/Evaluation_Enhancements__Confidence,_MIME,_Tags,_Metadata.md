@@ -9,30 +9,35 @@ Enhance evaluation results with confidence scoring, MIME type mapping, tag extra
 **Edge Cases in Existing Code to Address:**
 
 1. **EDGE CASE: No builder pattern API** (`file:src/lib.rs`)
+
    - Current: Only `load_from_file()` exists
    - Required: `MagicDatabase::new().with_config(config)?.load(path)`
    - Impact: Advanced users cannot customize configuration before loading
    - Fix: Implement builder pattern with `new()`, `with_config()`, and `load()` methods
 
 2. **EDGE CASE: No evaluate_buffer() method** (`file:src/lib.rs`)
+
    - Current: Only `evaluate_file()` exists
    - Required: Both `evaluate_file(path)` and `evaluate_buffer(buffer)` per Core Flow 6
    - Impact: Library users cannot evaluate in-memory buffers
    - Fix: Add `evaluate_buffer(&[u8])` method
 
 3. **EDGE CASE: Confidence always 1.0 or 0.0** (`file:src/lib.rs` lines 440-441)
+
    - Current: Hardcoded `confidence: 1.0` with TODO comment
    - Required: Depth-based calculation `min(1.0, 0.3 + (depth * 0.2))`
    - Impact: JSON output shows meaningless confidence scores
    - Fix: Calculate confidence based on match depth in hierarchy
 
 4. **EDGE CASE: MIME type always None** (`file:src/lib.rs` line 439)
+
    - Current: Hardcoded `mime_type: None` with TODO comment
    - Required: Hardcoded mappings + optional system MIME database loading
    - Impact: JSON output missing MIME type information
    - Fix: Implement MIME mapper with hardcoded fallbacks
 
 5. **EDGE CASE: Missing EvaluationResult fields** (`file:src/lib.rs` lines 446-455)
+
    - Current: Only `description`, `mime_type`, `confidence`
    - Required: Add `matches: Vec<MatchResult>` and `metadata: EvaluationMetadata`
    - Impact: JSON output cannot show match details or metadata
@@ -302,7 +307,7 @@ fn output_json(filename: &str, result: &EvaluationResult) -> Result<()> {
 - [ ] JSON output includes all metadata fields
 - [ ] metadata.magic_file populated correctly (Some for loaded files, None for built-in)
 - [ ] description field concatenates hierarchical messages (libmagic behavior)
-- [ ] Backspace (\b) in messages suppresses space
+- [ ] Backspace (\\b) in messages suppresses space
 - [ ] rule_path derived from messages (normalized to lowercase)
 - [ ] Rustdoc added for all new structures and methods
 - [ ] Unit tests for confidence calculation

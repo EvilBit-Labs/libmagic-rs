@@ -9,29 +9,30 @@ Complete Phase 1 MVP of libmagic-rs, a pure Rust implementation of libmagic for 
 ### Who's Affected
 
 **Primary Users:**
+
 - **Rust Application Developers** who need file type detection in their applications and want memory-safe alternatives to C libraries
 - **Security-Conscious Organizations** requiring file type identification without the memory safety vulnerabilities present in C-based libmagic
 - **CLI Users** seeking a drop-in replacement for the GNU `file` command with better safety guarantees
 
 **Secondary Users:**
+
 - **Library Maintainers** who depend on libmagic and want to migrate to safer alternatives
 - **DevOps Engineers** integrating file type detection into build pipelines and automation workflows
 
 ### Current Pain
 
-**Incomplete Implementation:**
-The libmagic-rs project has solid foundations (tasks 1-13 complete) but lacks the critical functionality needed for real-world usage:
+**Incomplete Implementation:** The libmagic-rs project has solid foundations (tasks 1-13 complete) but lacks the critical functionality needed for real-world usage:
+
 - Cannot parse magic files (the DSL that defines file type detection rules)
 - Cannot load system magic databases (text `.magic` format - binary `.mgc` is deferred to Phase 2)
 - Missing end-to-end integration between parsing and evaluation
 - No test infrastructure to validate compatibility with GNU file
 - Lacks documentation for library consumers
 
-**Memory Safety Concerns:**
-The C-based libmagic has a history of memory safety vulnerabilities (buffer overflows, out-of-bounds reads) that pose security risks. Developers need a memory-safe alternative that provides the same functionality without these risks.
+**Memory Safety Concerns:** The C-based libmagic has a history of memory safety vulnerabilities (buffer overflows, out-of-bounds reads) that pose security risks. Developers need a memory-safe alternative that provides the same functionality without these risks.
 
-**Ecosystem Gap:**
-While Rust's ecosystem is growing, there's no production-ready, fully-featured file type detection library that:
+**Ecosystem Gap:** While Rust's ecosystem is growing, there's no production-ready, fully-featured file type detection library that:
+
 - Works with existing magic databases (compatibility)
 - Provides both CLI and library interfaces
 - Achieves performance parity with libmagic
@@ -49,19 +50,21 @@ This Epic addresses the **core functionality gap** in libmagic-rs:
 ### Scope Appetite
 
 **Phase 1 MVP Boundaries:**
+
 - **In Scope**: Absolute offsets, basic types (byte/short/long/string), core operators (=, !=, &), nested rules, text magic file support (Magdir directory loading), stdin input support, high GNU file compatibility, comprehensive testing, comprehensive documentation (rustdoc + mdbook)
 - **Out of Scope (Stretch Goals)**: Indirect offsets, regex support, Aho-Corasick optimization, PE/Mach-O format detection, advanced operators, performance optimization
 - **Timeline**: Quality and completeness over speed - no hard deadlines
-- **Success Criteria**: 
+- **Success Criteria**:
   - CLI works end-to-end with file and stdin input
   - 100% compatibility with GNU file for common types (ELF, PE, ZIP, JPEG, PNG, PDF)
   - 95%+ compatibility for full test corpus (using text magic files)
-  - >85% test coverage
+  - > 85% test coverage
   - Complete API documentation: rustdoc for all public APIs + mdbook documentation site with guides, examples, and migration information
 
 ### Value Proposition
 
 Completing Phase 1 MVP delivers:
+
 - **For Developers**: A production-ready, memory-safe file type detection library with clean Rust APIs
 - **For Security Teams**: Elimination of memory safety vulnerabilities present in C libmagic
 - **For CLI Users**: A drop-in replacement for GNU file with better safety guarantees

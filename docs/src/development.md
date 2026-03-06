@@ -480,8 +480,8 @@ For maintainers:
 # Update version in Cargo.toml
 # Update CHANGELOG.md
 # Commit changes
-git commit -m "chore: bump version to 0.2.0"
-git tag v0.2.0
+git commit -m "chore: bump version to 0.3.0"
+git tag v0.3.0
 git push origin main --tags
 ```
 

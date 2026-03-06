@@ -395,8 +395,15 @@ pub struct ParseError {
       "offset": 0,
       "length": 4,
       "value": "7f454c46",
-      "rule_path": ["elf", "elf64", "executable"],
-      "tags": ["executable", "elf"],
+      "rule_path": [
+        "elf",
+        "elf64",
+        "executable"
+      ],
+      "tags": [
+        "executable",
+        "elf"
+      ],
       "score": 90,
       "mime_type": "application/x-executable"
     }
@@ -424,8 +431,7 @@ pub struct ParseError {
 - `score`: Confidence value 0-100, calculated based on match depth in hierarchy
 - `mime_type`: Looked up from libmagic's MIME database if available and `enable_mime_types` is true, otherwise None
 
-**Multiple Files (JSON Lines)**:
-Each file gets one JSON object per line for streaming:
+**Multiple Files (JSON Lines)**: Each file gets one JSON object per line for streaming:
 
 ```json
 {"filename":"file1.bin","matches":[...],"metadata":{...}}
@@ -457,7 +463,7 @@ Each file gets one JSON object per line for streaming:
 
 **Evaluation Flow**:
 
-1. Check offset 0 for "\x7fELF" → Match: "ELF"
+1. Check offset 0 for "\\x7fELF" → Match: "ELF"
 2. Check offset 4 for byte value → Match: "64-bit"
 3. Check offset 5 for byte value → Match: "LSB"
 4. Combine messages: "ELF 64-bit LSB"

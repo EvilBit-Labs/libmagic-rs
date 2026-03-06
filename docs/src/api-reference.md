@@ -477,7 +477,7 @@ pub use error::{EvaluationError, LibmagicError, ParseError};
 - **Minimum Rust Version**: 1.85
 - **Edition**: 2024
 - **License**: Apache-2.0
-- **Current Version**: 0.2.0
+- **Current Version**: 0.2.1
 
 ### Breaking Changes in v0.2.0
 

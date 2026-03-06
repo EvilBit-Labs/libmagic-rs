@@ -68,6 +68,7 @@ pub enum TypeKind {
     Byte { signed: bool },
     Short { endian: Endianness, signed: bool },
     Long { endian: Endianness, signed: bool },
+    Quad { endian: Endianness, signed: bool },
     String { max_length: Option<usize> },
 }
 pub enum Operator {
@@ -79,14 +80,24 @@ pub enum Operator {
 parser/
 ├── mod.rs      // Public parser interface
 ├── ast.rs      // AST node definitions
-└── grammar.rs  // Magic file DSL parsing (nom/pest)
+├── grammar.rs  // Magic file DSL parsing (nom)
+├── types.rs    // Type keyword parsing and TypeKind conversion
+└── codegen.rs  // Serialization for code generation (shared with build.rs)
 
 // Evaluator module structure
 evaluator/
-├── mod.rs       // Main evaluation engine
-├── offset.rs    // Offset resolution (absolute, indirect, relative)
-├── types.rs     // Type interpretation with endianness
-└── operators.rs // Equality and bitwise operations
+├── mod.rs          // Main evaluation engine
+├── types.rs        // Type interpretation with endianness
+├── offset/         // Offset resolution submodule
+│   ├── mod.rs      // Dispatcher (resolve_offset) and re-exports
+│   ├── absolute.rs // OffsetError, resolve_absolute_offset
+│   ├── indirect.rs // resolve_indirect_offset stub (issue #37)
+│   └── relative.rs // resolve_relative_offset stub (issue #38)
+└── operators/      // Operator application submodule
+    ├── mod.rs      // Dispatcher (apply_operator) and re-exports
+    ├── equality.rs // apply_equal, apply_not_equal
+    ├── comparison.rs // compare_values, apply_less_than/greater_than/less_equal/greater_equal
+    └── bitwise.rs  // apply_bitwise_and, apply_bitwise_and_mask
 ```
 
 ## Code Quality Standards
@@ -138,13 +149,13 @@ pub fn evaluate_magic_rules(
 
 - `src/error.rs` is shared with `build.rs` -- cannot reference lib-only types like `crate::io::IoError`
 - `FileError(String)` wraps structured I/O errors as strings to work around the build.rs constraint
-- `build.rs` and `src/build_helpers.rs` have duplicate `serialize_*` functions -- both must be updated when adding enum variants
+- Serialization functions live in `src/parser/codegen.rs`, shared by both `build.rs` (via `#[path]` include) and `src/build_helpers.rs` (via `crate::parser::codegen`); `format_parse_error` remains duplicated in both because `ParseError` has different import paths
 - Use `ParseError::IoError` for I/O errors in parser code, not `ParseError::invalid_syntax`
 - Use `LibmagicError::ConfigError` for config validation, not `ParseError::invalid_syntax`
 - Clippy pedantic lints are active (e.g., prefer `trailing_zeros()` over bitwise masks)
 - All public enum variants need `# Examples` rustdoc sections
 - Comparison operators share a `compare_values() -> Option<Ordering>` helper in `operators.rs` -- new comparison logic goes there, not in individual `apply_*` functions
-- libmagic types are signed by default (`byte`, `short`, `long`); unsigned variants use `u` prefix (`ubyte`, `ushort`, `ulong`, etc.)
+- libmagic types are signed by default (`byte`, `short`, `long`, `quad`); unsigned variants use `u` prefix (`ubyte`, `ushort`, `ulong`, `uquad`, etc.)
 
 ### Naming Conventions
 
@@ -190,7 +201,7 @@ cargo test --doc   # Test documentation examples
 ### Currently Implemented (v0.1.0)
 
 - **Offsets**: Absolute and from-end specifications (indirect and relative are parsed but not yet evaluated)
-- **Types**: `byte`, `short`, `long`, `string` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`; types are signed by default (libmagic-compatible)
+- **Types**: `byte`, `short`, `long`, `quad`, `string` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; types are signed by default (libmagic-compatible)
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
 - **String Matching**: Exact string matching with null-termination
@@ -199,7 +210,7 @@ cargo test --doc   # Test documentation examples
 
 - Bitwise XOR operator: `^`
 - Regex type: Pattern matching with binary-safe regex support
-- Additional types: 64-bit integers, floats, doubles, dates
+- Additional types: floats, doubles, dates
 - Search type: Multi-pattern string searching
 
 ### Future Enhancement: Binary-Safe Regex Handling
@@ -222,7 +233,7 @@ impl BinaryRegex for regex::bytes::Regex {
 ### Type System
 
 - No regex/search pattern matching
-- No 64-bit integer types (quad, qquad)
+- 64-bit integer types: `quad`/`uquad`, `bequad`/`ubequad`, `lequad`/`ulequad` are implemented; `qquad` (128-bit) is not yet supported
 - No floating-point types (float, double, befloat, lefloat)
 - No date/time types (date, qdate, ldate, qldate)
 - String evaluation reads until first NUL or end-of-buffer by default; `max_length: Some(_)` is supported internally but no dedicated fixed-length string parser syntax exists yet
@@ -308,13 +319,15 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 
 ### Adding New Type Support
 
-> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, and `String`. Regex and other advanced types are planned for future releases.
+> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Quad`, and `String`. Regex and other advanced types are planned for future releases.
 
 1. Extend `TypeKind` enum in `src/parser/ast.rs`
-2. Add parsing logic in `src/parser/grammar.rs`
-3. Implement reading logic in `src/evaluator/types.rs`
-4. Add tests for the new type
-5. Update documentation
+2. Add keyword parsing in `src/parser/types.rs` (`parse_type_keyword` and `type_keyword_to_kind`)
+3. Add value/operator parsing in `src/parser/grammar.rs` if needed
+4. Implement reading logic in `src/evaluator/types.rs`
+5. Update `serialize_type_kind()` in `src/parser/codegen.rs`
+6. Add tests for the new type
+7. Update documentation
 
 ### Adding New Operators
 
@@ -323,7 +336,7 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 1. Extend `Operator` enum in `src/parser/ast.rs`
 2. Add parsing logic in `src/parser/grammar.rs`
 3. Implement operator logic in `src/evaluator/operators.rs`
-4. Update `serialize_operator()` in both `src/build_helpers.rs` AND `build.rs` (they have duplicate match statements)
+4. Update `serialize_operator()` in `src/parser/codegen.rs`
 5. Update strength calculation match in `src/evaluator/strength.rs`
 6. Update `arb_operator()` in `tests/property_tests.rs`
 7. Add tests for the new operator
@@ -404,7 +417,7 @@ This pattern ensures build-time failures (e.g., invalid magic files) are properl
 
 ### Automated Checks
 
-The project uses GitHub Actions CI with Mergify merge queue:
+The project uses GitHub Actions CI with Mergify merge protections:
 
 1. **Formatting**: `cargo fmt` for consistent code style
 2. **Linting**: `cargo clippy -- -D warnings` for best practices
@@ -435,9 +448,7 @@ All pull requests require review before merging. Reviews are performed by mainta
 - **Style**: Follows project conventions, passes `cargo fmt` and `cargo clippy -- -D warnings`
 - **Documentation**: Public APIs have rustdoc with examples, AGENTS.md updated if architecture changes
 
-CI must pass before merge. Mergify merge queue and merge protections enforce these checks.
-PRs enter the merge queue when approved (or automatically for release-plz/dependabot).
-Mergify rebases against main, runs CI, and squash-merges on success.
+CI must pass before merge. Mergify merge protections enforce these checks. Bot PRs from dependabot and dosubot are auto-merged by Mergify when all required CI checks pass. Bot PRs from release-plz are auto-merged by Mergify when their required DCO check passes (they are exempt from full CI in `.mergify.yml`). Human PRs are merged manually by maintainers.
 
 ## Project Context
 
@@ -460,9 +471,9 @@ Mergify rebases against main, runs CI, and squash-merges on success.
 
 ### Development Phases
 
-1. **MVP (v0.1.0)** - CURRENT: Basic parsing and evaluation with byte/short/long/string types, equality and bitwise AND operators, built-in rules for 10 common formats
+1. **MVP (v0.1.0)** - CURRENT: Basic parsing and evaluation with byte/short/long/quad/string types, equality and bitwise AND operators, built-in rules for 10 common formats
 2. **Enhanced Features (v0.2)**: Comparison operators (`>`, `<`), indirect offset improvements, strength-based rule ordering
-3. **Advanced Types (v0.3)**: Regex type, 64-bit integers, floating-point types, search patterns
+3. **Advanced Types (v0.3)**: Regex type, floating-point types, search patterns
 4. **Full Compatibility (v0.4)**: Complete libmagic syntax support, all special directives, named tests
 5. **Production Ready (v1.0)**: Stable API, complete documentation, 95%+ compatibility with GNU file
 
@@ -516,8 +527,9 @@ This guide ensures consistent, high-quality development practices for the libmag
 
 ## Quick Reference
 
-- Merging is managed by Mergify merge queue -- PRs are squash-merged after CI passes
-- `.mergify.yml` configures merge queue rules, auto-queue, and merge protections
+- Mergify auto-merges dependabot/dosubot PRs when full CI passes; release-plz PRs when DCO passes (exempt from full CI)
+- Human PRs are merged manually -- Mergify only provides merge protections for those
+- `.mergify.yml` configures auto-merge rules and merge protections
 - `cargo deny check` uses `deny.toml` (default) -- do not specify a custom config path
 - `.github/workflows/release.yml` is auto-generated by cargo-dist -- do not modify manually
 - All `.rs` files must have copyright and SPDX headers (see any source file for format)

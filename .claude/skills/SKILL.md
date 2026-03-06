@@ -173,7 +173,7 @@ fn main() { ... }
 ## Rust Edition & Style
 
 - **Edition**: 2024
-- **MSRV**: 1.85
+- **MSRV**: 1.89
 - **rustfmt**: `style_edition = "2024"`
 - All derive macros: `Debug, Clone, Serialize, Deserialize, PartialEq, Eq`
 - Public API types derive `Serialize` + `Deserialize`

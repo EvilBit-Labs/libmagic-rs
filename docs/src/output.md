@@ -14,7 +14,7 @@ The output module is organized across three files:
 
 ### `output::MatchResult`
 
-Represents a single magic rule match in the output layer. Created by converting from an evaluator-level `MatchResult`, with additional fields for structured output.
+Represents a single magic rule match in the output layer. Created by converting from an evaluator-level `RuleMatch`, with additional fields for structured output.
 
 ```rust
 pub struct MatchResult {
@@ -32,7 +32,7 @@ Key constructors:
 
 - `MatchResult::new(message, offset, value)` -- Creates a match with default confidence of 50.
 - `MatchResult::with_metadata(...)` -- Creates a fully specified match. Confidence is clamped to 100.
-- `MatchResult::from_evaluator_match(m, mime_type)` -- Converts from the evaluator's `MatchResult`. Scales confidence from 0.0--1.0 to 0--100 and extracts rule path tags using the shared `TagExtractor`.
+- `MatchResult::from_evaluator_match(m, mime_type)` -- Converts from the evaluator's `RuleMatch`. Scales confidence from 0.0--1.0 to 0--100 and extracts rule path tags using the shared `TagExtractor`.
 
 ### `output::EvaluationResult`
 
@@ -96,21 +96,25 @@ The text module (`src/output/text.rs`) produces output compatible with the GNU `
 ### Examples
 
 Single file, single match:
+
 ```text
 photo.png: PNG image data
 ```
 
 Single file, multiple matches:
+
 ```text
 ls: ELF 64-bit LSB executable, x86-64, dynamically linked
 ```
 
 No matches:
+
 ```text
 unknown.bin: data
 ```
 
 Error case:
+
 ```text
 missing.txt: ERROR: File not found
 ```
@@ -139,12 +143,12 @@ Created via `JsonMatchResult::from_match_result(match_result)`, which converts t
 
 The `format_value_as_hex` function converts `Value` variants to hex strings:
 
-| Value Type | Encoding |
-|---|---|
-| `Bytes(vec)` | Direct hex encoding of each byte |
-| `String(s)` | Hex encoding of UTF-8 bytes |
-| `Uint(n)` | Little-endian u64 bytes (16 hex chars) |
-| `Int(n)` | Little-endian i64 bytes (16 hex chars) |
+| Value Type   | Encoding                               |
+| ------------ | -------------------------------------- |
+| `Bytes(vec)` | Direct hex encoding of each byte       |
+| `String(s)`  | Hex encoding of UTF-8 bytes            |
+| `Uint(n)`    | Little-endian u64 bytes (16 hex chars) |
+| `Int(n)`     | Little-endian i64 bytes (16 hex chars) |
 
 Examples: `Bytes([0x7f, 0x45, 0x4c, 0x46])` becomes `"7f454c46"`, `String("PNG")` becomes `"504e47"`.
 
@@ -176,18 +180,31 @@ A compact variant is available via `format_json_output_compact`, which omits whi
 For batch processing, `format_json_line_output` produces compact, single-line JSON with a `filename` field:
 
 ```json
-{"filename":"file1.bin","matches":[{"text":"ELF executable","offset":0,"value":"7f454c46","tags":["executable"],"score":90}]}
+{
+  "filename": "file1.bin",
+  "matches": [
+    {
+      "text": "ELF executable",
+      "offset": 0,
+      "value": "7f454c46",
+      "tags": [
+        "executable"
+      ],
+      "score": 90
+    }
+  ]
+}
 ```
 
 Each file produces exactly one line, making the output suitable for streaming and line-oriented processing tools.
 
 ### Formatting Functions Summary
 
-| Function | Format | Use Case |
-|---|---|---|
-| `format_json_output(matches)` | Pretty-printed JSON | Single file, human-readable |
-| `format_json_output_compact(matches)` | Compact JSON | Single file, machine processing |
-| `format_json_line_output(path, matches)` | JSON Lines | Multiple files, streaming |
+| Function                                 | Format              | Use Case                        |
+| ---------------------------------------- | ------------------- | ------------------------------- |
+| `format_json_output(matches)`            | Pretty-printed JSON | Single file, human-readable     |
+| `format_json_output_compact(matches)`    | Compact JSON        | Single file, machine processing |
+| `format_json_line_output(path, matches)` | JSON Lines          | Multiple files, streaming       |
 
 All three return `Result<String, serde_json::Error>`.
 
@@ -195,24 +212,34 @@ All three return `Result<String, serde_json::Error>`.
 
 The full conversion pipeline from evaluation to output:
 
-```text
-evaluator::MatchResult ──from_evaluator_match──> output::MatchResult
-                                                        │
-                                          ┌─────────────┼─────────────┐
-                                          v             v             v
-                                   format_text    format_json   format_json_line
-                                     output         output          output
+```mermaid
+flowchart TD
+    EM["evaluator::RuleMatch"]
+    EM -- "from_evaluator_match" --> OM["output::MatchResult"]
+    OM --> FT["format_text_output"]
+    OM --> FJ["format_json_output"]
+    OM --> FL["format_json_line_output"]
+
+    style EM fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
+    style OM fill:#2a1a4a,stroke:#b39ddb,color:#e0e0e0
+    style FT fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
+    style FJ fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
+    style FL fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
 ```
 
 When converting from the library's top-level `EvaluationResult`:
 
-```text
-lib::EvaluationResult ──from_library_result──> output::EvaluationResult
-                                                       │
-                              ┌─────────────────┬──────┘
-                              v                 v
-                    format_evaluation     JsonOutput::from_evaluation_result
-                       _result (text)              (JSON)
+```mermaid
+flowchart TD
+    LE["lib::EvaluationResult"]
+    LE -- "from_library_result" --> OE["output::EvaluationResult"]
+    OE --> FER["format_evaluation_result<br/>(text)"]
+    OE --> JER["JsonOutput::from_evaluation_result<br/>(JSON)"]
+
+    style LE fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
+    style OE fill:#2a1a4a,stroke:#b39ddb,color:#e0e0e0
+    style FER fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
+    style JER fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
 ```
 
 ## Serialization

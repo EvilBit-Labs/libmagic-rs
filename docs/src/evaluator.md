@@ -49,12 +49,12 @@ Note: Fields are private; use accessor methods like `current_offset()`, `recursi
 - `timeout_ms()` - Query configured timeout
 - `reset()` - Reset context state for reuse
 
-### MatchResult (`evaluator/mod.rs`)
+### RuleMatch (`evaluator/mod.rs`)
 
 Represents a successful rule match:
 
 ```rust
-pub struct MatchResult {
+pub struct RuleMatch {
     /// Human-readable description from the matched rule
     pub message: String,
     /// Offset where the match occurred
@@ -93,6 +93,7 @@ Interprets bytes according to type specifications:
 - **Byte**: Single byte values (signed or unsigned)
 - **Short**: 16-bit integers with endianness
 - **Long**: 32-bit integers with endianness
+- **Quad**: 64-bit integers with endianness
 - **String**: Byte sequences with length limits
 - **Bounds checking**: Prevents buffer overruns
 
@@ -165,12 +166,13 @@ The evaluator uses a depth-first hierarchical algorithm:
 pub fn evaluate_rules(
     rules: &[MagicRule],
     buffer: &[u8],
-) -> Result<Vec<MatchResult>, EvaluationError>
+) -> Result<Vec<RuleMatch>, EvaluationError>
 ```
 
 **Algorithm:**
 
 1. For each root rule:
+
    - Resolve offset from buffer
    - Read value at offset according to type
    - Apply operator to compare actual vs expected
@@ -178,6 +180,7 @@ pub fn evaluate_rules(
    - If no match: skip children, continue to next rule
 
 2. Child rules inherit context from parent match
+
 3. Results accumulate hierarchically (parent message + child details)
 
 ### Hierarchical Processing
@@ -281,14 +284,14 @@ pub fn evaluate_rules(
     rules: &[MagicRule],
     buffer: &[u8],
     context: &mut EvaluationContext,
-) -> Result<Vec<MatchResult>, LibmagicError>;
+) -> Result<Vec<RuleMatch>, LibmagicError>;
 
 /// Evaluate rules with custom configuration (creates context internally)
 pub fn evaluate_rules_with_config(
     rules: &[MagicRule],
     buffer: &[u8],
     config: &EvaluationConfig,
-) -> Result<Vec<MatchResult>, LibmagicError>;
+) -> Result<Vec<RuleMatch>, LibmagicError>;
 
 /// Evaluate a single rule (used internally and for testing)
 pub fn evaluate_single_rule(
@@ -346,7 +349,7 @@ assert_eq!(matches[0].message, "Small value detected");
 
 - [x] Basic evaluation engine structure
 - [x] Offset resolution (absolute, relative, from-end)
-- [x] Type reading with endianness support (Byte, Short, Long, String)
+- [x] Type reading with endianness support (Byte, Short, Long, Quad, String)
 - [x] Operator application (Equal, NotEqual, LessThan, GreaterThan, LessEqual, GreaterEqual, BitwiseAnd, BitwiseAndMask)
 - [x] Hierarchical rule processing with child evaluation
 - [x] Error handling with graceful degradation

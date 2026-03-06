@@ -65,8 +65,10 @@ test result: ok. 98 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 - `test_type_kind_byte` - Single byte type handling with signedness
 - `test_type_kind_short` - 16-bit integer types with endianness
 - `test_type_kind_long` - 32-bit integer types with endianness
+- `test_type_kind_quad` - 64-bit integer types with endianness
 - `test_type_kind_string` - String types with length limits
 - `test_type_kind_serialization` - All type serialization including signed/unsigned variants
+- `test_serialize_type_kind_quad` - Quad type serialization (build_helpers.rs)
 
 **Operator Tests:**
 
@@ -129,6 +131,43 @@ test result: ok. 98 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 - `test_parse_value_type_precedence` - Type detection precedence
 - `test_parse_value_edge_cases` - Boundary conditions
 - `test_parse_value_invalid_input` - Error handling
+
+#### Evaluator Component Tests
+
+**Type Reading Tests:**
+
+- `test_read_byte` - Single byte reading with signedness
+- `test_read_short_endianness_and_signedness` - 16-bit reading with all endian/sign combinations
+- `test_read_short_extreme_values` - 16-bit boundary values
+- `test_read_long_endianness_and_signedness` - 32-bit reading with all endian/sign combinations
+- `test_read_long_buffer_overrun` - 32-bit buffer boundary checking
+- `test_read_quad_endianness_and_signedness` - 64-bit reading with all endian/sign combinations
+- `test_read_quad_buffer_overrun` - 64-bit buffer boundary checking
+- `test_read_quad_at_offset` - 64-bit reading at non-zero offsets
+- `test_read_string` - Null-terminated string reading
+- `test_read_typed_value` - Dispatch to correct type reader
+
+**Value Coercion Tests:**
+
+- `test_coerce_value_to_type` - Type conversion including quad overflow handling
+
+**Strength Calculation Tests:**
+
+- `test_strength_type_byte` - Byte type strength
+- `test_strength_type_short` - 16-bit type strength
+- `test_strength_type_long` - 32-bit type strength
+- `test_strength_type_quad` - 64-bit type strength
+- `test_strength_type_string` - String type strength with/without max_length
+- `test_strength_operator_equal` - Operator strength calculations
+
+#### Integration Tests
+
+**End-to-End Evaluation Tests:**
+
+- `test_quad_lequad_matches_little_endian_value` - LE quad pattern matching
+- `test_quad_bequad_matches_big_endian_value` - BE quad pattern matching
+- `test_quad_signed_negative_one` - Signed 64-bit negative value matching
+- `test_quad_nested_child_rule_with_offset` - Quad types in hierarchical rules
 
 ## Test Categories
 
@@ -332,6 +371,23 @@ fn test_signed_unsigned_byte_handling() {
     };
 
     // Both 0x7f and 0x80 are > 127 when interpreted as unsigned
+}
+```
+
+**Testing 64-bit Integer (Quad) Types:**
+
+```rust
+#[test]
+fn test_read_quad_endianness_and_signedness() {
+    // Little-endian unsigned
+    let buffer = &[0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12];
+    let result = read_quad(buffer, 0, Endianness::Little, false).unwrap();
+    assert_eq!(result, Value::Uint(0x1234_5678_90ab_cdef));
+
+    // Big-endian signed negative
+    let buffer = &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+    let result = read_quad(buffer, 0, Endianness::Big, true).unwrap();
+    assert_eq!(result, Value::Int(-1));
 }
 ```
 
@@ -572,11 +628,11 @@ cargo bench -- --noplot
 
 ### Available Benchmarks
 
-| Benchmark | Description |
-|-----------|-------------|
-| `parser_bench` | Magic file parsing performance |
+| Benchmark          | Description                                |
+| ------------------ | ------------------------------------------ |
+| `parser_bench`     | Magic file parsing performance             |
 | `evaluation_bench` | Rule evaluation against various file types |
-| `io_bench` | Memory-mapped I/O operations |
+| `io_bench`         | Memory-mapped I/O operations               |
 
 ### Benchmark CI
 

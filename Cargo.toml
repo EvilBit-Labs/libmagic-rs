@@ -1,6 +1,6 @@
 [package]
 name = "libmagic-rs"
-version = "0.2.0"
+version = "0.3.2"
 edition = "2024"
 authors = [
     "UncleSp1d3r <unclespid3r@evilbitlabs.io>",
@@ -13,7 +13,7 @@ homepage = "https://evilbitlabs.io/libmagic-rs"
 documentation = "https://docs.rs/libmagic-rs"
 keywords = ["file", "magic", "libmagic", "file-type", "identification"]
 categories = ["command-line-utilities", "parsing"]
-rust-version = "1.85"
+rust-version = "1.89"
 readme = "README.md"
 exclude = [
     "/spec",
@@ -146,7 +146,9 @@ path = "src/main.rs"
 byteorder = "1.5.0"
 cfg-if = "1.0.4"
 clap = { version = "4.5.60", features = ["derive"] }
-clap-stdin = "0.8.0"
+clap-stdin = "0.8.1"
+clap_complete = "4.5"
+ctrlc = { version = "3.4", features = ["termination"] }
 memchr = "2.7.6"
 memmap2 = "0.9.10"
 nom = "8.0.0"
@@ -162,10 +164,10 @@ thiserror = "2.0.18"
 [dev-dependencies]
 criterion = "0.8.2"
 insta = { version = "1.46.3", features = ["json"] }
-nix = { version = "0.31.1", features = ["fs"] }
+nix = { version = "0.31.2", features = ["fs"] }
 proptest = "1.10.0"
 regex = "1.12.3"
-tempfile = "3.25.0"
+tempfile = "3.26.0"
 
 [[bench]]
 name = "parser_bench"
@@ -182,9 +184,11 @@ harness = false
 [profile.release]
 lto = "thin"
 codegen-units = 1
+strip = true
 
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
 lto = "thin"
 overflow-checks = true
+strip = true

@@ -35,15 +35,15 @@ println!("File type: {}", result.description);
 
 ## API Mapping
 
-| C libmagic | libmagic-rs | Notes |
-|---|---|---|
-| `magic_open(flags)` | `MagicDatabase::with_builtin_rules()` | No manual flag management |
-| `magic_load(magic, path)` | `MagicDatabase::load_from_file(path)` | Auto-detects format |
-| `magic_file(magic, path)` | `db.evaluate_file(path)` | Returns structured result |
-| `magic_buffer(magic, buf, len)` | `db.evaluate_buffer(buf)` | Safe slice, no length needed |
-| `magic_error(magic)` | `Result<T, LibmagicError>` | Typed errors, no global state |
-| `magic_close(magic)` | (automatic) | RAII cleanup on drop |
-| `MAGIC_MIME_TYPE` | `EvaluationConfig { enable_mime_types: true, .. }` | Opt-in configuration |
+| C libmagic                      | libmagic-rs                                        | Notes                         |
+| ------------------------------- | -------------------------------------------------- | ----------------------------- |
+| `magic_open(flags)`             | `MagicDatabase::with_builtin_rules()`              | No manual flag management     |
+| `magic_load(magic, path)`       | `MagicDatabase::load_from_file(path)`              | Auto-detects format           |
+| `magic_file(magic, path)`       | `db.evaluate_file(path)`                           | Returns structured result     |
+| `magic_buffer(magic, buf, len)` | `db.evaluate_buffer(buf)`                          | Safe slice, no length needed  |
+| `magic_error(magic)`            | `Result<T, LibmagicError>`                         | Typed errors, no global state |
+| `magic_close(magic)`            | (automatic)                                        | RAII cleanup on drop          |
+| `MAGIC_MIME_TYPE`               | `EvaluationConfig { enable_mime_types: true, .. }` | Opt-in configuration          |
 
 ## Key Differences
 
@@ -284,6 +284,101 @@ use libmagic_rs::evaluator::types::read_byte;
 let signed_value = read_byte(buffer, offset, true)?;
 let unsigned_value = read_byte(buffer, offset, false)?;
 ```
+
+## Migrating from v0.2.x to v0.3.0
+
+Version 0.3.0 adds support for 64-bit quad integers and renames a core evaluator type. Update your code as follows:
+
+### New TypeKind::Quad Variant
+
+A new `Quad` variant was added to the `TypeKind` enum for 64-bit integer types. Exhaustive matches on `TypeKind` must handle the new variant.
+
+**Before (v0.2.x):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::TypeKind;
+
+match type_kind {
+    TypeKind::Byte { signed } => { /* ... */ }
+    TypeKind::Short { endian, signed } => { /* ... */ }
+    TypeKind::Long { endian, signed } => { /* ... */ }
+    TypeKind::String { max_length } => { /* ... */ }
+}
+```
+
+**After (v0.3.0):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::TypeKind;
+
+match type_kind {
+    TypeKind::Byte { signed } => { /* ... */ }
+    TypeKind::Short { endian, signed } => { /* ... */ }
+    TypeKind::Long { endian, signed } => { /* ... */ }
+    TypeKind::Quad { endian, signed } => {
+        // Handle 64-bit quad integer type
+    }
+    TypeKind::String { max_length } => { /* ... */ }
+}
+```
+
+### TypeKind Variant Discriminant Changes
+
+The addition of the `Quad` variant changed the discriminant value of the `String` variant from 3 to 4. Code using numeric casts on `TypeKind` variants must be updated.
+
+**Before (v0.2.x):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::TypeKind;
+
+let type_kind = TypeKind::String { max_length: None };
+let discriminant = type_kind as isize;  // Returns 3
+```
+
+**After (v0.3.0):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::TypeKind;
+
+let type_kind = TypeKind::String { max_length: None };
+let discriminant = type_kind as isize;  // Returns 4
+```
+
+**Recommendation:** Avoid relying on enum discriminant values. Use pattern matching or the `std::mem::discriminant` function instead.
+
+### MatchResult Renamed to RuleMatch
+
+The `MatchResult` struct in `libmagic_rs::evaluator` was renamed to `RuleMatch` for clarity.
+
+**Before (v0.2.x):**
+
+```rust,ignore
+use libmagic_rs::evaluator::MatchResult;
+
+let match_result = MatchResult {
+    message: "ELF executable".to_string(),
+    offset: 0,
+    level: 0,
+    value: Value::Uint(0x7f),
+    confidence: MatchResult::calculate_confidence(0),
+};
+```
+
+**After (v0.3.0):**
+
+```rust,ignore
+use libmagic_rs::evaluator::RuleMatch;
+
+let match_result = RuleMatch {
+    message: "ELF executable".to_string(),
+    offset: 0,
+    level: 0,
+    value: Value::Uint(0x7f),
+    confidence: RuleMatch::calculate_confidence(0),
+};
+```
+
+Update all references from `MatchResult` to `RuleMatch` in type annotations, function signatures, and construction sites.
 
 ## Getting Help
 

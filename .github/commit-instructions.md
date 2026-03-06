@@ -13,5 +13,5 @@ Examples:
 
 - `feat(parser): add support for indirect offset resolution`
 - `fix(evaluator): handle malformed magic rules gracefully`
-- `docs(readme): update installation instructions for Rust 1.85+`
+- `docs(readme): update installation instructions for Rust 1.89+`
 - `chore(deps): update memmap2 to v0.9 for security patches`

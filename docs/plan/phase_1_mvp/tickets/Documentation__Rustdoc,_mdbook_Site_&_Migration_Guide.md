@@ -49,7 +49,7 @@ Ensure all public APIs have comprehensive rustdoc:
 
 **Example Rustdoc Pattern:**
 
-```rust
+````rust
 /// Load magic rules from a file or directory
 ///
 /// This function automatically detects the format (text file, directory, or binary .mgc)
@@ -82,7 +82,7 @@ Ensure all public APIs have comprehensive rustdoc:
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self>
-```
+````
 
 ### 2. mdbook Site Structure
 

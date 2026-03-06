@@ -237,7 +237,7 @@ pub fn parse_rule(input: &str) -> Result<MagicRule, ParseError> {
 2. **Add tests** for new functionality
 3. **Run the full test suite** locally: `just ci-check`
 4. **Create a pull request** with a clear description
-5. **Keep your PR up to date**: PRs must be within 10 commits of `main` to merge. Mergify automatically updates PRs in the merge queue, but you may need to rebase more frequently than before.
+5. **Keep your PR up to date**: PRs must be within 3 commits of `main` to merge. Mergify automatically updates PRs in the merge queue, but you may need to rebase more frequently than before.
 6. **Address review feedback** promptly
 
 ### Code Review Requirements
@@ -251,7 +251,7 @@ All pull requests require review before merging. Reviewers check for:
 - **Documentation**: Public APIs have rustdoc with examples, AGENTS.md updated if architecture changes
 - **Performance**: No unnecessary allocations in hot paths, no regressions in benchmarks
 
-All CI checks run before merge through the merge queue, including quality checks, tests, coverage, and cross-platform tests (ubuntu-latest, ubuntu-22.04, macos-latest, windows-latest). Merge protections prevent manual merges and require the quality check, test check, coverage check, and cross-platform tests for ubuntu-latest, ubuntu-22.04, macos-latest, and windows-latest to pass. PRs are merged through the queue when conditions are met.
+All CI checks run before merge through the merge queue, including quality checks, tests, coverage, and cross-platform tests (ubuntu-latest, ubuntu-22.04, macos-latest, windows-latest). Merge protections prevent manual merges and require the quality check and cross-platform tests for ubuntu-latest, macos-latest, and windows-latest to pass. PRs are merged through the queue when conditions are met.
 
 ### Developer Certificate of Origin (DCO)
 

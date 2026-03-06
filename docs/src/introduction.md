@@ -1,9 +1,6 @@
 # Introduction
 
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11947/badge)](https://www.bestpractices.dev/projects/11947)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EvilBit-Labs/libmagic-rs/badge)](https://scorecard.dev/viewer/?uri=github.com/EvilBit-Labs/libmagic-rs)
-[![Crates.io](https://img.shields.io/crates/v/libmagic-rs)](https://crates.io/crates/libmagic-rs)
-[![License](https://img.shields.io/crates/l/libmagic-rs)](https://github.com/EvilBit-Labs/libmagic-rs/blob/main/LICENSE)
+[![Crates.io][crates-badge]][crates-link] [![GitHub License][license-badge]][license-link] [![OpenSSF Scorecard][scorecard-badge]][scorecard-link] [![OpenSSF Best Practices][bestpractices-badge]][bestpractices-link]
 
 Welcome to the **libmagic-rs** developer guide! This documentation provides comprehensive information about the pure-Rust implementation of libmagic, the library that powers the `file` command for identifying file types.
 
@@ -119,3 +116,12 @@ This project is licensed under the Apache License 2.0. See the [LICENSE](https:/
 ## Acknowledgments
 
 This project is inspired by and respects the original [libmagic](https://www.darwinsys.com/file/) implementation by Ian Darwin and the current maintainers led by Christos Zoulas. We aim to provide a modern, safe alternative while maintaining compatibility with the established magic file format.
+
+[bestpractices-badge]: https://www.bestpractices.dev/projects/11947/badge
+[bestpractices-link]: https://www.bestpractices.dev/projects/11947
+[crates-badge]: https://img.shields.io/crates/v/libmagic-rs
+[crates-link]: https://crates.io/crates/libmagic-rs
+[license-badge]: https://img.shields.io/crates/l/libmagic-rs
+[license-link]: https://github.com/EvilBit-Labs/libmagic-rs/blob/main/LICENSE
+[scorecard-badge]: https://api.scorecard.dev/projects/github.com/EvilBit-Labs/libmagic-rs/badge
+[scorecard-link]: https://scorecard.dev/viewer/?uri=github.com/EvilBit-Labs/libmagic-rs

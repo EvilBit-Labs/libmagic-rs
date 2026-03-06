@@ -204,7 +204,7 @@ impl EvaluationContext {
 /// Contains information about a successful rule match, including the rule
 /// that matched and its associated message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MatchResult {
+pub struct RuleMatch {
     /// The message associated with the matching rule
     pub message: String,
     /// The offset where the match occurred
@@ -221,7 +221,7 @@ pub struct MatchResult {
     pub confidence: f64,
 }
 
-impl MatchResult {
+impl RuleMatch {
     /// Calculate confidence score based on rule depth
     ///
     /// Formula: min(1.0, 0.3 + (level * 0.2))
@@ -234,11 +234,11 @@ impl MatchResult {
     /// # Examples
     ///
     /// ```
-    /// use libmagic_rs::evaluator::MatchResult;
+    /// use libmagic_rs::evaluator::RuleMatch;
     ///
-    /// assert!((MatchResult::calculate_confidence(0) - 0.3).abs() < 0.001);
-    /// assert!((MatchResult::calculate_confidence(3) - 0.9).abs() < 0.001);
-    /// assert!((MatchResult::calculate_confidence(10) - 1.0).abs() < 0.001);
+    /// assert!((RuleMatch::calculate_confidence(0) - 0.3).abs() < 0.001);
+    /// assert!((RuleMatch::calculate_confidence(3) - 0.9).abs() < 0.001);
+    /// assert!((RuleMatch::calculate_confidence(10) - 1.0).abs() < 0.001);
     /// ```
     #[must_use]
     pub fn calculate_confidence(level: u32) -> f64 {
@@ -341,14 +341,14 @@ pub fn evaluate_single_rule(
 ///
 /// # Returns
 ///
-/// Returns `Ok(Vec<MatchResult>)` containing all matches found. Errors in individual rules
+/// Returns `Ok(Vec<RuleMatch>)` containing all matches found. Errors in individual rules
 /// are logged and skipped to allow evaluation to continue. Only returns `Err(LibmagicError)`
 /// for critical failures like timeout or recursion limit exceeded.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use libmagic_rs::evaluator::{evaluate_rules, EvaluationContext, MatchResult};
+/// use libmagic_rs::evaluator::{evaluate_rules, EvaluationContext, RuleMatch};
 /// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
 /// use libmagic_rs::EvaluationConfig;
 ///
@@ -394,7 +394,7 @@ pub fn evaluate_rules(
     rules: &[MagicRule],
     buffer: &[u8],
     context: &mut EvaluationContext,
-) -> Result<Vec<MatchResult>, LibmagicError> {
+) -> Result<Vec<RuleMatch>, LibmagicError> {
     let mut matches = Vec::with_capacity(8);
     let start_time = std::time::Instant::now();
     let mut rule_count = 0u32;
@@ -402,12 +402,11 @@ pub fn evaluate_rules(
     for rule in rules {
         // Check timeout periodically (every 16 rules) to reduce syscall overhead
         rule_count = rule_count.wrapping_add(1);
-        if rule_count.trailing_zeros() >= 4 {
-            if let Some(timeout_ms) = context.timeout_ms() {
-                if start_time.elapsed().as_millis() > u128::from(timeout_ms) {
-                    return Err(LibmagicError::Timeout { timeout_ms });
-                }
-            }
+        if rule_count.trailing_zeros() >= 4
+            && let Some(timeout_ms) = context.timeout_ms()
+            && start_time.elapsed().as_millis() > u128::from(timeout_ms)
+        {
+            return Err(LibmagicError::Timeout { timeout_ms });
         }
 
         // Evaluate the current rule with graceful error handling
@@ -431,12 +430,12 @@ pub fn evaluate_rules(
         };
 
         if let Some((absolute_offset, read_value)) = match_data {
-            let match_result = MatchResult {
+            let match_result = RuleMatch {
                 message: rule.message.clone(),
                 offset: absolute_offset,
                 level: rule.level,
                 value: read_value,
-                confidence: MatchResult::calculate_confidence(rule.level),
+                confidence: RuleMatch::calculate_confidence(rule.level),
             };
             matches.push(match_result);
 
@@ -512,13 +511,13 @@ pub fn evaluate_rules(
 ///
 /// # Returns
 ///
-/// Returns `Ok(Vec<MatchResult>)` containing all matches found, or `Err(LibmagicError)`
+/// Returns `Ok(Vec<RuleMatch>)` containing all matches found, or `Err(LibmagicError)`
 /// if evaluation fails.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use libmagic_rs::evaluator::{evaluate_rules_with_config, MatchResult};
+/// use libmagic_rs::evaluator::{evaluate_rules_with_config, RuleMatch};
 /// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
 /// use libmagic_rs::EvaluationConfig;
 ///
@@ -550,7 +549,7 @@ pub fn evaluate_rules_with_config(
     rules: &[MagicRule],
     buffer: &[u8],
     config: &EvaluationConfig,
-) -> Result<Vec<MatchResult>, LibmagicError> {
+) -> Result<Vec<RuleMatch>, LibmagicError> {
     let mut context = EvaluationContext::new(config.clone());
     evaluate_rules(rules, buffer, &mut context)
 }
@@ -1716,13 +1715,13 @@ fn test_evaluation_context_performance_config() {
 }
 
 #[test]
-fn test_match_result_creation() {
-    let match_result = MatchResult {
+fn test_rule_match_creation() {
+    let match_result = RuleMatch {
         message: "ELF executable".to_string(),
         offset: 0,
         level: 0,
         value: Value::Uint(0x7f),
-        confidence: MatchResult::calculate_confidence(0),
+        confidence: RuleMatch::calculate_confidence(0),
     };
 
     assert_eq!(match_result.message, "ELF executable");
@@ -1733,13 +1732,13 @@ fn test_match_result_creation() {
 }
 
 #[test]
-fn test_match_result_clone() {
-    let original = MatchResult {
+fn test_rule_match_clone() {
+    let original = RuleMatch {
         message: "Test message".to_string(),
         offset: 42,
         level: 1,
         value: Value::String("test".to_string()),
-        confidence: MatchResult::calculate_confidence(1),
+        confidence: RuleMatch::calculate_confidence(1),
     };
 
     let cloned = original.clone();
@@ -1747,17 +1746,17 @@ fn test_match_result_clone() {
 }
 
 #[test]
-fn test_match_result_debug() {
-    let match_result = MatchResult {
+fn test_rule_match_debug() {
+    let match_result = RuleMatch {
         message: "Debug test".to_string(),
         offset: 10,
         level: 2,
         value: Value::Bytes(vec![0x01, 0x02]),
-        confidence: MatchResult::calculate_confidence(2),
+        confidence: RuleMatch::calculate_confidence(2),
     };
 
     let debug_str = format!("{match_result:?}");
-    assert!(debug_str.contains("MatchResult"));
+    assert!(debug_str.contains("RuleMatch"));
     assert!(debug_str.contains("Debug test"));
     assert!(debug_str.contains("10"));
     assert!(debug_str.contains('2'));
@@ -1765,38 +1764,38 @@ fn test_match_result_debug() {
 
 #[test]
 fn test_confidence_calculation_depth_0() {
-    let confidence = MatchResult::calculate_confidence(0);
+    let confidence = RuleMatch::calculate_confidence(0);
     assert!((confidence - 0.3).abs() < 0.001);
 }
 
 #[test]
 fn test_confidence_calculation_depth_1() {
-    let confidence = MatchResult::calculate_confidence(1);
+    let confidence = RuleMatch::calculate_confidence(1);
     assert!((confidence - 0.5).abs() < 0.001);
 }
 
 #[test]
 fn test_confidence_calculation_depth_2() {
-    let confidence = MatchResult::calculate_confidence(2);
+    let confidence = RuleMatch::calculate_confidence(2);
     assert!((confidence - 0.7).abs() < 0.001);
 }
 
 #[test]
 fn test_confidence_calculation_depth_3() {
-    let confidence = MatchResult::calculate_confidence(3);
+    let confidence = RuleMatch::calculate_confidence(3);
     assert!((confidence - 0.9).abs() < 0.001);
 }
 
 #[test]
 fn test_confidence_calculation_capped_at_1() {
     // Level 4+ should cap at 1.0
-    let confidence_4 = MatchResult::calculate_confidence(4);
+    let confidence_4 = RuleMatch::calculate_confidence(4);
     assert!((confidence_4 - 1.0).abs() < 0.001);
 
-    let confidence_10 = MatchResult::calculate_confidence(10);
+    let confidence_10 = RuleMatch::calculate_confidence(10);
     assert!((confidence_10 - 1.0).abs() < 0.001);
 
-    let confidence_100 = MatchResult::calculate_confidence(100);
+    let confidence_100 = RuleMatch::calculate_confidence(100);
     assert!((confidence_100 - 1.0).abs() < 0.001);
 }
 

@@ -256,7 +256,7 @@ impl MatchResult {
         }
     }
 
-    /// Convert from an evaluator `MatchResult` to an output `MatchResult`
+    /// Convert from an evaluator [`RuleMatch`](crate::evaluator::RuleMatch) to an output `MatchResult`
     ///
     /// This adapts the internal evaluation result format to the richer output format
     /// used for JSON and structured output. It extracts rule paths from match messages
@@ -264,19 +264,19 @@ impl MatchResult {
     ///
     /// # Arguments
     ///
-    /// * `m` - The evaluator match result to convert
+    /// * `m` - The evaluator rule match to convert
     /// * `mime_type` - Optional MIME type to associate with this match
     #[must_use]
-    pub fn from_evaluator_match(
-        m: &crate::evaluator::MatchResult,
-        mime_type: Option<&str>,
-    ) -> Self {
+    pub fn from_evaluator_match(m: &crate::evaluator::RuleMatch, mime_type: Option<&str>) -> Self {
         let rule_path =
             DEFAULT_TAG_EXTRACTOR.extract_rule_path(std::iter::once(m.message.as_str()));
 
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let confidence = (m.confidence * 100.0).min(100.0) as u8;
 
+        // TODO: Numeric length is hardcoded to 4 bytes. Value::Uint/Int don't encode
+        // their source width, so byte/short/long/quad all report 4. Carrying TypeKind
+        // in RuleMatch would allow accurate lengths (1, 2, 4, 8).
         let length = match &m.value {
             Value::Bytes(b) => b.len(),
             Value::String(s) => s.len(),
@@ -431,10 +431,10 @@ impl EvaluationResult {
             .collect();
 
         // Enrich the first match with tags from the overall description
-        if let Some(first) = output_matches.first_mut() {
-            if first.rule_path.is_empty() {
-                first.rule_path = DEFAULT_TAG_EXTRACTOR.extract_tags(&result.description);
-            }
+        if let Some(first) = output_matches.first_mut()
+            && first.rule_path.is_empty()
+        {
+            first.rule_path = DEFAULT_TAG_EXTRACTOR.extract_tags(&result.description);
         }
 
         #[allow(clippy::cast_possible_truncation)]
