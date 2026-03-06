@@ -23,7 +23,7 @@ This project follows the [Rust Code of Conduct](https://www.rust-lang.org/polici
 
 ### Prerequisites
 
-- **Rust 1.89+** (edition 2024)
+- **Rust 1.85+** (edition 2024)
 - **Cargo** (comes with Rust)
 - **Git** for version control
 
@@ -75,14 +75,14 @@ libmagic-rs follows a **parser-evaluator architecture**:
 
 ### Module Overview
 
-| Module              | Purpose                     | Status         |
-| ------------------- | --------------------------- | -------------- |
-| `parser/`           | Magic file parsing with nom | In Development |
-| `parser/ast.rs`     | AST data structures         | Complete       |
-| `parser/grammar.rs` | Parsing combinators         | Partial        |
-| `evaluator/`        | Rule evaluation engine      | Planned        |
-| `io/`               | Memory-mapped file I/O      | Complete       |
-| `output/`           | Result formatting           | Planned        |
+| Module | Purpose | Status |
+|--------|---------|--------|
+| `parser/` | Magic file parsing with nom | In Development |
+| `parser/ast.rs` | AST data structures | Complete |
+| `parser/grammar.rs` | Parsing combinators | Partial |
+| `evaluator/` | Rule evaluation engine | Planned |
+| `io/` | Memory-mapped file I/O | Complete |
+| `output/` | Result formatting | Planned |
 
 See [Architecture Documentation](docs/src/architecture.md) for detailed information.
 
@@ -97,7 +97,6 @@ See [Architecture Documentation](docs/src/architecture.md) for detailed informat
    ```
 
 2. Use conventional commit prefixes:
-
    - `feat:` - New features
    - `fix:` - Bug fixes
    - `docs:` - Documentation changes
@@ -194,7 +193,7 @@ mod tests {
 
 Example:
 
-````rust
+```rust
 /// Parses a magic rule from the input string.
 ///
 /// # Arguments
@@ -221,7 +220,7 @@ Example:
 pub fn parse_rule(input: &str) -> Result<MagicRule, ParseError> {
     // implementation
 }
-````
+```
 
 ### mdbook Guidelines
 
@@ -238,7 +237,8 @@ pub fn parse_rule(input: &str) -> Result<MagicRule, ParseError> {
 2. **Add tests** for new functionality
 3. **Run the full test suite** locally: `just ci-check`
 4. **Create a pull request** with a clear description
-5. **Address review feedback** promptly
+5. **Keep your PR up to date**: PRs must be within 3 commits of `main` to merge. Mergify automatically updates PRs in the merge queue, but you may need to rebase more frequently than before.
+6. **Address review feedback** promptly
 
 ### Code Review Requirements
 
@@ -251,7 +251,7 @@ All pull requests require review before merging. Reviewers check for:
 - **Documentation**: Public APIs have rustdoc with examples, AGENTS.md updated if architecture changes
 - **Performance**: No unnecessary allocations in hot paths, no regressions in benchmarks
 
-CI must pass before merge. This includes formatting, linting, tests, security audit, and CodeQL analysis. Branch protection enforces these checks on the `main` branch.
+All CI checks run before merge through the merge queue, including quality checks, tests, coverage, and cross-platform tests (ubuntu-latest, ubuntu-22.04, macos-latest, windows-latest). Merge protections prevent manual merges and require the quality check and cross-platform tests for ubuntu-latest, macos-latest, and windows-latest to pass. PRs are merged through the queue when conditions are met.
 
 ### Developer Certificate of Origin (DCO)
 
@@ -310,12 +310,12 @@ Run `cargo fmt` before committing.
 
 ### Naming Conventions
 
-| Item      | Convention           | Example                    |
-| --------- | -------------------- | -------------------------- |
-| Types     | PascalCase           | `MagicRule`, `ParseError`  |
-| Functions | snake_case           | `parse_rule`, `read_bytes` |
-| Constants | SCREAMING_SNAKE_CASE | `MAX_BUFFER_SIZE`          |
-| Modules   | snake_case           | `parser`, `evaluator`      |
+| Item | Convention | Example |
+|------|------------|---------|
+| Types | PascalCase | `MagicRule`, `ParseError` |
+| Functions | snake_case | `parse_rule`, `read_bytes` |
+| Constants | SCREAMING_SNAKE_CASE | `MAX_BUFFER_SIZE` |
+| Modules | snake_case | `parser`, `evaluator` |
 
 ### Error Handling
 
@@ -343,10 +343,10 @@ libmagic-rs uses a **maintainer-driven** governance model. Decisions are made by
 
 ### Roles
 
-| Role            | Responsibilities                                                           | Current                                                                                        |
-| --------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| **Maintainer**  | Merge PRs, manage releases, set project direction, review security reports | [@unclesp1d3r](https://github.com/unclesp1d3r), [@KryptoKat08](https://github.com/KryptoKat08) |
-| **Contributor** | Submit issues, PRs, and participate in discussions                         | Anyone following this guide                                                                    |
+| Role | Responsibilities | Current |
+|------|-----------------|---------|
+| **Maintainer** | Merge PRs, manage releases, set project direction, review security reports | [@unclesp1d3r](https://github.com/unclesp1d3r), [@KryptoKat08](https://github.com/KryptoKat08) |
+| **Contributor** | Submit issues, PRs, and participate in discussions | Anyone following this guide |
 
 ### How Decisions Are Made
 
