@@ -122,6 +122,32 @@ pub enum TypeKind {
     },
 }
 
+impl TypeKind {
+    /// Returns the bit width of integer types, or `None` for non-integer types (e.g., String).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+    ///
+    /// assert_eq!(TypeKind::Byte { signed: false }.bit_width(), Some(8));
+    /// assert_eq!(TypeKind::Short { endian: Endianness::Native, signed: true }.bit_width(), Some(16));
+    /// assert_eq!(TypeKind::Long { endian: Endianness::Native, signed: true }.bit_width(), Some(32));
+    /// assert_eq!(TypeKind::Quad { endian: Endianness::Native, signed: true }.bit_width(), Some(64));
+    /// assert_eq!(TypeKind::String { max_length: None }.bit_width(), None);
+    /// ```
+    #[must_use]
+    pub const fn bit_width(&self) -> Option<u32> {
+        match self {
+            Self::Byte { .. } => Some(8),
+            Self::Short { .. } => Some(16),
+            Self::Long { .. } => Some(32),
+            Self::Quad { .. } => Some(64),
+            Self::String { .. } => None,
+        }
+    }
+}
+
 /// Comparison and bitwise operators
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Operator {
