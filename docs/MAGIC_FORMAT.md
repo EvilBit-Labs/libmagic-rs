@@ -217,6 +217,7 @@ Example:
 | `&`      | Bitwise AND           | `4 byte &0x80`       |
 | `^`      | Bitwise XOR           | `4 byte ^0xff`       |
 | `~`      | Bitwise NOT           | `4 byte ~0xff`       |
+| `x`      | Match any value       | `4 byte x`           |
 
 ### Bitwise AND with Mask
 
@@ -269,11 +270,9 @@ Prefix operator with `!` for negation:
 0       string  \xff\xfe
 ```
 
-### Special Values
+### Any-Value Operator
 
-| Value | Description                   |
-| ----- | ----------------------------- |
-| `x`   | Match any value (always true) |
+The `x` operator matches unconditionally at the given offset. It is typically used in child rules to extract and format a value without testing it:
 
 Example:
 
