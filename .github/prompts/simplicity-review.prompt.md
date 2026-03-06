@@ -9,30 +9,30 @@ model: GPT-5.2-Codex
 
 Start by examining the uncommitted changes (or the changes in the current branch if there are no uncommitted changes) in the current codebase.
 
-### ANALYSIS STEPS:
+### ANALYSIS STEPS
 
 1. Identify what files have been modified or added
 2. Review the actual code changes
 3. Apply simplification principles below
 4. Refactor directly, then show what you changed
 
-### SIMPLIFICATION PRINCIPLES:
+### SIMPLIFICATION PRINCIPLES
 
-#### Complexity Reduction:
+#### Complexity Reduction
 
 - Remove abstraction layers that don't provide clear value
 - Replace complex patterns with straightforward implementations
 - Use language idioms over custom abstractions
 - If a simple function/lambda works, use it—don't create classes
 
-#### Test Proportionality:
+#### Test Proportionality
 
 - Keep only tests for critical functionality and real edge cases
 - Delete tests for trivial operations, framework behavior, or hypothetical scenarios
 - For small projects: aim for \<10 meaningful tests per feature
 - Test code should be shorter than implementation
 
-#### Idiomatic Code:
+#### Idiomatic Code
 
 - Use conventional patterns for the language
 - Prioritize readability and maintainability
