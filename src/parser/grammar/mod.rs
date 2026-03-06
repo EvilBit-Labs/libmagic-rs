@@ -626,6 +626,22 @@ pub fn parse_value(input: &str) -> IResult<&str, Value> {
 ///
 /// Returns the `TypeKind` and an optional `Operator`.
 ///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::grammar::parse_type_and_operator;
+/// use libmagic_rs::parser::ast::{TypeKind, Operator, Endianness};
+///
+/// // Type without operator
+/// let (_, (kind, op)) = parse_type_and_operator("lelong").unwrap();
+/// assert_eq!(kind, TypeKind::Long { endian: Endianness::Little, signed: true });
+/// assert_eq!(op, None);
+///
+/// // Type with mask operator
+/// let (_, (kind, op)) = parse_type_and_operator("lelong&0xf0000000").unwrap();
+/// assert!(matches!(op, Some(Operator::BitwiseAndMask(_))));
+/// ```
+///
 /// # Errors
 /// Returns a nom parsing error if the input doesn't match the expected format
 pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<Operator>)> {

@@ -473,6 +473,9 @@ fn test_parse_operator_all_variants() {
         ("<=", Operator::LessEqual),
         (">=", Operator::GreaterEqual),
         ("&", Operator::BitwiseAnd),
+        ("^", Operator::BitwiseXor),
+        ("~", Operator::BitwiseNot),
+        ("x", Operator::AnyValue),
     ];
 
     for (input, expected) in test_cases {

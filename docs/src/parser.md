@@ -91,7 +91,7 @@ parse_operator("x")    // Ok(("", Operator::AnyValue))
 - ✅ Precedence handling (longer operators matched first)
 - ✅ Whitespace tolerance
 - ✅ Invalid operator rejection with clear errors
-- ✅ Eleven comparison and bitwise operators supported
+- ✅ Ten comparison and bitwise operators supported, plus AnyValue (`x`)
 
 **Note:** Comparison operators (`<`, `>`, `<=`, `>=`) were implemented in v0.2.0 via [#104](https://github.com/EvilBit-Labs/libmagic-rs/pull/104).
 
