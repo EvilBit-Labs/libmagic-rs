@@ -2781,6 +2781,80 @@ fn test_any_value_parse_and_evaluate_no_message() {
     );
 }
 
+// End-to-end tests: parse rules with `^` operator and evaluate them
+#[test]
+fn test_bitwise_xor_parse_and_evaluate_match() {
+    use crate::parser::grammar::parse_magic_rule;
+
+    let input = "0 byte ^0x01 XOR match";
+    let (_, rule) = parse_magic_rule(input).unwrap();
+    assert_eq!(rule.op, Operator::BitwiseXor);
+    assert_eq!(rule.message, "XOR match");
+
+    // Buffer byte 0x0F XOR 0x01 = 0x0E (non-zero), should match
+    let buffer = &[0x0F];
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(
+        result.is_some(),
+        "BitwiseXor should match when XOR is non-zero"
+    );
+}
+
+#[test]
+fn test_bitwise_xor_parse_and_evaluate_no_match() {
+    use crate::parser::grammar::parse_magic_rule;
+
+    let input = "0 byte ^0x42 XOR no match";
+    let (_, rule) = parse_magic_rule(input).unwrap();
+    assert_eq!(rule.op, Operator::BitwiseXor);
+
+    // Buffer byte 0x42 XOR 0x42 = 0 (zero), should NOT match
+    let buffer = &[0x42];
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(
+        result.is_none(),
+        "BitwiseXor should not match when XOR is zero"
+    );
+}
+
+// End-to-end tests: parse rules with `~` operator and evaluate them
+#[test]
+fn test_bitwise_not_parse_and_evaluate_match() {
+    use crate::parser::grammar::parse_magic_rule;
+
+    // ubyte reads 0xFF as u64(255); NOT of u64(255) = u64::MAX - 255 = 0xFFFFFFFFFFFFFF00
+    // Use u64::MAX as operand with buffer byte 0x00: NOT(0) = u64::MAX
+    let input = &format!("0 ubyte ~{} NOT match", u64::MAX);
+    let (_, rule) = parse_magic_rule(input).unwrap();
+    assert_eq!(rule.op, Operator::BitwiseNot);
+    assert_eq!(rule.message, "NOT match");
+
+    let buffer = &[0x00];
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(
+        result.is_some(),
+        "BitwiseNot should match when NOT(value) equals operand"
+    );
+}
+
+#[test]
+fn test_bitwise_not_parse_and_evaluate_no_match() {
+    use crate::parser::grammar::parse_magic_rule;
+
+    // NOT of 0x42 byte is 0xBD (for ubyte: !0x42 = 0xFFFFFFFFFFFFFFBD as u64);
+    // comparing with 0x01 should NOT match
+    let input = "0 ubyte ~0x01 NOT no match";
+    let (_, rule) = parse_magic_rule(input).unwrap();
+    assert_eq!(rule.op, Operator::BitwiseNot);
+
+    let buffer = &[0x42];
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(
+        result.is_none(),
+        "BitwiseNot should not match when NOT(value) != operand"
+    );
+}
+
 #[test]
 fn test_debug_error_recovery() {
     // Simple test to debug error recovery

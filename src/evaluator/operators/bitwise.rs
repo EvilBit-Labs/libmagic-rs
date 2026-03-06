@@ -112,6 +112,25 @@ pub fn apply_bitwise_and(left: &Value, right: &Value) -> bool {
 ///
 /// Performs bitwise XOR between two integer values. Returns `true` if the result is non-zero.
 /// Only works with integer types (Uint and Int), returns `false` for other types.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::Value;
+/// use libmagic_rs::evaluator::operators::apply_bitwise_xor;
+///
+/// // XOR of different values is non-zero (true)
+/// assert!(apply_bitwise_xor(&Value::Uint(0xFF), &Value::Uint(0x0F)));
+///
+/// // XOR of same values is zero (false)
+/// assert!(!apply_bitwise_xor(&Value::Uint(42), &Value::Uint(42)));
+///
+/// // Non-integer types return false
+/// assert!(!apply_bitwise_xor(
+///     &Value::String("test".to_string()),
+///     &Value::Uint(0x01),
+/// ));
+/// ```
 #[must_use]
 pub fn apply_bitwise_xor(left: &Value, right: &Value) -> bool {
     match (left, right) {
@@ -130,6 +149,22 @@ pub fn apply_bitwise_xor(left: &Value, right: &Value) -> bool {
 ///
 /// Computes bitwise complement of the left (file) value, then checks equality with the right value.
 /// Only works with integer types, returns `false` for other types.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::Value;
+/// use libmagic_rs::evaluator::operators::apply_bitwise_not;
+///
+/// // NOT of 0 is all bits set (u64::MAX)
+/// assert!(apply_bitwise_not(&Value::Uint(0), &Value::Uint(u64::MAX)));
+///
+/// // NOT of -1 (all bits set) is 0
+/// assert!(apply_bitwise_not(&Value::Int(-1), &Value::Int(0)));
+///
+/// // Non-integer types return false
+/// assert!(!apply_bitwise_not(&Value::Bytes(vec![0xff]), &Value::Uint(0)));
+/// ```
 #[must_use]
 pub fn apply_bitwise_not(left: &Value, right: &Value) -> bool {
     let complemented = match left {
