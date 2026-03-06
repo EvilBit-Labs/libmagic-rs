@@ -6,14 +6,20 @@
 //! This module contains the core evaluation logic for executing magic rules
 //! against file buffers to identify file types.
 
-use crate::parser::ast::MagicRule;
 use crate::{EvaluationConfig, LibmagicError};
 use serde::{Deserialize, Serialize};
 
+mod engine;
 pub mod offset;
 pub mod operators;
 pub mod strength;
 pub mod types;
+
+pub use engine::{evaluate_rules, evaluate_rules_with_config, evaluate_single_rule};
+pub use offset::*;
+pub use operators::*;
+pub use strength::*;
+pub use types::*;
 
 /// Context for maintaining evaluation state during rule processing
 ///
@@ -242,321 +248,421 @@ impl RuleMatch {
         (0.3 + (f64::from(level) * 0.2)).min(1.0)
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::ast::Value;
 
-/// Evaluate a single magic rule against a file buffer
-///
-/// This function performs the core rule evaluation by:
-/// 1. Resolving the rule's offset specification to an absolute position
-/// 2. Reading and interpreting bytes at that position according to the rule's type
-/// 3. Applying the rule's operator to compare the read value with the expected value
-///
-/// # Arguments
-///
-/// * `rule` - The magic rule to evaluate
-/// * `buffer` - The file buffer to evaluate against
-///
-/// # Returns
-///
-/// Returns `Ok(Some((offset, value)))` if the rule matches (with the resolved offset and
-/// read value), `Ok(None)` if it doesn't match, or `Err(LibmagicError)` if evaluation
-/// fails due to buffer access issues or other errors.
-///
-/// # Examples
-///
-/// ```rust
-/// use libmagic_rs::evaluator::evaluate_single_rule;
-/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
-///
-/// // Create a rule to check for ELF magic bytes at offset 0
-/// let rule = MagicRule {
-///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte { signed: true },
-///     op: Operator::Equal,
-///     value: Value::Uint(0x7f),
-///     message: "ELF magic".to_string(),
-///     children: vec![],
-///     level: 0,
-///     strength_modifier: None,
-/// };
-///
-/// let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
-/// let result = evaluate_single_rule(&rule, elf_buffer).unwrap();
-/// assert!(result.is_some()); // Should match
-///
-/// let non_elf_buffer = &[0x50, 0x4b, 0x03, 0x04]; // ZIP magic bytes
-/// let result = evaluate_single_rule(&rule, non_elf_buffer).unwrap();
-/// assert!(result.is_none()); // Should not match
-/// ```
-///
-/// # Errors
-///
-/// * `LibmagicError::EvaluationError` - If offset resolution fails, buffer access is out of bounds,
-///   or type interpretation fails
-pub fn evaluate_single_rule(
-    rule: &MagicRule,
-    buffer: &[u8],
-) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
-    // Step 1: Resolve the offset specification to an absolute position
-    let absolute_offset = offset::resolve_offset(&rule.offset, buffer)?;
+    #[test]
+    fn test_evaluation_context_new() {
+        let config = EvaluationConfig::default();
+        let context = EvaluationContext::new(config.clone());
 
-    // Step 2: Read and interpret bytes at the resolved offset according to the rule's type
-    let read_value = types::read_typed_value(buffer, absolute_offset, &rule.typ)
-        .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
+        assert_eq!(context.current_offset(), 0);
+        assert_eq!(context.recursion_depth(), 0);
+        assert_eq!(
+            context.config().max_recursion_depth,
+            config.max_recursion_depth
+        );
+        assert_eq!(context.config().max_string_length, config.max_string_length);
+        assert_eq!(
+            context.config().stop_at_first_match,
+            config.stop_at_first_match
+        );
+    }
 
-    // Step 3: Coerce the rule's expected value to match the type's signedness/width
-    let expected_value = types::coerce_value_to_type(&rule.value, &rule.typ);
+    #[test]
+    fn test_evaluation_context_offset_management() {
+        let config = EvaluationConfig::default();
+        let mut context = EvaluationContext::new(config);
 
-    // Step 4: Apply the operator to compare the read value with the expected value
-    // BitwiseNot needs type-aware bit-width masking so the complement is computed
-    // at the type's natural width (e.g., byte NOT of 0x00 = 0xFF, not u64::MAX).
-    let matched = match &rule.op {
-        crate::parser::ast::Operator::BitwiseNot => operators::apply_bitwise_not_with_width(
-            &read_value,
-            &expected_value,
-            rule.typ.bit_width(),
-        ),
-        op => operators::apply_operator(op, &read_value, &expected_value),
-    };
-    Ok(matched.then_some((absolute_offset, read_value)))
-}
+        // Test initial offset
+        assert_eq!(context.current_offset(), 0);
 
-/// Evaluate a list of magic rules against a file buffer with hierarchical processing
-///
-/// This function implements the core hierarchical rule evaluation algorithm with graceful
-/// error handling:
-/// 1. Evaluates each top-level rule in sequence
-/// 2. If a parent rule matches, evaluates its child rules for refinement
-/// 3. Collects all matches or stops at first match based on configuration
-/// 4. Maintains evaluation context for recursion limits and state
-/// 5. Implements graceful degradation by skipping problematic rules and continuing evaluation
-///
-/// The hierarchical evaluation follows these principles:
-/// - Parent rules must match before children are evaluated
-/// - Child rules provide refinement and additional detail
-/// - Evaluation can stop at first match or continue for all matches
-/// - Recursion depth is limited to prevent infinite loops
-/// - Problematic rules are skipped to allow evaluation to continue
-///
-/// # Arguments
-///
-/// * `rules` - The list of magic rules to evaluate
-/// * `buffer` - The file buffer to evaluate against
-/// * `context` - Mutable evaluation context for state management
-///
-/// # Returns
-///
-/// Returns `Ok(Vec<RuleMatch>)` containing all matches found. Errors in individual rules
-/// are logged and skipped to allow evaluation to continue. Only returns `Err(LibmagicError)`
-/// for critical failures like timeout or recursion limit exceeded.
-///
-/// # Examples
-///
-/// ```rust
-/// use libmagic_rs::evaluator::{evaluate_rules, EvaluationContext, RuleMatch};
-/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
-/// use libmagic_rs::EvaluationConfig;
-///
-/// // Create a hierarchical rule set for ELF files
-/// let parent_rule = MagicRule {
-///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte { signed: true },
-///     op: Operator::Equal,
-///     value: Value::Uint(0x7f),
-///     message: "ELF".to_string(),
-///     children: vec![
-///         MagicRule {
-///             offset: OffsetSpec::Absolute(4),
-///             typ: TypeKind::Byte { signed: true },
-///             op: Operator::Equal,
-///             value: Value::Uint(2),
-///             message: "64-bit".to_string(),
-///             children: vec![],
-///             level: 1,
-///             strength_modifier: None,
-///         }
-///     ],
-///     level: 0,
-///     strength_modifier: None,
-/// };
-///
-/// let rules = vec![parent_rule];
-/// let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 header
-/// let config = EvaluationConfig::default();
-/// let mut context = EvaluationContext::new(config);
-///
-/// let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
-/// assert_eq!(matches.len(), 2); // Parent and child should both match
-/// ```
-///
-/// # Errors
-///
-/// * `LibmagicError::Timeout` - If evaluation exceeds configured timeout
-/// * `LibmagicError::EvaluationError` - Only for critical failures like recursion limit exceeded
-///
-/// Individual rule evaluation errors are handled gracefully and do not stop the overall evaluation.
-pub fn evaluate_rules(
-    rules: &[MagicRule],
-    buffer: &[u8],
-    context: &mut EvaluationContext,
-) -> Result<Vec<RuleMatch>, LibmagicError> {
-    let mut matches = Vec::with_capacity(8);
-    let start_time = std::time::Instant::now();
-    let mut rule_count = 0u32;
+        // Test setting offset
+        context.set_current_offset(42);
+        assert_eq!(context.current_offset(), 42);
 
-    for rule in rules {
-        // Check timeout periodically (every 16 rules) to reduce syscall overhead
-        rule_count = rule_count.wrapping_add(1);
-        if rule_count.trailing_zeros() >= 4
-            && let Some(timeout_ms) = context.timeout_ms()
-            && start_time.elapsed().as_millis() > u128::from(timeout_ms)
-        {
-            return Err(LibmagicError::Timeout { timeout_ms });
-        }
+        // Test setting different offset
+        context.set_current_offset(1024);
+        assert_eq!(context.current_offset(), 1024);
 
-        // Evaluate the current rule with graceful error handling
-        let match_data = match evaluate_single_rule(rule, buffer) {
-            Ok(data) => data,
-            Err(
-                LibmagicError::EvaluationError(
-                    crate::error::EvaluationError::BufferOverrun { .. }
-                    | crate::error::EvaluationError::InvalidOffset { .. }
-                    | crate::error::EvaluationError::TypeReadError(_),
-                )
-                | LibmagicError::IoError(_),
-            ) => {
-                // Expected evaluation errors for individual rules -- skip gracefully
-                continue;
-            }
-            Err(e) => {
-                // Unexpected errors (InternalError, UnsupportedType, etc.) should propagate
-                return Err(e);
-            }
+        // Test setting offset to 0
+        context.set_current_offset(0);
+        assert_eq!(context.current_offset(), 0);
+    }
+
+    #[test]
+    fn test_evaluation_context_recursion_depth_management() {
+        let config = EvaluationConfig::default();
+        let mut context = EvaluationContext::new(config);
+
+        // Test initial recursion depth
+        assert_eq!(context.recursion_depth(), 0);
+
+        // Test incrementing recursion depth
+        context.increment_recursion_depth().unwrap();
+        assert_eq!(context.recursion_depth(), 1);
+
+        context.increment_recursion_depth().unwrap();
+        assert_eq!(context.recursion_depth(), 2);
+
+        // Test decrementing recursion depth
+        context.decrement_recursion_depth().unwrap();
+        assert_eq!(context.recursion_depth(), 1);
+
+        context.decrement_recursion_depth().unwrap();
+        assert_eq!(context.recursion_depth(), 0);
+    }
+
+    #[test]
+    fn test_evaluation_context_recursion_depth_limit() {
+        let config = EvaluationConfig {
+            max_recursion_depth: 2,
+            ..Default::default()
         };
+        let mut context = EvaluationContext::new(config);
 
-        if let Some((absolute_offset, read_value)) = match_data {
-            let match_result = RuleMatch {
-                message: rule.message.clone(),
-                offset: absolute_offset,
-                level: rule.level,
-                value: read_value,
-                confidence: RuleMatch::calculate_confidence(rule.level),
-            };
-            matches.push(match_result);
+        // Should be able to increment up to the limit
+        assert!(context.increment_recursion_depth().is_ok());
+        assert_eq!(context.recursion_depth(), 1);
 
-            // If this rule has children, evaluate them recursively
-            if !rule.children.is_empty() {
-                // Check recursion depth limit - this is a critical error that should stop evaluation
-                context.increment_recursion_depth()?;
+        assert!(context.increment_recursion_depth().is_ok());
+        assert_eq!(context.recursion_depth(), 2);
 
-                // Recursively evaluate child rules with graceful error handling
-                match evaluate_rules(&rule.children, buffer, context) {
-                    Ok(child_matches) => {
-                        matches.extend(child_matches);
-                    }
-                    Err(LibmagicError::Timeout { .. }) => {
-                        // Timeout is critical, propagate it up
-                        context.decrement_recursion_depth()?;
-                        return Err(LibmagicError::Timeout {
-                            timeout_ms: context.timeout_ms().unwrap_or(0),
-                        });
-                    }
-                    Err(LibmagicError::EvaluationError(
-                        crate::error::EvaluationError::RecursionLimitExceeded { .. },
-                    )) => {
-                        // Recursion limit is critical, propagate it up
-                        context.decrement_recursion_depth()?;
-                        return Err(LibmagicError::EvaluationError(
-                            crate::error::EvaluationError::RecursionLimitExceeded {
-                                depth: context.recursion_depth(),
-                            },
-                        ));
-                    }
-                    Err(
-                        LibmagicError::EvaluationError(
-                            crate::error::EvaluationError::BufferOverrun { .. }
-                            | crate::error::EvaluationError::InvalidOffset { .. }
-                            | crate::error::EvaluationError::TypeReadError(_),
-                        )
-                        | LibmagicError::IoError(_),
-                    ) => {
-                        // Expected child evaluation errors -- skip gracefully
-                    }
-                    Err(e) => {
-                        // Unexpected errors in children should propagate
-                        context.decrement_recursion_depth()?;
-                        return Err(e);
-                    }
-                }
+        // Should fail when exceeding the limit
+        let result = context.increment_recursion_depth();
+        assert!(result.is_err());
+        assert_eq!(context.recursion_depth(), 2); // Should not have changed
 
-                // Restore recursion depth
-                context.decrement_recursion_depth()?;
+        match result.unwrap_err() {
+            LibmagicError::EvaluationError(msg) => {
+                let error_string = format!("{msg}");
+                assert!(error_string.contains("Recursion limit exceeded"));
             }
-
-            // Stop at first match if configured to do so
-            if context.should_stop_at_first_match() {
-                break;
-            }
+            _ => panic!("Expected EvaluationError"),
         }
     }
 
-    Ok(matches)
-}
+    #[test]
+    fn test_evaluation_context_recursion_depth_underflow() {
+        let config = EvaluationConfig::default();
+        let mut context = EvaluationContext::new(config);
 
-/// Evaluate magic rules with a fresh context
-///
-/// This is a convenience function that creates a new evaluation context
-/// and evaluates the rules. Useful for simple evaluation scenarios.
-///
-/// # Arguments
-///
-/// * `rules` - The list of magic rules to evaluate
-/// * `buffer` - The file buffer to evaluate against
-/// * `config` - Configuration for evaluation behavior
-///
-/// # Returns
-///
-/// Returns `Ok(Vec<RuleMatch>)` containing all matches found, or `Err(LibmagicError)`
-/// if evaluation fails.
-///
-/// # Examples
-///
-/// ```rust
-/// use libmagic_rs::evaluator::{evaluate_rules_with_config, RuleMatch};
-/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
-/// use libmagic_rs::EvaluationConfig;
-///
-/// let rule = MagicRule {
-///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte { signed: true },
-///     op: Operator::Equal,
-///     value: Value::Uint(0x7f),
-///     message: "ELF magic".to_string(),
-///     children: vec![],
-///     level: 0,
-///     strength_modifier: None,
-/// };
-///
-/// let rules = vec![rule];
-/// let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-/// let config = EvaluationConfig::default();
-///
-/// let matches = evaluate_rules_with_config(&rules, buffer, &config).unwrap();
-/// assert_eq!(matches.len(), 1);
-/// assert_eq!(matches[0].message, "ELF magic");
-/// ```
-///
-/// # Errors
-///
-/// * `LibmagicError::EvaluationError` - If rule evaluation fails
-/// * `LibmagicError::Timeout` - If evaluation exceeds configured timeout
-pub fn evaluate_rules_with_config(
-    rules: &[MagicRule],
-    buffer: &[u8],
-    config: &EvaluationConfig,
-) -> Result<Vec<RuleMatch>, LibmagicError> {
-    let mut context = EvaluationContext::new(config.clone());
-    evaluate_rules(rules, buffer, &mut context)
-}
+        // Should return an error when trying to decrement below 0
+        let result = context.decrement_recursion_depth();
+        assert!(result.is_err());
 
-#[cfg(test)]
-mod tests;
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("decrement recursion depth below 0"),
+            "Expected error about decrementing below 0, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_evaluation_context_config_access() {
+        let config = EvaluationConfig {
+            max_recursion_depth: 10,
+            max_string_length: 4096,
+            stop_at_first_match: false,
+            enable_mime_types: true,
+            timeout_ms: Some(2000),
+        };
+
+        let context = EvaluationContext::new(config);
+
+        // Test config access
+        assert_eq!(context.config().max_recursion_depth, 10);
+        assert_eq!(context.config().max_string_length, 4096);
+        assert!(!context.config().stop_at_first_match);
+
+        // Test convenience methods
+        assert!(!context.should_stop_at_first_match());
+        assert_eq!(context.max_string_length(), 4096);
+    }
+
+    #[test]
+    fn test_evaluation_context_reset() {
+        let config = EvaluationConfig::default();
+        let mut context = EvaluationContext::new(config.clone());
+
+        // Modify the context state
+        context.set_current_offset(100);
+        context.increment_recursion_depth().unwrap();
+        context.increment_recursion_depth().unwrap();
+
+        assert_eq!(context.current_offset(), 100);
+        assert_eq!(context.recursion_depth(), 2);
+
+        // Reset should restore initial state but keep config
+        context.reset();
+
+        assert_eq!(context.current_offset(), 0);
+        assert_eq!(context.recursion_depth(), 0);
+        assert_eq!(
+            context.config().max_recursion_depth,
+            config.max_recursion_depth
+        );
+    }
+
+    #[test]
+    fn test_evaluation_context_clone() {
+        let config = EvaluationConfig {
+            max_recursion_depth: 5,
+            max_string_length: 2048,
+            ..Default::default()
+        };
+
+        let mut context = EvaluationContext::new(config);
+        context.set_current_offset(50);
+        context.increment_recursion_depth().unwrap();
+
+        // Clone the context
+        let cloned_context = context.clone();
+
+        // Both should have the same state
+        assert_eq!(context.current_offset(), cloned_context.current_offset());
+        assert_eq!(context.recursion_depth(), cloned_context.recursion_depth());
+        assert_eq!(
+            context.config().max_recursion_depth,
+            cloned_context.config().max_recursion_depth
+        );
+        assert_eq!(
+            context.config().max_string_length,
+            cloned_context.config().max_string_length
+        );
+
+        // Modifying one should not affect the other
+        context.set_current_offset(75);
+        assert_eq!(context.current_offset(), 75);
+        assert_eq!(cloned_context.current_offset(), 50);
+    }
+
+    #[test]
+    fn test_evaluation_context_with_custom_config() {
+        let config = EvaluationConfig {
+            max_recursion_depth: 15,
+            max_string_length: 16384,
+            stop_at_first_match: false,
+            enable_mime_types: true,
+            timeout_ms: Some(5000),
+        };
+
+        let context = EvaluationContext::new(config);
+
+        assert_eq!(context.config().max_recursion_depth, 15);
+        assert_eq!(context.max_string_length(), 16384);
+        assert!(!context.should_stop_at_first_match());
+
+        // Test that we can increment up to the custom limit
+        let mut mutable_context = context;
+        for i in 1..=15 {
+            assert!(mutable_context.increment_recursion_depth().is_ok());
+            assert_eq!(mutable_context.recursion_depth(), i);
+        }
+
+        // Should fail on the 16th increment
+        let result = mutable_context.increment_recursion_depth();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_evaluation_context_mime_types_access() {
+        let config_with_mime = EvaluationConfig {
+            enable_mime_types: true,
+            ..Default::default()
+        };
+        let context_with_mime = EvaluationContext::new(config_with_mime);
+        assert!(context_with_mime.enable_mime_types());
+
+        let config_without_mime = EvaluationConfig {
+            enable_mime_types: false,
+            ..Default::default()
+        };
+        let context_without_mime = EvaluationContext::new(config_without_mime);
+        assert!(!context_without_mime.enable_mime_types());
+    }
+
+    #[test]
+    fn test_evaluation_context_timeout_access() {
+        let config_with_timeout = EvaluationConfig {
+            timeout_ms: Some(5000),
+            ..Default::default()
+        };
+        let context_with_timeout = EvaluationContext::new(config_with_timeout);
+        assert_eq!(context_with_timeout.timeout_ms(), Some(5000));
+
+        let config_without_timeout = EvaluationConfig {
+            timeout_ms: None,
+            ..Default::default()
+        };
+        let context_without_timeout = EvaluationContext::new(config_without_timeout);
+        assert_eq!(context_without_timeout.timeout_ms(), None);
+    }
+
+    #[test]
+    fn test_evaluation_context_comprehensive_config() {
+        let config = EvaluationConfig {
+            max_recursion_depth: 30,
+            max_string_length: 16384,
+            stop_at_first_match: false,
+            enable_mime_types: true,
+            timeout_ms: Some(10000),
+        };
+        let context = EvaluationContext::new(config);
+
+        assert_eq!(context.config().max_recursion_depth, 30);
+        assert_eq!(context.config().max_string_length, 16384);
+        assert!(!context.should_stop_at_first_match());
+        assert!(context.enable_mime_types());
+        assert_eq!(context.timeout_ms(), Some(10000));
+        assert_eq!(context.max_string_length(), 16384);
+    }
+
+    #[test]
+    fn test_evaluation_context_performance_config() {
+        let config = EvaluationConfig {
+            max_recursion_depth: 5,
+            max_string_length: 512,
+            stop_at_first_match: true,
+            enable_mime_types: false,
+            timeout_ms: Some(1000),
+        };
+        let context = EvaluationContext::new(config);
+
+        assert_eq!(context.config().max_recursion_depth, 5);
+        assert_eq!(context.max_string_length(), 512);
+        assert!(context.should_stop_at_first_match());
+        assert!(!context.enable_mime_types());
+        assert_eq!(context.timeout_ms(), Some(1000));
+    }
+
+    #[test]
+    fn test_evaluation_context_state_management_sequence() {
+        let config = EvaluationConfig::default();
+        let mut context = EvaluationContext::new(config);
+
+        // Simulate a sequence of evaluation operations
+        assert_eq!(context.current_offset(), 0);
+        assert_eq!(context.recursion_depth(), 0);
+
+        // Start evaluation at offset 10
+        context.set_current_offset(10);
+        assert_eq!(context.current_offset(), 10);
+
+        // Enter nested rule evaluation
+        context.increment_recursion_depth().unwrap();
+        assert_eq!(context.recursion_depth(), 1);
+
+        // Move to different offset during nested evaluation
+        context.set_current_offset(25);
+        assert_eq!(context.current_offset(), 25);
+
+        // Enter deeper nesting
+        context.increment_recursion_depth().unwrap();
+        assert_eq!(context.recursion_depth(), 2);
+
+        // Exit nested evaluation
+        context.decrement_recursion_depth().unwrap();
+        assert_eq!(context.recursion_depth(), 1);
+
+        // Continue evaluation at different offset
+        context.set_current_offset(50);
+        assert_eq!(context.current_offset(), 50);
+
+        // Exit all nesting
+        context.decrement_recursion_depth().unwrap();
+        assert_eq!(context.recursion_depth(), 0);
+
+        // Final state check
+        assert_eq!(context.current_offset(), 50);
+        assert_eq!(context.recursion_depth(), 0);
+    }
+
+    #[test]
+    fn test_rule_match_creation() {
+        let match_result = RuleMatch {
+            message: "ELF executable".to_string(),
+            offset: 0,
+            level: 0,
+            value: Value::Uint(0x7f),
+            confidence: RuleMatch::calculate_confidence(0),
+        };
+
+        assert_eq!(match_result.message, "ELF executable");
+        assert_eq!(match_result.offset, 0);
+        assert_eq!(match_result.level, 0);
+        assert_eq!(match_result.value, Value::Uint(0x7f));
+        assert!((match_result.confidence - 0.3).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_rule_match_clone() {
+        let original = RuleMatch {
+            message: "Test message".to_string(),
+            offset: 42,
+            level: 1,
+            value: Value::String("test".to_string()),
+            confidence: RuleMatch::calculate_confidence(1),
+        };
+
+        let cloned = original.clone();
+        assert_eq!(original, cloned);
+    }
+
+    #[test]
+    fn test_rule_match_debug() {
+        let match_result = RuleMatch {
+            message: "Debug test".to_string(),
+            offset: 10,
+            level: 2,
+            value: Value::Bytes(vec![0x01, 0x02]),
+            confidence: RuleMatch::calculate_confidence(2),
+        };
+
+        let debug_str = format!("{match_result:?}");
+        assert!(debug_str.contains("RuleMatch"));
+        assert!(debug_str.contains("Debug test"));
+        assert!(debug_str.contains("10"));
+        assert!(debug_str.contains('2'));
+    }
+
+    #[test]
+    fn test_confidence_calculation_depth_0() {
+        let confidence = RuleMatch::calculate_confidence(0);
+        assert!((confidence - 0.3).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_confidence_calculation_depth_1() {
+        let confidence = RuleMatch::calculate_confidence(1);
+        assert!((confidence - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_confidence_calculation_depth_2() {
+        let confidence = RuleMatch::calculate_confidence(2);
+        assert!((confidence - 0.7).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_confidence_calculation_depth_3() {
+        let confidence = RuleMatch::calculate_confidence(3);
+        assert!((confidence - 0.9).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_confidence_calculation_capped_at_1() {
+        // Level 4+ should cap at 1.0
+        let confidence_4 = RuleMatch::calculate_confidence(4);
+        assert!((confidence_4 - 1.0).abs() < 0.001);
+
+        let confidence_10 = RuleMatch::calculate_confidence(10);
+        assert!((confidence_10 - 1.0).abs() < 0.001);
+
+        let confidence_100 = RuleMatch::calculate_confidence(100);
+        assert!((confidence_100 - 1.0).abs() < 0.001);
+    }
+}
