@@ -659,184 +659,8 @@ fn validate_magic_file(magic_file_path: &Path) -> Result<(), LibmagicError> {
 mod tests {
     use super::*;
     use clap::Parser;
-    use libmagic_rs::parser::load_magic_file;
-    #[cfg(unix)]
-    use nix::unistd::{dup, dup2_stderr, dup2_stdin, dup2_stdout, pipe, read, write};
     use std::fs;
-    #[cfg(unix)]
-    use std::sync::Mutex;
-    use std::sync::atomic::AtomicBool;
-
-    /// Static mutex to serialize access to file descriptor operations.
-    /// This is necessary because dup/dup2 operations on stdin/stdout/stderr
-    /// are process-wide and not thread-safe. Even with --test-threads=1,
-    /// llvm-cov instrumentation can interfere with FD operations.
-    #[cfg(unix)]
-    static FD_MUTEX: Mutex<()> = Mutex::new(());
-
-    #[cfg(unix)]
-    fn capture_stdout<F>(f: F) -> (Result<(), LibmagicError>, String)
-    where
-        F: FnOnce() -> Result<(), LibmagicError>,
-    {
-        // Acquire mutex to serialize FD operations across all tests
-        let _guard = FD_MUTEX.lock().unwrap();
-
-        let saved_stdout = dup(std::io::stdout()).unwrap();
-        let (read_fd, write_fd) = pipe().unwrap();
-
-        dup2_stdout(&write_fd).unwrap();
-        // Close the original write_fd after dup2 - stdout now owns a copy
-        drop(write_fd);
-
-        let result = f();
-
-        dup2_stdout(&saved_stdout).unwrap();
-        // Close the saved fd after restoring
-        drop(saved_stdout);
-
-        let mut output = Vec::new();
-        let mut buffer = [0u8; 1024];
-        loop {
-            match read(&read_fd, &mut buffer) {
-                Ok(0) => break,
-                Ok(count) => output.extend_from_slice(&buffer[..count]),
-                Err(_) => break,
-            }
-        }
-        drop(read_fd);
-
-        let output_str = String::from_utf8_lossy(&output).to_string();
-        (result, output_str)
-    }
-
-    #[cfg(unix)]
-    fn capture_stderr<F>(f: F) -> (Result<(), LibmagicError>, String)
-    where
-        F: FnOnce() -> Result<(), LibmagicError>,
-    {
-        // Acquire mutex to serialize FD operations across all tests
-        let _guard = FD_MUTEX.lock().unwrap();
-
-        let saved_stderr = dup(std::io::stderr()).unwrap();
-        let (read_fd, write_fd) = pipe().unwrap();
-
-        dup2_stderr(&write_fd).unwrap();
-        // Close the original write_fd after dup2 - stderr now owns a copy
-        drop(write_fd);
-
-        let result = f();
-
-        dup2_stderr(&saved_stderr).unwrap();
-        // Close the saved fd after restoring
-        drop(saved_stderr);
-
-        let mut output = Vec::new();
-        let mut buffer = [0u8; 1024];
-        loop {
-            match read(&read_fd, &mut buffer) {
-                Ok(0) => break,
-                Ok(count) => output.extend_from_slice(&buffer[..count]),
-                Err(_) => break,
-            }
-        }
-        drop(read_fd);
-
-        let output_str = String::from_utf8_lossy(&output).to_string();
-        (result, output_str)
-    }
-
-    /// Mock stdin with the given input bytes for the duration of the closure.
-    ///
-    /// NOTE: This function does NOT acquire FD_MUTEX because it is always called
-    /// from within `capture_stdout` or `capture_stderr`, which already hold the
-    /// mutex. Adding mutex acquisition here would cause a deadlock since Rust's
-    /// standard Mutex is not reentrant.
-    #[cfg(unix)]
-    fn with_mocked_stdin<F>(input: &[u8], f: F) -> Result<(), LibmagicError>
-    where
-        F: FnOnce() -> Result<(), LibmagicError>,
-    {
-        let saved_stdin = dup(std::io::stdin()).unwrap();
-        let (read_fd, write_fd) = pipe().unwrap();
-
-        let _ = write(&write_fd, input).unwrap();
-        drop(write_fd);
-        dup2_stdin(read_fd).unwrap();
-
-        let result = f();
-
-        dup2_stdin(saved_stdin).unwrap();
-
-        result
-    }
-
-    /// Replace stdin with an invalid file descriptor (a directory) for testing error handling.
-    ///
-    /// NOTE: This function does NOT acquire FD_MUTEX. It relies on tests running
-    /// serially (--test-threads=1) to avoid race conditions. Unlike `with_mocked_stdin`,
-    /// this function is called directly (not nested inside capture_* functions).
-    #[cfg(unix)]
-    fn with_invalid_stdin<F>(f: F) -> Result<(), LibmagicError>
-    where
-        F: FnOnce() -> Result<(), LibmagicError>,
-    {
-        let saved_stdin = dup(std::io::stdin()).unwrap();
-        // Use unique temp directory with PID to avoid race conditions in parallel tests
-        let temp_dir = std::env::temp_dir().join(format!(
-            "rmagic_stdin_invalid_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&temp_dir).unwrap();
-        let dir_handle = fs::File::open(&temp_dir).unwrap();
-
-        dup2_stdin(&dir_handle).unwrap();
-        let result = f();
-
-        dup2_stdin(saved_stdin).unwrap();
-        let _ = fs::remove_dir_all(&temp_dir);
-
-        result
-    }
-
-    fn resolve_magic_file_for_stdin_tests() -> Option<PathBuf> {
-        // Skip stdin-mocking tests when running under llvm-cov instrumentation.
-        // The dup/dup2 file descriptor manipulation is fragile when combined with
-        // llvm-cov's instrumentation, causing spurious test failures in CI.
-        // These tests pass with cargo nextest (separate processes) and provide
-        // coverage there. The core stdin handling logic is also tested by the
-        // non-mocking tests.
-        if std::env::var("LLVM_PROFILE_FILE").is_ok() {
-            return None;
-        }
-
-        let repo_magic = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("missing.magic");
-        let candidates = [
-            "/usr/share/misc/magic",
-            "/etc/magic",
-            "/usr/local/share/misc/magic",
-            "/opt/local/share/file/magic",
-            "/usr/share/file/magic",
-            repo_magic.to_str().unwrap(),
-        ];
-
-        for candidate in &candidates {
-            let path = PathBuf::from(candidate);
-            if !path.exists() || path.is_dir() {
-                continue;
-            }
-
-            if load_magic_file(&path).is_ok() {
-                return Some(path);
-            }
-        }
-
-        None
-    }
+    use tempfile::TempDir;
 
     #[test]
     fn test_basic_file_argument() {
@@ -926,6 +750,53 @@ mod tests {
     fn test_output_format_text_explicit() {
         let args = Args::try_parse_from(["rmagic", "test.bin", "--text"]).unwrap();
         assert_eq!(args.output_format(), OutputFormat::Text);
+    }
+
+    #[test]
+    fn test_args_defaults() {
+        let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
+        assert!(!args.strict, "strict should default to false");
+        assert!(!args.use_builtin, "use_builtin should default to false");
+    }
+
+    #[test]
+    fn test_args_strict_flag() {
+        let args = Args::try_parse_from(["rmagic", "--strict", "test.bin"]).unwrap();
+        assert!(args.strict);
+    }
+
+    #[test]
+    fn test_args_strict_with_json() {
+        let args = Args::try_parse_from(["rmagic", "--strict", "--json", "test.bin"]).unwrap();
+        assert!(args.strict);
+        assert!(args.json);
+        assert_eq!(args.output_format(), OutputFormat::Json);
+    }
+
+    #[test]
+    fn test_use_builtin_flag_parsing() {
+        let args = Args::try_parse_from(["rmagic", "--use-builtin", "test.bin"]).unwrap();
+        assert!(args.use_builtin);
+    }
+
+    #[test]
+    fn test_args_single_file_backwards_compatible() {
+        let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
+        assert_eq!(args.files.len(), 1);
+        assert!(!args.strict);
+    }
+
+    #[test]
+    fn test_args_multiple_files() {
+        let args = Args::try_parse_from(["rmagic", "file1.bin", "file2.bin", "file3.bin"]).unwrap();
+        assert_eq!(args.files.len(), 3);
+    }
+
+    #[test]
+    fn test_args_stdin_detection() {
+        let args = Args::try_parse_from(["rmagic", "-"]).unwrap();
+        assert_eq!(args.files.len(), 1);
+        assert!(args.files[0].is_stdin());
     }
 
     #[test]
@@ -1162,11 +1033,9 @@ mod tests {
 
     #[test]
     fn test_validate_input_file_directory() {
-        // Create a temporary directory for testing
-        let temp_dir = std::env::temp_dir().join("test_validate_dir");
-        fs::create_dir_all(&temp_dir).unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
-        let result = validate_input_file(&temp_dir);
+        let result = validate_input_file(temp_dir.path());
         assert!(result.is_err());
         match result.unwrap_err() {
             LibmagicError::IoError(e) => {
@@ -1175,22 +1044,16 @@ mod tests {
             }
             _ => panic!("Expected IoError with InvalidInput"),
         }
-
-        // Clean up
-        fs::remove_dir_all(&temp_dir).unwrap();
     }
 
     #[test]
     fn test_validate_input_file_valid() {
-        // Create a temporary file for testing
-        let temp_file = std::env::temp_dir().join("test_validate_file.bin");
-        fs::write(&temp_file, b"test content").unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_file = temp_dir.path().join("test_validate_file.bin");
+        fs::write(&temp_file, b"test content").expect("Failed to write test file");
 
         let result = validate_input_file(&temp_file);
         assert!(result.is_ok());
-
-        // Clean up
-        fs::remove_file(&temp_file).unwrap();
     }
 
     #[test]
@@ -1208,22 +1071,17 @@ mod tests {
 
     #[test]
     fn test_validate_magic_file_directory() {
-        // Create a temporary directory for testing
-        let temp_dir = std::env::temp_dir().join("test_validate_magic_dir");
-        fs::create_dir_all(&temp_dir).unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
-        let result = validate_magic_file(&temp_dir);
+        let result = validate_magic_file(temp_dir.path());
         assert!(result.is_ok());
-
-        // Clean up
-        fs::remove_dir_all(&temp_dir).unwrap();
     }
 
     #[test]
     fn test_validate_magic_file_empty() {
-        // Create a temporary empty magic file for testing
-        let temp_file = std::env::temp_dir().join("test_empty_magic.db");
-        fs::write(&temp_file, "").unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_file = temp_dir.path().join("test_empty_magic.db");
+        fs::write(&temp_file, "").expect("Failed to write test file");
 
         let result = validate_magic_file(&temp_file);
         assert!(result.is_err());
@@ -1234,16 +1092,13 @@ mod tests {
             }
             _ => panic!("Expected ParseError"),
         }
-
-        // Clean up
-        fs::remove_file(&temp_file).unwrap();
     }
 
     #[test]
     fn test_validate_magic_file_whitespace_only() {
-        // Create a temporary magic file with only whitespace
-        let temp_file = std::env::temp_dir().join("test_whitespace_magic.db");
-        fs::write(&temp_file, "   \n\t  \r\n  ").unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_file = temp_dir.path().join("test_whitespace_magic.db");
+        fs::write(&temp_file, "   \n\t  \r\n  ").expect("Failed to write test file");
 
         let result = validate_magic_file(&temp_file);
         assert!(result.is_err());
@@ -1254,22 +1109,17 @@ mod tests {
             }
             _ => panic!("Expected ParseError"),
         }
-
-        // Clean up
-        fs::remove_file(&temp_file).unwrap();
     }
 
     #[test]
     fn test_validate_magic_file_valid() {
-        // Create a temporary magic file with content
-        let temp_file = std::env::temp_dir().join("test_valid_magic.db");
-        fs::write(&temp_file, "# Magic file\n0 string test Test file").unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_file = temp_dir.path().join("test_valid_magic.db");
+        fs::write(&temp_file, "# Magic file\n0 string test Test file")
+            .expect("Failed to write test file");
 
         let result = validate_magic_file(&temp_file);
         assert!(result.is_ok());
-
-        // Clean up
-        fs::remove_file(&temp_file).unwrap();
     }
 
     /// Verify that text files/directories are prioritized over binary .mgc files
@@ -1379,21 +1229,20 @@ mod tests {
     fn test_magic_file_search_selects_first_existing() {
         use std::io::Write;
 
-        // Create a temporary directory structure to test search order
-        let temp_dir = std::env::temp_dir().join("test_magic_search_order");
-        let _ = fs::remove_dir_all(&temp_dir); // Clean up any previous test artifacts
-        fs::create_dir_all(&temp_dir).unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
         // Create a text magic file
-        let text_magic_path = temp_dir.join("text_magic");
-        let mut text_file = fs::File::create(&text_magic_path).unwrap();
-        writeln!(text_file, "# Text magic file").unwrap();
-        writeln!(text_file, "0 string test Test file").unwrap();
+        let text_magic_path = temp_dir.path().join("text_magic");
+        let mut text_file =
+            fs::File::create(&text_magic_path).expect("Failed to create text magic file");
+        writeln!(text_file, "# Text magic file").expect("Failed to write");
+        writeln!(text_file, "0 string test Test file").expect("Failed to write");
 
         // Create a binary magic file (simulated with .mgc extension)
-        let binary_magic_path = temp_dir.join("binary.mgc");
+        let binary_magic_path = temp_dir.path().join("binary.mgc");
         // Write some bytes that look like a binary magic file header
-        fs::write(&binary_magic_path, b"\x1c\x04\x1e\xf1test").unwrap();
+        fs::write(&binary_magic_path, b"\x1c\x04\x1e\xf1test")
+            .expect("Failed to create binary magic file");
 
         // Verify text file exists and is detected as text format
         assert!(text_magic_path.exists());
@@ -1412,9 +1261,6 @@ mod tests {
             "Binary magic file should be detected as Binary format, got {:?}",
             binary_format
         );
-
-        // Clean up
-        fs::remove_dir_all(&temp_dir).unwrap();
     }
 
     /// Verify that binary files are selected as fallback when no text files exist
@@ -1446,258 +1292,5 @@ mod tests {
             first_text_idx < first_binary_idx,
             "Text candidates should come before binary candidates"
         );
-    }
-
-    #[test]
-    fn test_args_multiple_files() {
-        // Test parsing multiple file arguments
-        let args = Args::try_parse_from(["rmagic", "file1.bin", "file2.txt", "file3.dat"]).unwrap();
-        assert_eq!(args.files.len(), 3);
-        assert_eq!(args.files[0].filename(), "file1.bin");
-        assert_eq!(args.files[1].filename(), "file2.txt");
-        assert_eq!(args.files[2].filename(), "file3.dat");
-        assert!(!args.strict);
-    }
-
-    #[test]
-    fn test_args_strict_flag() {
-        // Test --strict flag parsing
-        let args = Args::try_parse_from(["rmagic", "--strict", "test.bin"]).unwrap();
-        assert!(args.strict);
-        assert_eq!(args.files.len(), 1);
-        assert_eq!(args.files[0].filename(), "test.bin");
-    }
-
-    #[test]
-    fn test_use_builtin_flag_parsing() {
-        let args = Args::try_parse_from(["rmagic", "--use-builtin", "test.bin"]).unwrap();
-        assert!(args.use_builtin);
-        assert_eq!(args.files.len(), 1);
-        assert_eq!(args.files[0].filename(), "test.bin");
-    }
-
-    #[test]
-    fn test_use_builtin_with_strict() {
-        let args =
-            Args::try_parse_from(["rmagic", "--use-builtin", "--strict", "test.bin"]).unwrap();
-        assert!(args.use_builtin);
-        assert!(args.strict);
-        assert_eq!(args.files.len(), 1);
-    }
-
-    #[test]
-    fn test_use_builtin_with_json() {
-        let args = Args::try_parse_from(["rmagic", "--use-builtin", "--json", "test.bin"]).unwrap();
-        assert!(args.use_builtin);
-        assert!(args.json);
-        assert_eq!(args.output_format(), OutputFormat::Json);
-    }
-
-    #[test]
-    fn test_use_builtin_conflicts_with_magic_file() {
-        // --use-builtin and --magic-file now conflict
-        let result = Args::try_parse_from([
-            "rmagic",
-            "--use-builtin",
-            "--magic-file",
-            "custom.magic",
-            "test.bin",
-        ]);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_use_builtin_default_false() {
-        let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
-        assert!(!args.use_builtin);
-    }
-
-    #[test]
-    fn test_args_strict_with_json() {
-        // Test --strict works with --json
-        let args = Args::try_parse_from(["rmagic", "--strict", "--json", "test.bin"]).unwrap();
-        assert!(args.strict);
-        assert!(args.json);
-        assert_eq!(args.output_format(), OutputFormat::Json);
-        assert_eq!(args.files.len(), 1);
-    }
-
-    #[test]
-    fn test_args_strict_with_multiple_files() {
-        // Test --strict with multiple files
-        let args =
-            Args::try_parse_from(["rmagic", "--strict", "file1.bin", "file2.txt", "file3.dat"])
-                .unwrap();
-        assert!(args.strict);
-        assert_eq!(args.files.len(), 3);
-    }
-
-    #[test]
-    fn test_args_multiple_files_with_magic_file() {
-        // Test multiple files with custom magic file
-        let args = Args::try_parse_from([
-            "rmagic",
-            "--magic-file",
-            "custom.magic",
-            "file1.bin",
-            "file2.txt",
-        ])
-        .unwrap();
-        assert_eq!(args.files.len(), 2);
-        assert_eq!(args.magic_file, Some(PathBuf::from("custom.magic")));
-    }
-
-    #[test]
-    fn test_args_single_file_backwards_compatible() {
-        // Ensure single file still works (backwards compatibility)
-        let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
-        assert_eq!(args.files.len(), 1);
-        assert_eq!(args.files[0].filename(), "test.bin");
-        assert!(!args.strict);
-    }
-
-    #[test]
-    fn test_strict_flag_default_false() {
-        // Test that strict defaults to false
-        let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
-        assert!(!args.strict);
-    }
-
-    #[test]
-    fn test_stdin_detection() {
-        let args = Args::try_parse_from(["rmagic", "-"]).unwrap();
-        assert!(args.files[0].is_stdin());
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn test_stdin_truncation_warning() {
-        let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
-            eprintln!("Skipping stdin test: no compatible text magic file available");
-            return;
-        };
-        let args =
-            Args::try_parse_from(["rmagic", "--magic-file", magic_file.to_str().unwrap(), "-"])
-                .unwrap();
-        let db = MagicDatabase::load_from_file(&magic_file).unwrap();
-        let max_string_length = db.config().max_string_length;
-        let input = vec![b'a'; max_string_length + 10];
-
-        let (result, stderr_output) = capture_stderr(|| {
-            with_mocked_stdin(&input, || {
-                let mut w = std::io::stdout();
-                process_file(&mut w, &args.files[0], &db, &args)
-            })
-        });
-
-        assert!(result.is_ok());
-        assert!(stderr_output.contains(&format!(
-            "Warning: stdin input truncated to {} bytes",
-            max_string_length
-        )));
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn test_stdin_no_false_truncation_warning() {
-        let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
-            eprintln!("Skipping stdin test: no compatible text magic file available");
-            return;
-        };
-        let args =
-            Args::try_parse_from(["rmagic", "--magic-file", magic_file.to_str().unwrap(), "-"])
-                .unwrap();
-        let db = MagicDatabase::load_from_file(&magic_file).unwrap();
-        let max_string_length = db.config().max_string_length;
-        // Input is exactly max_string_length bytes - should NOT trigger warning
-        let input = vec![b'a'; max_string_length];
-
-        let (result, stderr_output) = capture_stderr(|| {
-            with_mocked_stdin(&input, || {
-                let mut w = std::io::stdout();
-                process_file(&mut w, &args.files[0], &db, &args)
-            })
-        });
-
-        assert!(result.is_ok());
-        assert!(
-            !stderr_output.contains("Warning: stdin input truncated"),
-            "Should not show truncation warning when input equals max_string_length"
-        );
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn test_stdin_empty_returns_data() {
-        let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
-            eprintln!("Skipping stdin test: no compatible text magic file available");
-            return;
-        };
-        let args =
-            Args::try_parse_from(["rmagic", "--magic-file", magic_file.to_str().unwrap(), "-"])
-                .unwrap();
-        let db = MagicDatabase::load_from_file(&magic_file).unwrap();
-
-        let (result, stdout_output) = capture_stdout(|| {
-            with_mocked_stdin(&[], || {
-                let mut w = std::io::stdout();
-                process_file(&mut w, &args.files[0], &db, &args)
-            })
-        });
-
-        assert!(result.is_ok());
-        assert!(stdout_output.contains("stdin: data"));
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn test_stdin_output_format() {
-        let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
-            eprintln!("Skipping stdin test: no compatible text magic file available");
-            return;
-        };
-        let args =
-            Args::try_parse_from(["rmagic", "--magic-file", magic_file.to_str().unwrap(), "-"])
-                .unwrap();
-        let db = MagicDatabase::load_from_file(&magic_file).unwrap();
-
-        let (result, stdout_output) = capture_stdout(|| {
-            with_mocked_stdin(b"sample", || {
-                let mut w = std::io::stdout();
-                process_file(&mut w, &args.files[0], &db, &args)
-            })
-        });
-
-        assert!(result.is_ok());
-        assert!(stdout_output.contains("stdin:"));
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn test_stdin_strict_mode_errors() {
-        let Some(magic_file) = resolve_magic_file_for_stdin_tests() else {
-            eprintln!("Skipping stdin test: no compatible text magic file available");
-            return;
-        };
-        let args_strict = Args::try_parse_from([
-            "rmagic",
-            "--strict",
-            "--magic-file",
-            magic_file.to_str().unwrap(),
-            "-",
-        ])
-        .unwrap();
-
-        let args_non_strict =
-            Args::try_parse_from(["rmagic", "--magic-file", magic_file.to_str().unwrap(), "-"])
-                .unwrap();
-
-        let not_interrupted = AtomicBool::new(false);
-        let strict_result = with_invalid_stdin(|| run_analysis(&args_strict, &not_interrupted));
-        assert!(strict_result.is_err());
-
-        let non_strict_result =
-            with_invalid_stdin(|| run_analysis(&args_non_strict, &not_interrupted));
-        assert!(non_strict_result.is_ok());
     }
 }

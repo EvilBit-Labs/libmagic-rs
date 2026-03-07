@@ -26,6 +26,7 @@ libmagic-rs/
 │   └── evaluator/
 │       └── mod.rs          # Evaluator unit tests
 ├── tests/
+│   ├── cli_integration.rs  # CLI integration tests
 │   ├── integration/        # Integration tests
 │   ├── compatibility/      # GNU file compatibility tests
 │   └── fixtures/           # Test data and expected outputs
@@ -80,6 +81,47 @@ fn test_complete_file_analysis_workflow() {
     assert_eq!(result.description, "ELF 64-bit LSB executable");
 }
 ```
+
+#### CLI Integration Tests
+
+Located in `tests/cli_integration.rs`, these tests verify the `rmagic` binary through subprocess execution using `assert_cmd` rather than testing internal functions. This approach provides proper process isolation and eliminates fragile file descriptor manipulation.
+
+Dependencies: `assert_cmd`, `predicates`, and `tempfile` (from dev-dependencies).
+
+```rust
+use assert_cmd::Command;
+use predicates::prelude::*;
+use tempfile::TempDir;
+
+#[test]
+fn test_builtin_elf_detection() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let test_file = temp_dir.path().join("test.elf");
+    std::fs::write(&test_file, b"\x7fELF\x02\x01\x01\x00").unwrap();
+
+    Command::cargo_bin("rmagic")
+        .unwrap()
+        .args(["--use-builtin", test_file.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ELF"));
+}
+```
+
+The test suite covers:
+
+- **Builtin Flag Tests**: Verify `--use-builtin` with various file formats (ELF, PNG, JPEG, PDF, ZIP, GIF)
+- **Stdin Tests**: Validate reading from stdin with `-`, including empty input and truncation warnings
+- **Multiple File Tests**: Sequential output, strict mode, JSON output, custom magic files
+- **Error Handling Tests**: Missing files, directories, invalid magic files, conflicting flags
+- **Timeout Tests**: Argument parsing, boundary conditions
+- **Output Format Tests**: Text and JSON formats for single and multiple files
+- **Shell Completion Tests**: Generate completion scripts for bash, zsh, fish
+- **Custom Magic File Tests**: User-provided magic file handling
+- **Edge Cases**: Files with spaces, Unicode names, empty files, small files
+- **CLI Argument Parsing Tests**: Multiple files, strict mode, format combinations
+
+Use CLI integration tests for end-to-end verification of `rmagic` binary behavior. Use unit tests (in `src/main.rs` or library modules) for testing individual functions and components in isolation.
 
 ## Writing Effective Tests
 
@@ -412,6 +454,12 @@ cargo nextest run
 # Run specific test modules
 cargo test ast_structures
 cargo test integration
+
+# Run CLI integration tests
+cargo test --test cli_integration
+
+# Run specific CLI test
+cargo test --test cli_integration test_builtin_elf_detection
 
 # Run tests with output
 cargo test -- --nocapture

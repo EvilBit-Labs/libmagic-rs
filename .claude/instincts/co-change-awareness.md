@@ -17,7 +17,7 @@ When modifying these files, check if related files also need updates:
 | `src/lib.rs` | `src/main.rs`, `src/parser/ast.rs`, tests |
 | `src/evaluator/mod.rs` | `src/lib.rs`, `src/main.rs`, tests |
 | `src/parser/ast.rs` | `src/lib.rs`, `src/parser/grammar.rs`, `src/evaluator/types.rs` |
-| `src/main.rs` | `tests/cli_integration_tests.rs` |
+| `src/main.rs` | `tests/cli_integration.rs` |
 | `Cargo.toml` | `src/lib.rs`, `src/main.rs` |
 | `src/parser/grammar.rs` | `src/parser/mod.rs`, `tests/parser_integration_tests.rs` |
 

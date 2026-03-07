@@ -1,8 +1,0 @@
----
-source: tests/cli_normalization.rs
-expression: normalized
----
-Usage: rmagic [OPTIONS]
-Error: File access failed
-Failed to access file: File 'D:\test\file.txt' is empty
-Please check the file path and permissions.

@@ -28,12 +28,31 @@ All code must pass these quality gates:
 
 ### Test Statistics
 
-**Total Tests**: 98 passing unit tests
+**Unit Tests**: Located in source files with `#[cfg(test)]` modules
+
+**Integration Tests**: Located in `tests/` directory:
+
+- `tests/cli_integration.rs` - CLI subprocess tests using `assert_cmd`
+- `tests/integration_tests.rs` - End-to-end evaluation tests
+- `tests/evaluator_tests.rs` - Evaluator component tests
+- `tests/parser_integration_tests.rs` - Parser integration tests
+- `tests/json_integration_test.rs` - JSON output format tests
+- `tests/compatibility_tests.rs` - GNU `file` compatibility tests
+- `tests/directory_loading_tests.rs` - Magic directory loading tests
+- `tests/mime_tests.rs` - MIME type detection tests
+- `tests/tags_tests.rs` - Tag extraction tests
+- `tests/property_tests.rs` - Property-based tests using `proptest`
 
 ```bash
-$ cargo test
-running 98 tests
-test result: ok. 98 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+# Run all tests (unit + integration)
+cargo test
+
+# Run only unit tests
+cargo test --lib
+
+# Run only integration tests
+cargo test --test cli_integration
+cargo test --test property_tests
 ```
 
 ### Test Distribution
@@ -205,9 +224,64 @@ mod tests {
 }
 ```
 
-### Integration Tests (Planned)
+### Integration Tests
 
-Will be located in `tests/` directory:
+CLI integration tests are located in `tests/cli_integration.rs` and use the `assert_cmd` crate for subprocess-based testing. This approach provides natural process isolation and eliminates the need for fragile fd manipulation.
+
+**Running CLI integration tests:**
+
+```bash
+# Run all CLI integration tests
+cargo test --test cli_integration
+
+# Run specific test
+cargo test --test cli_integration test_builtin_elf_detection
+
+# Run with output
+cargo test --test cli_integration -- --nocapture
+```
+
+**Test organization in `tests/cli_integration.rs`:**
+
+- **Builtin Flag Tests**: Test `--use-builtin` with various file formats (ELF, PNG, JPEG, PDF, ZIP, GIF)
+- **Stdin Tests**: Test stdin input handling, truncation warnings, and format detection
+- **Multiple File Tests**: Test sequential processing, partial failures, and strict mode behavior
+- **Error Handling Tests**: Test file not found, directory errors, magic file errors, and invalid arguments
+- **Timeout Tests**: Test `--timeout-ms` argument parsing and validation
+- **Output Format Tests**: Test text and JSON output formats
+- **Shell Completion Tests**: Test `--generate-completion` for bash, zsh, and fish
+- **Custom Magic File Tests**: Test custom magic file loading and fallback behavior
+- **Edge Cases**: Test file names with spaces, Unicode, empty files, and small files
+- **CLI Argument Parsing**: Test multiple files, strict mode, and flag combinations
+
+**Example CLI integration test:**
+
+```rust
+use assert_cmd::Command;
+use predicates::prelude::*;
+use tempfile::TempDir;
+
+/// Helper to create a Command for the rmagic binary
+fn rmagic_cmd() -> Command {
+    Command::new(assert_cmd::cargo::cargo_bin!("rmagic"))
+}
+
+#[test]
+fn test_builtin_elf_detection() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let test_file = temp_dir.path().join("test.elf");
+    std::fs::write(&test_file, b"\x7fELF\x02\x01\x01\x00")
+        .expect("Failed to create test file");
+
+    rmagic_cmd()
+        .args(["--use-builtin", test_file.to_str().expect("Invalid path")])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ELF"));
+}
+```
+
+**Parser integration tests** are also located in the `tests/` directory:
 
 ```rust
 // tests/parser_integration.rs
@@ -358,7 +432,7 @@ fn test_signed_unsigned_byte_handling() {
 
     // 0x7f = 127 as signed (positive)
     // 0x80 = -128 as signed (negative)
-    
+
     // Test unsigned byte interpretation
     let unsigned_rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
@@ -554,60 +628,50 @@ cargo flamegraph --bench parser_bench
 valgrind --tool=massif target/release/rmagic large_file.bin
 ```
 
-## CLI Testing and Cross-Platform Snapshots
+## CLI Testing
 
 ### CLI Integration Tests
 
-CLI functionality is tested using integration tests with insta snapshots to ensure consistent output across different platforms.
+CLI functionality is tested using the `assert_cmd` crate in `tests/cli_integration.rs`. This subprocess-based approach provides:
 
-### Cross-Platform Normalization
-
-**Important**: CLI insta snapshots must use the normalization helper to ensure consistent results between Windows and Unix systems:
-
-```rust
-mod common;
-
-#[test]
-fn test_cli_help_output() {
-    let result = run_cli(&["--help"]);
-    let stdout = String::from_utf8(result.stdout).unwrap();
-
-    // REQUIRED: Use normalization for CLI snapshots
-    let normalized_stdout = common::normalize_cli_output(&stdout);
-    assert_snapshot!("help_output", normalized_stdout);
-}
-```
-
-### Normalization Features
-
-The `common::normalize_cli_output()` function handles:
-
-- **Executable Names**: Converts `rmagic.exe` → `rmagic` for Windows compatibility
-- **Path Prefixes**: Removes Windows `\\?\\` path prefixes
-- **Error Messages**: Filters out cargo-specific error output
+- **Process isolation**: Each test runs `rmagic` as a separate process
+- **Realistic testing**: Tests actual CLI behavior including exit codes and output
+- **Reliable coverage**: Works correctly under `llvm-cov` for coverage reporting
+- **Cross-platform compatibility**: No platform-specific fd manipulation required
 
 ### Running CLI Tests
 
 ```bash
 # Run all CLI integration tests
-cargo test --test cli_integration_tests
+cargo test --test cli_integration
 
-# Run CLI normalization tests
-cargo test --test cli_normalization
+# Run specific CLI test
+cargo test --test cli_integration test_builtin_elf_detection
 
-# Review snapshot changes
-cargo insta review
-
-# Accept all snapshot changes (use with caution)
-cargo insta accept
+# Run with verbose output
+cargo test --test cli_integration -- --nocapture
 ```
 
-### Snapshot Best Practices
+### Test Categories in cli_integration.rs
 
-1. **Always Normalize**: Use `normalize_cli_output()` for CLI snapshots
-2. **Review Changes**: Always review snapshot diffs with `cargo insta review`
-3. **Test Cross-Platform**: Verify tests pass on both Windows and Unix
-4. **Keep Snapshots Small**: Use focused tests for specific CLI features
+| Category                | Description                                               |
+| ----------------------- | --------------------------------------------------------- |
+| Builtin Flag Tests      | Test `--use-builtin` with ELF, PNG, JPEG, PDF, ZIP, GIF   |
+| Stdin Tests             | Test `-` input, truncation warnings, format detection     |
+| Multiple File Tests     | Test sequential processing, strict mode, partial failures |
+| Error Handling Tests    | Test file not found, directory errors, invalid arguments  |
+| Timeout Tests           | Test `--timeout-ms` parsing and validation                |
+| Output Format Tests     | Test `--json` and `--text` output formats                 |
+| Shell Completion Tests  | Test `--generate-completion` for various shells           |
+| Custom Magic File Tests | Test `--magic-file` loading and fallback                  |
+| Edge Cases              | Test Unicode filenames, empty files, small files          |
+
+### Best Practices
+
+1. **Use `assert_cmd`**: All CLI tests use `rmagic_cmd()` helper (wrapping `cargo_bin!("rmagic")` macro) for subprocess testing
+2. **Use `predicates`**: Check stdout/stderr with predicate matchers for readable assertions
+3. **Use `tempfile`**: Create temporary test files with `TempDir` for isolation
+4. **Derive from config**: Use `EvaluationConfig::default()` for thresholds instead of hardcoding
 
 ## Benchmarks
 

@@ -293,6 +293,6 @@ mod tests {
 // ✓ Unit tests for built-in rules module (test_rules_load_successfully, test_rules_contain_expected_file_types, test_rules_have_valid_structure, test_lazylock_initialization, test_lazylock_thread_safety)
 // ✓ Integration tests with --use-builtin flag (test_use_builtin_flag, test_use_builtin_with_multiple_files, test_use_builtin_json_output, test_builtin_detect_elf_files, test_builtin_detect_pe_dos_files, test_builtin_detect_archive_formats, test_builtin_detect_image_formats, test_builtin_detect_pdf_documents, test_builtin_unknown_file_returns_data)
 // ✓ Build script tests (comprehensive tests in build.rs #[cfg(test)] module)
-// ✓ Documentation updated (removed all "stub" references from main.rs and tests/cli_integration_tests.rs)
+// ✓ Documentation updated (removed all "stub" references from main.rs and tests/cli_integration.rs)
 //
 // All acceptance criteria met.

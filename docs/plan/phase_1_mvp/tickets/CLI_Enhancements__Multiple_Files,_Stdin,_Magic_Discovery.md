@@ -227,4 +227,4 @@ fn output_json(filename: &str, result: &EvaluationResult) -> Result<()> {
 ## Files to Modify
 
 - `file:src/main.rs` - Add multiple file support, stdin, flags, discovery logic
-- `file:tests/cli_integration_tests.rs` - Add integration tests
+- `file:tests/cli_integration.rs` - Add integration tests

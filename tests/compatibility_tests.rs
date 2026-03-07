@@ -214,6 +214,13 @@ impl CompatibilityTestRunner {
 
 /// Find the rmagic binary
 fn find_rmagic_binary() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // Use the cargo_bin! macro when available (works under cargo test, cargo llvm-cov, etc.)
+    let cargo_bin_path = assert_cmd::cargo::cargo_bin!("rmagic");
+    if cargo_bin_path.exists() {
+        return Ok(cargo_bin_path.to_path_buf());
+    }
+
+    // Fallback to manual search for release/debug binaries
     let candidates = [
         "target/release/rmagic",
         "target/release/rmagic.exe",
