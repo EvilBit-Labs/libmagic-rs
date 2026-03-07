@@ -436,6 +436,146 @@ match operator {
 
 These operators enable fuller support for libmagic file format specifications and extend bitwise operation capabilities.
 
+## Migrating from v0.4.x to v0.5.0
+
+Version 0.5.0 adds support for floating-point types in magic file parsing. This enables detection of file formats that use IEEE 754 float and double values.
+
+### RuleMatch Struct Field Addition
+
+The `RuleMatch` struct gained a new `type_kind` field that carries the source `TypeKind` used to read the matched value. Code constructing `RuleMatch` instances with struct literals must add this field.
+
+**Before (v0.4.x):**
+
+```rust,ignore
+use libmagic_rs::evaluator::RuleMatch;
+use libmagic_rs::parser::ast::Value;
+
+let match_result = RuleMatch {
+    message: "ELF executable".to_string(),
+    offset: 0,
+    level: 0,
+    value: Value::Uint(0x7f),
+    confidence: RuleMatch::calculate_confidence(0),
+};
+```
+
+**After (v0.5.0):**
+
+```rust,ignore
+use libmagic_rs::evaluator::RuleMatch;
+use libmagic_rs::parser::ast::{Value, TypeKind, Endianness};
+
+let match_result = RuleMatch {
+    message: "ELF executable".to_string(),
+    offset: 0,
+    level: 0,
+    value: Value::Uint(0x7f),
+    type_kind: TypeKind::Byte { signed: false },
+    confidence: RuleMatch::calculate_confidence(0),
+};
+```
+
+The `type_kind` field allows output formatters and other consumers to determine the on-disk width of the matched value.
+
+### Value Enum Changes
+
+The `Value` enum added a `Float(f64)` variant for floating-point values and no longer derives the `Eq` trait (it still implements `PartialEq`).
+
+**New Float Variant:**
+
+```rust,ignore
+use libmagic_rs::parser::ast::Value;
+
+// New floating-point variant
+let float_value = Value::Float(3.14);
+let double_value = Value::Float(2.71828);
+```
+
+**Eq Trait Removal:**
+
+Code using `Eq` as a trait bound or relying on exact equality semantics must be updated:
+
+```rust,ignore
+// Before (v0.4.x) - Eq was available
+fn compare_values<T: Eq>(a: T, b: T) -> bool {
+    a == b
+}
+
+// After (v0.5.0) - Use PartialEq instead
+fn compare_values<T: PartialEq>(a: T, b: T) -> bool {
+    a == b
+}
+```
+
+Exact equality comparisons on `Value::Float` follow IEEE 754 semantics (NaN != NaN).
+
+### TypeKind Enum Extensions
+
+Two new variants were added to `TypeKind` for floating-point types. Exhaustive pattern matches must handle these variants.
+
+**New Variants:**
+
+- `Float { endian: Endianness }` - 32-bit IEEE 754 floating-point
+- `Double { endian: Endianness }` - 64-bit IEEE 754 double-precision
+
+**Before (v0.4.x):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::TypeKind;
+
+match type_kind {
+    TypeKind::Byte { signed } => { /* ... */ }
+    TypeKind::Short { endian, signed } => { /* ... */ }
+    TypeKind::Long { endian, signed } => { /* ... */ }
+    TypeKind::Quad { endian, signed } => { /* ... */ }
+    TypeKind::String { max_length } => { /* ... */ }
+}
+```
+
+**After (v0.5.0):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::TypeKind;
+
+match type_kind {
+    TypeKind::Byte { signed } => { /* ... */ }
+    TypeKind::Short { endian, signed } => { /* ... */ }
+    TypeKind::Long { endian, signed } => { /* ... */ }
+    TypeKind::Quad { endian, signed } => { /* ... */ }
+    TypeKind::Float { endian } => {
+        // Handle 32-bit float type
+    }
+    TypeKind::Double { endian } => {
+        // Handle 64-bit double type
+    }
+    TypeKind::String { max_length } => { /* ... */ }
+}
+```
+
+**String Variant Discriminant Change:**
+
+The addition of `Float` and `Double` changed the discriminant value of the `String` variant from 4 to 6. Code casting `TypeKind` variants to integers must be updated.
+
+**Before (v0.4.x):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::TypeKind;
+
+let type_kind = TypeKind::String { max_length: None };
+let discriminant = type_kind as isize;  // Returns 4
+```
+
+**After (v0.5.0):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::TypeKind;
+
+let type_kind = TypeKind::String { max_length: None };
+let discriminant = type_kind as isize;  // Returns 6
+```
+
+**Recommendation:** Avoid relying on enum discriminant values. Use pattern matching or the `std::mem::discriminant` function instead.
+
 ## Getting Help
 
 If you encounter migration issues:

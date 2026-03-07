@@ -21,10 +21,12 @@ Add libmagic-rs to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-libmagic-rs = "0.4.3"
+libmagic-rs = "0.5.0"
 ```
 
-**Note:** Version 0.4.0 introduces breaking changes. If upgrading from 0.3.x, the `Operator` enum gained three new variants (`BitwiseXor`, `BitwiseNot`, `AnyValue`) for bitwise and any-value operations. Exhaustive pattern matching on `Operator` requires updates.
+**Note:** Version 0.5.0 introduces breaking changes. If upgrading from 0.4.x, the `RuleMatch` struct has a new `type_kind` field that must be included in struct literals, the `Value` enum no longer derives the `Eq` trait (affecting comparison operations), and the `TypeKind` enum gained two new variants (`Float`, `Double`) for floating-point types with endian variants, causing the `TypeKind::String` variant discriminant to change from 4 to 6. Exhaustive pattern matching on `TypeKind` and struct literals for `RuleMatch` require updates.
+
+Version 0.4.0 introduces breaking changes. If upgrading from 0.3.x, the `Operator` enum gained three new variants (`BitwiseXor`, `BitwiseNot`, `AnyValue`) for bitwise and any-value operations. Exhaustive pattern matching on `Operator` requires updates.
 
 Version 0.3.0 introduced breaking changes from 0.2.x: a new `TypeKind::Quad` enum variant was added for 64-bit quad integer types with endian variants, `TypeKind::String` variant discriminant changed from 3 to 4, and `evaluator::MatchResult` was renamed to `evaluator::RuleMatch` to resolve a naming collision with `output::MatchResult`. The public re-export is `RuleMatch`. Exhaustive pattern matching on `TypeKind` requires updates.
 
@@ -67,7 +69,7 @@ Edit `Cargo.toml`:
 
 ```toml
 [dependencies]
-libmagic-rs = "0.4.3"
+libmagic-rs = "0.5.0"
 ```
 
 #### Step 3: Write Code
