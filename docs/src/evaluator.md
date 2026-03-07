@@ -32,6 +32,7 @@ The evaluator module separates public interface from implementation:
 - **`evaluator/types/`** - Type reading and coercion (organized as submodules as of v0.4.2)
   - **`types/mod.rs`** - Public API surface: `read_typed_value`, `coerce_value_to_type`, re-exports type functions
   - **`types/numeric.rs`** - Numeric type handling: `read_byte`, `read_short`, `read_long`, `read_quad` with endianness and signedness support
+  - **`types/float.rs`** - Floating-point type handling: `read_float` (32-bit IEEE 754), `read_double` (64-bit IEEE 754) with endianness support
   - **`types/string.rs`** - String type handling: `read_string` with null-termination and UTF-8 conversion
   - **`types/tests.rs`** - Module tests
 - **`evaluator/strength.rs`** - Rule strength calculation
@@ -85,7 +86,7 @@ pub struct RuleMatch {
 }
 ```
 
-The `Value` type is from `parser::ast::Value` and represents the actual matched content according to the rule's type specification.
+The `Value` type is from `parser::ast::Value` and represents the actual matched content according to the rule's type specification. Note that `Value` implements only `PartialEq` (not `Eq`) due to floating-point NaN semantics.
 
 ### Offset Resolution (`evaluator/offset.rs`)
 
@@ -105,12 +106,14 @@ pub fn resolve_offset(
 
 ### Type Reading (`evaluator/types/`)
 
-Interprets bytes according to type specifications. The types module is organized into submodules for numeric and string type handling (refactored from a single file in v0.4.2):
+Interprets bytes according to type specifications. The types module is organized into submodules for numeric, floating-point, and string type handling (refactored from a single file in v0.4.2):
 
 - **Byte**: Single byte values (signed or unsigned)
 - **Short**: 16-bit integers with endianness
 - **Long**: 32-bit integers with endianness
 - **Quad**: 64-bit integers with endianness
+- **Float**: 32-bit IEEE 754 floating-point with endianness (native, big-endian `befloat`, little-endian `lefloat`)
+- **Double**: 64-bit IEEE 754 floating-point with endianness (native, big-endian `bedouble`, little-endian `ledouble`)
 - **String**: Byte sequences with length limits
 - **Bounds checking**: Prevents buffer overruns
 
@@ -123,6 +126,26 @@ pub fn read_typed_value(
 ```
 
 The `read_byte` function signature changed in v0.2.0 to accept three parameters (`buffer`, `offset`, and `signed`) instead of two, allowing explicit control over signed vs unsigned byte interpretation.
+
+**Floating-Point Type Reading (`evaluator/types/float.rs`):**
+
+```rust
+pub fn read_float(
+    buffer: &[u8],
+    offset: usize,
+    endian: Endianness,
+) -> Result<Value, TypeReadError>
+
+pub fn read_double(
+    buffer: &[u8],
+    offset: usize,
+    endian: Endianness,
+) -> Result<Value, TypeReadError>
+```
+
+- `read_float()` reads 4 bytes and interprets as `f32`, converting to `f64` and returning `Value::Float(f64)`
+- `read_double()` reads 8 bytes and interprets as `f64`, returning `Value::Float(f64)`
+- Both respect endianness specified in `TypeKind::Float` or `TypeKind::Double`
 
 ### Operator Application (`evaluator/operators.rs`)
 
@@ -138,6 +161,24 @@ Applies comparison operations:
 - **BitwiseAndMask**: AND with mask then compare
 
 Comparison operators support numeric comparisons across different integer types using `i128` coercion for cross-type compatibility.
+
+**Floating-Point Operator Semantics:**
+
+Float values (`Value::Float`) work with comparison and equality operators but have special handling:
+
+- **Equality operators** (`==`, `!=`): Use epsilon-aware comparison with `f64::EPSILON` tolerance
+  - Two floats are considered equal when `|a - b| <= f64::EPSILON`
+  - Implementation is in `floats_equal()` helper function (`evaluator/operators/equality.rs`)
+- **Ordering operators** (`<`, `>`, `<=`, `>=`): Use IEEE 754 `partial_cmp` semantics
+  - Standard floating-point ordering: `-∞ < finite values < +∞`
+  - Implementation is in `compare_values()` function (`evaluator/operators/comparison.rs`)
+- **NaN handling**:
+  - `NaN != NaN` returns `true` (NaN is never equal to anything, including itself)
+  - All comparison operations with NaN return `false` (NaN is not comparable)
+- **Infinity handling**:
+  - Positive and negative infinity are only equal to the same sign of infinity
+  - Infinities are ordered correctly: `NEG_INFINITY < finite < INFINITY`
+- **Type mismatch**: Float values cannot be compared with `Int` or `Uint` (returns `false` or `None`)
 
 ```rust
 pub fn apply_operator(
@@ -172,6 +213,41 @@ assert!(apply_operator(
     &Operator::LessThan,
     &Value::Int(-1),
     &Value::Uint(0)
+));
+```
+
+**Example with floating-point operators:**
+
+```rust
+use libmagic_rs::parser::ast::{Operator, Value};
+use libmagic_rs::evaluator::operators::apply_operator;
+
+// Epsilon-aware equality
+assert!(apply_operator(
+    &Operator::Equal,
+    &Value::Float(1.0),
+    &Value::Float(1.0 + f64::EPSILON)
+));
+
+// Float ordering
+assert!(apply_operator(
+    &Operator::LessThan,
+    &Value::Float(1.5),
+    &Value::Float(2.0)
+));
+
+// NaN inequality
+assert!(apply_operator(
+    &Operator::NotEqual,
+    &Value::Float(f64::NAN),
+    &Value::Float(f64::NAN)
+));
+
+// Infinity comparison
+assert!(apply_operator(
+    &Operator::LessThan,
+    &Value::Float(f64::NEG_INFINITY),
+    &Value::Float(0.0)
 ));
 ```
 
@@ -362,17 +438,37 @@ let matches = evaluate_rules(&rules, &buffer)?;
 assert_eq!(matches[0].message, "Small value detected");
 ```
 
+**Example with floating-point types:**
+
+```rust
+use libmagic_rs::{evaluate_rules, EvaluationConfig};
+use libmagic_rs::parser::parse_text_magic_file;
+
+// Parse magic rule with float type
+let magic_content = r#"
+0 lefloat 3.14159 Pi constant detected
+0 bedouble >100.0 Large double value
+"#;
+let rules = parse_text_magic_file(magic_content)?;
+
+// IEEE 754 little-endian representation of 3.14159f32
+let buffer = vec![0xd0, 0x0f, 0x49, 0x40];
+let matches = evaluate_rules(&rules, &buffer)?;
+
+assert_eq!(matches[0].message, "Pi constant detected");
+```
+
 ## Implementation Status
 
 - [x] Basic evaluation engine structure
 - [x] Offset resolution (absolute, relative, from-end)
-- [x] Type reading with endianness support (Byte, Short, Long, Quad, String)
+- [x] Type reading with endianness support (Byte, Short, Long, Quad, Float, Double, String)
 - [x] Operator application (Equal, NotEqual, LessThan, GreaterThan, LessEqual, GreaterEqual, BitwiseAnd, BitwiseAndMask)
 - [x] Hierarchical rule processing with child evaluation
 - [x] Error handling with graceful degradation
 - [x] Timeout protection
 - [x] Recursion depth limiting
-- [x] Comprehensive test coverage (100+ tests)
+- [x] Comprehensive test coverage (150+ tests)
 - [ ] Indirect offset support (pointer dereferencing)
 - [ ] Regex type support
 - [ ] Performance optimizations (rule ordering, caching)
