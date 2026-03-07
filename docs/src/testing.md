@@ -33,6 +33,14 @@ All code must pass these quality gates:
 **Integration Tests**: Located in `tests/` directory:
 
 - `tests/cli_integration.rs` - CLI subprocess tests using `assert_cmd`
+- `tests/integration_tests.rs` - End-to-end evaluation tests
+- `tests/evaluator_tests.rs` - Evaluator component tests
+- `tests/parser_integration_tests.rs` - Parser integration tests
+- `tests/json_integration_test.rs` - JSON output format tests
+- `tests/compatibility_tests.rs` - GNU `file` compatibility tests
+- `tests/directory_loading_tests.rs` - Magic directory loading tests
+- `tests/mime_tests.rs` - MIME type detection tests
+- `tests/tags_tests.rs` - Tag extraction tests
 - `tests/property_tests.rs` - Property-based tests using `proptest`
 
 ```bash

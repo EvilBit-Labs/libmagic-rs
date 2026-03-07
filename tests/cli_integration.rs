@@ -396,8 +396,13 @@ fn test_error_magic_file_not_found() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let test_file = create_data_file(&temp_dir, "test.bin", b"test");
 
+    let nonexistent_magic = temp_dir.path().join("nonexistent.magic");
     rmagic_cmd()
-        .args(["--magic-file", "nonexistent.magic", path_str(&test_file)])
+        .args([
+            "--magic-file",
+            path_str(&nonexistent_magic),
+            path_str(&test_file),
+        ])
         .assert()
         .failure()
         .code(4)
