@@ -115,6 +115,34 @@ pub enum TypeKind {
         /// Whether value is signed
         signed: bool,
     },
+    /// 32-bit IEEE 754 floating-point
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+    ///
+    /// let float = TypeKind::Float { endian: Endianness::Big };
+    /// assert_eq!(float, TypeKind::Float { endian: Endianness::Big });
+    /// ```
+    Float {
+        /// Byte order
+        endian: Endianness,
+    },
+    /// 64-bit IEEE 754 double-precision floating-point
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+    ///
+    /// let double = TypeKind::Double { endian: Endianness::Big };
+    /// assert_eq!(double, TypeKind::Double { endian: Endianness::Big });
+    /// ```
+    Double {
+        /// Byte order
+        endian: Endianness,
+    },
     /// String data
     String {
         /// Maximum length to read
@@ -134,6 +162,8 @@ impl TypeKind {
     /// assert_eq!(TypeKind::Short { endian: Endianness::Native, signed: true }.bit_width(), Some(16));
     /// assert_eq!(TypeKind::Long { endian: Endianness::Native, signed: true }.bit_width(), Some(32));
     /// assert_eq!(TypeKind::Quad { endian: Endianness::Native, signed: true }.bit_width(), Some(64));
+    /// assert_eq!(TypeKind::Float { endian: Endianness::Native }.bit_width(), Some(32));
+    /// assert_eq!(TypeKind::Double { endian: Endianness::Native }.bit_width(), Some(64));
     /// assert_eq!(TypeKind::String { max_length: None }.bit_width(), None);
     /// ```
     #[must_use]
@@ -141,8 +171,8 @@ impl TypeKind {
         match self {
             Self::Byte { .. } => Some(8),
             Self::Short { .. } => Some(16),
-            Self::Long { .. } => Some(32),
-            Self::Quad { .. } => Some(64),
+            Self::Long { .. } | Self::Float { .. } => Some(32),
+            Self::Quad { .. } | Self::Double { .. } => Some(64),
             Self::String { .. } => None,
         }
     }
@@ -275,12 +305,23 @@ pub enum Operator {
 }
 
 /// Value types for rule matching
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     /// Unsigned integer value
     Uint(u64),
     /// Signed integer value
     Int(i64),
+    /// Floating-point value (used for `float` and `double` types)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Value;
+    ///
+    /// let val = Value::Float(3.14);
+    /// assert_eq!(val, Value::Float(3.14));
+    /// ```
+    Float(f64),
     /// Byte sequence
     Bytes(Vec<u8>),
     /// String value
@@ -585,14 +626,19 @@ mod tests {
         // Test that different value types are not equal
         let uint_val = Value::Uint(42);
         let int_val = Value::Int(42);
+        let float_val = Value::Float(42.0);
         let bytes_val = Value::Bytes(vec![42]);
         let string_val = Value::String("42".to_string());
 
         assert_ne!(uint_val, int_val);
+        assert_ne!(uint_val, float_val);
         assert_ne!(uint_val, bytes_val);
         assert_ne!(uint_val, string_val);
+        assert_ne!(int_val, float_val);
         assert_ne!(int_val, bytes_val);
         assert_ne!(int_val, string_val);
+        assert_ne!(float_val, bytes_val);
+        assert_ne!(float_val, string_val);
         assert_ne!(bytes_val, string_val);
     }
 
@@ -626,10 +672,23 @@ mod tests {
     }
 
     #[test]
+    fn test_value_float() {
+        let value = Value::Float(3.14);
+        assert_eq!(value, Value::Float(3.14));
+
+        let negative = Value::Float(-1.5);
+        assert_eq!(negative, Value::Float(-1.5));
+
+        let zero = Value::Float(0.0);
+        assert_eq!(zero, Value::Float(0.0));
+    }
+
+    #[test]
     fn test_value_serialization() {
         let values = vec![
             Value::Uint(42),
             Value::Int(-100),
+            Value::Float(3.14),
             Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
             Value::String("ELF executable".to_string()),
         ];
@@ -740,6 +799,18 @@ mod tests {
             TypeKind::Quad {
                 endian: Endianness::Big,
                 signed: true,
+            },
+            TypeKind::Float {
+                endian: Endianness::Native,
+            },
+            TypeKind::Float {
+                endian: Endianness::Big,
+            },
+            TypeKind::Double {
+                endian: Endianness::Little,
+            },
+            TypeKind::Double {
+                endian: Endianness::Native,
             },
             TypeKind::String { max_length: None },
             TypeKind::String {

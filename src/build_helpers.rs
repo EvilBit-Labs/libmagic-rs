@@ -223,6 +223,71 @@ mod tests {
     }
 
     #[test]
+    fn test_serialize_type_kind_float() {
+        let cases = [
+            (
+                TypeKind::Float {
+                    endian: Endianness::Native,
+                },
+                "TypeKind::Float { endian: Endianness::Native }",
+            ),
+            (
+                TypeKind::Float {
+                    endian: Endianness::Little,
+                },
+                "TypeKind::Float { endian: Endianness::Little }",
+            ),
+            (
+                TypeKind::Float {
+                    endian: Endianness::Big,
+                },
+                "TypeKind::Float { endian: Endianness::Big }",
+            ),
+        ];
+        for (typ, expected) in &cases {
+            assert_eq!(serialize_type_kind(typ), *expected);
+        }
+    }
+
+    #[test]
+    fn test_serialize_type_kind_double() {
+        let cases = [
+            (
+                TypeKind::Double {
+                    endian: Endianness::Native,
+                },
+                "TypeKind::Double { endian: Endianness::Native }",
+            ),
+            (
+                TypeKind::Double {
+                    endian: Endianness::Little,
+                },
+                "TypeKind::Double { endian: Endianness::Little }",
+            ),
+            (
+                TypeKind::Double {
+                    endian: Endianness::Big,
+                },
+                "TypeKind::Double { endian: Endianness::Big }",
+            ),
+        ];
+        for (typ, expected) in &cases {
+            assert_eq!(serialize_type_kind(typ), *expected);
+        }
+    }
+
+    #[test]
+    fn test_serialize_value_float() {
+        // Positive finite literal
+        let serialized = serialize_value(&Value::Float(3.14));
+        assert_eq!(serialized, "Value::Float(3.14)");
+
+        // Negative finite literal
+        let serialized = serialize_value(&Value::Float(-1.0));
+        assert_eq!(serialized, "Value::Float(-1.0)");
+    }
+
+    #[test]
     fn test_serialize_type_kind_string() {
         let typ1 = TypeKind::String { max_length: None };
         let serialized1 = serialize_type_kind(&typ1);

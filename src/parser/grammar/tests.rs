@@ -905,6 +905,9 @@ fn test_parse_value_with_whitespace() {
     );
     assert_eq!(parse_value("  123  "), Ok(("", Value::Uint(123))));
     assert_eq!(parse_value("\t-456\t"), Ok(("", Value::Int(-456))));
+    // Floats consume trailing whitespace (consistent with integers)
+    assert_eq!(parse_value("  3.14  "), Ok(("", Value::Float(3.14))));
+    assert_eq!(parse_value("\t-1.0\t"), Ok(("", Value::Float(-1.0))));
     // Hex bytes don't consume trailing whitespace by themselves
     assert_eq!(
         parse_value("  \\x7f\\x45  "),
@@ -1010,6 +1013,31 @@ fn test_parse_value_type_precedence() {
 
     // Hex numbers with 0x prefix should be parsed as numbers
     assert_eq!(parse_value("0x123"), Ok(("", Value::Uint(0x123))));
+}
+
+#[test]
+fn test_parse_value_float_literals() {
+    // Positive floats
+    assert_eq!(parse_value("3.14"), Ok(("", Value::Float(3.14))));
+    assert_eq!(parse_value("0.5"), Ok(("", Value::Float(0.5))));
+    assert_eq!(parse_value("100.0"), Ok(("", Value::Float(100.0))));
+
+    // Negative floats
+    assert_eq!(parse_value("-1.0"), Ok(("", Value::Float(-1.0))));
+    assert_eq!(parse_value("-0.001"), Ok(("", Value::Float(-0.001))));
+
+    // Scientific notation
+    assert_eq!(parse_value("2.5e10"), Ok(("", Value::Float(2.5e10))));
+    assert_eq!(parse_value("1.0E-3"), Ok(("", Value::Float(1.0e-3))));
+    assert_eq!(parse_value("-3.0e+2"), Ok(("", Value::Float(-3.0e+2))));
+
+    // Integers should NOT be parsed as floats
+    assert_eq!(parse_value("123"), Ok(("", Value::Uint(123))));
+    assert_eq!(parse_value("-456"), Ok(("", Value::Int(-456))));
+    assert_eq!(parse_value("0x1a"), Ok(("", Value::Uint(26))));
+
+    // Float with remaining input (trailing whitespace consumed, like integers)
+    assert_eq!(parse_value("1.5 rest"), Ok(("rest", Value::Float(1.5))));
 }
 
 #[test]
@@ -1188,7 +1216,6 @@ fn test_parse_type_invalid() {
     assert!(parse_type("").is_err());
     assert!(parse_type("invalid").is_err());
     assert!(parse_type("int").is_err());
-    assert!(parse_type("float").is_err());
 }
 
 #[test]

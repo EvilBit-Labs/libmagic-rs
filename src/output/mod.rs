@@ -195,6 +195,7 @@ impl MatchResult {
                 Value::Bytes(bytes) => bytes.len(),
                 Value::String(s) => s.len(),
                 Value::Uint(_) | Value::Int(_) => std::mem::size_of::<u64>(),
+                Value::Float(_) => std::mem::size_of::<f64>(),
             },
             value,
             rule_path: Vec::new(),
@@ -281,6 +282,7 @@ impl MatchResult {
             Value::Bytes(b) => b.len(),
             Value::String(s) => s.len(),
             Value::Uint(_) | Value::Int(_) => 4,
+            Value::Float(_) => 8,
         };
 
         Self::with_metadata(

@@ -538,6 +538,31 @@ fn parse_quoted_string(input: &str) -> IResult<&str, String> {
     Ok((remaining, result))
 }
 
+/// Parse a floating-point literal into `Value::Float(f64)`
+///
+/// Recognizes numbers with a mandatory decimal point (to distinguish from
+/// integers), an optional leading minus sign, and an optional exponent part.
+/// Examples: `3.14`, `-1.0`, `2.5e10`, `-0.5E-3`
+fn parse_float_value(input: &str) -> IResult<&str, f64> {
+    let (input, _) = multispace0(input)?;
+
+    let (remaining, float_str) = recognize((
+        opt(char('-')),
+        digit1,
+        char('.'),
+        digit1,
+        opt((one_of("eE"), opt(one_of("+-")), digit1)),
+    ))
+    .parse(input)?;
+
+    let value: f64 = float_str
+        .parse()
+        .map_err(|_| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::MapRes)))?;
+
+    let (remaining, _) = multispace0(remaining)?;
+    Ok((remaining, value))
+}
+
 /// Parse a numeric value (integer)
 ///
 /// Non-negative literals are parsed directly as `u64` so the full unsigned
@@ -560,10 +585,11 @@ fn parse_numeric_value(input: &str) -> IResult<&str, Value> {
     Ok((input, value))
 }
 
-/// Parse string and numeric literals for magic rule values
+/// Parse string, float, and numeric literals for magic rule values
 ///
 /// Supports:
 /// - Quoted strings with escape sequences: "Hello\nWorld", "ELF\0"
+/// - Floating-point literals: 3.14, -1.0, 2.5e10
 /// - Numeric literals (decimal): 123, -456
 /// - Numeric literals (hexadecimal): 0x1a2b, -0xFF
 /// - Hex byte sequences: \\x7f\\x45\\x4c\\x46 or 7f454c46
@@ -613,6 +639,8 @@ pub fn parse_value(input: &str) -> IResult<&str, Value> {
         map(parse_quoted_string, Value::String),
         // Try hex byte sequence before numeric (to catch patterns like "7f", "ab", "\\x7fELF", etc.)
         map(parse_hex_bytes, Value::Bytes),
+        // Try float before integer (a float literal is a superset of an integer prefix)
+        map(parse_float_value, Value::Float),
         // Try numeric value last (for pure numbers like 0x123, 1, etc.)
         parse_numeric_value,
     ))
