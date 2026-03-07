@@ -213,6 +213,11 @@ pub struct RuleMatch {
     pub level: u32,
     /// The matched value
     pub value: crate::parser::ast::Value,
+    /// The type used to read the matched value
+    ///
+    /// Carries the source `TypeKind` so downstream consumers (e.g., output
+    /// formatting) can determine the on-disk width of the matched value.
+    pub type_kind: crate::parser::ast::TypeKind,
     /// Confidence score (0.0 to 1.0)
     ///
     /// Calculated based on match depth in the rule hierarchy.

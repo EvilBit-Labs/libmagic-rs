@@ -93,6 +93,65 @@ fn test_read_typed_value_numeric_dispatch() {
 }
 
 #[test]
+fn test_read_typed_value_float_dispatch() {
+    // IEEE 754 little-endian 1.0f32: 0x3f800000
+    let float_result = read_typed_value(
+        &[0x00, 0x00, 0x80, 0x3f],
+        0,
+        &TypeKind::Float {
+            endian: Endianness::Little,
+        },
+    )
+    .unwrap();
+    assert_eq!(float_result, Value::Float(1.0));
+
+    // IEEE 754 big-endian 1.0f64: 0x3ff0000000000000
+    let double_result = read_typed_value(
+        &[0x3f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        0,
+        &TypeKind::Double {
+            endian: Endianness::Big,
+        },
+    )
+    .unwrap();
+    assert_eq!(double_result, Value::Float(1.0));
+
+    // Float buffer overrun: 3 bytes is too few for a 4-byte float
+    let float_err = read_typed_value(
+        &[0x00, 0x00, 0x80],
+        0,
+        &TypeKind::Float {
+            endian: Endianness::Little,
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        float_err,
+        TypeReadError::BufferOverrun {
+            offset: 0,
+            buffer_len: 3,
+        }
+    );
+
+    // Double buffer overrun: 7 bytes is too few for an 8-byte double
+    let double_err = read_typed_value(
+        &[0x00; 7],
+        0,
+        &TypeKind::Double {
+            endian: Endianness::Big,
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        double_err,
+        TypeReadError::BufferOverrun {
+            offset: 0,
+            buffer_len: 7,
+        }
+    );
+}
+
+#[test]
 fn test_read_typed_value_native_endian() {
     let result = read_typed_value(
         &[0x34, 0x12],
@@ -216,6 +275,35 @@ fn test_read_typed_value_all_supported_types() {
         let result = read_typed_value(buffer, offset, &type_kind).unwrap();
         assert_eq!(result, expected, "Failed for type: {type_kind:?}");
     }
+}
+
+#[test]
+fn test_coerce_value_to_type_float_rounds_to_f32() {
+    // 0.1 as f64 differs from 0.1 as f32-widened-to-f64
+    let f64_val = Value::Float(0.1_f64);
+    let coerced = coerce_value_to_type(
+        &f64_val,
+        &TypeKind::Float {
+            endian: Endianness::Native,
+        },
+    );
+    // After coercion, value should match f32 precision
+    #[allow(clippy::cast_possible_truncation)]
+    let expected = f64::from(0.1_f64 as f32);
+    assert_eq!(coerced, Value::Float(expected));
+}
+
+#[test]
+fn test_coerce_value_to_type_double_preserves_f64() {
+    // Double should not alter the f64 value
+    let val = Value::Float(0.1_f64);
+    let coerced = coerce_value_to_type(
+        &val,
+        &TypeKind::Double {
+            endian: Endianness::Native,
+        },
+    );
+    assert_eq!(coerced, Value::Float(0.1_f64));
 }
 
 #[test]
@@ -450,6 +538,21 @@ fn test_coerce_value_to_type() {
             Value::Uint(0xff),
             TypeKind::String { max_length: None },
             Value::Uint(0xff),
+        ),
+        (
+            Value::Float(3.125),
+            TypeKind::Float {
+                endian: Endianness::Native,
+            },
+            // 3.125 rounded to f32 precision then widened back to f64
+            Value::Float(f64::from(3.125_f32)),
+        ),
+        (
+            Value::Float(3.125),
+            TypeKind::Double {
+                endian: Endianness::Native,
+            },
+            Value::Float(3.125),
         ),
     ];
 

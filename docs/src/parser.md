@@ -104,6 +104,11 @@ Handles multiple value types with intelligent type detection:
 parse_value("\"Hello\"")           // Value::String("Hello".to_string())
 parse_value("\"Line1\\nLine2\"")   // Value::String("Line1\nLine2".to_string())
 
+// Floating-point literals
+parse_value("3.14")                // Value::Float(3.14)
+parse_value("-1.0")                // Value::Float(-1.0)
+parse_value("2.5e10")              // Value::Float(2.5e10)
+
 // Numeric values
 parse_value("123")                 // Value::Uint(123)
 parse_value("-456")                // Value::Int(-456)
@@ -117,10 +122,67 @@ parse_value("7f454c46")            // Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46])
 **Features:**
 
 - ✅ Quoted string parsing with escape sequence support
+- ✅ Floating-point literal parsing with scientific notation support
 - ✅ Numeric literal parsing (decimal and hexadecimal)
 - ✅ Hex byte sequence parsing (with and without `\x` prefix)
 - ✅ Intelligent type precedence to avoid parsing conflicts
 - ✅ Comprehensive escape sequence handling (`\n`, `\t`, `\r`, `\\`, `\"`, `\'`, `\0`)
+
+### Float and Double Type Parsing (`parse_float_value`)
+
+Parses floating-point type specifiers and literals for IEEE 754 single (32-bit) and double-precision (64-bit) values:
+
+```rust
+// Float literals
+parse_float_value("3.14")          // Ok(("", 3.14))
+parse_float_value("-0.5")          // Ok(("", -0.5))
+parse_float_value("1.0e-10")       // Ok(("", 1.0e-10))
+parse_float_value("2.5E+3")        // Ok(("", 2.5e+3))
+```
+
+**Type Keywords:**
+
+Six floating-point type keywords are supported, each mapping to `TypeKind::Float` or `TypeKind::Double` with an `Endianness` field:
+
+- `float` - 32-bit IEEE 754, native endianness → `TypeKind::Float { endian: Endianness::Native }`
+- `befloat` - 32-bit IEEE 754, big-endian → `TypeKind::Float { endian: Endianness::Big }`
+- `lefloat` - 32-bit IEEE 754, little-endian → `TypeKind::Float { endian: Endianness::Little }`
+- `double` - 64-bit IEEE 754, native endianness → `TypeKind::Double { endian: Endianness::Native }`
+- `bedouble` - 64-bit IEEE 754, big-endian → `TypeKind::Double { endian: Endianness::Big }`
+- `ledouble` - 64-bit IEEE 754, little-endian → `TypeKind::Double { endian: Endianness::Little }`
+
+**Float Literal Grammar:**
+
+The `parse_float_value` function recognizes standard floating-point notation with a **mandatory decimal point** to distinguish floats from integers:
+
+```text
+[-]digits.digits[{e|E}[{+|-}]digits]
+```
+
+Examples: `3.14`, `-0.5`, `1.0e-10`, `2.5E+3`
+
+Parsed literals are stored as `Value::Float(f64)` in the AST, regardless of whether the rule uses `float` or `double` (the type determines buffer read size, not literal representation).
+
+**Usage in Magic Rules:**
+
+```rust
+// Native-endian float comparison
+0 float x        // Match any float value
+0 float =3.14    // Match if float equals 3.14
+
+// Big-endian double comparison
+0 bedouble >1.5  // Match if big-endian double > 1.5
+```
+
+**Features:**
+
+- ✅ Six type keywords for float and double with endianness variants
+- ✅ Float literal parsing with decimal point, negative values, scientific notation
+- ✅ `Value::Float(f64)` AST variant for floating-point literals
+- ✅ Type precedence ensures floats parsed before integers (decimal point disambiguates)
+- ✅ Comprehensive test coverage for all endianness variants and literal formats
+
+**Note:** Float and double types do **not** have signed/unsigned variants. IEEE 754 handles sign internally via the sign bit, so all float types use a single `TypeKind` variant with only an `endian` field (no `signed: bool` field).
 
 ## Parser Design Principles
 
@@ -211,7 +273,7 @@ assert_eq!(rules.len(), 1);           // One root rule
 assert_eq!(rules[0].children.len(), 2); // Two child rules
 ```
 
-The parser distinguishes between signed and unsigned type variants (e.g., `byte` vs `ubyte`, `leshort` vs `uleshort`), mapping them to the `signed` field in `TypeKind::Byte { signed: bool }` and similar type variants. Unprefixed types default to signed in accordance with libmagic conventions.
+The parser distinguishes between signed and unsigned type variants (e.g., `byte` vs `ubyte`, `leshort` vs `uleshort`), mapping them to the `signed` field in `TypeKind::Byte { signed: bool }` and similar type variants. Unprefixed types default to signed in accordance with libmagic conventions. Float and double types do not have signed/unsigned variants; IEEE 754 handles sign internally.
 
 ### Format Detection
 

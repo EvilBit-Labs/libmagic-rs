@@ -289,6 +289,15 @@ pub fn format_value_as_hex(value: &Value) -> String {
             }
             result
         }
+        Value::Float(f) => {
+            // Convert to little-endian bytes for consistency
+            let bytes = f.to_le_bytes();
+            let mut result = String::with_capacity(16); // 8 bytes * 2 chars per byte
+            for &b in &bytes {
+                write!(&mut result, "{b:02x}").expect("Writing to String should never fail");
+            }
+            result
+        }
     }
 }
 

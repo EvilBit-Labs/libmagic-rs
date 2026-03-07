@@ -3,10 +3,15 @@
 
 //! Evaluator integration tests
 //!
-//! Tests for confidence calculation, rule ordering, and evaluation behavior
-//! through the public `MagicDatabase` API.
+//! Tests for confidence calculation, rule ordering, and evaluation behavior.
+//! Uses both the public `MagicDatabase` API and the lower-level `evaluate_rules`
+//! function for type-specific evaluation scenarios.
 
-use libmagic_rs::{EvaluationConfig, MagicDatabase};
+use libmagic_rs::evaluator::evaluate_rules;
+use libmagic_rs::{
+    Endianness, EvaluationConfig, EvaluationContext, MagicDatabase, MagicRule, OffsetSpec,
+    Operator, TypeKind, Value,
+};
 
 // ============================================================
 // Confidence Calculation Tests
@@ -244,4 +249,134 @@ fn test_evaluate_partial_magic_header() {
     let result = db.evaluate_buffer(b"\x7f").unwrap();
     // Should not crash, might not match
     assert!(!result.description.is_empty());
+}
+
+// ============================================================
+// Float / Double Evaluation Tests
+// ============================================================
+
+#[test]
+fn test_evaluate_float_rule_equal() {
+    // IEEE 754 little-endian 1.0f32 = 0x3f800000 => bytes [0x00, 0x00, 0x80, 0x3f]
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Float {
+            endian: Endianness::Little,
+        },
+        op: Operator::Equal,
+        value: Value::Float(1.0),
+        message: "float 1.0 detected".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    let buffer: &[u8] = &[0x00, 0x00, 0x80, 0x3f];
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[rule], buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 1, "Float equal rule should match 1.0f32 LE");
+}
+
+#[test]
+fn test_evaluate_double_rule_equal() {
+    // IEEE 754 big-endian 1.0f64 = 0x3ff0000000000000
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Double {
+            endian: Endianness::Big,
+        },
+        op: Operator::Equal,
+        value: Value::Float(1.0),
+        message: "double 1.0 detected".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    let buffer: &[u8] = &[0x3f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[rule], buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 1, "Double equal rule should match 1.0f64 BE");
+}
+
+#[test]
+fn test_evaluate_float_rule_not_equal() {
+    // Buffer contains 1.0f32 LE, rule expects != 2.0 -- should match
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Float {
+            endian: Endianness::Little,
+        },
+        op: Operator::NotEqual,
+        value: Value::Float(2.0),
+        message: "not 2.0".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    let buffer: &[u8] = &[0x00, 0x00, 0x80, 0x3f]; // 1.0f32 LE
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[rule], buffer, &mut context).unwrap();
+    assert_eq!(
+        matches.len(),
+        1,
+        "Float not-equal rule should match when value differs"
+    );
+}
+
+#[test]
+fn test_evaluate_float_rule_less_than() {
+    // Buffer contains 1.0f32 LE, rule checks < 2.0 -- should match
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Float {
+            endian: Endianness::Little,
+        },
+        op: Operator::LessThan,
+        value: Value::Float(2.0),
+        message: "less than 2.0".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    let buffer: &[u8] = &[0x00, 0x00, 0x80, 0x3f]; // 1.0f32 LE
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[rule], buffer, &mut context).unwrap();
+    assert_eq!(
+        matches.len(),
+        1,
+        "Float less-than rule should match 1.0 < 2.0"
+    );
+}
+
+#[test]
+fn test_evaluate_float_rule_no_match() {
+    // Buffer contains 1.0f32 LE, rule expects == 2.0 -- should NOT match
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Float {
+            endian: Endianness::Little,
+        },
+        op: Operator::Equal,
+        value: Value::Float(2.0),
+        message: "should not match".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    let buffer: &[u8] = &[0x00, 0x00, 0x80, 0x3f]; // 1.0f32 LE
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[rule], buffer, &mut context).unwrap();
+    assert!(
+        matches.is_empty(),
+        "Float equal rule should not match when value differs"
+    );
 }

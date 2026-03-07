@@ -71,6 +71,15 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
         )),
         // 8-bit types (2 branches)
         alt((tag("ubyte"), tag("byte"))),
+        // Float/double types (6 branches)
+        alt((
+            tag("bedouble"),
+            tag("ledouble"),
+            tag("double"),
+            tag("befloat"),
+            tag("lefloat"),
+            tag("float"),
+        )),
         // String types (1 branch, will grow with pstring/search/regex)
         tag("string"),
     ))
@@ -191,6 +200,28 @@ pub fn type_keyword_to_kind(type_name: &str) -> TypeKind {
         "ubequad" => TypeKind::Quad {
             endian: Endianness::Big,
             signed: false,
+        },
+
+        // FLOAT types (32-bit)
+        "float" => TypeKind::Float {
+            endian: Endianness::Native,
+        },
+        "befloat" => TypeKind::Float {
+            endian: Endianness::Big,
+        },
+        "lefloat" => TypeKind::Float {
+            endian: Endianness::Little,
+        },
+
+        // DOUBLE types (64-bit)
+        "double" => TypeKind::Double {
+            endian: Endianness::Native,
+        },
+        "bedouble" => TypeKind::Double {
+            endian: Endianness::Big,
+        },
+        "ledouble" => TypeKind::Double {
+            endian: Endianness::Little,
         },
 
         // STRING type
@@ -370,7 +401,8 @@ mod tests {
         let keywords = [
             "byte", "ubyte", "short", "ushort", "leshort", "uleshort", "beshort", "ubeshort",
             "long", "ulong", "lelong", "ulelong", "belong", "ubelong", "quad", "uquad", "lequad",
-            "ulequad", "bequad", "ubequad", "string",
+            "ulequad", "bequad", "ubequad", "float", "befloat", "lefloat", "double", "bedouble",
+            "ledouble", "string",
         ];
         for keyword in keywords {
             let (rest, parsed) = parse_type_keyword(keyword).unwrap();

@@ -302,6 +302,8 @@ use libmagic_rs::TypeKind;
 | `Short { endian, signed }` | 16-bit integer                                           |
 | `Long { endian, signed }`  | 32-bit integer                                           |
 | `Quad { endian, signed }`  | 64-bit integer                                           |
+| `Float { endian }`         | 32-bit IEEE 754 floating-point                           |
+| `Double { endian }`        | 64-bit IEEE 754 floating-point                           |
 | `String { max_length }`    | String data                                              |
 
 ##### 64-bit Integer Types
@@ -318,6 +320,26 @@ The `Quad` variant supports six endian-signedness combinations:
 | `ubequad`      | Big        | Unsigned   | Big-endian unsigned 64-bit integer    |
 
 **Version Note:** In v0.2.0, the `Byte` variant changed from a unit variant to a struct variant with a `signed` field.
+
+##### 32-bit Floating-Point Types
+
+The `Float` variant supports three endian variants:
+
+| Type Specifier | Endianness | Description                         |
+| -------------- | ---------- | ----------------------------------- |
+| `float`        | Native     | Native-endian 32-bit IEEE 754 float |
+| `lefloat`      | Little     | Little-endian 32-bit IEEE 754 float |
+| `befloat`      | Big        | Big-endian 32-bit IEEE 754 float    |
+
+##### 64-bit Floating-Point Types
+
+The `Double` variant supports three endian variants:
+
+| Type Specifier | Endianness | Description                          |
+| -------------- | ---------- | ------------------------------------ |
+| `double`       | Native     | Native-endian 64-bit IEEE 754 double |
+| `ledouble`     | Little     | Little-endian 64-bit IEEE 754 double |
+| `bedouble`     | Big        | Big-endian 64-bit IEEE 754 double    |
 
 #### Operator
 
@@ -343,6 +365,12 @@ use libmagic_rs::Operator;
 
 **Version Note:** The comparison operators `LessThan`, `GreaterThan`, `LessEqual`, and `GreaterEqual` were added in v0.2.0.
 
+##### Floating-Point Comparison Semantics
+
+Equality operators (`Equal`, `NotEqual`) use epsilon-aware comparison for `Value::Float` operands: two floats are considered equal when `|a - b| <= f64::EPSILON`. NaN is never equal to anything (including itself), and infinities are equal only to the same-signed infinity.
+
+Ordering operators (`LessThan`, `GreaterThan`, `LessEqual`, `GreaterEqual`) use IEEE 754 `partial_cmp` semantics. All NaN comparisons return `false` (NaN is not comparable to any value).
+
 #### Value
 
 Value types for matching.
@@ -351,12 +379,15 @@ Value types for matching.
 use libmagic_rs::Value;
 ```
 
-| Variant          | Description      |
-| ---------------- | ---------------- |
-| `Uint(u64)`      | Unsigned integer |
-| `Int(i64)`       | Signed integer   |
-| `Bytes(Vec<u8>)` | Byte sequence    |
-| `String(String)` | String value     |
+| Variant          | Description                 |
+| ---------------- | --------------------------- |
+| `Uint(u64)`      | Unsigned integer            |
+| `Int(i64)`       | Signed integer              |
+| `Float(f64)`     | 64-bit floating-point value |
+| `Bytes(Vec<u8>)` | Byte sequence               |
+| `String(String)` | String value                |
+
+**Note:** `Value` implements `PartialEq` but not `Eq` due to IEEE 754 NaN semantics (NaN is not equal to itself).
 
 #### Endianness
 

@@ -379,6 +379,7 @@ fn test_concatenate_messages_simple() {
             offset: 0,
             level: 0,
             value: Value::Bytes(vec![0x7f]),
+            type_kind: TypeKind::Byte { signed: false },
             confidence: 0.3,
         },
         evaluator::RuleMatch {
@@ -386,6 +387,7 @@ fn test_concatenate_messages_simple() {
             offset: 4,
             level: 1,
             value: Value::Uint(2),
+            type_kind: TypeKind::Byte { signed: false },
             confidence: 0.5,
         },
     ];
@@ -402,6 +404,7 @@ fn test_concatenate_messages_with_backspace() {
             offset: 0,
             level: 0,
             value: Value::Bytes(vec![0x7f]),
+            type_kind: TypeKind::Byte { signed: false },
             confidence: 0.3,
         },
         evaluator::RuleMatch {
@@ -409,6 +412,7 @@ fn test_concatenate_messages_with_backspace() {
             offset: 4,
             level: 1,
             value: Value::Uint(2),
+            type_kind: TypeKind::Byte { signed: false },
             confidence: 0.5,
         },
     ];

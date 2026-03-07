@@ -208,7 +208,7 @@ cargo test --doc   # Test documentation examples
 ### Currently Implemented (v0.1.0)
 
 - **Offsets**: Absolute and from-end specifications (indirect and relative are parsed but not yet evaluated)
-- **Types**: `byte`, `short`, `long`, `quad`, `string` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; types are signed by default (libmagic-compatible)
+- **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; types are signed by default (libmagic-compatible)
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
 - **String Matching**: Exact string matching with null-termination
@@ -240,7 +240,6 @@ impl BinaryRegex for regex::bytes::Regex {
 
 - No regex/search pattern matching
 - 64-bit integer types: `quad`/`uquad`, `bequad`/`ubequad`, `lequad`/`ulequad` are implemented; `qquad` (128-bit) is not yet supported
-- No floating-point types (float, double, befloat, lefloat)
 - No date/time types (date, qdate, ldate, qldate)
 - String evaluation reads until first NUL or end-of-buffer by default; `max_length: Some(_)` is supported internally but no dedicated fixed-length string parser syntax exists yet
 
@@ -477,7 +476,7 @@ CI must pass before merge. Mergify merge protections enforce these checks. Bot P
 
 1. **MVP (v0.1.0)** - CURRENT: Basic parsing and evaluation with byte/short/long/quad/string types, equality and bitwise AND operators, built-in rules for 10 common formats
 2. **Enhanced Features (v0.2)**: Comparison operators (`>`, `<`), indirect offset improvements, strength-based rule ordering
-3. **Advanced Types (v0.3)**: Regex type, floating-point types, search patterns
+3. **Advanced Types (v0.3)**: Regex type, search patterns
 4. **Full Compatibility (v0.4)**: Complete libmagic syntax support, all special directives, named tests
 5. **Production Ready (v1.0)**: Stable API, complete documentation, 95%+ compatibility with GNU file
 

@@ -223,6 +223,85 @@ mod tests {
     }
 
     #[test]
+    fn test_serialize_type_kind_float() {
+        let cases = [
+            (
+                TypeKind::Float {
+                    endian: Endianness::Native,
+                },
+                "TypeKind::Float { endian: Endianness::Native }",
+            ),
+            (
+                TypeKind::Float {
+                    endian: Endianness::Little,
+                },
+                "TypeKind::Float { endian: Endianness::Little }",
+            ),
+            (
+                TypeKind::Float {
+                    endian: Endianness::Big,
+                },
+                "TypeKind::Float { endian: Endianness::Big }",
+            ),
+        ];
+        for (typ, expected) in &cases {
+            assert_eq!(serialize_type_kind(typ), *expected);
+        }
+    }
+
+    #[test]
+    fn test_serialize_type_kind_double() {
+        let cases = [
+            (
+                TypeKind::Double {
+                    endian: Endianness::Native,
+                },
+                "TypeKind::Double { endian: Endianness::Native }",
+            ),
+            (
+                TypeKind::Double {
+                    endian: Endianness::Little,
+                },
+                "TypeKind::Double { endian: Endianness::Little }",
+            ),
+            (
+                TypeKind::Double {
+                    endian: Endianness::Big,
+                },
+                "TypeKind::Double { endian: Endianness::Big }",
+            ),
+        ];
+        for (typ, expected) in &cases {
+            assert_eq!(serialize_type_kind(typ), *expected);
+        }
+    }
+
+    #[test]
+    fn test_serialize_value_float() {
+        // Positive finite literal
+        let serialized = serialize_value(&Value::Float(3.125));
+        assert_eq!(serialized, "Value::Float(3.125)");
+
+        // Negative finite literal
+        let serialized = serialize_value(&Value::Float(-1.0));
+        assert_eq!(serialized, "Value::Float(-1.0)");
+
+        // Non-finite values produce valid Rust expressions
+        assert_eq!(
+            serialize_value(&Value::Float(f64::NAN)),
+            "Value::Float(f64::NAN)"
+        );
+        assert_eq!(
+            serialize_value(&Value::Float(f64::INFINITY)),
+            "Value::Float(f64::INFINITY)"
+        );
+        assert_eq!(
+            serialize_value(&Value::Float(f64::NEG_INFINITY)),
+            "Value::Float(f64::NEG_INFINITY)"
+        );
+    }
+
+    #[test]
     fn test_serialize_type_kind_string() {
         let typ1 = TypeKind::String { max_length: None };
         let serialized1 = serialize_type_kind(&typ1);

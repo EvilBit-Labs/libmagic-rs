@@ -195,6 +195,7 @@ impl MatchResult {
                 Value::Bytes(bytes) => bytes.len(),
                 Value::String(s) => s.len(),
                 Value::Uint(_) | Value::Int(_) => std::mem::size_of::<u64>(),
+                Value::Float(_) => std::mem::size_of::<f64>(),
             },
             value,
             rule_path: Vec::new(),
@@ -274,13 +275,13 @@ impl MatchResult {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let confidence = (m.confidence * 100.0).min(100.0) as u8;
 
-        // TODO: Numeric length is hardcoded to 4 bytes. Value::Uint/Int don't encode
-        // their source width, so byte/short/long/quad all report 4. Carrying TypeKind
-        // in RuleMatch would allow accurate lengths (1, 2, 4, 8).
         let length = match &m.value {
             Value::Bytes(b) => b.len(),
             Value::String(s) => s.len(),
-            Value::Uint(_) | Value::Int(_) => 4,
+            Value::Uint(_) | Value::Int(_) | Value::Float(_) => m
+                .type_kind
+                .bit_width()
+                .map_or(0, |bits| (bits / 8) as usize),
         };
 
         Self::with_metadata(
