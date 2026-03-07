@@ -43,6 +43,8 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
             .prop_map(|(endian, signed)| { TypeKind::Long { endian, signed } }),
         (arb_endianness(), any::<bool>())
             .prop_map(|(endian, signed)| { TypeKind::Quad { endian, signed } }),
+        arb_endianness().prop_map(|endian| TypeKind::Float { endian }),
+        arb_endianness().prop_map(|endian| TypeKind::Double { endian }),
         (0usize..256usize).prop_map(|len| TypeKind::String {
             max_length: Some(len),
         }),
@@ -71,6 +73,7 @@ fn arb_value() -> impl Strategy<Value = Value> {
     prop_oneof![
         (0u64..=u32::MAX as u64).prop_map(Value::Uint),
         (i32::MIN as i64..=i32::MAX as i64).prop_map(Value::Int),
+        (-1e10f64..1e10f64).prop_map(Value::Float),
         prop::collection::vec(any::<u8>(), 0..32).prop_map(Value::Bytes),
         "[a-zA-Z0-9 ]{0,32}".prop_map(Value::String),
     ]
