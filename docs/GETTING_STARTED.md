@@ -21,7 +21,7 @@ Add libmagic-rs to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-libmagic-rs = "0.4.1"
+libmagic-rs = "0.4.2"
 ```
 
 **Note:** Version 0.4.0 introduces breaking changes. If upgrading from 0.3.x, the `Operator` enum gained three new variants (`BitwiseXor`, `BitwiseNot`, `AnyValue`) for bitwise and any-value operations. Exhaustive pattern matching on `Operator` requires updates.
@@ -67,7 +67,7 @@ Edit `Cargo.toml`:
 
 ```toml
 [dependencies]
-libmagic-rs = "0.4.1"
+libmagic-rs = "0.4.2"
 ```
 
 #### Step 3: Write Code
