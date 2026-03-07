@@ -673,8 +673,8 @@ mod tests {
 
     #[test]
     fn test_value_float() {
-        let value = Value::Float(3.14);
-        assert_eq!(value, Value::Float(3.14));
+        let value = Value::Float(3.125);
+        assert_eq!(value, Value::Float(3.125));
 
         let negative = Value::Float(-1.5);
         assert_eq!(negative, Value::Float(-1.5));
@@ -688,7 +688,7 @@ mod tests {
         let values = vec![
             Value::Uint(42),
             Value::Int(-100),
-            Value::Float(3.14),
+            Value::Float(3.125),
             Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
             Value::String("ELF executable".to_string()),
         ];

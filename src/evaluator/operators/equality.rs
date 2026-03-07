@@ -769,7 +769,7 @@ mod tests {
     fn test_apply_equal_float_exact_same_value() {
         assert!(apply_equal(&Value::Float(1.0), &Value::Float(1.0)));
         assert!(apply_equal(&Value::Float(0.0), &Value::Float(0.0)));
-        assert!(apply_equal(&Value::Float(-3.14), &Value::Float(-3.14)));
+        assert!(apply_equal(&Value::Float(-3.125), &Value::Float(-3.125)));
     }
 
     #[test]

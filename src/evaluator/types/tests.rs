@@ -540,19 +540,19 @@ fn test_coerce_value_to_type() {
             Value::Uint(0xff),
         ),
         (
-            Value::Float(3.14),
+            Value::Float(3.125),
             TypeKind::Float {
                 endian: Endianness::Native,
             },
-            // 3.14 rounded to f32 precision then widened back to f64
-            Value::Float(f64::from(3.14_f32)),
+            // 3.125 rounded to f32 precision then widened back to f64
+            Value::Float(f64::from(3.125_f32)),
         ),
         (
-            Value::Float(3.14),
+            Value::Float(3.125),
             TypeKind::Double {
                 endian: Endianness::Native,
             },
-            Value::Float(3.14),
+            Value::Float(3.125),
         ),
     ];
 

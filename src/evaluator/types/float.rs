@@ -153,6 +153,7 @@ mod tests {
         let be_result = read_float(be_bytes, 0, Endianness::Native);
 
         // One of these should produce 1.0
+        #[allow(clippy::float_cmp)]
         let either_is_one = matches!(le_result, Ok(Value::Float(v)) if v == 1.0)
             || matches!(be_result, Ok(Value::Float(v)) if v == 1.0);
         assert!(either_is_one, "Native endian should match one byte order");
@@ -270,6 +271,7 @@ mod tests {
         let le_result = read_double(le_bytes, 0, Endianness::Native);
         let be_result = read_double(be_bytes, 0, Endianness::Native);
 
+        #[allow(clippy::float_cmp)]
         let either_is_one = matches!(le_result, Ok(Value::Float(v)) if v == 1.0)
             || matches!(be_result, Ok(Value::Float(v)) if v == 1.0);
         assert!(either_is_one, "Native endian should match one byte order");

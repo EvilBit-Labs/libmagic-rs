@@ -279,8 +279,8 @@ mod tests {
     #[test]
     fn test_serialize_value_float() {
         // Positive finite literal
-        let serialized = serialize_value(&Value::Float(3.14));
-        assert_eq!(serialized, "Value::Float(3.14)");
+        let serialized = serialize_value(&Value::Float(3.125));
+        assert_eq!(serialized, "Value::Float(3.125)");
 
         // Negative finite literal
         let serialized = serialize_value(&Value::Float(-1.0));

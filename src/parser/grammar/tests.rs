@@ -906,7 +906,7 @@ fn test_parse_value_with_whitespace() {
     assert_eq!(parse_value("  123  "), Ok(("", Value::Uint(123))));
     assert_eq!(parse_value("\t-456\t"), Ok(("", Value::Int(-456))));
     // Floats consume trailing whitespace (consistent with integers)
-    assert_eq!(parse_value("  3.14  "), Ok(("", Value::Float(3.14))));
+    assert_eq!(parse_value("  3.125  "), Ok(("", Value::Float(3.125))));
     assert_eq!(parse_value("\t-1.0\t"), Ok(("", Value::Float(-1.0))));
     // Hex bytes don't consume trailing whitespace by themselves
     assert_eq!(
@@ -1018,7 +1018,7 @@ fn test_parse_value_type_precedence() {
 #[test]
 fn test_parse_value_float_literals() {
     // Positive floats
-    assert_eq!(parse_value("3.14"), Ok(("", Value::Float(3.14))));
+    assert_eq!(parse_value("3.125"), Ok(("", Value::Float(3.125))));
     assert_eq!(parse_value("0.5"), Ok(("", Value::Float(0.5))));
     assert_eq!(parse_value("100.0"), Ok(("", Value::Float(100.0))));
 
