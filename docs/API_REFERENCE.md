@@ -325,21 +325,21 @@ The `Quad` variant supports six endian-signedness combinations:
 
 The `Float` variant supports three endian variants:
 
-| Type Specifier | Endianness | Description                            |
-| -------------- | ---------- | -------------------------------------- |
-| `float`        | Native     | Native-endian 32-bit IEEE 754 float    |
-| `lefloat`      | Little     | Little-endian 32-bit IEEE 754 float    |
-| `befloat`      | Big        | Big-endian 32-bit IEEE 754 float       |
+| Type Specifier | Endianness | Description                         |
+| -------------- | ---------- | ----------------------------------- |
+| `float`        | Native     | Native-endian 32-bit IEEE 754 float |
+| `lefloat`      | Little     | Little-endian 32-bit IEEE 754 float |
+| `befloat`      | Big        | Big-endian 32-bit IEEE 754 float    |
 
 ##### 64-bit Floating-Point Types
 
 The `Double` variant supports three endian variants:
 
-| Type Specifier | Endianness | Description                            |
-| -------------- | ---------- | -------------------------------------- |
-| `double`       | Native     | Native-endian 64-bit IEEE 754 double   |
-| `ledouble`     | Little     | Little-endian 64-bit IEEE 754 double   |
-| `bedouble`     | Big        | Big-endian 64-bit IEEE 754 double      |
+| Type Specifier | Endianness | Description                          |
+| -------------- | ---------- | ------------------------------------ |
+| `double`       | Native     | Native-endian 64-bit IEEE 754 double |
+| `ledouble`     | Little     | Little-endian 64-bit IEEE 754 double |
+| `bedouble`     | Big        | Big-endian 64-bit IEEE 754 double    |
 
 #### Operator
 
@@ -379,13 +379,13 @@ Value types for matching.
 use libmagic_rs::Value;
 ```
 
-| Variant          | Description                    |
-| ---------------- | ------------------------------ |
-| `Uint(u64)`      | Unsigned integer               |
-| `Int(i64)`       | Signed integer                 |
-| `Float(f64)`     | 64-bit floating-point value    |
-| `Bytes(Vec<u8>)` | Byte sequence                  |
-| `String(String)` | String value                   |
+| Variant          | Description                 |
+| ---------------- | --------------------------- |
+| `Uint(u64)`      | Unsigned integer            |
+| `Int(i64)`       | Signed integer              |
+| `Float(f64)`     | 64-bit floating-point value |
+| `Bytes(Vec<u8>)` | Byte sequence               |
+| `String(String)` | String value                |
 
 **Note:** `Value` implements `PartialEq` but not `Eq` due to IEEE 754 NaN semantics (NaN is not equal to itself).
 
