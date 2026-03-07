@@ -32,6 +32,7 @@ pub fn compare_values(left: &Value, right: &Value) -> Option<Ordering> {
         (Value::Int(a), Value::Int(b)) => Some(a.cmp(b)),
         (Value::Uint(a), Value::Int(b)) => Some(i128::from(*a).cmp(&i128::from(*b))),
         (Value::Int(a), Value::Uint(b)) => Some(i128::from(*a).cmp(&i128::from(*b))),
+        (Value::Float(a), Value::Float(b)) => a.partial_cmp(b),
         (Value::String(a), Value::String(b)) => Some(a.cmp(b)),
         (Value::Bytes(a), Value::Bytes(b)) => Some(a.cmp(b)),
         _ => None,
@@ -187,6 +188,91 @@ mod tests {
             None
         );
         assert_eq!(compare_values(&Value::Int(1), &Value::Bytes(vec![1])), None);
+    }
+
+    #[test]
+    fn test_compare_values_float_ordering() {
+        use std::cmp::Ordering::*;
+
+        assert_eq!(
+            compare_values(&Value::Float(1.0), &Value::Float(2.0)),
+            Some(Less)
+        );
+        assert_eq!(
+            compare_values(&Value::Float(2.0), &Value::Float(2.0)),
+            Some(Equal)
+        );
+        assert_eq!(
+            compare_values(&Value::Float(3.0), &Value::Float(2.0)),
+            Some(Greater)
+        );
+        assert_eq!(
+            compare_values(&Value::Float(-1.0), &Value::Float(1.0)),
+            Some(Less)
+        );
+
+        // Infinity ordering
+        assert_eq!(
+            compare_values(&Value::Float(1.0), &Value::Float(f64::INFINITY)),
+            Some(Less)
+        );
+        assert_eq!(
+            compare_values(&Value::Float(f64::NEG_INFINITY), &Value::Float(1.0)),
+            Some(Less)
+        );
+        assert_eq!(
+            compare_values(&Value::Float(f64::INFINITY), &Value::Float(f64::INFINITY)),
+            Some(Equal)
+        );
+
+        // NaN is not comparable
+        assert_eq!(
+            compare_values(&Value::Float(f64::NAN), &Value::Float(1.0)),
+            None
+        );
+        assert_eq!(
+            compare_values(&Value::Float(1.0), &Value::Float(f64::NAN)),
+            None
+        );
+        assert_eq!(
+            compare_values(&Value::Float(f64::NAN), &Value::Float(f64::NAN)),
+            None
+        );
+
+        // Float vs non-float is incomparable
+        assert_eq!(compare_values(&Value::Float(1.0), &Value::Uint(1)), None);
+        assert_eq!(compare_values(&Value::Int(1), &Value::Float(1.0)), None);
+    }
+
+    #[test]
+    fn test_comparison_operators_float() {
+        // Direct partial_cmp semantics for ordering operators
+        assert!(apply_less_than(&Value::Float(1.0), &Value::Float(2.0)));
+        assert!(!apply_less_than(&Value::Float(2.0), &Value::Float(2.0)));
+        assert!(apply_greater_than(&Value::Float(3.0), &Value::Float(2.0)));
+        assert!(!apply_greater_than(&Value::Float(2.0), &Value::Float(2.0)));
+        assert!(apply_less_equal(&Value::Float(2.0), &Value::Float(2.0)));
+        assert!(apply_less_equal(&Value::Float(1.0), &Value::Float(2.0)));
+        assert!(apply_greater_equal(&Value::Float(2.0), &Value::Float(2.0)));
+        assert!(apply_greater_equal(&Value::Float(3.0), &Value::Float(2.0)));
+
+        // NaN comparisons all return false
+        assert!(!apply_less_than(
+            &Value::Float(f64::NAN),
+            &Value::Float(1.0)
+        ));
+        assert!(!apply_greater_than(
+            &Value::Float(f64::NAN),
+            &Value::Float(1.0)
+        ));
+        assert!(!apply_less_equal(
+            &Value::Float(f64::NAN),
+            &Value::Float(1.0)
+        ));
+        assert!(!apply_greater_equal(
+            &Value::Float(f64::NAN),
+            &Value::Float(1.0)
+        ));
     }
 
     #[test]

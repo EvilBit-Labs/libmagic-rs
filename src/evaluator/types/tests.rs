@@ -93,6 +93,65 @@ fn test_read_typed_value_numeric_dispatch() {
 }
 
 #[test]
+fn test_read_typed_value_float_dispatch() {
+    // IEEE 754 little-endian 1.0f32: 0x3f800000
+    let float_result = read_typed_value(
+        &[0x00, 0x00, 0x80, 0x3f],
+        0,
+        &TypeKind::Float {
+            endian: Endianness::Little,
+        },
+    )
+    .unwrap();
+    assert_eq!(float_result, Value::Float(1.0));
+
+    // IEEE 754 big-endian 1.0f64: 0x3ff0000000000000
+    let double_result = read_typed_value(
+        &[0x3f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        0,
+        &TypeKind::Double {
+            endian: Endianness::Big,
+        },
+    )
+    .unwrap();
+    assert_eq!(double_result, Value::Float(1.0));
+
+    // Float buffer overrun: 3 bytes is too few for a 4-byte float
+    let float_err = read_typed_value(
+        &[0x00, 0x00, 0x80],
+        0,
+        &TypeKind::Float {
+            endian: Endianness::Little,
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        float_err,
+        TypeReadError::BufferOverrun {
+            offset: 0,
+            buffer_len: 3,
+        }
+    );
+
+    // Double buffer overrun: 7 bytes is too few for an 8-byte double
+    let double_err = read_typed_value(
+        &[0x00; 7],
+        0,
+        &TypeKind::Double {
+            endian: Endianness::Big,
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        double_err,
+        TypeReadError::BufferOverrun {
+            offset: 0,
+            buffer_len: 7,
+        }
+    );
+}
+
+#[test]
 fn test_read_typed_value_native_endian() {
     let result = read_typed_value(
         &[0x34, 0x12],
@@ -450,6 +509,20 @@ fn test_coerce_value_to_type() {
             Value::Uint(0xff),
             TypeKind::String { max_length: None },
             Value::Uint(0xff),
+        ),
+        (
+            Value::Float(3.14),
+            TypeKind::Float {
+                endian: Endianness::Native,
+            },
+            Value::Float(3.14),
+        ),
+        (
+            Value::Float(3.14),
+            TypeKind::Double {
+                endian: Endianness::Native,
+            },
+            Value::Float(3.14),
         ),
     ];
 

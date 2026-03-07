@@ -77,10 +77,10 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
             // Add bonus for limited-length strings (more constrained match)
             if max_length.is_some() { base + 5 } else { base }
         }
-        // 64-bit integers are most specific among numerics
-        TypeKind::Quad { .. } => 16,
-        // 32-bit integers are fairly specific
-        TypeKind::Long { .. } => 15,
+        // 64-bit types are most specific among numerics
+        TypeKind::Quad { .. } | TypeKind::Double { .. } => 16,
+        // 32-bit types are fairly specific
+        TypeKind::Long { .. } | TypeKind::Float { .. } => 15,
         // 16-bit integers are moderately specific
         TypeKind::Short { .. } => 10,
         // Single bytes are least specific
@@ -132,7 +132,7 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
             i32::try_from(b.len()).unwrap_or(20).min(20)
         }
         // Numeric values don't get length bonus
-        Value::Uint(_) | Value::Int(_) => 0,
+        Value::Uint(_) | Value::Int(_) | Value::Float(_) => 0,
     };
     strength += value_length_bonus;
 

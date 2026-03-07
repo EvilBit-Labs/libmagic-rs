@@ -6,12 +6,14 @@
 //! This module exposes the public type-reading API and dispatches to focused
 //! submodules for numeric and string handling.
 
+mod float;
 mod numeric;
 mod string;
 
 use crate::parser::ast::{TypeKind, Value};
 use thiserror::Error;
 
+pub use float::{read_double, read_float};
 pub use numeric::{read_byte, read_long, read_quad, read_short};
 pub use string::read_string;
 
@@ -71,6 +73,8 @@ pub fn read_typed_value(
         TypeKind::Short { endian, signed } => read_short(buffer, offset, *endian, *signed),
         TypeKind::Long { endian, signed } => read_long(buffer, offset, *endian, *signed),
         TypeKind::Quad { endian, signed } => read_quad(buffer, offset, *endian, *signed),
+        TypeKind::Float { endian } => read_float(buffer, offset, *endian),
+        TypeKind::Double { endian } => read_double(buffer, offset, *endian),
         TypeKind::String { max_length } => read_string(buffer, offset, *max_length),
     }
 }
