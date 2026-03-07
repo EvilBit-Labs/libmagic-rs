@@ -285,6 +285,20 @@ mod tests {
         // Negative finite literal
         let serialized = serialize_value(&Value::Float(-1.0));
         assert_eq!(serialized, "Value::Float(-1.0)");
+
+        // Non-finite values produce valid Rust expressions
+        assert_eq!(
+            serialize_value(&Value::Float(f64::NAN)),
+            "Value::Float(f64::NAN)"
+        );
+        assert_eq!(
+            serialize_value(&Value::Float(f64::INFINITY)),
+            "Value::Float(f64::INFINITY)"
+        );
+        assert_eq!(
+            serialize_value(&Value::Float(f64::NEG_INFINITY)),
+            "Value::Float(f64::NEG_INFINITY)"
+        );
     }
 
     #[test]

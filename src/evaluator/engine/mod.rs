@@ -212,6 +212,7 @@ pub fn evaluate_rules(
                 offset: absolute_offset,
                 level: rule.level,
                 value: read_value,
+                type_kind: rule.typ.clone(),
                 confidence: RuleMatch::calculate_confidence(rule.level),
             };
             matches.push(match_result);

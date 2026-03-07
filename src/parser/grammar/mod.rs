@@ -559,6 +559,14 @@ fn parse_float_value(input: &str) -> IResult<&str, f64> {
         .parse()
         .map_err(|_| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::MapRes)))?;
 
+    // Reject non-finite floats (NaN, +inf, -inf) to keep AST, JSON, and codegen valid
+    if !value.is_finite() {
+        return Err(nom::Err::Error(NomError::new(
+            input,
+            nom::error::ErrorKind::Float,
+        )));
+    }
+
     let (remaining, _) = multispace0(remaining)?;
     Ok((remaining, value))
 }

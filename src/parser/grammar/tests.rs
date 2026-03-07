@@ -1038,6 +1038,15 @@ fn test_parse_value_float_literals() {
 
     // Float with remaining input (trailing whitespace consumed, like integers)
     assert_eq!(parse_value("1.5 rest"), Ok(("rest", Value::Float(1.5))));
+
+    // Non-finite floats (overflow to infinity) should never produce Value::Float
+    // parse_value falls through to other parsers, so we check the result type
+    if let Ok((_, value)) = parse_value("1.0e309") {
+        assert!(
+            !matches!(value, Value::Float(f) if !f.is_finite()),
+            "overflow should not produce non-finite Value::Float"
+        );
+    }
 }
 
 #[test]

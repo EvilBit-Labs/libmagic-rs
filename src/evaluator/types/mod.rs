@@ -113,6 +113,10 @@ pub fn coerce_value_to_type(value: &Value, type_kind: &TypeKind) -> Value {
             #[allow(clippy::cast_possible_wrap)]
             Value::Int(*v as i64)
         }
+        // Round f64 expected value to f32 precision for TypeKind::Float so that
+        // parsed f64 literals compare correctly against f32-widened file values.
+        #[allow(clippy::cast_possible_truncation)]
+        (Value::Float(v), TypeKind::Float { .. }) => Value::Float(f64::from(*v as f32)),
         _ => value.clone(),
     }
 }

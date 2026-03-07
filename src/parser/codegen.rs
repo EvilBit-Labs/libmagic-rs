@@ -226,7 +226,17 @@ pub fn serialize_value(value: &Value) -> String {
     match value {
         Value::Uint(number) => format!("Value::Uint({})", format_number(*number)),
         Value::Int(number) => format!("Value::Int({})", format_signed_number(*number)),
-        Value::Float(f) => format!("Value::Float({f:?})"),
+        Value::Float(f) => {
+            if f.is_nan() {
+                "Value::Float(f64::NAN)".to_string()
+            } else if *f == f64::INFINITY {
+                "Value::Float(f64::INFINITY)".to_string()
+            } else if *f == f64::NEG_INFINITY {
+                "Value::Float(f64::NEG_INFINITY)".to_string()
+            } else {
+                format!("Value::Float({f:?})")
+            }
+        }
         Value::Bytes(bytes) => format!("Value::Bytes({})", format_byte_vec(bytes)),
         Value::String(text) => format!(
             "Value::String(String::from({}))",

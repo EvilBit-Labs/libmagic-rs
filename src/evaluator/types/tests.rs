@@ -278,6 +278,35 @@ fn test_read_typed_value_all_supported_types() {
 }
 
 #[test]
+fn test_coerce_value_to_type_float_rounds_to_f32() {
+    // 0.1 as f64 differs from 0.1 as f32-widened-to-f64
+    let f64_val = Value::Float(0.1_f64);
+    let coerced = coerce_value_to_type(
+        &f64_val,
+        &TypeKind::Float {
+            endian: Endianness::Native,
+        },
+    );
+    // After coercion, value should match f32 precision
+    #[allow(clippy::cast_possible_truncation)]
+    let expected = f64::from(0.1_f64 as f32);
+    assert_eq!(coerced, Value::Float(expected));
+}
+
+#[test]
+fn test_coerce_value_to_type_double_preserves_f64() {
+    // Double should not alter the f64 value
+    let val = Value::Float(0.1_f64);
+    let coerced = coerce_value_to_type(
+        &val,
+        &TypeKind::Double {
+            endian: Endianness::Native,
+        },
+    );
+    assert_eq!(coerced, Value::Float(0.1_f64));
+}
+
+#[test]
 fn test_read_typed_value_signed_vs_unsigned() {
     let buffer = &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
@@ -515,7 +544,8 @@ fn test_coerce_value_to_type() {
             TypeKind::Float {
                 endian: Endianness::Native,
             },
-            Value::Float(3.14),
+            // 3.14 rounded to f32 precision then widened back to f64
+            Value::Float(f64::from(3.14_f32)),
         ),
         (
             Value::Float(3.14),

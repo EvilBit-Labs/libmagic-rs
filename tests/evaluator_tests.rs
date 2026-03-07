@@ -3,8 +3,9 @@
 
 //! Evaluator integration tests
 //!
-//! Tests for confidence calculation, rule ordering, and evaluation behavior
-//! through the public `MagicDatabase` API.
+//! Tests for confidence calculation, rule ordering, and evaluation behavior.
+//! Uses both the public `MagicDatabase` API and the lower-level `evaluate_rules`
+//! function for type-specific evaluation scenarios.
 
 use libmagic_rs::evaluator::evaluate_rules;
 use libmagic_rs::{
