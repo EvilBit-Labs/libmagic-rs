@@ -226,7 +226,9 @@ use libmagic_rs::TypeKind;
 | `Byte { signed }`          | Single byte with explicit signedness (struct variant since v0.2.0; previously unit variant) |
 | `Short { endian, signed }` | 16-bit integer                                                                              |
 | `Long { endian, signed }`  | 32-bit integer                                                                              |
-| `String { max_length }`    | String data                                                                                 |
+| `Float { endian }`         | 32-bit IEEE 754 floating-point (added in v0.5.0)                                            |
+| `Double { endian }`        | 64-bit IEEE 754 double-precision floating-point (added in v0.5.0)                           |
+| `String { max_length }`    | String data (discriminant changed from 4 to 6 in v0.5.0)                                    |
 
 ### Operator
 
@@ -285,12 +287,15 @@ Value types for matching.
 use libmagic_rs::Value;
 ```
 
-| Variant          | Description      |
-| ---------------- | ---------------- |
-| `Uint(u64)`      | Unsigned integer |
-| `Int(i64)`       | Signed integer   |
-| `Bytes(Vec<u8>)` | Byte sequence    |
-| `String(String)` | String value     |
+| Variant          | Description                                             |
+| ---------------- | ------------------------------------------------------- |
+| `Uint(u64)`      | Unsigned integer                                        |
+| `Int(i64)`       | Signed integer                                          |
+| `Float(f64)`     | Floating-point value (added in v0.5.0)                  |
+| `Bytes(Vec<u8>)` | Byte sequence                                           |
+| `String(String)` | String value                                            |
+
+The `Value` enum derives `PartialEq` but no longer derives `Eq` (removed in v0.5.0 to support floating-point values).
 
 ### Endianness
 
@@ -406,13 +411,14 @@ Result from internal evaluation.
 use libmagic_rs::evaluator::MatchResult;
 ```
 
-| Field        | Type     | Description       |
-| ------------ | -------- | ----------------- |
-| `message`    | `String` | Match description |
-| `offset`     | `usize`  | Match offset      |
-| `level`      | `u32`    | Rule level        |
-| `value`      | `Value`  | Matched value     |
-| `confidence` | `f64`    | Confidence score  |
+| Field        | Type     | Description                           |
+| ------------ | -------- | ------------------------------------- |
+| `message`    | `String` | Match description                     |
+| `offset`     | `usize`  | Match offset                          |
+| `level`      | `u32`    | Rule level                            |
+| `value`      | `Value`  | Matched value                         |
+| `type_kind`  | `TypeKind` | Type used to read value (added in v0.5.0) |
+| `confidence` | `f64`    | Confidence score                      |
 
 ## Output Module
 
@@ -507,7 +513,15 @@ pub use error::{EvaluationError, LibmagicError, ParseError};
 - **Minimum Rust Version**: 1.85
 - **Edition**: 2024
 - **License**: Apache-2.0
-- **Current Version**: 0.2.1
+- **Current Version**: 0.5.0
+
+### Breaking Changes in v0.5.0
+
+- `TypeKind` enum: Added `Float { endian }` and `Double { endian }` variants for IEEE 754 floating-point support
+- `TypeKind::String` discriminant changed from 4 to 6 to accommodate new float types
+- `Value` enum: Added `Float(f64)` variant for floating-point values
+- `Value` enum: No longer derives `Eq` trait (only `PartialEq` is available due to floating-point values)
+- `RuleMatch` struct: Added `type_kind: TypeKind` field to indicate the type used for matching
 
 ### Breaking Changes in v0.2.0
 
