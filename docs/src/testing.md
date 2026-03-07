@@ -253,15 +253,20 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
+/// Helper to create a Command for the rmagic binary
+fn rmagic_cmd() -> Command {
+    Command::new(assert_cmd::cargo::cargo_bin!("rmagic"))
+}
+
 #[test]
 fn test_builtin_elf_detection() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let test_file = temp_dir.path().join("test.elf");
-    std::fs::write(&test_file, b"\x7fELF\x02\x01\x01\x00").unwrap();
+    std::fs::write(&test_file, b"\x7fELF\x02\x01\x01\x00")
+        .expect("Failed to create test file");
 
-    Command::cargo_bin("rmagic")
-        .unwrap()
-        .args(["--use-builtin", test_file.to_str().unwrap()])
+    rmagic_cmd()
+        .args(["--use-builtin", test_file.to_str().expect("Invalid path")])
         .assert()
         .success()
         .stdout(predicate::str::contains("ELF"));
@@ -655,7 +660,7 @@ cargo test --test cli_integration -- --nocapture
 
 ### Best Practices
 
-1. **Use `assert_cmd`**: All CLI tests use `Command::cargo_bin("rmagic")` for subprocess testing
+1. **Use `assert_cmd`**: All CLI tests use `rmagic_cmd()` helper (wrapping `cargo_bin!("rmagic")` macro) for subprocess testing
 2. **Use `predicates`**: Check stdout/stderr with predicate matchers for readable assertions
 3. **Use `tempfile`**: Create temporary test files with `TempDir` for isolation
 4. **Derive from config**: Use `EvaluationConfig::default()` for thresholds instead of hardcoding

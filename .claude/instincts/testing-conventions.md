@@ -14,7 +14,7 @@ Follow these testing patterns:
 
 1. **Unit tests**: Place in `#[cfg(test)] mod tests` within each source file
 2. **Integration tests**: Add to `tests/` directory with `_tests.rs` suffix
-3. **CLI tests**: Use `insta` snapshots in `tests/cli_integration_tests.rs`
+3. **CLI tests**: Use `assert_cmd` subprocess tests in `tests/cli_integration.rs`
 4. **Property tests**: Add to `tests/property_tests.rs` using `proptest`
 5. **Benchmarks**: Add to `benches/` using `criterion` with `harness = false`
 
@@ -35,6 +35,6 @@ Coverage target: >85% with `cargo llvm-cov`
 - 8 test files in `tests/` directory
 - 3 benchmark files in `benches/`
 - Every source file has inline `#[cfg(test)]` module
-- `insta` used for snapshot testing CLI output
+- `assert_cmd` used for subprocess-based CLI testing
 - `proptest` used for property-based testing
 - `criterion` used for benchmarks (not built-in bench)

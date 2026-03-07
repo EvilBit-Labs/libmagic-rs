@@ -1,5 +1,0 @@
----
-source: tests/cli_normalization.rs
-expression: normalized
----
-Failed to access file: File 'C:\Users\test\file.bin' is empty

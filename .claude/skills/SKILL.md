@@ -78,7 +78,7 @@ Target File -> Memory Mapper -> File Buffer
 | `src/evaluator/mod.rs` + `src/lib.rs` | 8x | Evaluator changes exposed through lib API |
 | `Cargo.toml` + `src/lib.rs` | 6x | Dependency changes affect library code |
 | `src/lib.rs` + `src/parser/ast.rs` | 5x | AST changes re-exported through lib |
-| `src/main.rs` + `tests/cli_integration_tests.rs` | 4x | CLI changes require test updates |
+| `src/main.rs` + `tests/cli_integration.rs` | 4x | CLI changes require test updates |
 
 ## Clippy Configuration
 
@@ -128,7 +128,7 @@ impl ParseError {
 
 ### Test File Naming
 
-- CLI tests: `tests/cli_integration_tests.rs`
+- CLI tests: `tests/cli_integration.rs`
 - JSON output: `tests/json_integration_test.rs`
 - Parser: `tests/parser_integration_tests.rs`
 - Properties: `tests/property_tests.rs`

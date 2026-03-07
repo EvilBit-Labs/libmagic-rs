@@ -660,6 +660,7 @@ mod tests {
     use super::*;
     use clap::Parser;
     use std::fs;
+    use tempfile::TempDir;
 
     #[test]
     fn test_basic_file_argument() {
@@ -749,6 +750,53 @@ mod tests {
     fn test_output_format_text_explicit() {
         let args = Args::try_parse_from(["rmagic", "test.bin", "--text"]).unwrap();
         assert_eq!(args.output_format(), OutputFormat::Text);
+    }
+
+    #[test]
+    fn test_args_defaults() {
+        let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
+        assert!(!args.strict, "strict should default to false");
+        assert!(!args.use_builtin, "use_builtin should default to false");
+    }
+
+    #[test]
+    fn test_args_strict_flag() {
+        let args = Args::try_parse_from(["rmagic", "--strict", "test.bin"]).unwrap();
+        assert!(args.strict);
+    }
+
+    #[test]
+    fn test_args_strict_with_json() {
+        let args = Args::try_parse_from(["rmagic", "--strict", "--json", "test.bin"]).unwrap();
+        assert!(args.strict);
+        assert!(args.json);
+        assert_eq!(args.output_format(), OutputFormat::Json);
+    }
+
+    #[test]
+    fn test_use_builtin_flag_parsing() {
+        let args = Args::try_parse_from(["rmagic", "--use-builtin", "test.bin"]).unwrap();
+        assert!(args.use_builtin);
+    }
+
+    #[test]
+    fn test_args_single_file_backwards_compatible() {
+        let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
+        assert_eq!(args.files.len(), 1);
+        assert!(!args.strict);
+    }
+
+    #[test]
+    fn test_args_multiple_files() {
+        let args = Args::try_parse_from(["rmagic", "file1.bin", "file2.bin", "file3.bin"]).unwrap();
+        assert_eq!(args.files.len(), 3);
+    }
+
+    #[test]
+    fn test_args_stdin_detection() {
+        let args = Args::try_parse_from(["rmagic", "-"]).unwrap();
+        assert_eq!(args.files.len(), 1);
+        assert!(args.files[0].is_stdin());
     }
 
     #[test]
@@ -985,11 +1033,9 @@ mod tests {
 
     #[test]
     fn test_validate_input_file_directory() {
-        // Create a temporary directory for testing
-        let temp_dir = std::env::temp_dir().join("test_validate_dir");
-        fs::create_dir_all(&temp_dir).unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
-        let result = validate_input_file(&temp_dir);
+        let result = validate_input_file(temp_dir.path());
         assert!(result.is_err());
         match result.unwrap_err() {
             LibmagicError::IoError(e) => {
@@ -998,22 +1044,16 @@ mod tests {
             }
             _ => panic!("Expected IoError with InvalidInput"),
         }
-
-        // Clean up
-        fs::remove_dir_all(&temp_dir).unwrap();
     }
 
     #[test]
     fn test_validate_input_file_valid() {
-        // Create a temporary file for testing
-        let temp_file = std::env::temp_dir().join("test_validate_file.bin");
-        fs::write(&temp_file, b"test content").unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_file = temp_dir.path().join("test_validate_file.bin");
+        fs::write(&temp_file, b"test content").expect("Failed to write test file");
 
         let result = validate_input_file(&temp_file);
         assert!(result.is_ok());
-
-        // Clean up
-        fs::remove_file(&temp_file).unwrap();
     }
 
     #[test]
@@ -1031,22 +1071,17 @@ mod tests {
 
     #[test]
     fn test_validate_magic_file_directory() {
-        // Create a temporary directory for testing
-        let temp_dir = std::env::temp_dir().join("test_validate_magic_dir");
-        fs::create_dir_all(&temp_dir).unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
-        let result = validate_magic_file(&temp_dir);
+        let result = validate_magic_file(temp_dir.path());
         assert!(result.is_ok());
-
-        // Clean up
-        fs::remove_dir_all(&temp_dir).unwrap();
     }
 
     #[test]
     fn test_validate_magic_file_empty() {
-        // Create a temporary empty magic file for testing
-        let temp_file = std::env::temp_dir().join("test_empty_magic.db");
-        fs::write(&temp_file, "").unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_file = temp_dir.path().join("test_empty_magic.db");
+        fs::write(&temp_file, "").expect("Failed to write test file");
 
         let result = validate_magic_file(&temp_file);
         assert!(result.is_err());
@@ -1057,16 +1092,13 @@ mod tests {
             }
             _ => panic!("Expected ParseError"),
         }
-
-        // Clean up
-        fs::remove_file(&temp_file).unwrap();
     }
 
     #[test]
     fn test_validate_magic_file_whitespace_only() {
-        // Create a temporary magic file with only whitespace
-        let temp_file = std::env::temp_dir().join("test_whitespace_magic.db");
-        fs::write(&temp_file, "   \n\t  \r\n  ").unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_file = temp_dir.path().join("test_whitespace_magic.db");
+        fs::write(&temp_file, "   \n\t  \r\n  ").expect("Failed to write test file");
 
         let result = validate_magic_file(&temp_file);
         assert!(result.is_err());
@@ -1077,22 +1109,17 @@ mod tests {
             }
             _ => panic!("Expected ParseError"),
         }
-
-        // Clean up
-        fs::remove_file(&temp_file).unwrap();
     }
 
     #[test]
     fn test_validate_magic_file_valid() {
-        // Create a temporary magic file with content
-        let temp_file = std::env::temp_dir().join("test_valid_magic.db");
-        fs::write(&temp_file, "# Magic file\n0 string test Test file").unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_file = temp_dir.path().join("test_valid_magic.db");
+        fs::write(&temp_file, "# Magic file\n0 string test Test file")
+            .expect("Failed to write test file");
 
         let result = validate_magic_file(&temp_file);
         assert!(result.is_ok());
-
-        // Clean up
-        fs::remove_file(&temp_file).unwrap();
     }
 
     /// Verify that text files/directories are prioritized over binary .mgc files
@@ -1202,21 +1229,20 @@ mod tests {
     fn test_magic_file_search_selects_first_existing() {
         use std::io::Write;
 
-        // Create a temporary directory structure to test search order
-        let temp_dir = std::env::temp_dir().join("test_magic_search_order");
-        let _ = fs::remove_dir_all(&temp_dir); // Clean up any previous test artifacts
-        fs::create_dir_all(&temp_dir).unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
         // Create a text magic file
-        let text_magic_path = temp_dir.join("text_magic");
-        let mut text_file = fs::File::create(&text_magic_path).unwrap();
-        writeln!(text_file, "# Text magic file").unwrap();
-        writeln!(text_file, "0 string test Test file").unwrap();
+        let text_magic_path = temp_dir.path().join("text_magic");
+        let mut text_file =
+            fs::File::create(&text_magic_path).expect("Failed to create text magic file");
+        writeln!(text_file, "# Text magic file").expect("Failed to write");
+        writeln!(text_file, "0 string test Test file").expect("Failed to write");
 
         // Create a binary magic file (simulated with .mgc extension)
-        let binary_magic_path = temp_dir.join("binary.mgc");
+        let binary_magic_path = temp_dir.path().join("binary.mgc");
         // Write some bytes that look like a binary magic file header
-        fs::write(&binary_magic_path, b"\x1c\x04\x1e\xf1test").unwrap();
+        fs::write(&binary_magic_path, b"\x1c\x04\x1e\xf1test")
+            .expect("Failed to create binary magic file");
 
         // Verify text file exists and is detected as text format
         assert!(text_magic_path.exists());
@@ -1235,9 +1261,6 @@ mod tests {
             "Binary magic file should be detected as Binary format, got {:?}",
             binary_format
         );
-
-        // Clean up
-        fs::remove_dir_all(&temp_dir).unwrap();
     }
 
     /// Verify that binary files are selected as fallback when no text files exist
