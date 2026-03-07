@@ -150,6 +150,33 @@ Examples:
 8       uquad     >0x8000000000000000 (unsigned 64-bit check)
 ```
 
+### Floating-Point Types
+
+| Type       | Size    | Endianness    | IEEE 754 |
+| ---------- | ------- | ------------- | -------- |
+| `float`    | 4 bytes | native        | 32-bit   |
+| `befloat`  | 4 bytes | big-endian    | 32-bit   |
+| `lefloat`  | 4 bytes | little-endian | 32-bit   |
+| `double`   | 8 bytes | native        | 64-bit   |
+| `bedouble` | 8 bytes | big-endian    | 64-bit   |
+| `ledouble` | 8 bytes | little-endian | 64-bit   |
+
+Floating-point types follow IEEE 754 standard. Unlike integer types, float types do not have signed or unsigned variants (the IEEE 754 format handles sign internally).
+
+Examples:
+
+```text
+0       lefloat   =3.14159   File with float value pi
+0       bedouble  >1.0       Double value greater than 1.0
+```
+
+Float comparison behavior:
+
+- **Equality**: Uses epsilon-aware comparison (`f64::EPSILON` tolerance)
+- **Ordering**: Uses IEEE 754 semantics via `partial_cmp`
+- **NaN**: `NaN != NaN`, comparisons with NaN always return false
+- **Infinity**: Positive and negative infinity are properly ordered
+
 ### String Type
 
 Match literal string data:
@@ -384,6 +411,19 @@ Output: `GIF image data, version 89a`
 >24     byte    6                   \b, RGBA
 ```
 
+### Floating-Point Values
+
+```text
+# Check for specific float value
+0       lefloat   =3.14159   File with float value pi
+
+# Float comparison
+0       float     >1.0       Float value greater than 1.0
+
+# Double precision
+0       bedouble  =0.45455   PNG image with gamma 0.45455
+```
+
 ## Best Practices
 
 ### 1. Order Rules by Specificity
@@ -461,6 +501,7 @@ Consider:
 - Relative offsets
 - Indirect offsets (basic)
 - Byte, short, long, quad types (8-bit, 16-bit, 32-bit, 64-bit integers)
+- Float and double types (32-bit and 64-bit IEEE 754 floating-point)
 - String type
 - Comparison operators (equal, not-equal, less-than, greater-than, less-equal, greater-equal)
 - Bitwise AND operator
@@ -471,7 +512,6 @@ Consider:
 
 - Regex patterns
 - Date/time types
-- Float types
 - 128-bit integer types
 - Use/name directives
 - Default rules
@@ -480,6 +520,7 @@ Consider:
 
 - **Strength modifiers**: The `!:strength` directive for adjusting rule priority
 - **64-bit integers**: `quad` type family (`quad`, `uquad`, `lequad`, `ulequad`, `bequad`, `ubequad`)
+- **Floating-point types**: `float` and `double` type families (`float`, `befloat`, `lefloat`, `double`, `bedouble`, `ledouble`) with IEEE 754 semantics and epsilon-aware equality
 
 ## Troubleshooting
 
