@@ -80,6 +80,21 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
             tag("lefloat"),
             tag("float"),
         )),
+        // Date types -- 32-bit (date) and 64-bit (qdate)
+        alt((
+            tag("beqldate"),
+            tag("leqldate"),
+            tag("beqdate"),
+            tag("leqdate"),
+            tag("qldate"),
+            tag("qdate"),
+            tag("beldate"),
+            tag("leldate"),
+            tag("bedate"),
+            tag("ldate"),
+            tag("ledate"),
+            tag("date"),
+        )),
         // String types (1 branch, will grow with pstring/search/regex)
         tag("string"),
     ))
@@ -118,6 +133,7 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
 /// Panics if `type_name` is not a recognized type keyword. This function should
 /// only be called with values returned by [`parse_type_keyword`].
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn type_keyword_to_kind(type_name: &str) -> TypeKind {
     match type_name {
         // BYTE types (8-bit)
@@ -222,6 +238,58 @@ pub fn type_keyword_to_kind(type_name: &str) -> TypeKind {
         },
         "ledouble" => TypeKind::Double {
             endian: Endianness::Little,
+        },
+
+        // DATE types (32-bit Unix timestamp)
+        "date" => TypeKind::Date {
+            endian: Endianness::Native,
+            utc: true,
+        },
+        "ldate" => TypeKind::Date {
+            endian: Endianness::Native,
+            utc: false,
+        },
+        "bedate" => TypeKind::Date {
+            endian: Endianness::Big,
+            utc: true,
+        },
+        "beldate" => TypeKind::Date {
+            endian: Endianness::Big,
+            utc: false,
+        },
+        "ledate" => TypeKind::Date {
+            endian: Endianness::Little,
+            utc: true,
+        },
+        "leldate" => TypeKind::Date {
+            endian: Endianness::Little,
+            utc: false,
+        },
+
+        // QDATE types (64-bit Unix timestamp)
+        "qdate" => TypeKind::QDate {
+            endian: Endianness::Native,
+            utc: true,
+        },
+        "qldate" => TypeKind::QDate {
+            endian: Endianness::Native,
+            utc: false,
+        },
+        "beqdate" => TypeKind::QDate {
+            endian: Endianness::Big,
+            utc: true,
+        },
+        "beqldate" => TypeKind::QDate {
+            endian: Endianness::Big,
+            utc: false,
+        },
+        "leqdate" => TypeKind::QDate {
+            endian: Endianness::Little,
+            utc: true,
+        },
+        "leqldate" => TypeKind::QDate {
+            endian: Endianness::Little,
+            utc: false,
         },
 
         // STRING type
@@ -402,7 +470,8 @@ mod tests {
             "byte", "ubyte", "short", "ushort", "leshort", "uleshort", "beshort", "ubeshort",
             "long", "ulong", "lelong", "ulelong", "belong", "ubelong", "quad", "uquad", "lequad",
             "ulequad", "bequad", "ubequad", "float", "befloat", "lefloat", "double", "bedouble",
-            "ledouble", "string",
+            "ledouble", "date", "ldate", "bedate", "beldate", "ledate", "leldate", "qdate",
+            "qldate", "beqdate", "beqldate", "leqdate", "leqldate", "string",
         ];
         for keyword in keywords {
             let (rest, parsed) = parse_type_keyword(keyword).unwrap();

@@ -287,13 +287,13 @@ Value types for matching.
 use libmagic_rs::Value;
 ```
 
-| Variant          | Description                                             |
-| ---------------- | ------------------------------------------------------- |
-| `Uint(u64)`      | Unsigned integer                                        |
-| `Int(i64)`       | Signed integer                                          |
-| `Float(f64)`     | Floating-point value (added in v0.5.0)                  |
-| `Bytes(Vec<u8>)` | Byte sequence                                           |
-| `String(String)` | String value                                            |
+| Variant          | Description                            |
+| ---------------- | -------------------------------------- |
+| `Uint(u64)`      | Unsigned integer                       |
+| `Int(i64)`       | Signed integer                         |
+| `Float(f64)`     | Floating-point value (added in v0.5.0) |
+| `Bytes(Vec<u8>)` | Byte sequence                          |
+| `String(String)` | String value                           |
 
 The `Value` enum derives `PartialEq` but no longer derives `Eq` (removed in v0.5.0 to support floating-point values).
 
@@ -411,14 +411,14 @@ Result from internal evaluation.
 use libmagic_rs::evaluator::MatchResult;
 ```
 
-| Field        | Type     | Description                           |
-| ------------ | -------- | ------------------------------------- |
-| `message`    | `String` | Match description                     |
-| `offset`     | `usize`  | Match offset                          |
-| `level`      | `u32`    | Rule level                            |
-| `value`      | `Value`  | Matched value                         |
+| Field        | Type       | Description                               |
+| ------------ | ---------- | ----------------------------------------- |
+| `message`    | `String`   | Match description                         |
+| `offset`     | `usize`    | Match offset                              |
+| `level`      | `u32`      | Rule level                                |
+| `value`      | `Value`    | Matched value                             |
 | `type_kind`  | `TypeKind` | Type used to read value (added in v0.5.0) |
-| `confidence` | `f64`    | Confidence score                      |
+| `confidence` | `f64`      | Confidence score                          |
 
 ## Output Module
 

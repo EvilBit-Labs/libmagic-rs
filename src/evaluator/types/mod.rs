@@ -6,6 +6,7 @@
 //! This module exposes the public type-reading API and dispatches to focused
 //! submodules for numeric and string handling.
 
+mod date;
 mod float;
 mod numeric;
 mod string;
@@ -13,6 +14,8 @@ mod string;
 use crate::parser::ast::{TypeKind, Value};
 use thiserror::Error;
 
+use date::format_timestamp_value;
+pub use date::{read_date, read_qdate};
 pub use float::{read_double, read_float};
 pub use numeric::{read_byte, read_long, read_quad, read_short};
 pub use string::read_string;
@@ -31,7 +34,7 @@ pub enum TypeReadError {
         buffer_len: usize,
     },
     /// Unsupported type variant (reserved for future types not yet evaluatable,
-    /// e.g., regex, float, date).
+    /// e.g., regex, date, timestamp).
     #[error("Unsupported type: {type_name}")]
     UnsupportedType {
         /// The name of the unsupported type.
@@ -75,6 +78,8 @@ pub fn read_typed_value(
         TypeKind::Quad { endian, signed } => read_quad(buffer, offset, *endian, *signed),
         TypeKind::Float { endian } => read_float(buffer, offset, *endian),
         TypeKind::Double { endian } => read_double(buffer, offset, *endian),
+        TypeKind::Date { endian, utc } => read_date(buffer, offset, *endian, *utc),
+        TypeKind::QDate { endian, utc } => read_qdate(buffer, offset, *endian, *utc),
         TypeKind::String { max_length } => read_string(buffer, offset, *max_length),
     }
 }
@@ -117,6 +122,15 @@ pub fn coerce_value_to_type(value: &Value, type_kind: &TypeKind) -> Value {
         // parsed f64 literals compare correctly against f32-widened file values.
         #[allow(clippy::cast_possible_truncation)]
         (Value::Float(v), TypeKind::Float { .. }) => Value::Float(f64::from(*v as f32)),
+        // Normalize numeric expected values for date types into formatted timestamp
+        // strings so they match the Value::String representation from read_date/read_qdate.
+        (Value::Uint(v), TypeKind::Date { utc, .. } | TypeKind::QDate { utc, .. }) => {
+            Value::String(format_timestamp_value(*v, *utc))
+        }
+        #[allow(clippy::cast_sign_loss)]
+        (Value::Int(v), TypeKind::Date { utc, .. } | TypeKind::QDate { utc, .. }) if *v >= 0 => {
+            Value::String(format_timestamp_value(*v as u64, *utc))
+        }
         _ => value.clone(),
     }
 }

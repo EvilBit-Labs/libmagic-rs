@@ -78,9 +78,9 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
             if max_length.is_some() { base + 5 } else { base }
         }
         // 64-bit types are most specific among numerics
-        TypeKind::Quad { .. } | TypeKind::Double { .. } => 16,
+        TypeKind::Quad { .. } | TypeKind::Double { .. } | TypeKind::QDate { .. } => 16,
         // 32-bit types are fairly specific
-        TypeKind::Long { .. } | TypeKind::Float { .. } => 15,
+        TypeKind::Long { .. } | TypeKind::Float { .. } | TypeKind::Date { .. } => 15,
         // 16-bit integers are moderately specific
         TypeKind::Short { .. } => 10,
         // Single bytes are least specific
@@ -428,6 +428,38 @@ mod tests {
         );
         let strength = calculate_default_strength(&rule);
         // Quad: 16, Equal: 10, Absolute: 10, Numeric: 0 = 36
+        assert_eq!(strength, 36);
+    }
+
+    #[test]
+    fn test_strength_type_date() {
+        let rule = make_rule(
+            TypeKind::Date {
+                endian: Endianness::Big,
+                utc: true,
+            },
+            Operator::Equal,
+            OffsetSpec::Absolute(0),
+            Value::Uint(0),
+        );
+        let strength = calculate_default_strength(&rule);
+        // Date: 15, Equal: 10, Absolute: 10, Numeric: 0 = 35
+        assert_eq!(strength, 35);
+    }
+
+    #[test]
+    fn test_strength_type_qdate() {
+        let rule = make_rule(
+            TypeKind::QDate {
+                endian: Endianness::Little,
+                utc: false,
+            },
+            Operator::Equal,
+            OffsetSpec::Absolute(0),
+            Value::Uint(0),
+        );
+        let strength = calculate_default_strength(&rule);
+        // QDate: 16, Equal: 10, Absolute: 10, Numeric: 0 = 36
         assert_eq!(strength, 36);
     }
 
