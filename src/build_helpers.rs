@@ -315,6 +315,19 @@ mod tests {
     }
 
     #[test]
+    fn test_serialize_type_kind_pstring() {
+        let typ1 = TypeKind::PString { max_length: None };
+        let serialized1 = serialize_type_kind(&typ1);
+        assert_eq!(serialized1, "TypeKind::PString { max_length: None }");
+
+        let typ2 = TypeKind::PString {
+            max_length: Some(128),
+        };
+        let serialized2 = serialize_type_kind(&typ2);
+        assert_eq!(serialized2, "TypeKind::PString { max_length: Some(128) }");
+    }
+
+    #[test]
     fn test_serialize_operator() {
         assert_eq!(serialize_operator(&Operator::Equal), "Operator::Equal");
         assert_eq!(

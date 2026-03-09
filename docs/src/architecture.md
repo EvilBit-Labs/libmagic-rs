@@ -95,6 +95,7 @@ pub enum TypeKind {
     Long { endian: Endianness, signed: bool },
     Quad { endian: Endianness, signed: bool },
     String { max_length: Option<usize> },
+    PString { max_length: Option<usize> }, // Pascal string (length-prefixed)
 }
 
 pub enum Operator {

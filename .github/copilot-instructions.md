@@ -4,11 +4,13 @@
 
 libmagic-rs is a **pure-Rust implementation of libmagic** for file type identification. The project follows a **parser-evaluator architecture** with strict memory safety guarantees and zero unsafe code.
 
-### Development Stage: MVP Phase (v0.1)
+### Development Stage: v0.5.0 (Active Development)
 
-- ✅ **Core AST and parser components** are complete with 98 unit tests
-- 🔄 **Currently implementing**: Complete magic file rule parsing (`src/parser/mod.rs`)
-- 📋 **Next**: Rule evaluation engine (`src/evaluator/`) and output formatters (`src/output/`)
+- ✅ **Parser**: Complete with AST structures, grammar parsing, type handling, and hierarchy support
+- ✅ **Evaluator**: Fully implemented with offset resolution, type interpretation, operator application, and strength calculation
+- ✅ **Output**: Text and JSON formatters with comprehensive metadata
+- ✅ **CLI**: Full-featured `rmagic` binary with multiple file support, stdin, built-in rules, and custom magic files
+- 🔄 **Currently implementing**: Enhanced type support (regex, search patterns) and indirect/relative offset evaluation
 
 ## Architecture Patterns
 
@@ -22,10 +24,21 @@ Target File → Memory Mapper → File Buffer
 
 ### Module Structure (Follow This Pattern)
 
-- **`src/parser/`**: `ast.rs` (complete), `grammar.rs` (nom parsers), `mod.rs` (rule integration)
-- **`src/io/`**: Memory-mapped FileBuffer with comprehensive bounds checking (complete)
-- **`src/evaluator/`**: Offset resolution, type interpretation, operators (planned)
-- **`src/output/`**: Text and JSON formatters (planned)
+- **`src/parser/`**: Complete parsing system
+  - `ast.rs`: AST node definitions (MagicRule, TypeKind, Operator, Value, OffsetSpec)
+  - `grammar/`: nom-based parser combinators for magic file syntax
+  - `types.rs`: Type keyword parsing and validation
+  - `hierarchy.rs`: Hierarchical rule structure handling
+  - `loader.rs`: Magic file loading and preprocessing
+  - `codegen.rs`: Serialization for build-time rule compilation
+- **`src/evaluator/`**: Rule evaluation engine
+  - `engine/`: Core evaluation logic and rule matching
+  - `offset/`: Offset resolution (absolute, from-end; indirect/relative stubs)
+  - `operators/`: Operator application (equality, comparison, bitwise)
+  - `types/`: Type interpretation with endianness handling
+  - `strength.rs`: Confidence scoring and strength modifiers
+- **`src/io/`**: Memory-mapped FileBuffer with SafeBufferAccess trait for bounds checking
+- **`src/output/`**: Result formatting (text.rs, json.rs) with metadata support
 
 ## Critical Development Practices
 
@@ -77,7 +90,7 @@ pub struct MagicRule {
 
 ```bash
 cargo check        # Fast syntax/type checking (use frequently)
-cargo test         # Run 98 unit tests (currently all passing)
+cargo test         # Run 1,068+ unit tests (currently all passing)
 cargo nextest run  # Faster test execution (preferred)
 cargo clippy -- -D warnings  # Required - zero warnings policy
 cargo fmt          # Code formatting
@@ -89,6 +102,7 @@ cargo fmt          # Code formatting
 - **Property testing**: Use `proptest` for fuzzing-style tests
 - **Error case testing**: Validate all `Result<T, E>` error paths
 - **Serialization testing**: All AST types use serde, test round-trip
+- **Table-driven tests**: Consolidate related test cases with descriptive failure messages
 
 ### Performance Focus
 
@@ -140,14 +154,24 @@ pub enum LibmagicError {
 
 ## Magic File Compatibility
 
-### Supported Syntax (Implement in parser/mod.rs)
+### Supported Syntax (Currently Implemented in v0.5.0)
 
-- **Offsets**: `0x10`, `(0x20.l+4)`, `&0x30`
-- **Types**: `byte`, `short`, `long`, `string`, `regex` with endianness (`be`, `le`)
-- **Operators**: `=`, `!=`, `>`, `<`, `&` (bitwise AND), `^` (XOR)
+- **Offsets**: Absolute, from-end (indirect and relative are parsed but not yet evaluated)
+- **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`
+- **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
 - **Nesting**: Hierarchical rules with proper indentation handling
+- **String Matching**: Exact string matching with null-termination
+- **Directives**: `!:strength` modifier (parsed and applied)
+
+### Planned Features (v1.0+)
+
+- Regex type: Pattern matching with binary-safe regex support
+- Search type: Multi-pattern string searching
+- Additional directives: `!:mime`, `!:ext`, `!:apple`
 
 ### Binary-Safe Regex
+
+> **Note:** The regex type is planned for future releases and is not yet implemented (#39).
 
 ```rust
 // Use regex crate with bytes feature for binary-safe matching
@@ -160,15 +184,20 @@ use regex::bytes::Regex;
 ### Completed (Don't Reimplement)
 
 - ✅ **AST structures** (`src/parser/ast.rs`) - fully tested with serde
-- ✅ **Parser components** (`src/parser/grammar.rs`) - numbers, offsets, operators, values
+- ✅ **Parser components** (`src/parser/grammar/`) - complete magic file syntax parsing
+- ✅ **Type system** (`src/parser/types.rs`) - byte, short, long, quad, float, double, string, pstring, date types
 - ✅ **File I/O** (`src/io/mod.rs`) - memory-mapped FileBuffer with bounds checking
-- ✅ **CLI framework** (`src/main.rs`) - clap-based argument parsing
+- ✅ **CLI framework** (`src/main.rs`) - clap-based argument parsing with JSON output
+- ✅ **Evaluator engine** (`src/evaluator/`) - complete rule evaluation with strength calculation
+- ✅ **Output formatters** (`src/output/`) - text and JSON formatters with metadata
 
 ### Active Development (Contribute Here)
 
-- 🔄 **Rule parsing** (`src/parser/mod.rs`) - integrate components into complete rules
-- 📋 **Evaluator engine** (`src/evaluator/mod.rs`) - offset resolution, type interpretation
-- 📋 **Output formatters** (`src/output/mod.rs`) - text and JSON result formatting
+- 🔄 **Indirect offsets** (`src/evaluator/offset/indirect.rs`) - stub exists, needs implementation (#37)
+- 🔄 **Relative offsets** (`src/evaluator/offset/relative.rs`) - stub exists, needs implementation (#38)
+- 📋 **Regex type** - planned for future release (#39)
+- 📋 **Search type** - planned for future release (#39)
+- ✅ **Pascal strings** - implemented (#43)
 
 ## Code Quality Enforcement
 
@@ -205,5 +234,32 @@ pedantic = { level = "warn", priority = -1 }
 - **AST → Evaluator**: Rules contain all evaluation context
 - **FileBuffer → Evaluator**: Safe buffer access through trait methods
 - **Results → Output**: Structured match results for formatters
+
+## Common Tasks and Patterns
+
+### Adding New Type Support
+
+> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Quad`, `Float`, `Double`, `String`, `PString`, and date/timestamp variants. Regex and other advanced types are planned for future releases.
+
+1. Extend `TypeKind` enum in `src/parser/ast.rs`
+2. Add keyword parsing in `src/parser/types.rs` (`parse_type_keyword` and `type_keyword_to_kind`)
+3. Add value/operator parsing in `src/parser/grammar/mod.rs` if needed
+4. Implement reading logic in `src/evaluator/types/` submodules
+5. Update `serialize_type_kind()` in `src/parser/codegen.rs`
+6. Add tests for the new type
+7. Update documentation
+
+### Adding New Operators
+
+> **Note:** Currently implemented operators are `Equal`, `NotEqual`, `LessThan`, `GreaterThan`, `LessEqual`, `GreaterEqual`, `BitwiseAnd` (with `BitwiseAndMask`), `BitwiseXor`, `BitwiseNot`, and `AnyValue`.
+
+1. Extend `Operator` enum in `src/parser/ast.rs`
+2. Add parsing logic in `src/parser/grammar/mod.rs`
+3. Implement operator logic in `src/evaluator/operators/` submodule
+4. Update `serialize_operator()` in `src/parser/codegen.rs`
+5. Update strength calculation match in `src/evaluator/strength.rs`
+6. Update `arb_operator()` in `tests/property_tests.rs`
+7. Add tests for the new operator
+8. Update documentation
 
 This guide ensures AI agents understand the project's strict safety requirements, current development focus, and established patterns for immediate productivity.

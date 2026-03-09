@@ -208,15 +208,14 @@ cargo test --doc   # Test documentation examples
 ### Currently Implemented (v0.1.0)
 
 - **Offsets**: Absolute and from-end specifications (indirect and relative are parsed but not yet evaluated)
-- **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`; date values formatted as `"Www Mmm DD HH:MM:SS YYYY"` matching GNU `file` output; types are signed by default (libmagic-compatible)
+- **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`; `pstring` is a Pascal string (length-prefixed byte followed by string data); date values formatted as `"Www Mmm DD HH:MM:SS YYYY"` matching GNU `file` output; types are signed by default (libmagic-compatible)
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
-- **String Matching**: Exact string matching with null-termination
+- **String Matching**: Exact string matching with null-termination and Pascal string (length-prefixed) support
 
 ### Planned Features (v1.0+)
 
 - Regex type: Pattern matching with binary-safe regex support
-- Additional types: pascal strings
 - Search type: Multi-pattern string searching
 
 ### Future Enhancement: Binary-Safe Regex Handling
@@ -240,7 +239,8 @@ impl BinaryRegex for regex::bytes::Regex {
 
 - No regex/search pattern matching
 - 64-bit integer types: `quad`/`uquad`, `bequad`/`ubequad`, `lequad`/`ulequad` are implemented; `qquad` (128-bit) is not yet supported
-- String evaluation reads until first NUL or end-of-buffer by default; `max_length: Some(_)` is supported internally but no dedicated fixed-length string parser syntax exists yet
+- String evaluation reads until first NUL or end-of-buffer by default; `pstring` reads a length-prefixed Pascal string; `max_length: Some(_)` is supported internally but no dedicated fixed-length string parser syntax exists yet
+- `pstring` only supports the default 1-byte length prefix (`/B`); multi-byte length prefix variants (`pstring/H` for 2-byte, `pstring/L` for 4-byte) are not yet implemented
 
 ### Operators
 
@@ -321,7 +321,7 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 
 ### Adding New Type Support
 
-> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Quad`, and `String`. Regex and other advanced types are planned for future releases.
+> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Quad`, `Float`, `Double`, `Date`, `QDate`, `String`, and `PString`. Regex and search types are planned for future releases.
 
 1. Extend `TypeKind` enum in `src/parser/ast.rs`
 2. Add keyword parsing in `src/parser/types.rs` (`parse_type_keyword` and `type_keyword_to_kind`)

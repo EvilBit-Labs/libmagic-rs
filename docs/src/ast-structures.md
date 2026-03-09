@@ -184,6 +184,9 @@ pub enum TypeKind {
 
     /// String data
     String { max_length: Option<usize> },
+
+    /// Pascal string (length-prefixed)
+    PString { max_length: Option<usize> },
 }
 ```
 
@@ -223,6 +226,39 @@ let quad_be = TypeKind::Quad {
 // Null-terminated string, max 256 bytes
 let string_type = TypeKind::String {
     max_length: Some(256)
+};
+```
+
+### PString (Pascal String)
+
+Pascal-style length-prefixed strings where the first byte contains the string length.
+
+**Structure:**
+- Length byte: 1 byte indicating string length (0-255)
+- String data: The number of bytes specified by the length byte
+
+**Example:**
+```
+0    pstring    JPEG
+```
+Reads one byte as length, then reads that many bytes as a string.
+
+**Behavior:**
+- Returns `Value::String` containing the string data (without the length prefix)
+- Performs bounds checking on both the length byte and the string data
+- Supports all string comparison operators
+
+**Usage:**
+
+```rust
+// Pascal string with no length limit
+let pstring_type = TypeKind::PString {
+    max_length: None
+};
+
+// Pascal string with maximum 64-byte limit
+let limited_pstring = TypeKind::PString {
+    max_length: Some(64)
 };
 ```
 
@@ -419,7 +455,8 @@ let script_rule = MagicRule {
 1. **Use `Byte { signed }`** for single-byte values and flags, specifying signedness
 2. **Use `Short/Long/Quad`** with explicit endianness and signedness for multi-byte integers
 3. **Use `String`** with length limits for text patterns
-4. **Use `Bytes`** for exact binary sequences
+4. **Use `PString`** for Pascal-style length-prefixed strings
+5. **Use `Bytes`** for exact binary sequences
 
 ### Performance Considerations
 

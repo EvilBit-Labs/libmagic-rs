@@ -83,6 +83,100 @@ pub fn read_string(
     Ok(Value::String(string_value))
 }
 
+/// Reads a Pascal-style length-prefixed string from the buffer.
+///
+/// Pascal strings store the length as the first byte (0-255), followed by
+/// that many bytes of string data. Unlike C strings, they are not null-terminated.
+///
+/// # Arguments
+///
+/// * `buffer` - The byte buffer to read from
+/// * `offset` - The offset position to start reading from
+/// * `max_length` - Optional maximum length limit (caps the length byte value)
+///
+/// # Returns
+///
+/// Returns `Ok(Value::String(string))` if successful. Invalid UTF-8 byte sequences
+/// are replaced with the Unicode replacement character (U+FFFD).
+///
+/// # Security
+///
+/// This function provides bounds checking to prevent reading beyond buffer limits.
+/// When `max_length` is set, bounds are validated against the capped length, not the
+/// raw length byte. This matches GNU `file` behavior: `max_length` is intended to
+/// handle cases where the length byte may reference more data than actually exists.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::evaluator::types::read_pstring;
+/// use libmagic_rs::parser::ast::Value;
+///
+/// let buffer = b"\x05Hello";
+/// let result = read_pstring(buffer, 0, None).unwrap();
+/// assert_eq!(result, Value::String("Hello".to_string()));
+///
+/// let buffer = b"\x0aHelloWorld";
+/// let result = read_pstring(buffer, 0, Some(5)).unwrap();
+/// assert_eq!(result, Value::String("Hello".to_string()));
+/// ```
+///
+/// # Errors
+///
+/// Returns `TypeReadError::BufferOverrun` if:
+/// - The offset is beyond buffer bounds (cannot read the length byte)
+/// - The string data (length byte value) extends beyond the buffer
+pub fn read_pstring(
+    buffer: &[u8],
+    offset: usize,
+    max_length: Option<usize>,
+) -> Result<Value, TypeReadError> {
+    // Check if we can read the length byte
+    let length_byte = *buffer.get(offset).ok_or(TypeReadError::BufferOverrun {
+        offset,
+        buffer_len: buffer.len(),
+    })?;
+
+    let string_length = usize::from(length_byte);
+
+    // Apply max_length limit if specified.
+    // NOTE: We intentionally validate bounds against actual_length (after capping),
+    // not against the raw length byte. This matches GNU file's behavior: if the
+    // length byte claims 10 bytes but max_length caps to 3 and 3+ bytes exist,
+    // the read succeeds. Validating against the raw length byte would reject
+    // valid magic rules where max_length is used precisely to handle truncated data.
+    let actual_length = if let Some(max_len) = max_length {
+        std::cmp::min(string_length, max_len)
+    } else {
+        string_length
+    };
+
+    // Check if we have enough bytes for the (possibly capped) string data
+    let string_start = offset.checked_add(1).ok_or(TypeReadError::BufferOverrun {
+        offset,
+        buffer_len: buffer.len(),
+    })?;
+    let string_end =
+        string_start
+            .checked_add(actual_length)
+            .ok_or(TypeReadError::BufferOverrun {
+                offset: usize::MAX,
+                buffer_len: buffer.len(),
+            })?;
+
+    if string_end > buffer.len() {
+        return Err(TypeReadError::BufferOverrun {
+            offset: string_end,
+            buffer_len: buffer.len(),
+        });
+    }
+
+    let string_bytes = &buffer[string_start..string_end];
+    let string_value = String::from_utf8_lossy(string_bytes).into_owned();
+
+    Ok(Value::String(string_value))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,5 +415,187 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ============================================================
+    // read_pstring tests
+    // ============================================================
+
+    #[test]
+    fn test_read_pstring_basic() {
+        let buffer = b"\x05Hello";
+        let result = read_pstring(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String("Hello".to_string()));
+    }
+
+    #[test]
+    fn test_read_pstring_at_offset() {
+        let buffer = b"PREFIX\x03Foo";
+        let result = read_pstring(buffer, 6, None).unwrap();
+        assert_eq!(result, Value::String("Foo".to_string()));
+    }
+
+    #[test]
+    fn test_read_pstring_empty_string() {
+        let buffer = b"\x00trailing";
+        let result = read_pstring(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String(String::new()));
+    }
+
+    #[test]
+    fn test_read_pstring_single_char() {
+        let buffer = b"\x01A";
+        let result = read_pstring(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String("A".to_string()));
+    }
+
+    #[test]
+    fn test_read_pstring_max_length_limits() {
+        let buffer = b"\x0aHelloWorld";
+        let result = read_pstring(buffer, 0, Some(5)).unwrap();
+        assert_eq!(result, Value::String("Hello".to_string()));
+    }
+
+    #[test]
+    fn test_read_pstring_max_length_larger_than_prefix() {
+        let buffer = b"\x03Foo";
+        let result = read_pstring(buffer, 0, Some(100)).unwrap();
+        assert_eq!(result, Value::String("Foo".to_string()));
+    }
+
+    #[test]
+    fn test_read_pstring_max_length_zero() {
+        let buffer = b"\x05Hello";
+        let result = read_pstring(buffer, 0, Some(0)).unwrap();
+        assert_eq!(result, Value::String(String::new()));
+    }
+
+    #[test]
+    fn test_read_pstring_buffer_overrun_offset_past_end() {
+        let buffer = b"Hello";
+        let result = read_pstring(buffer, 10, None);
+        assert_eq!(
+            result.unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 10,
+                buffer_len: 5,
+            }
+        );
+    }
+
+    #[test]
+    fn test_read_pstring_buffer_overrun_empty_buffer() {
+        let buffer = b"";
+        let result = read_pstring(buffer, 0, None);
+        assert_eq!(
+            result.unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 0,
+                buffer_len: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn test_read_pstring_buffer_overrun_length_exceeds_data() {
+        // Length byte says 10 but only 3 bytes follow
+        let buffer = b"\x0aFoo";
+        let result = read_pstring(buffer, 0, None);
+        assert_eq!(
+            result.unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 11, // string_end = 1 (start) + 10 (length byte)
+                buffer_len: 4,
+            }
+        );
+    }
+
+    #[test]
+    fn test_read_pstring_length_byte_only() {
+        // Buffer has length byte but no string data, and length > 0
+        let buffer = b"\x05";
+        let result = read_pstring(buffer, 0, None);
+        assert_eq!(
+            result.unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 6, // string_end = 1 (start) + 5 (length byte)
+                buffer_len: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn test_read_pstring_offset_overflow() {
+        let buffer = b"\x05Hello";
+        let result = read_pstring(buffer, usize::MAX, None);
+        assert_eq!(
+            result.unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: usize::MAX,
+                buffer_len: buffer.len(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_read_pstring_max_length_caps_when_buffer_short() {
+        // Length byte says 10, only 5 data bytes follow, but max_length=5 caps the read
+        let buffer = b"\x0aHello";
+        let result = read_pstring(buffer, 0, Some(5)).unwrap();
+        assert_eq!(result, Value::String("Hello".to_string()));
+    }
+
+    #[test]
+    fn test_read_pstring_utf8_valid() {
+        // "Café" in UTF-8 is 5 bytes: 43 61 66 c3 a9
+        let buffer = b"\x05Caf\xc3\xa9";
+        let result = read_pstring(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String("Café".to_string()));
+    }
+
+    #[test]
+    fn test_read_pstring_utf8_invalid() {
+        let buffer = b"\x03\xff\xfe\xfd";
+        let result = read_pstring(buffer, 0, None).unwrap();
+        if let Value::String(s) = result {
+            assert!(s.contains('\u{FFFD}'));
+        } else {
+            panic!("Expected Value::String");
+        }
+    }
+
+    #[test]
+    fn test_read_pstring_max_length_byte_value() {
+        // Length byte = 255, with exactly 255 bytes of data
+        let mut buffer = vec![0xFF];
+        buffer.extend(std::iter::repeat_n(b'A', 255));
+        let result = read_pstring(&buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String("A".repeat(255)));
+    }
+
+    #[test]
+    fn test_read_pstring_consistency_with_typed_value() {
+        let buffer = b"\x04Test";
+        let direct_result = read_pstring(buffer, 0, None).unwrap();
+
+        let type_kind = TypeKind::PString { max_length: None };
+        let typed_result = read_typed_value(buffer, 0, &type_kind).unwrap();
+
+        assert_eq!(direct_result, typed_result);
+        assert_eq!(typed_result, Value::String("Test".to_string()));
+    }
+
+    #[test]
+    fn test_read_pstring_consistency_with_max_length() {
+        let buffer = b"\x0aLongString";
+        let direct_result = read_pstring(buffer, 0, Some(4)).unwrap();
+
+        let type_kind = TypeKind::PString {
+            max_length: Some(4),
+        };
+        let typed_result = read_typed_value(buffer, 0, &type_kind).unwrap();
+
+        assert_eq!(direct_result, typed_result);
+        assert_eq!(typed_result, Value::String("Long".to_string()));
     }
 }

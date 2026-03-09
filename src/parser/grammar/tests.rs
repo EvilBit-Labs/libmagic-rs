@@ -1985,6 +1985,61 @@ fn test_is_strength_directive() {
     assert!(!is_strength_directive("!:mime application/pdf"));
 }
 
+// PString type tests
+#[test]
+fn test_parse_type_pstring() {
+    assert_eq!(
+        parse_type("pstring"),
+        Ok(("", TypeKind::PString { max_length: None }))
+    );
+}
+
+#[test]
+fn test_parse_type_pstring_with_remaining_input() {
+    assert_eq!(
+        parse_type("pstring ="),
+        Ok(("=", TypeKind::PString { max_length: None }))
+    );
+    assert_eq!(
+        parse_type("pstring \"hello\""),
+        Ok(("\"hello\"", TypeKind::PString { max_length: None }))
+    );
+}
+
+#[test]
+fn test_parse_magic_rule_pstring() {
+    let input = "0 pstring \"PascalStr\" Pascal string data";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+
+    assert_eq!(remaining, "");
+    assert_eq!(rule.level, 0);
+    assert_eq!(rule.offset, OffsetSpec::Absolute(0));
+    assert_eq!(rule.typ, TypeKind::PString { max_length: None });
+    assert_eq!(rule.op, Operator::Equal);
+    assert_eq!(rule.value, Value::String("PascalStr".to_string()));
+    assert_eq!(rule.message, "Pascal string data");
+}
+
+#[test]
+fn test_parse_magic_rule_pstring_child_rule() {
+    let input = ">4 pstring \"test\" child pstring rule";
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+
+    assert_eq!(remaining, "");
+    assert_eq!(rule.level, 1);
+    assert_eq!(rule.offset, OffsetSpec::Absolute(4));
+    assert_eq!(rule.typ, TypeKind::PString { max_length: None });
+    assert_eq!(rule.message, "child pstring rule");
+}
+
+#[test]
+fn test_parse_type_and_operator_pstring_standalone_and() {
+    let (remaining, (typ, op)) = parse_type_and_operator("pstring& ").unwrap();
+    assert_eq!(remaining, "");
+    assert_eq!(typ, TypeKind::PString { max_length: None });
+    assert_eq!(op, Some(Operator::BitwiseAnd));
+}
+
 #[test]
 fn test_parse_type_and_operator_quad_full_width_mask() {
     // Full u64 mask (0xffffffffffffffff) must parse successfully, not silently

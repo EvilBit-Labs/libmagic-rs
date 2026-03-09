@@ -356,6 +356,80 @@ fn test_evaluate_float_rule_less_than() {
 }
 
 #[test]
+fn test_evaluate_pstring_rule_match() {
+    // Pascal string: length byte (3) followed by "PDF"
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::PString { max_length: None },
+        op: Operator::Equal,
+        value: Value::String("PDF".to_string()),
+        message: "Pascal PDF marker".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    let buffer: &[u8] = &[3, b'P', b'D', b'F', 0x00, 0x00];
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[rule], buffer, &mut context).unwrap();
+    assert_eq!(matches.len(), 1, "PString rule should match pascal string");
+    assert_eq!(matches[0].message, "Pascal PDF marker");
+}
+
+#[test]
+fn test_evaluate_pstring_rule_no_match() {
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::PString { max_length: None },
+        op: Operator::Equal,
+        value: Value::String("ZIP".to_string()),
+        message: "Should not match".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    let buffer: &[u8] = &[3, b'P', b'D', b'F'];
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[rule], buffer, &mut context).unwrap();
+    assert!(
+        matches.is_empty(),
+        "PString rule should not match when strings differ"
+    );
+}
+
+#[test]
+fn test_evaluate_pstring_with_max_length() {
+    // Pascal string in buffer has length=10, but max_length caps at 3
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::PString {
+            max_length: Some(3),
+        },
+        op: Operator::Equal,
+        value: Value::String("Hel".to_string()),
+        message: "Truncated pascal string".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    let buffer: &[u8] = &[
+        10, b'H', b'e', b'l', b'l', b'o', b' ', b'w', b'o', b'r', b'l',
+    ];
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[rule], buffer, &mut context).unwrap();
+    assert_eq!(
+        matches.len(),
+        1,
+        "PString with max_length should truncate and match"
+    );
+}
+
+#[test]
 fn test_evaluate_float_rule_no_match() {
     // Buffer contains 1.0f32 LE, rule expects == 2.0 -- should NOT match
     let rule = MagicRule {

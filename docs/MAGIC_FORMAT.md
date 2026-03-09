@@ -170,7 +170,7 @@ Examples:
 8       uquad     >0x8000000000000000 (unsigned 64-bit check)
 ```
 
-### String Type
+### String Types
 
 Match literal string data:
 
@@ -185,6 +185,16 @@ String escape sequences:
 - `\n` - newline
 - `\t` - tab
 - `\\` - backslash
+
+**Pascal String (pstring)**
+
+Length-prefixed string type where the first byte contains the string length (0-255), followed by that many bytes of string data. Unlike C strings, Pascal strings are not null-terminated.
+
+```text
+0       pstring   =JPEG     JPEG image (Pascal string)
+```
+
+The length byte value determines how many bytes to read for the string data. If `max_length` is specified in the magic file (not shown in the basic syntax), it caps the length byte value to prevent reading excessive data.
 
 ### String Flags
 
@@ -525,7 +535,7 @@ Consider:
 - Relative offsets
 - Indirect offsets (basic)
 - Byte, short, long, quad types (8-bit, 16-bit, 32-bit, 64-bit integers)
-- String type
+- String types (`string`, `pstring`)
 - Date and timestamp types (32-bit and 64-bit Unix timestamps)
 - Comparison operators (`=`, `!`, `<`, `>`, `<=`, `>=`)
 - Bitwise AND operator
@@ -542,6 +552,7 @@ Consider:
 
 ### Recently Added
 
+- **Pascal string type**: `pstring` for length-prefixed strings
 - **Date/timestamp types**: `date` (32-bit) and `qdate` (64-bit) Unix timestamp types
 - **Comparison operators**: Full support for `<`, `>`, `<=`, `>=` operators
 - **Strength modifiers**: The `!:strength` directive for adjusting rule priority

@@ -1880,3 +1880,87 @@ fn test_mixed_valid_and_invalid_rules_yield_valid_matches() {
     let matches = evaluate_rules(&rules, buffer, &mut context).unwrap();
     assert_eq!(matches.len(), 2);
 }
+
+// ============================================================
+// PString (Pascal string) Tests
+// ============================================================
+
+#[test]
+fn test_evaluate_single_rule_pstring_match() {
+    // Pascal string: length byte (5) followed by "Hello"
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::PString { max_length: None },
+        op: Operator::Equal,
+        value: Value::String("Hello".to_string()),
+        message: "Pascal string detected".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    let buffer = &[5, b'H', b'e', b'l', b'l', b'o'];
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(
+        result.is_some(),
+        "PString rule should match when buffer contains matching pascal string"
+    );
+}
+
+#[test]
+fn test_evaluate_single_rule_pstring_no_match() {
+    // Pascal string in buffer is "Hello", rule expects "World"
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::PString { max_length: None },
+        op: Operator::Equal,
+        value: Value::String("World".to_string()),
+        message: "Should not match".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    let buffer = &[5, b'H', b'e', b'l', b'l', b'o'];
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(
+        result.is_none(),
+        "PString rule should not match when strings differ"
+    );
+}
+
+#[test]
+fn test_evaluate_single_rule_pstring_with_child_rule() {
+    // Parent: PString at offset 0 matches "ELF"
+    // Child: byte at offset 4 equals 0x02
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::PString { max_length: None },
+        op: Operator::Equal,
+        value: Value::String("ELF".to_string()),
+        message: "Pascal ELF".to_string(),
+        children: vec![MagicRule {
+            offset: OffsetSpec::Absolute(4),
+            typ: TypeKind::Byte { signed: false },
+            op: Operator::Equal,
+            value: Value::Uint(0x02),
+            message: "64-bit".to_string(),
+            children: vec![],
+            level: 1,
+            strength_modifier: None,
+        }],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    // Buffer: length=3, "ELF", then 0x02 at offset 4
+    let buffer = &[3, b'E', b'L', b'F', 0x02];
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[rule], buffer, &mut context).unwrap();
+    assert_eq!(
+        matches.len(),
+        2,
+        "Both parent PString and child byte rules should match"
+    );
+}

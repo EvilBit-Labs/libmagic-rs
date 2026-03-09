@@ -180,6 +180,27 @@ pub enum TypeKind {
         /// Maximum length to read
         max_length: Option<usize>,
     },
+    /// Pascal string (length-prefixed byte followed by string data)
+    ///
+    /// Pascal strings store the length as the first byte (0-255), followed by
+    /// that many bytes of string data. Unlike C strings, they are not
+    /// null-terminated.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::TypeKind;
+    ///
+    /// let pstring = TypeKind::PString { max_length: None };
+    /// assert_eq!(pstring, TypeKind::PString { max_length: None });
+    ///
+    /// let limited = TypeKind::PString { max_length: Some(64) };
+    /// assert_eq!(limited, TypeKind::PString { max_length: Some(64) });
+    /// ```
+    PString {
+        /// Maximum length to read (caps the length byte value)
+        max_length: Option<usize>,
+    },
 }
 
 impl TypeKind {
@@ -205,7 +226,7 @@ impl TypeKind {
             Self::Short { .. } => Some(16),
             Self::Long { .. } | Self::Float { .. } | Self::Date { .. } => Some(32),
             Self::Quad { .. } | Self::Double { .. } | Self::QDate { .. } => Some(64),
-            Self::String { .. } => None,
+            Self::String { .. } | Self::PString { .. } => None,
         }
     }
 }
@@ -863,6 +884,10 @@ mod tests {
             TypeKind::String { max_length: None },
             TypeKind::String {
                 max_length: Some(128),
+            },
+            TypeKind::PString { max_length: None },
+            TypeKind::PString {
+                max_length: Some(64),
             },
         ];
 
