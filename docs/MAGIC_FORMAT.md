@@ -200,6 +200,40 @@ Example:
 0       string/c  <!doctype  HTML document
 ```
 
+### Date/Timestamp Types
+
+Date and timestamp types read Unix timestamps (signed seconds since epoch) and format them as human-readable strings.
+
+**32-bit timestamps (4 bytes):**
+
+| Type      | Size    | Endianness    | Timezone   |
+| --------- | ------- | ------------- | ---------- |
+| `date`    | 4 bytes | native        | UTC        |
+| `ldate`   | 4 bytes | native        | local time |
+| `bedate`  | 4 bytes | big-endian    | UTC        |
+| `beldate` | 4 bytes | big-endian    | local time |
+| `ledate`  | 4 bytes | little-endian | UTC        |
+| `leldate` | 4 bytes | little-endian | local time |
+
+**64-bit timestamps (8 bytes):**
+
+| Type       | Size    | Endianness    | Timezone   |
+| ---------- | ------- | ------------- | ---------- |
+| `qdate`    | 8 bytes | native        | UTC        |
+| `qldate`   | 8 bytes | native        | local time |
+| `beqdate`  | 8 bytes | big-endian    | UTC        |
+| `beqldate` | 8 bytes | big-endian    | local time |
+| `leqdate`  | 8 bytes | little-endian | UTC        |
+| `leqldate` | 8 bytes | little-endian | local time |
+
+All timestamp values are formatted as strings in the format `"Www Mmm DD HH:MM:SS YYYY"` to match GNU file output.
+
+Example:
+
+```text
+0       ldate   x   Unix timestamp: %s
+```
+
 ---
 
 ## Operators
@@ -492,6 +526,7 @@ Consider:
 - Indirect offsets (basic)
 - Byte, short, long, quad types (8-bit, 16-bit, 32-bit, 64-bit integers)
 - String type
+- Date and timestamp types (32-bit and 64-bit Unix timestamps)
 - Comparison operators (`=`, `!`, `<`, `>`, `<=`, `>=`)
 - Bitwise AND operator
 - Nested rules
@@ -500,7 +535,6 @@ Consider:
 ### Not Yet Supported
 
 - Regex patterns
-- Date/time types
 - Float types
 - 128-bit integer types
 - Use/name directives
@@ -508,6 +542,7 @@ Consider:
 
 ### Recently Added
 
+- **Date/timestamp types**: `date` (32-bit) and `qdate` (64-bit) Unix timestamp types
 - **Comparison operators**: Full support for `<`, `>`, `<=`, `>=` operators
 - **Strength modifiers**: The `!:strength` directive for adjusting rule priority
 - **64-bit integers**: `quad` type family (`quad`, `uquad`, `lequad`, `ulequad`, `bequad`, `ubequad`)
