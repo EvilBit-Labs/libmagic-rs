@@ -229,6 +229,7 @@ use libmagic_rs::TypeKind;
 | `Float { endian }`         | 32-bit IEEE 754 floating-point (added in v0.5.0)                                            |
 | `Double { endian }`        | 64-bit IEEE 754 double-precision floating-point (added in v0.5.0)                           |
 | `String { max_length }`    | String data (discriminant changed from 4 to 6 in v0.5.0)                                    |
+| `PString { max_length }`   | Pascal string - length-prefixed byte followed by string data (returns `Value::String`)      |
 
 ### Operator
 
