@@ -10,7 +10,7 @@ libmagic-rs is a **pure-Rust implementation of libmagic** for file type identifi
 - ✅ **Evaluator**: Fully implemented with offset resolution, type interpretation, operator application, and strength calculation
 - ✅ **Output**: Text and JSON formatters with comprehensive metadata
 - ✅ **CLI**: Full-featured `rmagic` binary with multiple file support, stdin, built-in rules, and custom magic files
-- 🔄 **Currently implementing**: Enhanced type support (regex, search patterns, pascal strings) and indirect/relative offset evaluation
+- 🔄 **Currently implementing**: Enhanced type support (regex, search patterns) and indirect/relative offset evaluation
 
 ## Architecture Patterns
 
@@ -157,7 +157,7 @@ pub enum LibmagicError {
 ### Supported Syntax (Currently Implemented in v0.5.0)
 
 - **Offsets**: Absolute, from-end (indirect and relative are parsed but not yet evaluated)
-- **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`
+- **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
 - **Nesting**: Hierarchical rules with proper indentation handling
 - **String Matching**: Exact string matching with null-termination
@@ -167,7 +167,6 @@ pub enum LibmagicError {
 
 - Regex type: Pattern matching with binary-safe regex support
 - Search type: Multi-pattern string searching
-- Pascal string type: Length-prefixed strings
 - Additional directives: `!:mime`, `!:ext`, `!:apple`
 
 ### Binary-Safe Regex
@@ -186,7 +185,7 @@ use regex::bytes::Regex;
 
 - ✅ **AST structures** (`src/parser/ast.rs`) - fully tested with serde
 - ✅ **Parser components** (`src/parser/grammar/`) - complete magic file syntax parsing
-- ✅ **Type system** (`src/parser/types.rs`) - byte, short, long, quad, float, double, string, date types
+- ✅ **Type system** (`src/parser/types.rs`) - byte, short, long, quad, float, double, string, pstring, date types
 - ✅ **File I/O** (`src/io/mod.rs`) - memory-mapped FileBuffer with bounds checking
 - ✅ **CLI framework** (`src/main.rs`) - clap-based argument parsing with JSON output
 - ✅ **Evaluator engine** (`src/evaluator/`) - complete rule evaluation with strength calculation
@@ -198,7 +197,7 @@ use regex::bytes::Regex;
 - 🔄 **Relative offsets** (`src/evaluator/offset/relative.rs`) - stub exists, needs implementation (#38)
 - 📋 **Regex type** - planned for future release (#39)
 - 📋 **Search type** - planned for future release (#39)
-- 📋 **Pascal strings** - planned for future release (#43)
+- ✅ **Pascal strings** - implemented (#43)
 
 ## Code Quality Enforcement
 
@@ -240,7 +239,7 @@ pedantic = { level = "warn", priority = -1 }
 
 ### Adding New Type Support
 
-> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Quad`, `Float`, `Double`, `String`, and date/timestamp variants. Regex and other advanced types are planned for future releases.
+> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Quad`, `Float`, `Double`, `String`, `PString`, and date/timestamp variants. Regex and other advanced types are planned for future releases.
 
 1. Extend `TypeKind` enum in `src/parser/ast.rs`
 2. Add keyword parsing in `src/parser/types.rs` (`parse_type_keyword` and `type_keyword_to_kind`)
