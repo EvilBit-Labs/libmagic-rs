@@ -102,7 +102,9 @@ pub fn read_string(
 /// # Security
 ///
 /// This function provides bounds checking to prevent reading beyond buffer limits.
-/// The length byte is validated against the remaining buffer size before reading.
+/// When `max_length` is set, bounds are validated against the capped length, not the
+/// raw length byte. This matches GNU `file` behavior: `max_length` is intended to
+/// handle cases where the length byte may reference more data than actually exists.
 ///
 /// # Examples
 ///
@@ -137,14 +139,19 @@ pub fn read_pstring(
 
     let string_length = usize::from(length_byte);
 
-    // Apply max_length limit if specified
+    // Apply max_length limit if specified.
+    // NOTE: We intentionally validate bounds against actual_length (after capping),
+    // not against the raw length byte. This matches GNU file's behavior: if the
+    // length byte claims 10 bytes but max_length caps to 3 and 3+ bytes exist,
+    // the read succeeds. Validating against the raw length byte would reject
+    // valid magic rules where max_length is used precisely to handle truncated data.
     let actual_length = if let Some(max_len) = max_length {
         std::cmp::min(string_length, max_len)
     } else {
         string_length
     };
 
-    // Check if we have enough bytes for the string data
+    // Check if we have enough bytes for the (possibly capped) string data
     let string_start = offset.checked_add(1).ok_or(TypeReadError::BufferOverrun {
         offset,
         buffer_len: buffer.len(),
