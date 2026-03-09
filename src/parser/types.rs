@@ -95,7 +95,7 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
             tag("ledate"),
             tag("date"),
         )),
-        // String types (pstring must come before string to avoid prefix match)
+        // String types
         alt((tag("pstring"), tag("string"))),
     ))
     .parse(input)
