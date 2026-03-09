@@ -18,7 +18,7 @@ use date::format_timestamp_value;
 pub use date::{read_date, read_qdate};
 pub use float::{read_double, read_float};
 pub use numeric::{read_byte, read_long, read_quad, read_short};
-pub use string::read_string;
+pub use string::{read_pstring, read_string};
 
 /// Errors that can occur during type reading operations.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -81,6 +81,7 @@ pub fn read_typed_value(
         TypeKind::Date { endian, utc } => read_date(buffer, offset, *endian, *utc),
         TypeKind::QDate { endian, utc } => read_qdate(buffer, offset, *endian, *utc),
         TypeKind::String { max_length } => read_string(buffer, offset, *max_length),
+        TypeKind::PString { max_length } => read_pstring(buffer, offset, *max_length),
     }
 }
 

@@ -71,7 +71,7 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
     // Type contribution: more specific types get higher strength
     strength += match &rule.typ {
         // Strings are most specific (they match exact byte sequences)
-        TypeKind::String { max_length } => {
+        TypeKind::String { max_length } | TypeKind::PString { max_length } => {
             // Base string strength
             let base = 20;
             // Add bonus for limited-length strings (more constrained match)
