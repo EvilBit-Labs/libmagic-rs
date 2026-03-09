@@ -48,6 +48,9 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
         (0usize..256usize).prop_map(|len| TypeKind::String {
             max_length: Some(len),
         }),
+        (0usize..256usize).prop_map(|len| TypeKind::PString {
+            max_length: Some(len),
+        }),
     ]
 }
 
