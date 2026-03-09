@@ -494,7 +494,13 @@ mod tests {
         // Length byte says 10 but only 3 bytes follow
         let buffer = b"\x0aFoo";
         let result = read_pstring(buffer, 0, None);
-        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 11, // string_end = 1 (start) + 10 (length byte)
+                buffer_len: 4,
+            }
+        );
     }
 
     #[test]
@@ -502,7 +508,34 @@ mod tests {
         // Buffer has length byte but no string data, and length > 0
         let buffer = b"\x05";
         let result = read_pstring(buffer, 0, None);
-        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: 6, // string_end = 1 (start) + 5 (length byte)
+                buffer_len: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn test_read_pstring_offset_overflow() {
+        let buffer = b"\x05Hello";
+        let result = read_pstring(buffer, usize::MAX, None);
+        assert_eq!(
+            result.unwrap_err(),
+            TypeReadError::BufferOverrun {
+                offset: usize::MAX,
+                buffer_len: buffer.len(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_read_pstring_max_length_caps_when_buffer_short() {
+        // Length byte says 10, only 5 data bytes follow, but max_length=5 caps the read
+        let buffer = b"\x0aHello";
+        let result = read_pstring(buffer, 0, Some(5)).unwrap();
+        assert_eq!(result, Value::String("Hello".to_string()));
     }
 
     #[test]

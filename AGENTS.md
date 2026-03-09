@@ -240,6 +240,7 @@ impl BinaryRegex for regex::bytes::Regex {
 - No regex/search pattern matching
 - 64-bit integer types: `quad`/`uquad`, `bequad`/`ubequad`, `lequad`/`ulequad` are implemented; `qquad` (128-bit) is not yet supported
 - String evaluation reads until first NUL or end-of-buffer by default; `pstring` reads a length-prefixed Pascal string; `max_length: Some(_)` is supported internally but no dedicated fixed-length string parser syntax exists yet
+- `pstring` only supports the default 1-byte length prefix (`/B`); multi-byte length prefix variants (`pstring/H` for 2-byte, `pstring/L` for 4-byte) are not yet implemented
 
 ### Operators
 

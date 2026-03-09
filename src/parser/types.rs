@@ -294,6 +294,9 @@ pub fn type_keyword_to_kind(type_name: &str) -> TypeKind {
 
         // STRING types
         "string" => TypeKind::String { max_length: None },
+        // NOTE: GNU libmagic also supports pstring/B (1-byte, default), pstring/H
+        // (2-byte LE), and pstring/L (4-byte LE) length-prefix variants. Only the
+        // default 1-byte prefix is supported here; /B, /H, /L suffixes are not yet parsed.
         "pstring" => TypeKind::PString { max_length: None },
 
         _ => unreachable!("type_keyword_to_kind called with unknown type: {type_name}"),

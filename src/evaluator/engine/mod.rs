@@ -197,7 +197,9 @@ pub fn evaluate_rules(
                 )
                 | LibmagicError::IoError(_),
             ) => {
-                // Expected evaluation errors for individual rules -- skip gracefully
+                // Expected evaluation errors for individual rules -- skip gracefully.
+                // TODO: emit debug-level trace when a rule is skipped due to error,
+                // so users can distinguish "rule didn't match" from "rule failed internally".
                 continue;
             }
             Err(e) => {
