@@ -143,6 +143,38 @@ pub enum TypeKind {
         /// Byte order
         endian: Endianness,
     },
+    /// 32-bit Unix timestamp (seconds since epoch)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+    ///
+    /// let date = TypeKind::Date { endian: Endianness::Big, utc: true };
+    /// assert_eq!(date, TypeKind::Date { endian: Endianness::Big, utc: true });
+    /// ```
+    Date {
+        /// Byte order
+        endian: Endianness,
+        /// true = UTC, false = local time
+        utc: bool,
+    },
+    /// 64-bit Unix timestamp (seconds since epoch)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+    ///
+    /// let qdate = TypeKind::QDate { endian: Endianness::Little, utc: false };
+    /// assert_eq!(qdate, TypeKind::QDate { endian: Endianness::Little, utc: false });
+    /// ```
+    QDate {
+        /// Byte order
+        endian: Endianness,
+        /// true = UTC, false = local time
+        utc: bool,
+    },
     /// String data
     String {
         /// Maximum length to read
@@ -171,8 +203,8 @@ impl TypeKind {
         match self {
             Self::Byte { .. } => Some(8),
             Self::Short { .. } => Some(16),
-            Self::Long { .. } | Self::Float { .. } => Some(32),
-            Self::Quad { .. } | Self::Double { .. } => Some(64),
+            Self::Long { .. } | Self::Float { .. } | Self::Date { .. } => Some(32),
+            Self::Quad { .. } | Self::Double { .. } | Self::QDate { .. } => Some(64),
             Self::String { .. } => None,
         }
     }
@@ -811,6 +843,22 @@ mod tests {
             },
             TypeKind::Double {
                 endian: Endianness::Native,
+            },
+            TypeKind::Date {
+                endian: Endianness::Big,
+                utc: true,
+            },
+            TypeKind::Date {
+                endian: Endianness::Little,
+                utc: false,
+            },
+            TypeKind::QDate {
+                endian: Endianness::Native,
+                utc: true,
+            },
+            TypeKind::QDate {
+                endian: Endianness::Big,
+                utc: false,
             },
             TypeKind::String { max_length: None },
             TypeKind::String {

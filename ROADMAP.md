@@ -32,7 +32,7 @@ See [GitHub Milestones](https://github.com/EvilBit-Labs/libmagic-rs/milestones) 
 - [ ] Convert `evaluator/types.rs` to directory module ([#63](https://github.com/EvilBit-Labs/libmagic-rs/issues/63))
 - [ ] Regex and search types ([#39](https://github.com/EvilBit-Labs/libmagic-rs/issues/39))
 - [ ] Float and double types ([#40](https://github.com/EvilBit-Labs/libmagic-rs/issues/40))
-- [ ] Date and timestamp types ([#41](https://github.com/EvilBit-Labs/libmagic-rs/issues/41))
+- [x] Date and timestamp types ([#41](https://github.com/EvilBit-Labs/libmagic-rs/issues/41))
 - [ ] Pascal string type ([#43](https://github.com/EvilBit-Labs/libmagic-rs/issues/43))
 - [ ] Meta-types: default, clear, name, use, indirect ([#42](https://github.com/EvilBit-Labs/libmagic-rs/issues/42))
 

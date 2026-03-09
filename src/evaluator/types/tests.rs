@@ -307,6 +307,74 @@ fn test_coerce_value_to_type_double_preserves_f64() {
 }
 
 #[test]
+fn test_read_typed_value_date() {
+    // 0x00000001 BE = 1 second after epoch
+    let buffer = &[0x00, 0x00, 0x00, 0x01];
+    let result = read_typed_value(
+        buffer,
+        0,
+        &TypeKind::Date {
+            endian: Endianness::Big,
+            utc: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        result,
+        Value::String("Thu Jan  1 00:00:01 1970".to_string())
+    );
+
+    // Same bytes in LE = 0x01000000 = 16777216 seconds
+    let result_le = read_typed_value(
+        buffer,
+        0,
+        &TypeKind::Date {
+            endian: Endianness::Little,
+            utc: true,
+        },
+    )
+    .unwrap();
+    match result_le {
+        Value::String(_) => {}
+        other => panic!("Expected Value::String, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_read_typed_value_qdate() {
+    // 0x0000000000000001 BE = 1 second after epoch
+    let buffer = &[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01];
+    let result = read_typed_value(
+        buffer,
+        0,
+        &TypeKind::QDate {
+            endian: Endianness::Big,
+            utc: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        result,
+        Value::String("Thu Jan  1 00:00:01 1970".to_string())
+    );
+
+    // Same bytes in LE
+    let result_le = read_typed_value(
+        buffer,
+        0,
+        &TypeKind::QDate {
+            endian: Endianness::Little,
+            utc: true,
+        },
+    )
+    .unwrap();
+    match result_le {
+        Value::String(_) => {}
+        other => panic!("Expected Value::String, got {other:?}"),
+    }
+}
+
+#[test]
 fn test_read_typed_value_signed_vs_unsigned() {
     let buffer = &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
@@ -563,4 +631,98 @@ fn test_coerce_value_to_type() {
             "Case {i}: coerce({input:?}, {type_kind:?})"
         );
     }
+}
+
+#[test]
+fn test_coerce_value_to_type_date_numeric() {
+    // Numeric expected values for Date types should be formatted as timestamp strings
+    let date_type = TypeKind::Date {
+        endian: Endianness::Big,
+        utc: true,
+    };
+
+    // Uint(0) -> epoch string
+    let result = coerce_value_to_type(&Value::Uint(0), &date_type);
+    assert_eq!(
+        result,
+        Value::String("Thu Jan  1 00:00:00 1970".to_string())
+    );
+
+    // Uint(1_000_000_000) -> known date
+    let result = coerce_value_to_type(&Value::Uint(1_000_000_000), &date_type);
+    assert_eq!(
+        result,
+        Value::String("Sun Sep  9 01:46:40 2001".to_string())
+    );
+
+    // Int(0) -> epoch string
+    let result = coerce_value_to_type(&Value::Int(0), &date_type);
+    assert_eq!(
+        result,
+        Value::String("Thu Jan  1 00:00:00 1970".to_string())
+    );
+
+    // Negative Int should pass through unchanged
+    let result = coerce_value_to_type(&Value::Int(-1), &date_type);
+    assert_eq!(result, Value::Int(-1));
+
+    // String values should pass through unchanged
+    let s = Value::String("already a string".to_string());
+    let result = coerce_value_to_type(&s, &date_type);
+    assert_eq!(result, s);
+}
+
+#[test]
+fn test_coerce_value_to_type_qdate_numeric() {
+    // Numeric expected values for QDate types should be formatted as timestamp strings
+    let qdate_type = TypeKind::QDate {
+        endian: Endianness::Big,
+        utc: true,
+    };
+
+    let result = coerce_value_to_type(&Value::Uint(0), &qdate_type);
+    assert_eq!(
+        result,
+        Value::String("Thu Jan  1 00:00:00 1970".to_string())
+    );
+
+    let result = coerce_value_to_type(&Value::Uint(1_000_000_000), &qdate_type);
+    assert_eq!(
+        result,
+        Value::String("Sun Sep  9 01:46:40 2001".to_string())
+    );
+}
+
+#[test]
+fn test_coerce_date_matches_read_date() {
+    // Verify that coerced numeric operands match the Value::String from read_date
+    let buffer = &[0x3B, 0x9A, 0xCA, 0x00]; // 1_000_000_000 in BE
+    let date_type = TypeKind::Date {
+        endian: Endianness::Big,
+        utc: true,
+    };
+
+    let read_val = read_date(buffer, 0, Endianness::Big, true).unwrap();
+    let coerced = coerce_value_to_type(&Value::Uint(1_000_000_000), &date_type);
+    assert_eq!(
+        read_val, coerced,
+        "Coerced value should match read_date output"
+    );
+}
+
+#[test]
+fn test_coerce_qdate_matches_read_qdate() {
+    // Verify that coerced numeric operands match the Value::String from read_qdate
+    let buffer = &[0x00, 0x00, 0x00, 0x00, 0x3B, 0x9A, 0xCA, 0x00]; // 1_000_000_000 in BE
+    let qdate_type = TypeKind::QDate {
+        endian: Endianness::Big,
+        utc: true,
+    };
+
+    let read_val = read_qdate(buffer, 0, Endianness::Big, true).unwrap();
+    let coerced = coerce_value_to_type(&Value::Uint(1_000_000_000), &qdate_type);
+    assert_eq!(
+        read_val, coerced,
+        "Coerced value should match read_qdate output"
+    );
 }

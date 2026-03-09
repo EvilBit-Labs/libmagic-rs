@@ -195,6 +195,16 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
             "TypeKind::Double {{ endian: {} }}",
             serialize_endianness(*endian)
         ),
+        TypeKind::Date { endian, utc } => format!(
+            "TypeKind::Date {{ endian: {}, utc: {} }}",
+            serialize_endianness(*endian),
+            utc
+        ),
+        TypeKind::QDate { endian, utc } => format!(
+            "TypeKind::QDate {{ endian: {}, utc: {} }}",
+            serialize_endianness(*endian),
+            utc
+        ),
         TypeKind::String { max_length } => match max_length {
             Some(value) => {
                 format!("TypeKind::String {{ max_length: Some({value}) }}")
