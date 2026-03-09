@@ -209,7 +209,7 @@ Examples:
 16      leqldate  x         \b, timestamp %s
 ```
 
-### String Type
+### String Types
 
 Match literal string data:
 
@@ -224,6 +224,20 @@ String escape sequences:
 - `\n` - newline
 - `\t` - tab
 - `\\` - backslash
+
+### Pascal String Type
+
+Pascal string (pstring) is a length-prefixed string type. The first byte contains the string length (0-255), followed by that many bytes of string data. Unlike C strings, Pascal strings are not null-terminated.
+
+```text
+0       pstring   =JPEG     JPEG image (Pascal string)
+```
+
+The evaluator reads the length byte, then reads that many bytes as string data. The optional max_length parameter caps the length byte value:
+
+```text
+0       pstring   x         \b, name: %s
+```
 
 ### String Flags (Not Yet Implemented)
 
@@ -535,7 +549,7 @@ Consider:
 - Byte, short, long, quad types (8-bit, 16-bit, 32-bit, 64-bit integers)
 - Float and double types (32-bit and 64-bit IEEE 754 floating-point)
 - Date and qdate types (32-bit and 64-bit Unix timestamps)
-- String type
+- String and pstring types (null-terminated and length-prefixed strings)
 - Comparison operators (equal, not-equal, less-than, greater-than, less-equal, greater-equal)
 - Bitwise AND operator
 - Nested rules
