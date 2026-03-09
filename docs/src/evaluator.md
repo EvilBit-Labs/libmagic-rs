@@ -33,11 +33,12 @@ The evaluator module separates public interface from implementation:
   - **`types/mod.rs`** - Public API surface: `read_typed_value`, `coerce_value_to_type`, re-exports type functions
   - **`types/numeric.rs`** - Numeric type handling: `read_byte`, `read_short`, `read_long`, `read_quad` with endianness and signedness support
   - **`types/float.rs`** - Floating-point type handling: `read_float` (32-bit IEEE 754), `read_double` (64-bit IEEE 754) with endianness support
+  - **`types/date.rs`** - Date and timestamp type handling: `read_date` (32-bit Unix timestamps), `read_qdate` (64-bit Unix timestamps) with endianness and UTC/local time support
   - **`types/string.rs`** - String type handling: `read_string` with null-termination and UTF-8 conversion
   - **`types/tests.rs`** - Module tests
 - **`evaluator/strength.rs`** - Rule strength calculation
 
-The refactoring improves organization by separating concerns: `mod.rs` handles the public API surface and data types, while `engine/` contains the core evaluation logic. The types module was refactored in v0.4.2 from a single 1,836-line file into focused submodules for numeric and string handling, improving maintainability without changing the public API. From a public API perspective, all types and functions are imported from the `evaluator` module as before -- the internal organization is transparent to library users.
+The refactoring improves organization by separating concerns: `mod.rs` handles the public API surface and data types, while `engine/` contains the core evaluation logic. The types module was refactored in v0.4.2 from a single 1,836-line file into focused submodules for numeric, floating-point, date/timestamp, and string handling, improving maintainability without changing the public API. From a public API perspective, all types and functions are imported from the `evaluator` module as before -- the internal organization is transparent to library users.
 
 ## Core Components
 
@@ -106,7 +107,7 @@ pub fn resolve_offset(
 
 ### Type Reading (`evaluator/types/`)
 
-Interprets bytes according to type specifications. The types module is organized into submodules for numeric, floating-point, and string type handling (refactored from a single file in v0.4.2):
+Interprets bytes according to type specifications. The types module is organized into submodules for numeric, floating-point, date/timestamp, and string type handling (refactored from a single file in v0.4.2):
 
 - **Byte**: Single byte values (signed or unsigned)
 - **Short**: 16-bit integers with endianness
@@ -114,6 +115,8 @@ Interprets bytes according to type specifications. The types module is organized
 - **Quad**: 64-bit integers with endianness
 - **Float**: 32-bit IEEE 754 floating-point with endianness (native, big-endian `befloat`, little-endian `lefloat`)
 - **Double**: 64-bit IEEE 754 floating-point with endianness (native, big-endian `bedouble`, little-endian `ledouble`)
+- **Date**: 32-bit Unix timestamps (signed seconds since epoch) with configurable endianness and UTC/local time formatting
+- **QDate**: 64-bit Unix timestamps (signed seconds since epoch) with configurable endianness and UTC/local time formatting
 - **String**: Byte sequences with length limits
 - **Bounds checking**: Prevents buffer overruns
 
@@ -146,6 +149,31 @@ pub fn read_double(
 - `read_float()` reads 4 bytes and interprets as `f32`, converting to `f64` and returning `Value::Float(f64)`
 - `read_double()` reads 8 bytes and interprets as `f64`, returning `Value::Float(f64)`
 - Both respect endianness specified in `TypeKind::Float` or `TypeKind::Double`
+
+**Date and QDate Type Reading (`evaluator/types/date.rs`):**
+
+```rust
+pub fn read_date(
+    buffer: &[u8],
+    offset: usize,
+    endian: Endianness,
+    utc: bool,
+) -> Result<Value, TypeReadError>
+
+pub fn read_qdate(
+    buffer: &[u8],
+    offset: usize,
+    endian: Endianness,
+    utc: bool,
+) -> Result<Value, TypeReadError>
+```
+
+- `read_date()` reads 4 bytes as a 32-bit Unix timestamp (seconds since epoch) and returns `Value::String` formatted as `"Www Mmm DD HH:MM:SS YYYY"` to match GNU file output
+- `read_qdate()` reads 8 bytes as a 64-bit Unix timestamp (seconds since epoch) and returns `Value::String` formatted as `"Www Mmm DD HH:MM:SS YYYY"` to match GNU file output
+- Both support endianness (little-endian, big-endian, native)
+- Both support UTC or local time formatting
+- The evaluator reads raw integer timestamps from the buffer and converts them to formatted date strings for comparison
+- Example: A 32-bit value `1234567890` at offset 0 with type `ldate` would be evaluated as `"Fri Feb 13 23:31:30 2009"`
 
 ### Operator Application (`evaluator/operators.rs`)
 
@@ -462,7 +490,7 @@ assert_eq!(matches[0].message, "Pi constant detected");
 
 - [x] Basic evaluation engine structure
 - [x] Offset resolution (absolute, relative, from-end)
-- [x] Type reading with endianness support (Byte, Short, Long, Quad, Float, Double, String)
+- [x] Type reading with endianness support (Byte, Short, Long, Quad, Float, Double, Date, QDate, String)
 - [x] Operator application (Equal, NotEqual, LessThan, GreaterThan, LessEqual, GreaterEqual, BitwiseAnd, BitwiseAndMask)
 - [x] Hierarchical rule processing with child evaluation
 - [x] Error handling with graceful degradation

@@ -184,6 +184,28 @@ Parsed literals are stored as `Value::Float(f64)` in the AST, regardless of whet
 
 **Note:** Float and double types do **not** have signed/unsigned variants. IEEE 754 handles sign internally via the sign bit, so all float types use a single `TypeKind` variant with only an `endian` field (no `signed: bool` field).
 
+### Date and Timestamp Types
+
+The parser supports date and timestamp types for parsing Unix timestamps (signed seconds since epoch). There are 12 type keywords:
+
+**32-bit timestamps (Date):**
+- `date` - Native endian, UTC
+- `ldate` - Native endian, local time
+- `bedate` - Big-endian, UTC
+- `beldate` - Big-endian, local time
+- `ledate` - Little-endian, UTC
+- `leldate` - Little-endian, local time
+
+**64-bit timestamps (QDate):**
+- `qdate` - Native endian, UTC
+- `qldate` - Native endian, local time
+- `beqdate` - Big-endian, UTC
+- `beqldate` - Big-endian, local time
+- `leqdate` - Little-endian, UTC
+- `leqldate` - Little-endian, local time
+
+The parser creates `TypeKind::Date` or `TypeKind::QDate` variants with appropriate endianness and UTC flags. During evaluation, timestamps are formatted as strings in the format "Www Mmm DD HH:MM:SS YYYY" to match GNU file output.
+
 ## Parser Design Principles
 
 ### Error Handling

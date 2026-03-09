@@ -177,6 +177,38 @@ Float comparison behavior:
 - **NaN**: `NaN != NaN`, comparisons with NaN always return false
 - **Infinity**: Positive and negative infinity are properly ordered
 
+### Date/Timestamp Types
+
+| Type        | Size    | Endianness    | UTC/Local | Description                                                             |
+| ----------- | ------- | ------------- | --------- | ----------------------------------------------------------------------- |
+| `date`      | 4 bytes | native        | UTC       | 32-bit Unix timestamp (signed seconds since epoch), formatted as UTC    |
+| `ldate`     | 4 bytes | native        | Local     | 32-bit Unix timestamp, formatted as local time                          |
+| `bedate`    | 4 bytes | big-endian    | UTC       | 32-bit Unix timestamp, big-endian byte order, UTC                       |
+| `beldate`   | 4 bytes | big-endian    | Local     | 32-bit Unix timestamp, big-endian byte order, local time                |
+| `ledate`    | 4 bytes | little-endian | UTC       | 32-bit Unix timestamp, little-endian byte order, UTC                    |
+| `leldate`   | 4 bytes | little-endian | Local     | 32-bit Unix timestamp, little-endian byte order, local time             |
+| `qdate`     | 8 bytes | native        | UTC       | 64-bit Unix timestamp (signed seconds since epoch), formatted as UTC    |
+| `qldate`    | 8 bytes | native        | Local     | 64-bit Unix timestamp, formatted as local time                          |
+| `beqdate`   | 8 bytes | big-endian    | UTC       | 64-bit Unix timestamp, big-endian byte order, UTC                       |
+| `beqldate`  | 8 bytes | big-endian    | Local     | 64-bit Unix timestamp, big-endian byte order, local time                |
+| `leqdate`   | 8 bytes | little-endian | UTC       | 64-bit Unix timestamp, little-endian byte order, UTC                    |
+| `leqldate`  | 8 bytes | little-endian | Local     | 64-bit Unix timestamp, little-endian byte order, local time             |
+
+Timestamp values are formatted as strings matching GNU file output format: "Www Mmm DD HH:MM:SS YYYY"
+
+Examples:
+
+```text
+# Match file modified at Unix epoch
+0       date      =0        File created at epoch
+
+# Check timestamp in file header (big-endian)
+8       bedate    >946684800 File created after 2000-01-01
+
+# 64-bit timestamp (little-endian, local time)
+16      leqldate  x         \b, timestamp %s
+```
+
 ### String Type
 
 Match literal string data:
@@ -502,6 +534,7 @@ Consider:
 - Indirect offsets (basic)
 - Byte, short, long, quad types (8-bit, 16-bit, 32-bit, 64-bit integers)
 - Float and double types (32-bit and 64-bit IEEE 754 floating-point)
+- Date and qdate types (32-bit and 64-bit Unix timestamps)
 - String type
 - Comparison operators (equal, not-equal, less-than, greater-than, less-equal, greater-equal)
 - Bitwise AND operator
@@ -511,7 +544,6 @@ Consider:
 ### Not Yet Supported
 
 - Regex patterns
-- Date/time types
 - 128-bit integer types
 - Use/name directives
 - Default rules
