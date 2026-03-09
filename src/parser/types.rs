@@ -25,7 +25,7 @@ use crate::parser::ast::{Endianness, TypeKind};
 /// - 32-bit: `ubelong`, `ulelong`, `ulong`, `belong`, `lelong`, `long`
 /// - 16-bit: `ubeshort`, `uleshort`, `ushort`, `beshort`, `leshort`, `short`
 /// - 8-bit: `ubyte`, `byte`
-/// - String: `string`
+/// - String: `pstring`, `string`
 ///
 /// # Examples
 ///
@@ -95,8 +95,8 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
             tag("ledate"),
             tag("date"),
         )),
-        // String types (1 branch, will grow with pstring/search/regex)
-        tag("string"),
+        // String types (pstring must come before string to avoid prefix match)
+        alt((tag("pstring"), tag("string"))),
     ))
     .parse(input)
 }
@@ -292,8 +292,9 @@ pub fn type_keyword_to_kind(type_name: &str) -> TypeKind {
             utc: false,
         },
 
-        // STRING type
+        // STRING types
         "string" => TypeKind::String { max_length: None },
+        "pstring" => TypeKind::PString { max_length: None },
 
         _ => unreachable!("type_keyword_to_kind called with unknown type: {type_name}"),
     }
@@ -463,6 +464,19 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_type_keyword_pstring() {
+        assert_eq!(parse_type_keyword("pstring rest"), Ok((" rest", "pstring")));
+    }
+
+    #[test]
+    fn test_type_keyword_to_kind_pstring() {
+        assert_eq!(
+            type_keyword_to_kind("pstring"),
+            TypeKind::PString { max_length: None }
+        );
+    }
+
+    #[test]
     fn test_roundtrip_all_keywords() {
         // Verify that every keyword parsed by parse_type_keyword can be
         // converted to a TypeKind by type_keyword_to_kind
@@ -471,7 +485,7 @@ mod tests {
             "long", "ulong", "lelong", "ulelong", "belong", "ubelong", "quad", "uquad", "lequad",
             "ulequad", "bequad", "ubequad", "float", "befloat", "lefloat", "double", "bedouble",
             "ledouble", "date", "ldate", "bedate", "beldate", "ledate", "leldate", "qdate",
-            "qldate", "beqdate", "beqldate", "leqdate", "leqldate", "string",
+            "qldate", "beqdate", "beqldate", "leqdate", "leqldate", "pstring", "string",
         ];
         for keyword in keywords {
             let (rest, parsed) = parse_type_keyword(keyword).unwrap();

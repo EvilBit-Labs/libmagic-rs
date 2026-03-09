@@ -731,6 +731,7 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
 /// - `lequad` / `ulequad` - 64-bit little-endian integer
 /// - `bequad` / `ubequad` - 64-bit big-endian integer
 /// - `string` - null-terminated string
+/// - `pstring` - Pascal string (length-prefixed)
 ///
 /// # Examples
 ///

@@ -211,6 +211,12 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
             }
             None => "TypeKind::String { max_length: None }".to_string(),
         },
+        TypeKind::PString { max_length } => match max_length {
+            Some(value) => {
+                format!("TypeKind::PString {{ max_length: Some({value}) }}")
+            }
+            None => "TypeKind::PString { max_length: None }".to_string(),
+        },
     }
 }
 
