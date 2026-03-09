@@ -184,6 +184,46 @@ Parsed literals are stored as `Value::Float(f64)` in the AST, regardless of whet
 
 **Note:** Float and double types do **not** have signed/unsigned variants. IEEE 754 handles sign internally via the sign bit, so all float types use a single `TypeKind` variant with only an `endian` field (no `signed: bool` field).
 
+### Pascal String (pstring) Type
+
+The parser supports Pascal-style length-prefixed strings through the `pstring` keyword:
+
+**Type Keyword:**
+
+- `pstring` - Length-prefixed string (1-byte length + string data) → `TypeKind::PString { max_length: None }`
+
+**Format:**
+
+Pascal strings store the length as the first byte (0-255), followed by that many bytes of string data. Unlike C strings, they are not null-terminated.
+
+**Parser Implementation:**
+
+- Recognized by `parse_type_keyword()` in `src/parser/types.rs`
+- Maps to `TypeKind::PString` in the AST
+- Evaluator reads length prefix byte then that many bytes as string data
+- Stored as `Value::String` for comparison with string operators
+- Supports optional `max_length` field to cap the length byte value
+
+**Usage in Magic Rules:**
+
+```rust
+// Basic pstring matching
+0 pstring =Hello     // Match if pstring equals "Hello"
+0 pstring x          // Match any pstring value
+
+// With max_length constraint (parsed separately)
+0 pstring/64 x       // Limit string read to 64 bytes
+```
+
+**Features:**
+
+- ✅ Single type keyword `pstring`
+- ✅ Length-prefixed format (1 byte length, 0-255 bytes data)
+- ✅ Bounds checking for both length byte and string data
+- ✅ UTF-8 validation with replacement character for invalid sequences
+- ✅ Optional `max_length` parameter to limit string reads
+- ✅ String comparison operators work with pstring values
+
 ### Date and Timestamp Types
 
 The parser supports date and timestamp types for parsing Unix timestamps (signed seconds since epoch). There are 12 type keywords:
