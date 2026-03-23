@@ -163,7 +163,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
 
 [dev-dependencies]
-assert_cmd = "2.1.2"
+assert_cmd = "2.2.0"
 criterion = "0.8.2"
 insta = { version = "1.46.3", features = ["json"] }
 nix = { version = "0.31.2", features = ["fs"] }
