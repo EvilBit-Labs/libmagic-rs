@@ -81,7 +81,10 @@ pub fn read_typed_value(
         TypeKind::Date { endian, utc } => read_date(buffer, offset, *endian, *utc),
         TypeKind::QDate { endian, utc } => read_qdate(buffer, offset, *endian, *utc),
         TypeKind::String { max_length } => read_string(buffer, offset, *max_length),
-        TypeKind::PString { max_length } => read_pstring(buffer, offset, *max_length),
+        TypeKind::PString {
+            max_length,
+            length_width,
+        } => read_pstring(buffer, offset, *max_length, *length_width),
     }
 }
 

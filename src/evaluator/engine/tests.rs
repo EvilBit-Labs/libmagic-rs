@@ -1890,7 +1890,10 @@ fn test_evaluate_single_rule_pstring_match() {
     // Pascal string: length byte (5) followed by "Hello"
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::PString { max_length: None },
+        typ: TypeKind::PString {
+            max_length: None,
+            length_width: crate::parser::ast::PStringLengthWidth::OneByte,
+        },
         op: Operator::Equal,
         value: Value::String("Hello".to_string()),
         message: "Pascal string detected".to_string(),
@@ -1912,7 +1915,10 @@ fn test_evaluate_single_rule_pstring_no_match() {
     // Pascal string in buffer is "Hello", rule expects "World"
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::PString { max_length: None },
+        typ: TypeKind::PString {
+            max_length: None,
+            length_width: crate::parser::ast::PStringLengthWidth::OneByte,
+        },
         op: Operator::Equal,
         value: Value::String("World".to_string()),
         message: "Should not match".to_string(),
@@ -1935,7 +1941,10 @@ fn test_evaluate_single_rule_pstring_with_child_rule() {
     // Child: byte at offset 4 equals 0x02
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::PString { max_length: None },
+        typ: TypeKind::PString {
+            max_length: None,
+            length_width: crate::parser::ast::PStringLengthWidth::OneByte,
+        },
         op: Operator::Equal,
         value: Value::String("ELF".to_string()),
         message: "Pascal ELF".to_string(),
