@@ -11,6 +11,7 @@
 
 use proptest::prelude::*;
 
+use libmagic_rs::parser::ast::PStringLengthWidth;
 use libmagic_rs::{
     Endianness, EvaluationConfig, MagicDatabase, MagicRule, OffsetSpec, Operator, TypeKind, Value,
 };
@@ -50,6 +51,7 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
         }),
         (0usize..256usize).prop_map(|len| TypeKind::PString {
             max_length: Some(len),
+            length_width: PStringLengthWidth::OneByte,
         }),
     ]
 }

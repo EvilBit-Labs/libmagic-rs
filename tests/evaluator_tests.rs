@@ -8,6 +8,7 @@
 //! function for type-specific evaluation scenarios.
 
 use libmagic_rs::evaluator::evaluate_rules;
+use libmagic_rs::parser::ast::PStringLengthWidth;
 use libmagic_rs::{
     Endianness, EvaluationConfig, EvaluationContext, MagicDatabase, MagicRule, OffsetSpec,
     Operator, TypeKind, Value,
@@ -360,7 +361,10 @@ fn test_evaluate_pstring_rule_match() {
     // Pascal string: length byte (3) followed by "PDF"
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::PString { max_length: None },
+        typ: TypeKind::PString {
+            max_length: None,
+            length_width: PStringLengthWidth::OneByte,
+        },
         op: Operator::Equal,
         value: Value::String("PDF".to_string()),
         message: "Pascal PDF marker".to_string(),
@@ -381,7 +385,10 @@ fn test_evaluate_pstring_rule_match() {
 fn test_evaluate_pstring_rule_no_match() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::PString { max_length: None },
+        typ: TypeKind::PString {
+            max_length: None,
+            length_width: PStringLengthWidth::OneByte,
+        },
         op: Operator::Equal,
         value: Value::String("ZIP".to_string()),
         message: "Should not match".to_string(),
@@ -407,6 +414,7 @@ fn test_evaluate_pstring_with_max_length() {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::PString {
             max_length: Some(3),
+            length_width: PStringLengthWidth::OneByte,
         },
         op: Operator::Equal,
         value: Value::String("Hel".to_string()),
