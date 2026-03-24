@@ -2,6 +2,8 @@
 
 This document provides comprehensive guidelines for AI assistants working on the libmagic-rs project, ensuring consistent, high-quality development practices and project understanding.
 
+@GOTCHAS.md
+
 ## Project Overview
 
 **libmagic-rs** is a pure-Rust implementation of libmagic, designed to replace the C-based library with a memory-safe, efficient alternative for file type detection.
@@ -154,17 +156,10 @@ pub fn evaluate_magic_rules(
 
 ### Architecture Constraints
 
-- `src/error.rs` is shared with `build.rs` -- cannot reference lib-only types like `crate::io::IoError`
-- `FileError(String)` wraps structured I/O errors as strings to work around the build.rs constraint
-- Serialization functions live in `src/parser/codegen.rs`, shared by both `build.rs` (via `#[path]` include) and `src/build_helpers.rs` (via `crate::parser::codegen`); `format_parse_error` remains duplicated in both because `ParseError` has different import paths
-- Use `ParseError::IoError` for I/O errors in parser code, not `ParseError::invalid_syntax`
-- Use `LibmagicError::ConfigError` for config validation, not `ParseError::invalid_syntax`
 - Clippy pedantic lints are active (e.g., prefer `trailing_zeros()` over bitwise masks)
-- Multi-byte pstring length prefixes (`/H`, `/L`) use **little-endian** byte order -- doctest examples and test data must match
-- `usize::from(u32)` does not compile (no `From<u32> for usize` on 32-bit targets) -- use `as usize` for widening conversions from `u32`
-- All public enum variants need `# Examples` rustdoc sections
 - Comparison operators share a `compare_values() -> Option<Ordering>` helper in `operators/comparison.rs` -- new comparison logic goes there, not in individual `apply_*` functions
-- libmagic types are signed by default (`byte`, `short`, `long`, `quad`); unsigned variants use `u` prefix (`ubyte`, `ushort`, `ulong`, `uquad`, etc.)
+
+> See **[GOTCHAS.md](GOTCHAS.md)** for build script boundaries (S1), enum variant update checklists (S2), parser architecture (S3), numeric type pitfalls (S5), string/pstring encoding (S6), and other non-obvious behaviors.
 
 ### Naming Conventions
 
