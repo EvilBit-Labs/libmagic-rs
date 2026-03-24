@@ -681,9 +681,31 @@ pub fn parse_value(input: &str) -> IResult<&str, Value> {
 /// # Errors
 /// Returns a nom parsing error if the input doesn't match the expected format
 pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<Operator>)> {
+    use crate::parser::ast::PStringLengthWidth;
+
     let (input, _) = multispace0(input)?;
 
-    let (input, type_name) = crate::parser::types::parse_type_keyword(input)?;
+    let (mut input, type_name) = crate::parser::types::parse_type_keyword(input)?;
+
+    // Handle pstring suffixes: /B, /H, /h, /L, /l
+    let mut pstring_length_width = PStringLengthWidth::OneByte;
+    if type_name == "pstring" {
+        let (rest, width) = if let Some(rest) = input.strip_prefix("/B") {
+            (rest, PStringLengthWidth::OneByte)
+        } else if let Some(rest) = input.strip_prefix("/H") {
+            (rest, PStringLengthWidth::TwoByte)
+        } else if let Some(rest) = input.strip_prefix("/h") {
+            (rest, PStringLengthWidth::TwoByte)
+        } else if let Some(rest) = input.strip_prefix("/L") {
+            (rest, PStringLengthWidth::FourByte)
+        } else if let Some(rest) = input.strip_prefix("/l") {
+            (rest, PStringLengthWidth::FourByte)
+        } else {
+            (input, PStringLengthWidth::OneByte)
+        };
+        input = rest;
+        pstring_length_width = width;
+    }
 
     // Check for attached operator with mask (like &0xf0000000)
     // Uses unsigned parsing so full u64 masks (e.g. 0xffffffffffffffff) are supported.
@@ -712,7 +734,14 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
 
     let (input, _) = multispace0(input)?;
 
-    let type_kind = crate::parser::types::type_keyword_to_kind(type_name);
+    let mut type_kind = crate::parser::types::type_keyword_to_kind(type_name);
+    // Patch PString with parsed length_width
+    if let TypeKind::PString { max_length, .. } = type_kind {
+        type_kind = TypeKind::PString {
+            max_length,
+            length_width: pstring_length_width,
+        };
+    }
 
     Ok((input, (type_kind, attached_op)))
 }
@@ -731,7 +760,7 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
 /// - `lequad` / `ulequad` - 64-bit little-endian integer
 /// - `bequad` / `ubequad` - 64-bit big-endian integer
 /// - `string` - null-terminated string
-/// - `pstring` - Pascal string (length-prefixed)
+/// - `pstring` - Pascal string (length-prefixed, supports `/B` (1-byte, default), `/H` or `/h` (2-byte), `/L` or `/l` (4-byte) suffixes)
 ///
 /// # Examples
 ///

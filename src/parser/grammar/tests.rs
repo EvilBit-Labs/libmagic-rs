@@ -1,3 +1,35 @@
+use crate::parser::ast::PStringLengthWidth;
+#[test]
+fn test_parse_type_and_operator_pstring_suffixes() {
+    use crate::parser::ast::TypeKind;
+    let cases = [
+        ("pstring", PStringLengthWidth::OneByte, ""),
+        ("pstring/B", PStringLengthWidth::OneByte, ""),
+        ("pstring/H", PStringLengthWidth::TwoByte, ""),
+        ("pstring/h", PStringLengthWidth::TwoByte, ""),
+        ("pstring/L", PStringLengthWidth::FourByte, ""),
+        ("pstring/l", PStringLengthWidth::FourByte, ""),
+        ("pstring/H =", PStringLengthWidth::TwoByte, "="),
+    ];
+    for (input, expected_width, expected_rest) in cases {
+        let (rest, (kind, op)) = parse_type_and_operator(input).expect(input);
+        assert_eq!(rest, expected_rest, "rest for input: {input}");
+        assert!(op.is_none(), "operator for input: {input}");
+        match kind {
+            TypeKind::PString {
+                max_length,
+                length_width,
+            } => {
+                assert_eq!(max_length, None, "max_length for input: {input}");
+                assert_eq!(
+                    length_width, expected_width,
+                    "length_width for input: {input}"
+                );
+            }
+            _ => panic!("Expected PString for input: {input}, got {kind:?}"),
+        }
+    }
+}
 // Copyright (c) 2025-2026 the libmagic-rs contributors
 // SPDX-License-Identifier: Apache-2.0
 
@@ -1990,7 +2022,13 @@ fn test_is_strength_directive() {
 fn test_parse_type_pstring() {
     assert_eq!(
         parse_type("pstring"),
-        Ok(("", TypeKind::PString { max_length: None }))
+        Ok((
+            "",
+            TypeKind::PString {
+                max_length: None,
+                length_width: PStringLengthWidth::OneByte
+            }
+        ))
     );
 }
 
@@ -1998,11 +2036,23 @@ fn test_parse_type_pstring() {
 fn test_parse_type_pstring_with_remaining_input() {
     assert_eq!(
         parse_type("pstring ="),
-        Ok(("=", TypeKind::PString { max_length: None }))
+        Ok((
+            "=",
+            TypeKind::PString {
+                max_length: None,
+                length_width: PStringLengthWidth::OneByte
+            }
+        ))
     );
     assert_eq!(
         parse_type("pstring \"hello\""),
-        Ok(("\"hello\"", TypeKind::PString { max_length: None }))
+        Ok((
+            "\"hello\"",
+            TypeKind::PString {
+                max_length: None,
+                length_width: PStringLengthWidth::OneByte
+            }
+        ))
     );
 }
 
@@ -2014,7 +2064,13 @@ fn test_parse_magic_rule_pstring() {
     assert_eq!(remaining, "");
     assert_eq!(rule.level, 0);
     assert_eq!(rule.offset, OffsetSpec::Absolute(0));
-    assert_eq!(rule.typ, TypeKind::PString { max_length: None });
+    assert_eq!(
+        rule.typ,
+        TypeKind::PString {
+            max_length: None,
+            length_width: PStringLengthWidth::OneByte
+        }
+    );
     assert_eq!(rule.op, Operator::Equal);
     assert_eq!(rule.value, Value::String("PascalStr".to_string()));
     assert_eq!(rule.message, "Pascal string data");
@@ -2028,7 +2084,13 @@ fn test_parse_magic_rule_pstring_child_rule() {
     assert_eq!(remaining, "");
     assert_eq!(rule.level, 1);
     assert_eq!(rule.offset, OffsetSpec::Absolute(4));
-    assert_eq!(rule.typ, TypeKind::PString { max_length: None });
+    assert_eq!(
+        rule.typ,
+        TypeKind::PString {
+            max_length: None,
+            length_width: PStringLengthWidth::OneByte
+        }
+    );
     assert_eq!(rule.message, "child pstring rule");
 }
 
@@ -2036,7 +2098,13 @@ fn test_parse_magic_rule_pstring_child_rule() {
 fn test_parse_type_and_operator_pstring_standalone_and() {
     let (remaining, (typ, op)) = parse_type_and_operator("pstring& ").unwrap();
     assert_eq!(remaining, "");
-    assert_eq!(typ, TypeKind::PString { max_length: None });
+    assert_eq!(
+        typ,
+        TypeKind::PString {
+            max_length: None,
+            length_width: PStringLengthWidth::OneByte
+        }
+    );
     assert_eq!(op, Some(Operator::BitwiseAnd));
 }
 
