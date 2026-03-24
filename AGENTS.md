@@ -160,6 +160,8 @@ pub fn evaluate_magic_rules(
 - Use `ParseError::IoError` for I/O errors in parser code, not `ParseError::invalid_syntax`
 - Use `LibmagicError::ConfigError` for config validation, not `ParseError::invalid_syntax`
 - Clippy pedantic lints are active (e.g., prefer `trailing_zeros()` over bitwise masks)
+- Multi-byte pstring length prefixes (`/H`, `/L`) use **little-endian** byte order -- doctest examples and test data must match
+- `usize::from(u32)` does not compile (no `From<u32> for usize` on 32-bit targets) -- use `as usize` for widening conversions from `u32`
 - All public enum variants need `# Examples` rustdoc sections
 - Comparison operators share a `compare_values() -> Option<Ordering>` helper in `operators/comparison.rs` -- new comparison logic goes there, not in individual `apply_*` functions
 - libmagic types are signed by default (`byte`, `short`, `long`, `quad`); unsigned variants use `u` prefix (`ubyte`, `ushort`, `ulong`, `uquad`, etc.)
