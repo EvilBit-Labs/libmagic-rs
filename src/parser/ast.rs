@@ -8,6 +8,42 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The width of the length prefix for Pascal strings.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::PStringLengthWidth;
+/// let width = PStringLengthWidth::OneByte;
+/// assert_eq!(width.byte_count(), 1);
+/// let width = PStringLengthWidth::TwoByte;
+/// assert_eq!(width.byte_count(), 2);
+/// let width = PStringLengthWidth::FourByte;
+/// assert_eq!(width.byte_count(), 4);
+/// ```
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
+pub enum PStringLengthWidth {
+    /// 1-byte length prefix (default, `/B` suffix)
+    OneByte,
+    /// 2-byte length prefix (`/H` or `/h` suffix)
+    TwoByte,
+    /// 4-byte length prefix (`/L` or `/l` suffix)
+    FourByte,
+}
+
+impl PStringLengthWidth {
+    /// Returns the number of bytes used for the length prefix.
+    #[must_use]
+    pub fn byte_count(&self) -> usize {
+        match self {
+            PStringLengthWidth::OneByte => 1,
+            PStringLengthWidth::TwoByte => 2,
+            PStringLengthWidth::FourByte => 4,
+        }
+    }
+}
+
 /// Offset specification for locating data in files
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum OffsetSpec {
@@ -180,26 +216,27 @@ pub enum TypeKind {
         /// Maximum length to read
         max_length: Option<usize>,
     },
-    /// Pascal string (length-prefixed byte followed by string data)
+    /// Pascal string (length-prefixed, supports 1/2/4-byte prefix, with optional max length)
     ///
-    /// Pascal strings store the length as the first byte (0-255), followed by
-    /// that many bytes of string data. Unlike C strings, they are not
-    /// null-terminated.
+    /// Pascal strings store the length as a prefix (1, 2, or 4 bytes, little-endian), followed by
+    /// that many bytes of string data. Unlike C strings, they are not null-terminated.
     ///
     /// # Examples
     ///
     /// ```
-    /// use libmagic_rs::parser::ast::TypeKind;
+    /// use libmagic_rs::parser::ast::{TypeKind, PStringLengthWidth};
     ///
-    /// let pstring = TypeKind::PString { max_length: None };
-    /// assert_eq!(pstring, TypeKind::PString { max_length: None });
+    /// let pstring = TypeKind::PString { max_length: None, length_width: PStringLengthWidth::OneByte };
+    /// assert_eq!(pstring, TypeKind::PString { max_length: None, length_width: PStringLengthWidth::OneByte });
     ///
-    /// let limited = TypeKind::PString { max_length: Some(64) };
-    /// assert_eq!(limited, TypeKind::PString { max_length: Some(64) });
+    /// let limited = TypeKind::PString { max_length: Some(64), length_width: PStringLengthWidth::TwoByte };
+    /// assert_eq!(limited, TypeKind::PString { max_length: Some(64), length_width: PStringLengthWidth::TwoByte });
     /// ```
     PString {
-        /// Maximum length to read (caps the length byte value)
+        /// Maximum length to read (caps the length value)
         max_length: Option<usize>,
+        /// Width of the length prefix
+        length_width: PStringLengthWidth,
     },
 }
 
@@ -885,9 +922,13 @@ mod tests {
             TypeKind::String {
                 max_length: Some(128),
             },
-            TypeKind::PString { max_length: None },
+            TypeKind::PString {
+                max_length: None,
+                length_width: PStringLengthWidth::OneByte,
+            },
             TypeKind::PString {
                 max_length: Some(64),
+                length_width: PStringLengthWidth::OneByte,
             },
         ];
 
