@@ -320,21 +320,23 @@ mod tests {
         let typ1 = TypeKind::PString {
             max_length: None,
             length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false,
         };
         let serialized1 = serialize_type_kind(&typ1);
         assert_eq!(
             serialized1,
-            "TypeKind::PString { max_length: None, length_width: PStringLengthWidth::OneByte }"
+            "TypeKind::PString { max_length: None, length_width: PStringLengthWidth::OneByte, length_includes_itself: false }"
         );
 
         let typ2 = TypeKind::PString {
             max_length: Some(128),
-            length_width: PStringLengthWidth::FourByte,
+            length_width: PStringLengthWidth::FourByteLE,
+            length_includes_itself: false,
         };
         let serialized2 = serialize_type_kind(&typ2);
         assert_eq!(
             serialized2,
-            "TypeKind::PString { max_length: Some(128), length_width: PStringLengthWidth::FourByte }"
+            "TypeKind::PString { max_length: Some(128), length_width: PStringLengthWidth::FourByteLE, length_includes_itself: false }"
         );
     }
 

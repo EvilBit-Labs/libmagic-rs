@@ -1893,6 +1893,7 @@ fn test_evaluate_single_rule_pstring_match() {
         typ: TypeKind::PString {
             max_length: None,
             length_width: crate::parser::ast::PStringLengthWidth::OneByte,
+            length_includes_itself: false,
         },
         op: Operator::Equal,
         value: Value::String("Hello".to_string()),
@@ -1918,6 +1919,7 @@ fn test_evaluate_single_rule_pstring_no_match() {
         typ: TypeKind::PString {
             max_length: None,
             length_width: crate::parser::ast::PStringLengthWidth::OneByte,
+            length_includes_itself: false,
         },
         op: Operator::Equal,
         value: Value::String("World".to_string()),
@@ -1944,6 +1946,7 @@ fn test_evaluate_single_rule_pstring_with_child_rule() {
         typ: TypeKind::PString {
             max_length: None,
             length_width: crate::parser::ast::PStringLengthWidth::OneByte,
+            length_includes_itself: false,
         },
         op: Operator::Equal,
         value: Value::String("ELF".to_string()),

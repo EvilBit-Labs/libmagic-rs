@@ -84,7 +84,14 @@ pub fn read_typed_value(
         TypeKind::PString {
             max_length,
             length_width,
-        } => read_pstring(buffer, offset, *max_length, *length_width),
+            length_includes_itself,
+        } => read_pstring(
+            buffer,
+            offset,
+            *max_length,
+            *length_width,
+            *length_includes_itself,
+        ),
     }
 }
 
