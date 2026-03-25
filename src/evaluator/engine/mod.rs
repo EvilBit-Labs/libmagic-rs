@@ -14,6 +14,7 @@ use crate::parser::ast::MagicRule;
 use crate::{EvaluationConfig, LibmagicError};
 
 use super::{EvaluationContext, RuleMatch, offset, operators, types};
+use log::debug;
 
 /// Evaluate a single magic rule against a file buffer
 ///
@@ -190,16 +191,20 @@ pub fn evaluate_rules(
         let match_data = match evaluate_single_rule(rule, buffer) {
             Ok(data) => data,
             Err(
-                LibmagicError::EvaluationError(
+                e @ (LibmagicError::EvaluationError(
                     crate::error::EvaluationError::BufferOverrun { .. }
                     | crate::error::EvaluationError::InvalidOffset { .. }
-                    | crate::error::EvaluationError::TypeReadError(_),
+                    | crate::error::EvaluationError::TypeReadError(
+                        crate::evaluator::types::TypeReadError::BufferOverrun { .. }
+                        | crate::evaluator::types::TypeReadError::InvalidPStringLength { .. },
+                    ),
                 )
-                | LibmagicError::IoError(_),
+                | LibmagicError::IoError(_)),
             ) => {
-                // Expected evaluation errors for individual rules -- skip gracefully.
-                // TODO: emit debug-level trace when a rule is skipped due to error,
-                // so users can distinguish "rule didn't match" from "rule failed internally".
+                // Expected data-dependent evaluation errors -- skip gracefully.
+                // TypeReadError::UnsupportedType is intentionally NOT caught here
+                // so that evaluator capability gaps propagate as errors.
+                debug!("Skipping rule '{}': {}", rule.message, e);
                 continue;
             }
             Err(e) => {
@@ -244,14 +249,26 @@ pub fn evaluate_rules(
                         return Err(e);
                     }
                     Err(
-                        LibmagicError::EvaluationError(
+                        e @ (LibmagicError::EvaluationError(
                             crate::error::EvaluationError::BufferOverrun { .. }
                             | crate::error::EvaluationError::InvalidOffset { .. }
-                            | crate::error::EvaluationError::TypeReadError(_),
+                            | crate::error::EvaluationError::TypeReadError(
+                                crate::evaluator::types::TypeReadError::BufferOverrun { .. }
+                                | crate::evaluator::types::TypeReadError::InvalidPStringLength {
+                                    ..
+                                },
+                            ),
                         )
-                        | LibmagicError::IoError(_),
+                        | LibmagicError::IoError(_)),
                     ) => {
-                        // Expected child evaluation errors -- skip gracefully
+                        // Defensive: under the current implementation, individual child
+                        // failures are caught and logged inside the recursive evaluate_rules
+                        // call (they never propagate here). This arm guards against future
+                        // changes that might alter that error-handling strategy.
+                        debug!(
+                            "Skipping child evaluation under rule '{}': {}",
+                            rule.message, e
+                        );
                     }
                     Err(e) => {
                         // Unexpected errors in children should propagate

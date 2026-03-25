@@ -40,6 +40,31 @@ pub enum TypeReadError {
         /// The name of the unsupported type.
         type_name: String,
     },
+    /// Invalid pstring length prefix value (e.g., `/J` flag with stored length
+    /// smaller than the prefix width).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::evaluator::types::TypeReadError;
+    /// let err = TypeReadError::InvalidPStringLength {
+    ///     stored_length: 1,
+    ///     prefix_width: 2,
+    /// };
+    /// assert_eq!(
+    ///     err.to_string(),
+    ///     "Invalid pstring length prefix: stored length 1 is less than prefix width 2"
+    /// );
+    /// ```
+    #[error(
+        "Invalid pstring length prefix: stored length {stored_length} is less than prefix width {prefix_width}"
+    )]
+    InvalidPStringLength {
+        /// The length value stored in the pstring prefix.
+        stored_length: usize,
+        /// The byte width of the length prefix field.
+        prefix_width: usize,
+    },
 }
 
 /// Reads bytes according to the specified `TypeKind`.
@@ -81,7 +106,17 @@ pub fn read_typed_value(
         TypeKind::Date { endian, utc } => read_date(buffer, offset, *endian, *utc),
         TypeKind::QDate { endian, utc } => read_qdate(buffer, offset, *endian, *utc),
         TypeKind::String { max_length } => read_string(buffer, offset, *max_length),
-        TypeKind::PString { max_length } => read_pstring(buffer, offset, *max_length),
+        TypeKind::PString {
+            max_length,
+            length_width,
+            length_includes_itself,
+        } => read_pstring(
+            buffer,
+            offset,
+            *max_length,
+            *length_width,
+            *length_includes_itself,
+        ),
     }
 }
 

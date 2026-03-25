@@ -2,6 +2,8 @@
 
 This document provides comprehensive guidelines for AI assistants working on the libmagic-rs project, ensuring consistent, high-quality development practices and project understanding.
 
+@GOTCHAS.md
+
 ## Project Overview
 
 **libmagic-rs** is a pure-Rust implementation of libmagic, designed to replace the C-based library with a memory-safe, efficient alternative for file type detection.
@@ -154,15 +156,10 @@ pub fn evaluate_magic_rules(
 
 ### Architecture Constraints
 
-- `src/error.rs` is shared with `build.rs` -- cannot reference lib-only types like `crate::io::IoError`
-- `FileError(String)` wraps structured I/O errors as strings to work around the build.rs constraint
-- Serialization functions live in `src/parser/codegen.rs`, shared by both `build.rs` (via `#[path]` include) and `src/build_helpers.rs` (via `crate::parser::codegen`); `format_parse_error` remains duplicated in both because `ParseError` has different import paths
-- Use `ParseError::IoError` for I/O errors in parser code, not `ParseError::invalid_syntax`
-- Use `LibmagicError::ConfigError` for config validation, not `ParseError::invalid_syntax`
 - Clippy pedantic lints are active (e.g., prefer `trailing_zeros()` over bitwise masks)
-- All public enum variants need `# Examples` rustdoc sections
 - Comparison operators share a `compare_values() -> Option<Ordering>` helper in `operators/comparison.rs` -- new comparison logic goes there, not in individual `apply_*` functions
-- libmagic types are signed by default (`byte`, `short`, `long`, `quad`); unsigned variants use `u` prefix (`ubyte`, `ushort`, `ulong`, `uquad`, etc.)
+
+> See **[GOTCHAS.md](GOTCHAS.md)** for build script boundaries (S1), enum variant update checklists (S2), parser architecture (S3), numeric type pitfalls (S5), string/pstring encoding (S6), and other non-obvious behaviors.
 
 ### Naming Conventions
 
@@ -208,7 +205,7 @@ cargo test --doc   # Test documentation examples
 ### Currently Implemented (v0.1.0)
 
 - **Offsets**: Absolute and from-end specifications (indirect and relative are parsed but not yet evaluated)
-- **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`; `pstring` is a Pascal string (length-prefixed byte followed by string data); date values formatted as `"Www Mmm DD HH:MM:SS YYYY"` matching GNU `file` output; types are signed by default (libmagic-compatible)
+- **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`; `pstring` is a Pascal string (length-prefixed) with support for 1/2/4-byte length prefixes via `/B`, `/H` (2-byte BE), `/h` (2-byte LE), `/L` (4-byte BE), `/l` (4-byte LE) suffixes, and the `/J` flag (stored length includes prefix width, JPEG convention) which is combinable with width suffixes (e.g., `pstring/HJ`); date values formatted as "Www Mmm DD HH:MM:SS YYYY" matching GNU `file` output; types are signed by default (libmagic-compatible)
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
 - **String Matching**: Exact string matching with null-termination and Pascal string (length-prefixed) support
@@ -240,7 +237,7 @@ impl BinaryRegex for regex::bytes::Regex {
 - No regex/search pattern matching
 - 64-bit integer types: `quad`/`uquad`, `bequad`/`ubequad`, `lequad`/`ulequad` are implemented; `qquad` (128-bit) is not yet supported
 - String evaluation reads until first NUL or end-of-buffer by default; `pstring` reads a length-prefixed Pascal string; `max_length: Some(_)` is supported internally but no dedicated fixed-length string parser syntax exists yet
-- `pstring` only supports the default 1-byte length prefix (`/B`); multi-byte length prefix variants (`pstring/H` for 2-byte, `pstring/L` for 4-byte) are not yet implemented
+- `pstring` supports 1-byte (`/B`), 2-byte big-endian (`/H`), 2-byte little-endian (`/h`), 4-byte big-endian (`/L`), and 4-byte little-endian (`/l`) length prefixes, plus the `/J` flag (stored length includes prefix width). All flags are combinable (e.g., `pstring/HJ`) and fully implemented.
 
 ### Operators
 

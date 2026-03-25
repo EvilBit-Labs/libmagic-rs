@@ -34,7 +34,7 @@ The evaluator module separates public interface from implementation:
   - **`types/numeric.rs`** - Numeric type handling: `read_byte`, `read_short`, `read_long`, `read_quad` with endianness and signedness support
   - **`types/float.rs`** - Floating-point type handling: `read_float` (32-bit IEEE 754), `read_double` (64-bit IEEE 754) with endianness support
   - **`types/date.rs`** - Date and timestamp type handling: `read_date` (32-bit Unix timestamps), `read_qdate` (64-bit Unix timestamps) with endianness and UTC/local time support
-  - **`types/string.rs`** - String type handling: `read_string` with null-termination and UTF-8 conversion
+  - **`types/string.rs`** - String type handling: `read_string` with null-termination and UTF-8 conversion, `read_pstring` with configurable length-prefix widths (1, 2, or 4 bytes)
   - **`types/tests.rs`** - Module tests
 - **`evaluator/strength.rs`** - Rule strength calculation
 
@@ -118,6 +118,7 @@ Interprets bytes according to type specifications. The types module is organized
 - **Date**: 32-bit Unix timestamps (signed seconds since epoch) with configurable endianness and UTC/local time formatting
 - **QDate**: 64-bit Unix timestamps (signed seconds since epoch) with configurable endianness and UTC/local time formatting
 - **String**: Byte sequences with length limits
+- **PString**: Pascal-style length-prefixed strings with 1-byte (`/B`), 2-byte (`/H` or `/h`), or 4-byte (`/L` or `/l`) length prefixes, supporting big-endian and little-endian byte order
 - **Bounds checking**: Prevents buffer overruns
 
 ```rust
@@ -174,6 +175,34 @@ pub fn read_qdate(
 - Both support UTC or local time formatting
 - The evaluator reads raw integer timestamps from the buffer and converts them to formatted date strings for comparison
 - Example: A 32-bit value `1234567890` at offset 0 with type `ldate` would be evaluated as `"Fri Feb 13 23:31:30 2009"`
+
+**Pascal String Type Reading (`evaluator/types/string.rs`):**
+
+```rust
+pub fn read_pstring(
+    buffer: &[u8],
+    offset: usize,
+    max_length: Option<usize>,
+    length_width: PStringLengthWidth,
+    length_includes_itself: bool,
+) -> Result<Value, TypeReadError>
+```
+
+- `read_pstring()` reads a length-prefixed Pascal string with configurable prefix width
+- **Length prefix width** (`length_width`):
+  - `PStringLengthWidth::OneByte` - 1-byte length prefix (`/B` suffix, default)
+  - `PStringLengthWidth::TwoByteBE` - 2-byte big-endian length prefix (`/H` suffix)
+  - `PStringLengthWidth::TwoByteLE` - 2-byte little-endian length prefix (`/h` suffix)
+  - `PStringLengthWidth::FourByteBE` - 4-byte big-endian length prefix (`/L` suffix)
+  - `PStringLengthWidth::FourByteLE` - 4-byte little-endian length prefix (`/l` suffix)
+- **Length interpretation**: 
+  - Reads 1, 2, or 4 bytes from buffer using `from_be_bytes` or `from_le_bytes` depending on variant
+  - The length value specifies how many bytes of string data follow the prefix
+- **`/J` flag** (`length_includes_itself`):
+  - When `true`, the stored length value includes the prefix width itself (JPEG-style)
+  - The evaluator subtracts the prefix width (1, 2, or 4 bytes) from the length to get effective content length
+  - Example: A 2-byte big-endian prefix with value `7` and `/J` flag yields `7 - 2 = 5` bytes of string content
+- Returns `Value::String` with UTF-8 conversion (using lossy conversion for invalid UTF-8)
 
 ### Operator Application (`evaluator/operators.rs`)
 
@@ -486,11 +515,42 @@ let matches = evaluate_rules(&rules, &buffer)?;
 assert_eq!(matches[0].message, "Pi constant detected");
 ```
 
+**Example with pstring types:**
+
+```rust
+use libmagic_rs::{evaluate_rules, EvaluationConfig};
+use libmagic_rs::parser::parse_text_magic_file;
+
+// Parse magic rules with pstring variants
+let magic_content = r#"
+0 pstring/B MAGIC Pascal string (1-byte prefix)
+0 pstring/H =\x00\x05MAGIC Pascal string (2-byte BE prefix)
+0 pstring/h =\x05\x00MAGIC Pascal string (2-byte LE prefix)
+0 pstring/L =\x00\x00\x00\x05MAGIC Pascal string (4-byte BE prefix)
+0 pstring/l =\x05\x00\x00\x00MAGIC Pascal string (4-byte LE prefix)
+"#;
+let rules = parse_text_magic_file(magic_content)?;
+
+// 1-byte prefix: length=5, then "MAGIC"
+let buffer = b"\x05MAGIC";
+let matches = evaluate_rules(&rules, &buffer)?;
+assert_eq!(matches[0].message, "Pascal string (1-byte prefix)");
+
+// 2-byte big-endian prefix with /J flag: stored length 7 (includes 2-byte prefix), effective content 5 bytes
+let magic_content_j = r#"
+0 pstring/HJ =MAGIC JPEG-style pstring with self-inclusive length
+"#;
+let rules_j = parse_text_magic_file(magic_content_j)?;
+let buffer_j = b"\x00\x07MAGIC"; // 2-byte BE prefix: value 7, minus 2 = 5 bytes of content
+let matches_j = evaluate_rules(&rules_j, &buffer_j)?;
+assert_eq!(matches_j[0].message, "JPEG-style pstring with self-inclusive length");
+```
+
 ## Implementation Status
 
 - [x] Basic evaluation engine structure
 - [x] Offset resolution (absolute, relative, from-end)
-- [x] Type reading with endianness support (Byte, Short, Long, Quad, Float, Double, Date, QDate, String)
+- [x] Type reading with endianness support (Byte, Short, Long, Quad, Float, Double, Date, QDate, String, PString with 1/2/4-byte prefixes)
 - [x] Operator application (Equal, NotEqual, LessThan, GreaterThan, LessEqual, GreaterEqual, BitwiseAnd, BitwiseAndMask)
 - [x] Hierarchical rule processing with child evaluation
 - [x] Error handling with graceful degradation

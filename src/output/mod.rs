@@ -17,6 +17,8 @@ use std::path::PathBuf;
 
 use std::sync::LazyLock;
 
+use log::warn;
+
 use crate::parser::ast::Value;
 
 /// Shared `TagExtractor` instance, initialized once on first use.
@@ -523,19 +525,17 @@ impl EvaluationResult {
     /// assert_eq!(result.matches.len(), 1);
     /// ```
     pub fn add_match(&mut self, match_result: MatchResult) {
-        #[cfg(debug_assertions)]
         Self::validate_match_result(&match_result);
 
         self.matches.push(match_result);
     }
 
     /// Validate a match result before adding it
-    #[cfg(debug_assertions)]
     fn validate_match_result(match_result: &MatchResult) {
         // Validate confidence score range
         if match_result.confidence > 100 {
-            eprintln!(
-                "Warning: Match result has confidence score > 100: {}",
+            warn!(
+                "Match result has confidence score > 100: {}",
                 match_result.confidence
             );
         }

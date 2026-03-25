@@ -11,7 +11,10 @@
 //! The generated code creates `MagicRule` struct literals that are compiled into the
 //! binary as built-in rules.
 
-use super::ast::{Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value};
+use super::ast::{
+    Endianness, MagicRule, OffsetSpec, Operator, PStringLengthWidth, StrengthModifier, TypeKind,
+    Value,
+};
 
 const INDENT_WIDTH: usize = 4;
 
@@ -26,7 +29,7 @@ pub fn generate_builtin_rules(rules: &[MagicRule]) -> String {
     push_line(&mut output, "#[allow(unused_imports)]");
     push_line(
         &mut output,
-        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness, StrengthModifier};",
+        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness, StrengthModifier, PStringLengthWidth};",
     );
     push_line(&mut output, "use std::sync::LazyLock;");
     push_line(&mut output, "");
@@ -211,12 +214,35 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
             }
             None => "TypeKind::String { max_length: None }".to_string(),
         },
-        TypeKind::PString { max_length } => match max_length {
+        TypeKind::PString {
+            max_length,
+            length_width,
+            length_includes_itself,
+        } => match max_length {
             Some(value) => {
-                format!("TypeKind::PString {{ max_length: Some({value}) }}")
+                format!(
+                    "TypeKind::PString {{ max_length: Some({value}), length_width: {}, length_includes_itself: {} }}",
+                    serialize_pstring_length_width(*length_width),
+                    length_includes_itself
+                )
             }
-            None => "TypeKind::PString { max_length: None }".to_string(),
+            None => format!(
+                "TypeKind::PString {{ max_length: None, length_width: {}, length_includes_itself: {} }}",
+                serialize_pstring_length_width(*length_width),
+                length_includes_itself
+            ),
         },
+    }
+}
+
+/// Serialize a `PStringLengthWidth` as a Rust path
+pub fn serialize_pstring_length_width(width: PStringLengthWidth) -> &'static str {
+    match width {
+        PStringLengthWidth::OneByte => "PStringLengthWidth::OneByte",
+        PStringLengthWidth::TwoByteBE => "PStringLengthWidth::TwoByteBE",
+        PStringLengthWidth::TwoByteLE => "PStringLengthWidth::TwoByteLE",
+        PStringLengthWidth::FourByteBE => "PStringLengthWidth::FourByteBE",
+        PStringLengthWidth::FourByteLE => "PStringLengthWidth::FourByteLE",
     }
 }
 

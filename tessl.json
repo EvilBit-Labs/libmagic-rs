@@ -1,0 +1,40 @@
+{
+    "name": "stringy",
+    "mode": "vendored",
+    "dependencies": {
+        "actionbook/rust-skills": {
+            "version": "3ea748280d2fa5680675fe4abe1a5e764f7c021e",
+            "source": "https://github.com/actionbook/rust-skills",
+            "include": {
+                "skills": [
+                    "coding-guidelines",
+                    "domain-cli",
+                    "m01-ownership",
+                    "m02-resource",
+                    "m03-mutability",
+                    "m04-zero-cost",
+                    "m05-type-driven",
+                    "m06-error-handling",
+                    "m07-concurrency",
+                    "m09-domain",
+                    "m10-performance",
+                    "m11-ecosystem",
+                    "m12-lifecycle",
+                    "m13-domain-error",
+                    "m14-mental-model",
+                    "m15-anti-pattern",
+                    "meta-cognition-parallel",
+                    "rust-call-graph",
+                    "rust-code-navigator",
+                    "rust-deps-visualizer",
+                    "rust-learner",
+                    "rust-refactor-helper",
+                    "rust-skill-creator",
+                    "rust-symbol-analyzer",
+                    "rust-trait-explorer",
+                    "unsafe-checker"
+                ]
+            }
+        }
+    }
+}

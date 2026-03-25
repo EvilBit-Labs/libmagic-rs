@@ -188,15 +188,37 @@ String escape sequences:
 
 **Pascal String (pstring)**
 
-Length-prefixed string type where the first byte contains the string length (0-255), followed by that many bytes of string data. Unlike C strings, Pascal strings are not null-terminated.
+Length-prefixed string type where a length prefix (1, 2, or 4 bytes) specifies the number of bytes of string data that follow. Unlike C strings, Pascal strings are not null-terminated.
+
+The length prefix width is controlled by suffix flags:
+
+| Suffix | Length Prefix Width | Byte Order    |
+| ------ | ------------------- | ------------- |
+| `/B`   | 1 byte (default)    | N/A           |
+| `/H`   | 2 bytes             | big-endian    |
+| `/h`   | 2 bytes             | little-endian |
+| `/L`   | 4 bytes             | big-endian    |
+| `/l`   | 4 bytes             | little-endian |
+
+The `/J` flag indicates JPEG-style self-inclusive length where the stored length value includes the size of the length prefix itself. This flag can be combined with any width suffix (`/HJ`, `/lJ`, etc.) or used alone (`/J` defaults to 1-byte width).
+
+Examples:
 
 ```text
-0       pstring   =JPEG     JPEG image (Pascal string)
+0       pstring   =JPEG         JPEG image (1-byte prefix, default)
+0       pstring/B =JPEG         JPEG image (1-byte prefix, explicit)
+0       pstring/H =JPEG         JPEG image (2-byte big-endian prefix)
+0       pstring/h =JPEG         JPEG image (2-byte little-endian prefix)
+0       pstring/L =JPEG         JPEG image (4-byte big-endian prefix)
+0       pstring/l =JPEG         JPEG image (4-byte little-endian prefix)
+0       pstring/HJ =JPEG        JPEG image (2-byte BE, self-inclusive length)
 ```
 
-The length byte value determines how many bytes to read for the string data. If `max_length` is specified in the magic file (not shown in the basic syntax), it caps the length byte value to prevent reading excessive data.
+If `max_length` is specified in the magic file (not shown in the basic syntax), it caps the length value to prevent reading excessive data.
 
 ### String Flags
+
+Flags for `string` type:
 
 | Flag | Description            |
 | ---- | ---------------------- |
@@ -209,6 +231,8 @@ Example:
 ```text
 0       string/c  <!doctype  HTML document
 ```
+
+Flags for `pstring` type are documented in the Pascal String section above.
 
 ### Date/Timestamp Types
 
