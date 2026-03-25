@@ -34,6 +34,7 @@ queue_rules:
     queue_conditions:
       - base = main
       - label != do-not-merge
+      - author = release-plz[bot]
       - head ~= ^release-plz-
     merge_conditions:
       - check-success = DCO
@@ -43,6 +44,7 @@ queue_rules:
     merge_method: squash
     queue_conditions:
       - base = main
+      - label != do-not-merge
       - author != dependabot[bot]
       - author != dosubot[bot]
       - -head ~= ^release-plz-
