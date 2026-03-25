@@ -186,7 +186,11 @@ pub enum TypeKind {
     String { max_length: Option<usize> },
 
     /// Pascal string (length-prefixed)
-    PString { max_length: Option<usize> },
+    PString {
+        max_length: Option<usize>,
+        length_width: PStringLengthWidth,
+        length_includes_itself: bool,
+    },
 }
 ```
 
@@ -231,38 +235,91 @@ let string_type = TypeKind::String {
 
 ### PString (Pascal String)
 
-Pascal-style length-prefixed strings where the first byte contains the string length.
+Pascal-style length-prefixed strings where the length prefix can be 1, 2, or 4 bytes depending on the `length_width` field.
 
 **Structure:**
-
-- Length byte: 1 byte indicating string length (0-255)
-- String data: The number of bytes specified by the length byte
+- Length prefix: 1, 2, or 4 bytes indicating string length, with configurable endianness
+- String data: The number of bytes specified by the length prefix
 
 **Example:**
-
 ```
 0    pstring    JPEG
+0    pstring/H  JPEG
 ```
-
-Reads one byte as length, then reads that many bytes as a string.
+The first line reads a 1-byte length prefix (default), then reads that many bytes as a string. The second line reads a 2-byte big-endian length prefix.
 
 **Behavior:**
-
 - Returns `Value::String` containing the string data (without the length prefix)
-- Performs bounds checking on both the length byte and the string data
+- Performs bounds checking on both the length prefix and the string data
 - Supports all string comparison operators
+- Length prefix width controlled by `PStringLengthWidth` enum
+- Optional `/J` flag indicates JPEG-style self-inclusive length (stored length includes the prefix itself)
 
-**Usage:**
+### PStringLengthWidth Enum
+
+The `PStringLengthWidth` enum specifies the width and endianness of the length prefix:
 
 ```rust
-// Pascal string with no length limit
-let pstring_type = TypeKind::PString {
-    max_length: None
+pub enum PStringLengthWidth {
+    /// 1-byte length prefix (default, `/B` suffix)
+    OneByte,
+    /// 2-byte big-endian length prefix (`/H` suffix)
+    TwoByteBE,
+    /// 2-byte little-endian length prefix (`/h` suffix)
+    TwoByteLE,
+    /// 4-byte big-endian length prefix (`/L` suffix)
+    FourByteBE,
+    /// 4-byte little-endian length prefix (`/l` suffix)
+    FourByteLE,
+}
+```
+
+**Suffix conventions:**
+- `/B` - 1-byte length prefix (default if no suffix specified)
+- `/H` - 2-byte big-endian length prefix
+- `/h` - 2-byte little-endian length prefix
+- `/L` - 4-byte big-endian length prefix
+- `/l` - 4-byte little-endian length prefix
+- `/J` - Length includes the prefix width itself (combinable: `/HJ`, `/lJ`, etc.)
+
+**Examples:**
+
+```rust
+use libmagic_rs::parser::ast::{TypeKind, PStringLengthWidth};
+
+// 1-byte length prefix (default)
+let pstring_default = TypeKind::PString {
+    max_length: None,
+    length_width: PStringLengthWidth::OneByte,
+    length_includes_itself: false,
 };
 
-// Pascal string with maximum 64-byte limit
+// 2-byte big-endian length prefix
+let pstring_be = TypeKind::PString {
+    max_length: None,
+    length_width: PStringLengthWidth::TwoByteBE,
+    length_includes_itself: false,
+};
+
+// 4-byte little-endian length prefix
+let pstring_le = TypeKind::PString {
+    max_length: None,
+    length_width: PStringLengthWidth::FourByteLE,
+    length_includes_itself: false,
+};
+
+// 2-byte big-endian with /J flag (JPEG-style self-inclusive length)
+let pstring_jpeg = TypeKind::PString {
+    max_length: None,
+    length_width: PStringLengthWidth::TwoByteBE,
+    length_includes_itself: true,
+};
+
+// Maximum 64-byte limit with 1-byte prefix
 let limited_pstring = TypeKind::PString {
-    max_length: Some(64)
+    max_length: Some(64),
+    length_width: PStringLengthWidth::OneByte,
+    length_includes_itself: false,
 };
 ```
 
