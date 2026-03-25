@@ -6,7 +6,7 @@ This guide will help you get up and running with libmagic-rs, whether you want t
 
 ### Prerequisites
 
-- **Rust 1.89+** (2024 edition)
+- **Rust 1.91+** (2024 edition)
 - **Git** for cloning the repository
 - **Cargo** (comes with Rust)
 
@@ -64,6 +64,20 @@ echo -ne '\x7fELF' | ./target/release/rmagic --use-builtin -
 # Help and options
 ./target/release/rmagic --help
 ```
+
+### Troubleshooting Detection Issues
+
+Enable debug logging to see when rules are skipped due to evaluation errors (buffer overruns, invalid offsets, type read failures) versus simply not matching:
+
+```bash
+# CLI: Enable debug logs for a single invocation
+RUST_LOG=debug cargo run -- --use-builtin example.bin
+
+# Or with the compiled binary
+RUST_LOG=debug ./target/release/rmagic --use-builtin example.bin
+```
+
+Debug output shows which rules the evaluator skips and why, helping diagnose unexpected file detection behavior.
 
 ### Library Usage
 
