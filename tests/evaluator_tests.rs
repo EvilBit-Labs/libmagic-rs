@@ -364,6 +364,7 @@ fn test_evaluate_pstring_rule_match() {
         typ: TypeKind::PString {
             max_length: None,
             length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false,
         },
         op: Operator::Equal,
         value: Value::String("PDF".to_string()),
@@ -388,6 +389,7 @@ fn test_evaluate_pstring_rule_no_match() {
         typ: TypeKind::PString {
             max_length: None,
             length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false,
         },
         op: Operator::Equal,
         value: Value::String("ZIP".to_string()),
@@ -415,6 +417,7 @@ fn test_evaluate_pstring_with_max_length() {
         typ: TypeKind::PString {
             max_length: Some(3),
             length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false,
         },
         op: Operator::Equal,
         value: Value::String("Hel".to_string()),

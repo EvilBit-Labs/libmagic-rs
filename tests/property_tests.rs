@@ -49,10 +49,22 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
         (0usize..256usize).prop_map(|len| TypeKind::String {
             max_length: Some(len),
         }),
-        (0usize..256usize).prop_map(|len| TypeKind::PString {
-            max_length: Some(len),
-            length_width: PStringLengthWidth::OneByte,
-        }),
+        (
+            0usize..256usize,
+            prop_oneof![
+                Just(PStringLengthWidth::OneByte),
+                Just(PStringLengthWidth::TwoByteBE),
+                Just(PStringLengthWidth::TwoByteLE),
+                Just(PStringLengthWidth::FourByteBE),
+                Just(PStringLengthWidth::FourByteLE),
+            ],
+            any::<bool>(),
+        )
+            .prop_map(|(len, width, includes_self)| TypeKind::PString {
+                max_length: Some(len),
+                length_width: width,
+                length_includes_itself: includes_self,
+            }),
     ]
 }
 
