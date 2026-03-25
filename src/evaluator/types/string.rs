@@ -153,7 +153,12 @@ pub fn read_pstring(
             buffer_len: buffer.len(),
         })?;
     let string_length = match length_width {
-        PStringLengthWidth::OneByte => usize::from(len_bytes[0]),
+        PStringLengthWidth::OneByte => {
+            usize::from(*len_bytes.first().ok_or(TypeReadError::BufferOverrun {
+                offset,
+                buffer_len: buffer.len(),
+            })?)
+        }
         PStringLengthWidth::TwoByteBE => {
             let arr: [u8; 2] = len_bytes
                 .try_into()

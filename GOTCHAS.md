@@ -93,7 +93,7 @@ Buffer offset calculations must use `checked_add` to prevent overflow panics fro
 
 ### 6.1 Multi-Byte PString Length Prefixes
 
-Multi-byte pstring length prefixes (`/H`, `/L`) use **little-endian** byte order. Doctest examples and test data must match (e.g., `\x05\x00` for TwoByte length 5, not `\x00\x05`).
+Uppercase pstring suffix letters indicate **big-endian** byte order, lowercase indicate **little-endian**: `/H` (2-byte BE), `/h` (2-byte LE), `/L` (4-byte BE), `/l` (4-byte LE). The `/J` flag means the stored length includes the length field itself (JPEG convention). Flags are combinable (e.g., `pstring/HJ`). Test data must use the correct byte order for the variant (e.g., `\x00\x05` for `TwoByteBE` length 5, `\x05\x00` for `TwoByteLE` length 5).
 
 ### 6.2 `medate`/`meldate` Not Supported
 

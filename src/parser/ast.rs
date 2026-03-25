@@ -988,6 +988,16 @@ mod tests {
                 length_width: PStringLengthWidth::OneByte,
                 length_includes_itself: false,
             },
+            TypeKind::PString {
+                max_length: None,
+                length_width: PStringLengthWidth::TwoByteBE,
+                length_includes_itself: true,
+            },
+            TypeKind::PString {
+                max_length: Some(128),
+                length_width: PStringLengthWidth::FourByteLE,
+                length_includes_itself: false,
+            },
         ];
 
         for typ in types {
