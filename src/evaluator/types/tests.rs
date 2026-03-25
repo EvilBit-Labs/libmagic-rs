@@ -475,7 +475,7 @@ fn test_read_typed_value_empty_buffer() {
                 assert_eq!(offset, 0);
                 assert_eq!(buffer_len, 0);
             }
-            TypeReadError::UnsupportedType { .. } => panic!("Expected BufferOverrun error"),
+            other => panic!("Expected BufferOverrun error, got {other:?}"),
         }
     }
 }

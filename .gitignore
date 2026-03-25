@@ -133,6 +133,19 @@ megalinter-reports/
 
 # Files for validating the tooling
 
-# megalinter crud
-undefined/
-.claude.local.md
+**/*.local.*
+
+# AI coding assistants (local state, not shared)
+docs/plans/
+.agent/
+.agents/
+.augment/
+.claude/
+.cursor/
+.roo/
+.full-review/
+SECURITY_AUDIT.md
+todos/
+**/tessl__*
+.tessl/tiles/
+.tessl/RULES.md

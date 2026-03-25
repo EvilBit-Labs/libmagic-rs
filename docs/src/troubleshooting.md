@@ -238,6 +238,27 @@ RUST_LOG=debug cargo run -- example.bin
 RUST_LOG=libmagic_rs=trace cargo test
 ```
 
+### Diagnosing Rule Evaluation Issues
+
+**Problem**: File types are not detected correctly, or you want to understand why certain rules match or fail
+
+**Solution**: Enable debug logging to see detailed information about rule evaluation
+
+```bash
+# CLI tool with builtin rules
+RUST_LOG=debug rmagic --use-builtin example.bin
+
+# CLI tool with custom magic file
+RUST_LOG=debug rmagic --magic custom.magic example.bin
+```
+
+Debug logging shows which rules are skipped during evaluation and why. This helps distinguish between:
+
+- **Rule didn't match**: Normal behavior where the rule's test condition evaluated to false
+- **Rule failed internally**: Evaluation errors like `BufferOverrun`, `InvalidOffset`, `TypeReadError`, or `IoError` that cause the rule to be skipped
+
+For library usage, initialize a logger that respects the `RUST_LOG` environment variable (such as `env_logger`), then run your program with `RUST_LOG=debug` to see the same diagnostic information.
+
 ### Use Debug Output
 
 ```rust

@@ -124,7 +124,8 @@ pub mod build_helpers;
 
 // Re-export core AST types for convenience
 pub use parser::ast::{
-    Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value,
+    Endianness, MagicRule, OffsetSpec, Operator, PStringLengthWidth, StrengthModifier, TypeKind,
+    Value,
 };
 
 // Re-export evaluator types for convenience
