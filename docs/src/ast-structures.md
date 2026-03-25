@@ -234,16 +234,20 @@ let string_type = TypeKind::String {
 Pascal-style length-prefixed strings where the first byte contains the string length.
 
 **Structure:**
+
 - Length byte: 1 byte indicating string length (0-255)
 - String data: The number of bytes specified by the length byte
 
 **Example:**
+
 ```
 0    pstring    JPEG
 ```
+
 Reads one byte as length, then reads that many bytes as a string.
 
 **Behavior:**
+
 - Returns `Value::String` containing the string data (without the length prefix)
 - Performs bounds checking on both the length byte and the string data
 - Supports all string comparison operators

@@ -229,6 +229,7 @@ Pascal strings store the length as the first byte (0-255), followed by that many
 The parser supports date and timestamp types for parsing Unix timestamps (signed seconds since epoch). There are 12 type keywords:
 
 **32-bit timestamps (Date):**
+
 - `date` - Native endian, UTC
 - `ldate` - Native endian, local time
 - `bedate` - Big-endian, UTC
@@ -237,6 +238,7 @@ The parser supports date and timestamp types for parsing Unix timestamps (signed
 - `leldate` - Little-endian, local time
 
 **64-bit timestamps (QDate):**
+
 - `qdate` - Native endian, UTC
 - `qldate` - Native endian, local time
 - `beqdate` - Big-endian, UTC
