@@ -1,12 +1,24 @@
-pull_request_rules:
-  - name: Auto-approve and merge dependabot PRs
-    conditions:
+queue_rules:
+  # Dosubot: only needs quality (fmt + clippy) to pass
+  - name: dosubot
+    merge_method: squash
+    autoqueue: true
+    queue_conditions:
       - base = main
-      - author = dependabot[bot]
-      - -draft
       - label != do-not-merge
-      - -files~=\.github/workflows/release\.yml
-      - check-success = DCO
+      - author = dosubot[bot]
+    merge_conditions:
+      - check-success = quality
+
+  # Dependabot: full CI required
+  - name: dependabot
+    merge_method: squash
+    autoqueue: true
+    queue_conditions:
+      - base = main
+      - label != do-not-merge
+      - author = dependabot[bot]
+    merge_conditions:
       - check-success = quality
       - check-success = test
       - check-success = test-cross-platform (ubuntu-latest, Linux)
@@ -14,56 +26,79 @@ pull_request_rules:
       - check-success = test-cross-platform (macos-latest, macOS)
       - check-success = test-cross-platform (windows-latest, Windows)
       - check-success = coverage
-    actions:
-      review:
-        type: APPROVE
-        message: Automatically approved by Mergify
-      merge:
-        method: squash
-  - name: Auto-approve and merge dosubot PRs
+
+  # Release-plz: DCO only (exempt from full CI -- code already tested on main)
+  - name: release-plz
+    merge_method: squash
+    autoqueue: true
+    queue_conditions:
+      - base = main
+      - label != do-not-merge
+      - head ~= ^release-plz-
+    merge_conditions:
+      - check-success = DCO
+
+  # Human PRs: manually enqueued via @mergifyio queue command
+  - name: default
+    merge_method: squash
+    queue_conditions:
+      - base = main
+      - author != dependabot[bot]
+      - author != dosubot[bot]
+      - -head ~= ^release-plz-
+    merge_conditions:
+      - check-success = quality
+      - check-success = test
+      - check-success = test-cross-platform (ubuntu-latest, Linux)
+      - check-success = test-cross-platform (ubuntu-22.04, Linux)
+      - check-success = test-cross-platform (macos-latest, macOS)
+      - check-success = test-cross-platform (windows-latest, Windows)
+      - check-success = coverage
+
+pull_request_rules:
+  - name: Auto-approve dosubot PRs
     conditions:
       - base = main
       - author = dosubot[bot]
-      - -draft
-      - label != do-not-merge
-      - check-success = DCO
-      - check-success = quality
-      - check-success = test
-      - check-success = test-cross-platform (ubuntu-latest, Linux)
-      - check-success = test-cross-platform (ubuntu-22.04, Linux)
-      - check-success = test-cross-platform (macos-latest, macOS)
-      - check-success = test-cross-platform (windows-latest, Windows)
-      - check-success = coverage
     actions:
       review:
         type: APPROVE
         message: Automatically approved by Mergify
-      merge:
-        method: squash
-  - name: Auto-merge release-plz PRs
+
+  - name: Auto-approve dependabot PRs
     conditions:
       - base = main
-      - head ~= ^release-plz-
-      - -draft
-      - label != do-not-merge
-      - check-success = DCO
+      - author = dependabot[bot]
     actions:
-      merge:
-        method: squash
-  - name: Keep bot PRs up to date with main
+      review:
+        type: APPROVE
+        message: Automatically approved by Mergify
+
+  - name: Keep PRs up to date with main
     conditions:
       - base = main
       - -conflict
       - -draft
-      - or:
-          - author = dosubot[bot]
-          - head ~= ^release-plz-
     actions:
       update: {}
+
 merge_protections:
-  - name: CI must pass
-    description: All CI checks must pass. Release-plz PRs are exempt because they
-      only bump versions and changelogs (code was already tested on main), and
+  - name: Enforce conventional commit
+    description: >-
+      Require conventional commit format per https://www.conventionalcommits.org/en/v1.0.0/.
+      Skipped for bots.
+    if:
+      - base = main
+      - author != dependabot[bot]
+      - author != dosubot[bot]
+      - -head ~= ^release-plz-
+    success_conditions:
+      - "title ~= ^(fix|feat|docs|style|refactor|perf|test|build|ci|chore|revert)(?:\\(.+\\))?!?:"
+
+  - name: Full CI must pass
+    description: >-
+      All CI checks must pass. Release-plz PRs are exempt because they only
+      bump versions and changelogs (code was already tested on main), and
       GITHUB_TOKEN-triggered force-pushes suppress CI.
     if:
       - base = main
@@ -76,9 +111,10 @@ merge_protections:
       - check-success = test-cross-platform (macos-latest, macOS)
       - check-success = test-cross-platform (windows-latest, Windows)
       - check-success = coverage
+
   - name: Do not merge outdated PRs
     description: Make sure PRs are within 10 commits of the base branch before merging
     if:
       - base = main
     success_conditions:
-      - "#commits-behind <= 3"
+      - "#commits-behind <= 10"
