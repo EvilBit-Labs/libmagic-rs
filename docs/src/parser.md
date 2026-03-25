@@ -186,40 +186,77 @@ Parsed literals are stored as `Value::Float(f64)` in the AST, regardless of whet
 
 ### Pascal String (pstring) Type
 
-The parser supports Pascal-style length-prefixed strings through the `pstring` keyword:
+The parser supports Pascal-style length-prefixed strings through the `pstring` keyword with multiple length prefix width variants:
 
 **Type Keyword:**
 
-- `pstring` - Length-prefixed string (1-byte length + string data) → `TypeKind::PString { max_length: None }`
+- `pstring` - Length-prefixed string → `TypeKind::PString { max_length: None, length_width: PStringLengthWidth::OneByte, length_includes_itself: false }`
+
+**Length Prefix Width Variants:**
+
+Pascal strings support multiple length prefix widths via suffix modifiers:
+
+- `/B` - 1-byte length prefix (default) → `PStringLengthWidth::OneByte`
+- `/H` - 2-byte big-endian length prefix → `PStringLengthWidth::TwoByteBE`
+- `/h` - 2-byte little-endian length prefix → `PStringLengthWidth::TwoByteLE`
+- `/L` - 4-byte big-endian length prefix → `PStringLengthWidth::FourByteBE`
+- `/l` - 4-byte little-endian length prefix → `PStringLengthWidth::FourByteLE`
+
+**Self-Inclusive Length Flag (`/J`):**
+
+The `/J` flag indicates JPEG-style self-inclusive length, where the stored length value includes the length prefix bytes themselves. The evaluator subtracts the prefix width from the stored length to determine the actual string data length.
+
+The `/J` flag can be combined with any width variant:
+
+- `/J` - 1-byte self-inclusive (default width)
+- `/BJ` - 1-byte self-inclusive (explicit)
+- `/HJ` - 2-byte big-endian self-inclusive
+- `/hJ` - 2-byte little-endian self-inclusive
+- `/LJ` - 4-byte big-endian self-inclusive
+- `/lJ` - 4-byte little-endian self-inclusive
 
 **Format:**
 
-Pascal strings store the length as the first byte (0-255), followed by that many bytes of string data. Unlike C strings, they are not null-terminated.
+Pascal strings store the length as a prefix (1, 2, or 4 bytes depending on the variant), followed by that many bytes of string data. Unlike C strings, they are not null-terminated. When the `/J` flag is used, the length value includes the prefix size itself.
 
 **Parser Implementation:**
 
 - Recognized by `parse_type_keyword()` in `src/parser/types.rs`
-- Maps to `TypeKind::PString` in the AST
-- Evaluator reads length prefix byte then that many bytes as string data
+- Suffix parsing handled by `parse_pstring_suffix()` in `src/parser/grammar/mod.rs`
+- Maps to `TypeKind::PString` in the AST with `length_width` and `length_includes_itself` fields
+- Evaluator reads length prefix using appropriate byte order (`from_be_bytes` or `from_le_bytes`)
 - Stored as `Value::String` for comparison with string operators
-- Supports optional `max_length` field to cap the length byte value
+- Supports optional `max_length` field to cap the length value
 
 **Usage in Magic Rules:**
 
 ```rust
-// Basic pstring matching
+// Basic pstring matching (1-byte length prefix)
 0 pstring =Hello     // Match if pstring equals "Hello"
 0 pstring x          // Match any pstring value
 
-// With max_length constraint (parsed separately)
-0 pstring/64 x       // Limit string read to 64 bytes
+// Multi-byte length prefix variants
+0 pstring/H =Test    // 2-byte big-endian length prefix
+0 pstring/h =Test    // 2-byte little-endian length prefix
+0 pstring/L =Test    // 4-byte big-endian length prefix
+0 pstring/l =Test    // 4-byte little-endian length prefix
+
+// JPEG-style self-inclusive length
+0 pstring/J x        // 1-byte self-inclusive length
+0 pstring/HJ =Data   // 2-byte big-endian self-inclusive length
+0 pstring/lJ =Data   // 4-byte little-endian self-inclusive length
+
+// With max_length constraint
+0 pstring/H/64 x     // 2-byte prefix, limit read to 64 bytes
 ```
 
 **Features:**
 
-- ✅ Single type keyword `pstring`
-- ✅ Length-prefixed format (1 byte length, 0-255 bytes data)
-- ✅ Bounds checking for both length byte and string data
+- ✅ Five length prefix width variants (1-byte, 2-byte BE/LE, 4-byte BE/LE)
+- ✅ Self-inclusive length flag (`/J`) for JPEG-style length encoding
+- ✅ Combinable suffix syntax (`/HJ`, `/lJ`, etc.)
+- ✅ Bounds checking for both length prefix and string data
+- ✅ Proper endianness handling via `from_be_bytes` / `from_le_bytes`
 - ✅ UTF-8 validation with replacement character for invalid sequences
 - ✅ Optional `max_length` parameter to limit string reads
 - ✅ String comparison operators work with pstring values
@@ -229,7 +266,6 @@ Pascal strings store the length as the first byte (0-255), followed by that many
 The parser supports date and timestamp types for parsing Unix timestamps (signed seconds since epoch). There are 12 type keywords:
 
 **32-bit timestamps (Date):**
-
 - `date` - Native endian, UTC
 - `ldate` - Native endian, local time
 - `bedate` - Big-endian, UTC
@@ -238,7 +274,6 @@ The parser supports date and timestamp types for parsing Unix timestamps (signed
 - `leldate` - Little-endian, local time
 
 **64-bit timestamps (QDate):**
-
 - `qdate` - Native endian, UTC
 - `qldate` - Native endian, local time
 - `beqdate` - Big-endian, UTC
