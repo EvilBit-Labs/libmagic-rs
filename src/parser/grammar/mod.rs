@@ -662,8 +662,12 @@ pub fn parse_value(input: &str) -> IResult<&str, Value> {
 /// Recognizes width characters (`B`, `H`, `h`, `L`, `l`) and the optional `J`
 /// modifier that indicates the stored length includes the length field itself.
 ///
-/// Returns `(remaining_input, width, length_includes_itself)`.
-fn parse_pstring_suffix(input: &str) -> (&str, crate::parser::ast::PStringLengthWidth, bool) {
+/// Returns `Ok((remaining_input, width, length_includes_itself))` on success,
+/// or `Err` if an unrecognized suffix character is found.
+fn parse_pstring_suffix(
+    input: &str,
+) -> Result<(&str, crate::parser::ast::PStringLengthWidth, bool), nom::Err<nom::error::Error<&str>>>
+{
     use crate::parser::ast::PStringLengthWidth;
 
     // Parse width character
@@ -679,9 +683,13 @@ fn parse_pstring_suffix(input: &str) -> (&str, crate::parser::ast::PStringLength
         (rest, PStringLengthWidth::FourByteLE)
     } else if let Some(rest) = input.strip_prefix('J') {
         // Bare /J with no width = default OneByte + self-inclusive
-        return (rest, PStringLengthWidth::OneByte, true);
+        return Ok((rest, PStringLengthWidth::OneByte, true));
     } else {
-        return (input, PStringLengthWidth::OneByte, false);
+        // Unrecognized suffix character after '/'
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::OneOf,
+        )));
     };
 
     // Parse optional J flag after width character
@@ -691,7 +699,7 @@ fn parse_pstring_suffix(input: &str) -> (&str, crate::parser::ast::PStringLength
         (rest, false)
     };
 
-    (rest, width, includes_j)
+    Ok((rest, width, includes_j))
 }
 
 /// Parse a type specification with an optional attached bitwise-AND mask operator
@@ -730,7 +738,7 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
     if type_name == "pstring"
         && let Some(suffix_rest) = input.strip_prefix('/')
     {
-        let (rest, width, includes_j) = parse_pstring_suffix(suffix_rest);
+        let (rest, width, includes_j) = parse_pstring_suffix(suffix_rest)?;
         input = rest;
         pstring_length_width = width;
         pstring_length_includes_itself = includes_j;

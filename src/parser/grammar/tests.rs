@@ -55,6 +55,19 @@ fn test_number_with_remaining_input() {
 }
 
 #[test]
+fn test_parse_pstring_invalid_suffix_rejected() {
+    // Invalid suffix characters after '/' should produce a parse error
+    let invalid_cases = ["pstring/Z", "pstring/X", "pstring/W", "pstring/1"];
+    for input in invalid_cases {
+        let result = parse_type_and_operator(input);
+        assert!(
+            result.is_err(),
+            "Expected error for invalid suffix: {input}"
+        );
+    }
+}
+
+#[test]
 fn test_parse_decimal_number() {
     assert_eq!(parse_decimal_number("123"), Ok(("", 123)));
     assert_eq!(parse_decimal_number("0"), Ok(("", 0)));

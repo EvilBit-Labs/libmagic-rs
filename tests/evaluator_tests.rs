@@ -441,6 +441,36 @@ fn test_evaluate_pstring_with_max_length() {
 }
 
 #[test]
+fn test_evaluate_pstring_two_byte_be_with_j_flag() {
+    // 2-byte big-endian prefix with /J: stored length=7 includes the 2-byte prefix, so string is 5 bytes
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::PString {
+            max_length: None,
+            length_width: PStringLengthWidth::TwoByteBE,
+            length_includes_itself: true,
+        },
+        op: Operator::Equal,
+        value: Value::String("Hello".to_string()),
+        message: "BE pstring with /J flag".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    // Big-endian length 7 = [0x00, 0x07], minus 2-byte prefix = 5 bytes of "Hello"
+    let buffer: &[u8] = &[0x00, 0x07, b'H', b'e', b'l', b'l', b'o'];
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[rule], buffer, &mut context).unwrap();
+    assert_eq!(
+        matches.len(),
+        1,
+        "PString/HJ rule should match 2-byte BE prefix with self-inclusive length"
+    );
+}
+
+#[test]
 fn test_evaluate_float_rule_no_match() {
     // Buffer contains 1.0f32 LE, rule expects == 2.0 -- should NOT match
     let rule = MagicRule {

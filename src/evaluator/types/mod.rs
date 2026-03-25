@@ -40,6 +40,31 @@ pub enum TypeReadError {
         /// The name of the unsupported type.
         type_name: String,
     },
+    /// Invalid pstring length prefix value (e.g., `/J` flag with stored length
+    /// smaller than the prefix width).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::evaluator::types::TypeReadError;
+    /// let err = TypeReadError::InvalidPStringLength {
+    ///     stored_length: 1,
+    ///     prefix_width: 2,
+    /// };
+    /// assert_eq!(
+    ///     err.to_string(),
+    ///     "Invalid pstring length prefix: stored length 1 is less than prefix width 2"
+    /// );
+    /// ```
+    #[error(
+        "Invalid pstring length prefix: stored length {stored_length} is less than prefix width {prefix_width}"
+    )]
+    InvalidPStringLength {
+        /// The length value stored in the pstring prefix.
+        stored_length: usize,
+        /// The byte width of the length prefix field.
+        prefix_width: usize,
+    },
 }
 
 /// Reads bytes according to the specified `TypeKind`.

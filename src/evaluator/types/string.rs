@@ -196,9 +196,9 @@ pub fn read_pstring(
     let string_length = if length_includes_itself {
         string_length
             .checked_sub(width)
-            .ok_or(TypeReadError::BufferOverrun {
-                offset,
-                buffer_len: buffer.len(),
+            .ok_or(TypeReadError::InvalidPStringLength {
+                stored_length: string_length,
+                prefix_width: width,
             })?
     } else {
         string_length
@@ -827,9 +827,48 @@ mod tests {
 
     #[test]
     fn test_read_pstring_j_flag_length_less_than_prefix_width() {
-        // /J where length < prefix width -> error (underflow)
-        let buffer = b"\x00\x01xx";
+        // /J where length < prefix width -> InvalidPStringLength error
+        // LE bytes [0x01, 0x00] = stored length 1, but prefix width is 2
+        let buffer = b"\x01\x00xx";
         let result = read_pstring(buffer, 0, None, PStringLengthWidth::TwoByteLE, true);
-        assert!(matches!(result, Err(TypeReadError::BufferOverrun { .. })));
+        assert!(
+            matches!(
+                result,
+                Err(TypeReadError::InvalidPStringLength {
+                    stored_length: 1,
+                    prefix_width: 2
+                })
+            ),
+            "Expected InvalidPStringLength, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_read_pstring_j_flag_with_max_length() {
+        // /J + max_length interaction: subtract prefix width first, then cap
+        // stored length=9, width=4, /J gives 5, max_length=3 caps to 3
+        let buffer = b"\x09\x00\x00\x00Hello";
+        let result = read_pstring(buffer, 0, Some(3), PStringLengthWidth::FourByteLE, true);
+        assert_eq!(result.unwrap(), Value::String("Hel".to_string()));
+    }
+
+    #[test]
+    fn test_read_pstring_j_flag_zero_length_all_widths() {
+        // /J where stored length equals prefix width -> empty string
+        let cases: &[(&[u8], PStringLengthWidth)] = &[
+            (b"\x01", PStringLengthWidth::OneByte),
+            (b"\x00\x02", PStringLengthWidth::TwoByteBE),
+            (b"\x02\x00", PStringLengthWidth::TwoByteLE),
+            (b"\x00\x00\x00\x04", PStringLengthWidth::FourByteBE),
+            (b"\x04\x00\x00\x00", PStringLengthWidth::FourByteLE),
+        ];
+        for &(buffer, width) in cases {
+            let result = read_pstring(buffer, 0, None, width, true);
+            assert_eq!(
+                result.unwrap(),
+                Value::String(String::new()),
+                "Expected empty string for /J with width {width:?}"
+            );
+        }
     }
 }

@@ -19,28 +19,66 @@ use serde::{Deserialize, Serialize};
 /// use libmagic_rs::parser::ast::PStringLengthWidth;
 /// let width = PStringLengthWidth::OneByte;
 /// assert_eq!(width.byte_count(), 1);
-/// assert!(!width.is_big_endian());
 ///
 /// let width = PStringLengthWidth::TwoByteBE;
 /// assert_eq!(width.byte_count(), 2);
-/// assert!(width.is_big_endian());
 ///
 /// let width = PStringLengthWidth::FourByteLE;
 /// assert_eq!(width.byte_count(), 4);
-/// assert!(!width.is_big_endian());
 /// ```
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[allow(clippy::enum_variant_names)]
+#[non_exhaustive]
 pub enum PStringLengthWidth {
     /// 1-byte length prefix (default, `/B` suffix)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::PStringLengthWidth;
+    /// let width = PStringLengthWidth::OneByte;
+    /// assert_eq!(width.byte_count(), 1);
+    /// ```
     OneByte,
     /// 2-byte big-endian length prefix (`/H` suffix)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::PStringLengthWidth;
+    /// let width = PStringLengthWidth::TwoByteBE;
+    /// assert_eq!(width.byte_count(), 2);
+    /// ```
     TwoByteBE,
     /// 2-byte little-endian length prefix (`/h` suffix)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::PStringLengthWidth;
+    /// let width = PStringLengthWidth::TwoByteLE;
+    /// assert_eq!(width.byte_count(), 2);
+    /// ```
     TwoByteLE,
     /// 4-byte big-endian length prefix (`/L` suffix)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::PStringLengthWidth;
+    /// let width = PStringLengthWidth::FourByteBE;
+    /// assert_eq!(width.byte_count(), 4);
+    /// ```
     FourByteBE,
     /// 4-byte little-endian length prefix (`/l` suffix)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::PStringLengthWidth;
+    /// let width = PStringLengthWidth::FourByteLE;
+    /// assert_eq!(width.byte_count(), 4);
+    /// ```
     FourByteLE,
 }
 
@@ -53,12 +91,6 @@ impl PStringLengthWidth {
             Self::TwoByteBE | Self::TwoByteLE => 2,
             Self::FourByteBE | Self::FourByteLE => 4,
         }
-    }
-
-    /// Returns `true` if the length prefix uses big-endian byte order.
-    #[must_use]
-    pub fn is_big_endian(&self) -> bool {
-        matches!(self, Self::TwoByteBE | Self::FourByteBE)
     }
 }
 
@@ -236,7 +268,7 @@ pub enum TypeKind {
     },
     /// Pascal string (length-prefixed, supports 1/2/4-byte prefix, with optional max length)
     ///
-    /// Pascal strings store the length as a prefix (1, 2, or 4 bytes, little-endian), followed by
+    /// Pascal strings store the length as a prefix (1, 2, or 4 bytes, with configurable endianness), followed by
     /// that many bytes of string data. Unlike C strings, they are not null-terminated.
     ///
     /// # Examples
