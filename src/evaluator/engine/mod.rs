@@ -14,6 +14,7 @@ use crate::parser::ast::MagicRule;
 use crate::{EvaluationConfig, LibmagicError};
 
 use super::{EvaluationContext, RuleMatch, offset, operators, types};
+use log::debug;
 
 /// Evaluate a single magic rule against a file buffer
 ///
@@ -190,16 +191,15 @@ pub fn evaluate_rules(
         let match_data = match evaluate_single_rule(rule, buffer) {
             Ok(data) => data,
             Err(
-                LibmagicError::EvaluationError(
+                e @ (LibmagicError::EvaluationError(
                     crate::error::EvaluationError::BufferOverrun { .. }
                     | crate::error::EvaluationError::InvalidOffset { .. }
                     | crate::error::EvaluationError::TypeReadError(_),
                 )
-                | LibmagicError::IoError(_),
+                | LibmagicError::IoError(_)),
             ) => {
-                // Expected evaluation errors for individual rules -- skip gracefully.
-                // TODO: emit debug-level trace when a rule is skipped due to error,
-                // so users can distinguish "rule didn't match" from "rule failed internally".
+                // Expected evaluation errors for individual rules -- skip gracefully
+                debug!("Skipping rule '{}': {}", rule.message, e);
                 continue;
             }
             Err(e) => {
@@ -244,14 +244,20 @@ pub fn evaluate_rules(
                         return Err(e);
                     }
                     Err(
-                        LibmagicError::EvaluationError(
+                        e @ (LibmagicError::EvaluationError(
                             crate::error::EvaluationError::BufferOverrun { .. }
                             | crate::error::EvaluationError::InvalidOffset { .. }
                             | crate::error::EvaluationError::TypeReadError(_),
                         )
-                        | LibmagicError::IoError(_),
+                        | LibmagicError::IoError(_)),
                     ) => {
-                        // Expected child evaluation errors -- skip gracefully
+                        // Expected child evaluation errors -- skip gracefully.
+                        // Individual child failures are logged by the recursive evaluate_rules call;
+                        // this arm is defensive for errors that propagate from the batch.
+                        debug!(
+                            "Skipping child evaluation under rule '{}': {}",
+                            rule.message, e
+                        );
                     }
                     Err(e) => {
                         // Unexpected errors in children should propagate

@@ -6,6 +6,8 @@
 //! Provides functions for loading magic rules from individual files and
 //! directories, with automatic format detection and error handling.
 
+use log::warn;
+
 use crate::error::ParseError;
 use crate::parser::ast::MagicRule;
 use std::path::{Path, PathBuf};
@@ -79,7 +81,6 @@ use super::format::{MagicFileFormat, detect_format};
 /// # Panics
 ///
 /// This function does not panic under normal operation.
-#[allow(clippy::print_stderr)]
 pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseError> {
     use std::fs;
 
@@ -176,10 +177,8 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
     }
 
     // Log warnings for partial failures (some files parsed, some failed)
-    // Note: Using eprintln for now; consider a logging framework in the future
-    #[allow(clippy::print_stderr)]
     for (path, e) in &parse_failures {
-        eprintln!("Warning: Failed to parse '{}': {}", path.display(), e);
+        warn!("Failed to parse '{}': {}", path.display(), e);
     }
 
     Ok(all_rules)
