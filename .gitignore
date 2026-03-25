@@ -146,3 +146,6 @@ docs/plans/
 .full-review/
 SECURITY_AUDIT.md
 todos/
+**/tessl__*
+.tessl/tiles/
+.tessl/RULES.md

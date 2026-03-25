@@ -227,13 +227,57 @@ String escape sequences:
 
 ### Pascal String Type
 
-Pascal string (pstring) is a length-prefixed string type. The first byte contains the string length (0-255), followed by that many bytes of string data. Unlike C strings, Pascal strings are not null-terminated.
+Pascal string (pstring) is a length-prefixed string type. The length prefix can be 1, 2, or 4 bytes depending on the suffix flag. Unlike C strings, Pascal strings are not null-terminated.
+
+#### Length Prefix Width
+
+The default pstring type uses a 1-byte length prefix (0-255 range). Use suffix flags to specify different prefix widths:
+
+| Suffix | Width   | Endianness    | Range           |
+| ------ | ------- | ------------- | --------------- |
+| `/B`   | 1 byte  | N/A           | 0-255 (default) |
+| `/H`   | 2 bytes | big-endian    | 0-65535         |
+| `/h`   | 2 bytes | little-endian | 0-65535         |
+| `/L`   | 4 bytes | big-endian    | 0-4294967295    |
+| `/l`   | 4 bytes | little-endian | 0-4294967295    |
+
+#### Self-Inclusive Length (`/J` Flag)
+
+The `/J` flag indicates that the stored length value includes the size of the length prefix itself (JPEG-style). This flag can be combined with any width variant.
+
+#### Examples
+
+Basic pstring with default 1-byte prefix:
 
 ```text
 0       pstring   =JPEG     JPEG image (Pascal string)
 ```
 
-The evaluator reads the length byte, then reads that many bytes as string data. The optional max_length parameter caps the length byte value:
+2-byte big-endian length prefix:
+
+```text
+0       pstring/H =JPEG     JPEG image (2-byte BE prefix)
+```
+
+4-byte little-endian length prefix:
+
+```text
+0       pstring/l x         \b, name: %s
+```
+
+Self-inclusive length with 2-byte big-endian prefix:
+
+```text
+0       pstring/HJ x        \b, JPEG-style length
+```
+
+Self-inclusive length with default 1-byte prefix:
+
+```text
+0       pstring/J  x        \b, self-inclusive length
+```
+
+The optional max_length parameter caps the length value:
 
 ```text
 0       pstring   x         \b, name: %s

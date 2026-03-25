@@ -65,6 +65,7 @@ The parser is responsible for converting magic files (text-based DSL) into an Ab
 - ✅ **Offset parsing**: Absolute offsets with comprehensive validation
 - ✅ **Operator parsing**: Equality (`=`, `==`), inequality (`!=`, `<>`), comparison (`<`, `>`, `<=`, `>=`), bitwise (`&`, `^`, `~`), and any-value (`x`) operators
 - ✅ **Value parsing**: Strings, numbers, and hex byte sequences with escape sequences
+- ✅ **PString suffixes**: `/B`, `/H`, `/h`, `/L`, `/l` (length prefix width), `/J` (self-inclusive length)
 - ✅ **Error handling**: Comprehensive nom error handling with meaningful messages
 - ✅ **Rule parsing**: Complete rule parsing via `parse_magic_rule()`
 - ✅ **File parsing**: Complete magic file parsing with `parse_text_magic_file()`
@@ -95,7 +96,11 @@ pub enum TypeKind {
     Long { endian: Endianness, signed: bool },
     Quad { endian: Endianness, signed: bool },
     String { max_length: Option<usize> },
-    PString { max_length: Option<usize> }, // Pascal string (length-prefixed)
+    PString {
+        max_length: Option<usize>,
+        length_width: PStringLengthWidth,
+        length_includes_itself: bool,
+    }, // Pascal string (length-prefixed)
 }
 
 pub enum Operator {
@@ -111,6 +116,14 @@ pub enum Operator {
     BitwiseNot,                   // ~
     AnyValue,                     // x (always matches)
 }
+
+pub enum PStringLengthWidth {
+    OneByte,                      // 1-byte prefix (default, /B)
+    TwoByteBE,                    // 2-byte big-endian prefix (/H)
+    TwoByteLE,                    // 2-byte little-endian prefix (/h)
+    FourByteBE,                   // 4-byte big-endian prefix (/L)
+    FourByteLE,                   // 4-byte little-endian prefix (/l)
+}
 ```
 
 **Design Principles:**
@@ -120,6 +133,18 @@ pub enum Operator {
 - **Self-contained**: No external dependencies in AST nodes
 - **Type-safe**: Rust's type system prevents invalid rule combinations
 - **Explicit signedness**: `TypeKind::Byte` and integer types (Short, Long, Quad) distinguish signed from unsigned interpretations
+
+**PString Length Prefix Support:**
+
+The `PString` type supports multiple length prefix formats through the `length_width` field:
+
+- **OneByte** (`/B`): Default 1-byte length prefix (0-255 range)
+- **TwoByteBE** (`/H`): 2-byte big-endian prefix
+- **TwoByteLE** (`/h`): 2-byte little-endian prefix
+- **FourByteBE** (`/L`): 4-byte big-endian prefix
+- **FourByteLE** (`/l`): 4-byte little-endian prefix
+
+The `length_includes_itself` field (controlled by the `/J` suffix) indicates JPEG-style self-inclusive length, where the stored length value includes the length field itself. This can be combined with any width variant (e.g., `/HJ` for 2-byte big-endian with self-inclusive length).
 
 ### 3. Evaluator Module (`src/evaluator/`)
 
@@ -134,7 +159,7 @@ The evaluator executes magic rules against file buffers to identify file types. 
 - `types/`: Type interpretation submodule
   - `mod.rs`: Public API surface with `read_typed_value`, `coerce_value_to_type`, and type re-exports
   - `numeric.rs`: Numeric type handling (`read_byte`, `read_short`, `read_long`, `read_quad`) with endianness and signedness support
-  - `string.rs`: String type handling (`read_string`) with null-termination and UTF-8 conversion
+  - `string.rs`: String type handling (`read_string`, `read_pstring`) with null-termination, UTF-8 conversion, and multi-byte length prefix support
   - `tests.rs`: Module tests
 - `offset/`: Offset resolution submodule
   - `mod.rs`: Dispatcher (`resolve_offset`) and re-exports

@@ -8,6 +8,92 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The width of the length prefix for Pascal strings.
+///
+/// Uppercase suffix letters (`/H`, `/L`) indicate big-endian byte order.
+/// Lowercase suffix letters (`/h`, `/l`) indicate little-endian byte order.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::PStringLengthWidth;
+/// let width = PStringLengthWidth::OneByte;
+/// assert_eq!(width.byte_count(), 1);
+///
+/// let width = PStringLengthWidth::TwoByteBE;
+/// assert_eq!(width.byte_count(), 2);
+///
+/// let width = PStringLengthWidth::FourByteLE;
+/// assert_eq!(width.byte_count(), 4);
+/// ```
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
+#[non_exhaustive]
+pub enum PStringLengthWidth {
+    /// 1-byte length prefix (default, `/B` suffix)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::PStringLengthWidth;
+    /// let width = PStringLengthWidth::OneByte;
+    /// assert_eq!(width.byte_count(), 1);
+    /// ```
+    OneByte,
+    /// 2-byte big-endian length prefix (`/H` suffix)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::PStringLengthWidth;
+    /// let width = PStringLengthWidth::TwoByteBE;
+    /// assert_eq!(width.byte_count(), 2);
+    /// ```
+    TwoByteBE,
+    /// 2-byte little-endian length prefix (`/h` suffix)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::PStringLengthWidth;
+    /// let width = PStringLengthWidth::TwoByteLE;
+    /// assert_eq!(width.byte_count(), 2);
+    /// ```
+    TwoByteLE,
+    /// 4-byte big-endian length prefix (`/L` suffix)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::PStringLengthWidth;
+    /// let width = PStringLengthWidth::FourByteBE;
+    /// assert_eq!(width.byte_count(), 4);
+    /// ```
+    FourByteBE,
+    /// 4-byte little-endian length prefix (`/l` suffix)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::PStringLengthWidth;
+    /// let width = PStringLengthWidth::FourByteLE;
+    /// assert_eq!(width.byte_count(), 4);
+    /// ```
+    FourByteLE,
+}
+
+impl PStringLengthWidth {
+    /// Returns the number of bytes used for the length prefix.
+    #[must_use]
+    pub fn byte_count(&self) -> usize {
+        match self {
+            Self::OneByte => 1,
+            Self::TwoByteBE | Self::TwoByteLE => 2,
+            Self::FourByteBE | Self::FourByteLE => 4,
+        }
+    }
+}
+
 /// Offset specification for locating data in files
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum OffsetSpec {
@@ -180,26 +266,33 @@ pub enum TypeKind {
         /// Maximum length to read
         max_length: Option<usize>,
     },
-    /// Pascal string (length-prefixed byte followed by string data)
+    /// Pascal string (length-prefixed, supports 1/2/4-byte prefix, with optional max length)
     ///
-    /// Pascal strings store the length as the first byte (0-255), followed by
-    /// that many bytes of string data. Unlike C strings, they are not
-    /// null-terminated.
+    /// Pascal strings store the length as a prefix (1, 2, or 4 bytes, with configurable endianness), followed by
+    /// that many bytes of string data. Unlike C strings, they are not null-terminated.
     ///
     /// # Examples
     ///
     /// ```
-    /// use libmagic_rs::parser::ast::TypeKind;
+    /// use libmagic_rs::parser::ast::{TypeKind, PStringLengthWidth};
     ///
-    /// let pstring = TypeKind::PString { max_length: None };
-    /// assert_eq!(pstring, TypeKind::PString { max_length: None });
+    /// let pstring = TypeKind::PString { max_length: None, length_width: PStringLengthWidth::OneByte, length_includes_itself: false };
+    /// assert_eq!(pstring, TypeKind::PString { max_length: None, length_width: PStringLengthWidth::OneByte, length_includes_itself: false });
     ///
-    /// let limited = TypeKind::PString { max_length: Some(64) };
-    /// assert_eq!(limited, TypeKind::PString { max_length: Some(64) });
+    /// let limited = TypeKind::PString { max_length: Some(64), length_width: PStringLengthWidth::TwoByteBE, length_includes_itself: false };
+    /// assert_eq!(limited, TypeKind::PString { max_length: Some(64), length_width: PStringLengthWidth::TwoByteBE, length_includes_itself: false });
+    ///
+    /// // /J flag: stored length includes the length field itself
+    /// let jpeg = TypeKind::PString { max_length: None, length_width: PStringLengthWidth::TwoByteBE, length_includes_itself: true };
+    /// assert_eq!(jpeg, TypeKind::PString { max_length: None, length_width: PStringLengthWidth::TwoByteBE, length_includes_itself: true });
     /// ```
     PString {
-        /// Maximum length to read (caps the length byte value)
+        /// Maximum length to read (caps the length value)
         max_length: Option<usize>,
+        /// Width of the length prefix
+        length_width: PStringLengthWidth,
+        /// Whether the stored length includes the length field itself (`/J` flag)
+        length_includes_itself: bool,
     },
 }
 
@@ -885,9 +978,25 @@ mod tests {
             TypeKind::String {
                 max_length: Some(128),
             },
-            TypeKind::PString { max_length: None },
+            TypeKind::PString {
+                max_length: None,
+                length_width: PStringLengthWidth::OneByte,
+                length_includes_itself: false,
+            },
             TypeKind::PString {
                 max_length: Some(64),
+                length_width: PStringLengthWidth::OneByte,
+                length_includes_itself: false,
+            },
+            TypeKind::PString {
+                max_length: None,
+                length_width: PStringLengthWidth::TwoByteBE,
+                length_includes_itself: true,
+            },
+            TypeKind::PString {
+                max_length: Some(128),
+                length_width: PStringLengthWidth::FourByteLE,
+                length_includes_itself: false,
             },
         ];
 

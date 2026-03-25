@@ -316,15 +316,28 @@ mod tests {
 
     #[test]
     fn test_serialize_type_kind_pstring() {
-        let typ1 = TypeKind::PString { max_length: None };
+        use crate::parser::ast::PStringLengthWidth;
+        let typ1 = TypeKind::PString {
+            max_length: None,
+            length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false,
+        };
         let serialized1 = serialize_type_kind(&typ1);
-        assert_eq!(serialized1, "TypeKind::PString { max_length: None }");
+        assert_eq!(
+            serialized1,
+            "TypeKind::PString { max_length: None, length_width: PStringLengthWidth::OneByte, length_includes_itself: false }"
+        );
 
         let typ2 = TypeKind::PString {
             max_length: Some(128),
+            length_width: PStringLengthWidth::FourByteLE,
+            length_includes_itself: false,
         };
         let serialized2 = serialize_type_kind(&typ2);
-        assert_eq!(serialized2, "TypeKind::PString { max_length: Some(128) }");
+        assert_eq!(
+            serialized2,
+            "TypeKind::PString { max_length: Some(128), length_width: PStringLengthWidth::FourByteLE, length_includes_itself: false }"
+        );
     }
 
     #[test]
