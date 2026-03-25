@@ -251,9 +251,10 @@ pub fn evaluate_rules(
                         )
                         | LibmagicError::IoError(_)),
                     ) => {
-                        // Expected child evaluation errors -- skip gracefully.
-                        // Individual child failures are logged by the recursive evaluate_rules call;
-                        // this arm is defensive for errors that propagate from the batch.
+                        // Defensive: under the current implementation, individual child
+                        // failures are caught and logged inside the recursive evaluate_rules
+                        // call (they never propagate here). This arm guards against future
+                        // changes that might alter that error-handling strategy.
                         debug!(
                             "Skipping child evaluation under rule '{}': {}",
                             rule.message, e

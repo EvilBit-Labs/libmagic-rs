@@ -29,7 +29,7 @@ use super::format::{MagicFileFormat, detect_format};
 ///   and propagates the error to the caller.
 ///
 /// - **Non-critical errors** (individual file parse failures):
-///   These are logged to stderr with a warning message and the file is skipped. Processing
+///   These are logged at warn level and the file is skipped. Processing
 ///   continues with remaining files.
 ///
 /// # Behavior
