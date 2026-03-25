@@ -11,7 +11,7 @@
 
 use nom::{IResult, Parser, branch::alt, bytes::complete::tag};
 
-use crate::parser::ast::{Endianness, TypeKind};
+use crate::parser::ast::{Endianness, PStringLengthWidth, TypeKind};
 
 /// Parse a type keyword from magic file input
 ///
@@ -294,10 +294,12 @@ pub fn type_keyword_to_kind(type_name: &str) -> TypeKind {
 
         // STRING types
         "string" => TypeKind::String { max_length: None },
-        // NOTE: GNU libmagic also supports pstring/B (1-byte, default), pstring/H
-        // (2-byte LE), and pstring/L (4-byte LE) length-prefix variants. Only the
-        // default 1-byte prefix is supported here; /B, /H, /L suffixes are not yet parsed.
-        "pstring" => TypeKind::PString { max_length: None },
+        // Default to 1-byte prefix; suffix parsing handled in grammar/mod.rs
+        "pstring" => TypeKind::PString {
+            max_length: None,
+            length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false,
+        },
 
         _ => unreachable!("type_keyword_to_kind called with unknown type: {type_name}"),
     }
@@ -475,8 +477,64 @@ mod tests {
     fn test_type_keyword_to_kind_pstring() {
         assert_eq!(
             type_keyword_to_kind("pstring"),
-            TypeKind::PString { max_length: None }
+            TypeKind::PString {
+                max_length: None,
+                length_width: PStringLengthWidth::OneByte,
+                length_includes_itself: false
+            }
         );
+    }
+
+    #[test]
+    fn test_pstring_keyword_defaults_to_one_byte_width() {
+        // pstring keyword alone should produce OneByte length_width
+        // (suffix parsing is handled by grammar/mod.rs, not types.rs)
+        let kind = type_keyword_to_kind("pstring");
+        match kind {
+            TypeKind::PString {
+                max_length,
+                length_width,
+                length_includes_itself: _,
+            } => {
+                assert_eq!(
+                    max_length, None,
+                    "pstring default should have no max_length"
+                );
+                assert_eq!(
+                    length_width,
+                    PStringLengthWidth::OneByte,
+                    "pstring default should be OneByte"
+                );
+            }
+            _ => panic!("Expected TypeKind::PString, got {kind:?}"),
+        }
+    }
+
+    #[test]
+    fn test_pstring_keyword_does_not_consume_suffix() {
+        // parse_type_keyword should only consume "pstring", leaving suffix for grammar
+        let (rest, keyword) = parse_type_keyword("pstring/H =value").unwrap();
+        assert_eq!(keyword, "pstring");
+        assert_eq!(
+            rest, "/H =value",
+            "Suffix should remain unconsumed by type keyword parser"
+        );
+    }
+
+    #[test]
+    fn test_pstring_keyword_boundary() {
+        // pstring at exact boundary (no trailing input)
+        let (rest, keyword) = parse_type_keyword("pstring").unwrap();
+        assert_eq!(keyword, "pstring");
+        assert_eq!(rest, "");
+    }
+
+    #[test]
+    fn test_pstring_before_operator() {
+        // pstring followed by whitespace then operator
+        let (rest, keyword) = parse_type_keyword("pstring =hello").unwrap();
+        assert_eq!(keyword, "pstring");
+        assert_eq!(rest, " =hello");
     }
 
     #[test]

@@ -361,10 +361,22 @@ libmagic-rs uses a **maintainer-driven** governance model. Decisions are made by
 
 As the project grows, active contributors who demonstrate sustained, high-quality contributions and alignment with project goals may be invited to become maintainers.
 
+## Known Gotchas
+
+Before diving into the codebase, read **[GOTCHAS.md](GOTCHAS.md)** -- it documents non-obvious behaviors, common pitfalls, and architectural quirks that will save you debugging time. Key topics include:
+
+- Build script boundary constraints and shared code between `build.rs` and the library (S1)
+- Enum variant update checklists for `TypeKind`, `Operator`, and `Value` (S2)
+- Parser architecture split between `types.rs` and `grammar/mod.rs` (S3)
+- Numeric type conversion and checked arithmetic requirements (S5)
+- PString multi-byte length prefix endianness (S6)
+- Clippy lint surprises and `unsafe_code = "forbid"` enforcement (S8)
+
 ## Getting Help
 
 - **Issues**: For bug reports and feature requests
 - **Discussions**: For questions and ideas
 - **Documentation**: Check [docs/](docs/) for detailed guides
+- **Gotchas**: Check [GOTCHAS.md](GOTCHAS.md) for known pitfalls
 
 Thank you for contributing to libmagic-rs!

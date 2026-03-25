@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::parser::ast::Endianness;
+use crate::parser::ast::PStringLengthWidth;
 
 /// Helper function to test parsing with various whitespace patterns
 #[allow(dead_code)] // TODO: Use this helper in future whitespace tests
@@ -49,6 +50,19 @@ fn test_number_with_remaining_input() {
             parse_number(input),
             Ok((expected_remaining, expected_num)),
             "Failed to parse number with remaining input: '{input}'"
+        );
+    }
+}
+
+#[test]
+fn test_parse_pstring_invalid_suffix_rejected() {
+    // Invalid suffix characters after '/' should produce a parse error
+    let invalid_cases = ["pstring/Z", "pstring/X", "pstring/W", "pstring/1"];
+    for input in invalid_cases {
+        let result = parse_type_and_operator(input);
+        assert!(
+            result.is_err(),
+            "Expected error for invalid suffix: {input}"
         );
     }
 }
@@ -1990,7 +2004,14 @@ fn test_is_strength_directive() {
 fn test_parse_type_pstring() {
     assert_eq!(
         parse_type("pstring"),
-        Ok(("", TypeKind::PString { max_length: None }))
+        Ok((
+            "",
+            TypeKind::PString {
+                max_length: None,
+                length_width: PStringLengthWidth::OneByte,
+                length_includes_itself: false
+            }
+        ))
     );
 }
 
@@ -1998,11 +2019,25 @@ fn test_parse_type_pstring() {
 fn test_parse_type_pstring_with_remaining_input() {
     assert_eq!(
         parse_type("pstring ="),
-        Ok(("=", TypeKind::PString { max_length: None }))
+        Ok((
+            "=",
+            TypeKind::PString {
+                max_length: None,
+                length_width: PStringLengthWidth::OneByte,
+                length_includes_itself: false
+            }
+        ))
     );
     assert_eq!(
         parse_type("pstring \"hello\""),
-        Ok(("\"hello\"", TypeKind::PString { max_length: None }))
+        Ok((
+            "\"hello\"",
+            TypeKind::PString {
+                max_length: None,
+                length_width: PStringLengthWidth::OneByte,
+                length_includes_itself: false
+            }
+        ))
     );
 }
 
@@ -2014,7 +2049,14 @@ fn test_parse_magic_rule_pstring() {
     assert_eq!(remaining, "");
     assert_eq!(rule.level, 0);
     assert_eq!(rule.offset, OffsetSpec::Absolute(0));
-    assert_eq!(rule.typ, TypeKind::PString { max_length: None });
+    assert_eq!(
+        rule.typ,
+        TypeKind::PString {
+            max_length: None,
+            length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false
+        }
+    );
     assert_eq!(rule.op, Operator::Equal);
     assert_eq!(rule.value, Value::String("PascalStr".to_string()));
     assert_eq!(rule.message, "Pascal string data");
@@ -2028,7 +2070,14 @@ fn test_parse_magic_rule_pstring_child_rule() {
     assert_eq!(remaining, "");
     assert_eq!(rule.level, 1);
     assert_eq!(rule.offset, OffsetSpec::Absolute(4));
-    assert_eq!(rule.typ, TypeKind::PString { max_length: None });
+    assert_eq!(
+        rule.typ,
+        TypeKind::PString {
+            max_length: None,
+            length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false
+        }
+    );
     assert_eq!(rule.message, "child pstring rule");
 }
 
@@ -2036,7 +2085,14 @@ fn test_parse_magic_rule_pstring_child_rule() {
 fn test_parse_type_and_operator_pstring_standalone_and() {
     let (remaining, (typ, op)) = parse_type_and_operator("pstring& ").unwrap();
     assert_eq!(remaining, "");
-    assert_eq!(typ, TypeKind::PString { max_length: None });
+    assert_eq!(
+        typ,
+        TypeKind::PString {
+            max_length: None,
+            length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false
+        }
+    );
     assert_eq!(op, Some(Operator::BitwiseAnd));
 }
 
@@ -2089,4 +2145,47 @@ fn test_parse_type_and_operator_mask_overflow_fails() {
         result.is_err(),
         "overflowing hex mask should produce a parse error"
     );
+}
+
+#[test]
+fn test_parse_type_and_operator_pstring_suffixes() {
+    use crate::parser::ast::TypeKind;
+    let cases: &[(&str, PStringLengthWidth, bool, &str)] = &[
+        ("pstring", PStringLengthWidth::OneByte, false, ""),
+        ("pstring/B", PStringLengthWidth::OneByte, false, ""),
+        ("pstring/H", PStringLengthWidth::TwoByteBE, false, ""),
+        ("pstring/h", PStringLengthWidth::TwoByteLE, false, ""),
+        ("pstring/L", PStringLengthWidth::FourByteBE, false, ""),
+        ("pstring/l", PStringLengthWidth::FourByteLE, false, ""),
+        ("pstring/H =", PStringLengthWidth::TwoByteBE, false, "="),
+        ("pstring/J", PStringLengthWidth::OneByte, true, ""),
+        ("pstring/BJ", PStringLengthWidth::OneByte, true, ""),
+        ("pstring/HJ", PStringLengthWidth::TwoByteBE, true, ""),
+        ("pstring/hJ", PStringLengthWidth::TwoByteLE, true, ""),
+        ("pstring/LJ", PStringLengthWidth::FourByteBE, true, ""),
+        ("pstring/lJ", PStringLengthWidth::FourByteLE, true, ""),
+    ];
+    for &(input, expected_width, expected_j, expected_rest) in cases {
+        let (rest, (kind, op)) = parse_type_and_operator(input).expect(input);
+        assert_eq!(rest, expected_rest, "rest for input: {input}");
+        assert!(op.is_none(), "operator for input: {input}");
+        match kind {
+            TypeKind::PString {
+                max_length,
+                length_width,
+                length_includes_itself,
+            } => {
+                assert_eq!(max_length, None, "max_length for input: {input}");
+                assert_eq!(
+                    length_width, expected_width,
+                    "length_width for input: {input}"
+                );
+                assert_eq!(
+                    length_includes_itself, expected_j,
+                    "length_includes_itself for input: {input}"
+                );
+            }
+            _ => panic!("Expected PString for input: {input}, got {kind:?}"),
+        }
+    }
 }

@@ -296,17 +296,17 @@ Data type specifications.
 use libmagic_rs::TypeKind;
 ```
 
-| Variant                    | Description                                                                                                                                                                                                                                                   |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Byte { signed }`          | Single byte with explicit signedness (changed in v0.2.0)                                                                                                                                                                                                      |
-| `Short { endian, signed }` | 16-bit integer                                                                                                                                                                                                                                                |
-| `Long { endian, signed }`  | 32-bit integer                                                                                                                                                                                                                                                |
-| `Quad { endian, signed }`  | 64-bit integer                                                                                                                                                                                                                                                |
-| `Float { endian }`         | 32-bit IEEE 754 floating-point                                                                                                                                                                                                                                |
-| `Double { endian }`        | 64-bit IEEE 754 floating-point                                                                                                                                                                                                                                |
-| `Date { endian, utc }`     | 32-bit Unix timestamp (signed seconds since epoch). The `endian` parameter specifies byte order (LittleEndian or BigEndian), and `utc` is a boolean indicating whether to format as UTC or local time. Date values are formatted as "Www Mmm DD HH:MM:SS YYYY" strings to match GNU file output. |
+| Variant                    | Description                                                                                                                                                                                                                                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Byte { signed }`          | Single byte with explicit signedness (changed in v0.2.0)                                                                                                                                                                                                                                          |
+| `Short { endian, signed }` | 16-bit integer                                                                                                                                                                                                                                                                                    |
+| `Long { endian, signed }`  | 32-bit integer                                                                                                                                                                                                                                                                                    |
+| `Quad { endian, signed }`  | 64-bit integer                                                                                                                                                                                                                                                                                    |
+| `Float { endian }`         | 32-bit IEEE 754 floating-point                                                                                                                                                                                                                                                                    |
+| `Double { endian }`        | 64-bit IEEE 754 floating-point                                                                                                                                                                                                                                                                    |
+| `Date { endian, utc }`     | 32-bit Unix timestamp (signed seconds since epoch). The `endian` parameter specifies byte order (LittleEndian or BigEndian), and `utc` is a boolean indicating whether to format as UTC or local time. Date values are formatted as "Www Mmm DD HH:MM:SS YYYY" strings to match GNU file output.  |
 | `QDate { endian, utc }`    | 64-bit Unix timestamp (signed seconds since epoch). The `endian` parameter specifies byte order (LittleEndian or BigEndian), and `utc` is a boolean indicating whether to format as UTC or local time. QDate values are formatted as "Www Mmm DD HH:MM:SS YYYY" strings to match GNU file output. |
-| `String { max_length }`    | String data                                                                                                                                                                                                                                                   |
+| `String { max_length }`    | String data                                                                                                                                                                                                                                                                                       |
 
 ##### 64-bit Integer Types
 
@@ -381,12 +381,12 @@ Value types for matching.
 use libmagic_rs::Value;
 ```
 
-| Variant          | Description                                                                       |
-| ---------------- | --------------------------------------------------------------------------------- |
-| `Uint(u64)`      | Unsigned integer                                                                  |
-| `Int(i64)`       | Signed integer                                                                    |
-| `Float(f64)`     | 64-bit floating-point value                                                       |
-| `Bytes(Vec<u8>)` | Byte sequence                                                                     |
+| Variant          | Description                                                                            |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| `Uint(u64)`      | Unsigned integer                                                                       |
+| `Int(i64)`       | Signed integer                                                                         |
+| `Float(f64)`     | 64-bit floating-point value                                                            |
+| `Bytes(Vec<u8>)` | Byte sequence                                                                          |
 | `String(String)` | String value (also used for date/timestamp values formatted as human-readable strings) |
 
 **Note:** `Value` implements `PartialEq` but not `Eq` due to IEEE 754 NaN semantics (NaN is not equal to itself).

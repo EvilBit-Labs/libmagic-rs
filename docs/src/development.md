@@ -411,27 +411,47 @@ For full details on code review criteria, DCO requirements, and project governan
 
 ### Logging
 
-Use the `log` crate for debugging:
+The project uses `log = "0.4"` as its logging facade. Logging is used throughout the codebase to provide diagnostic information during development and troubleshooting.
+
+**Logging Conventions:**
+
+- `log::debug!()` for diagnostic information (such as skipped rule evaluations in `src/evaluator/engine/mod.rs`)
+- `log::warn!()` for warnings (parse failures in `src/parser/loader.rs`, confidence validation issues in `src/output/mod.rs`)
+
+Example usage:
 
 ```rust
-use log::{debug, error, info, warn};
+use log::{debug, warn};
 
-pub fn parse_rule(input: &str) -> Result<MagicRule> {
-    debug!("Parsing rule: {}", input);
-
-    let result = do_parsing(input)?;
-
-    info!("Successfully parsed rule: {}", result.message);
-    Ok(result)
+pub fn evaluate_rules(rules: &[MagicRule], buffer: &[u8]) -> Result<Vec<RuleMatch>> {
+    for rule in rules {
+        match evaluate_single_rule(rule, buffer) {
+            Ok(data) => { /* ... */ }
+            Err(e) => {
+                // Expected evaluation errors -- skip gracefully
+                debug!("Skipping rule '{}': {}", rule.message, e);
+                continue;
+            }
+        }
+    }
+    // ...
 }
 ```
 
-Run with logging:
+Enable logging during development:
 
 ```bash
+# See debug output during testing
 RUST_LOG=debug cargo test
-RUST_LOG=libmagic_rs=trace cargo run
+
+# See debug output when running the CLI
+RUST_LOG=debug cargo run -- --use-builtin file.bin
+
+# Filter to specific module
+RUST_LOG=libmagic_rs::evaluator=debug cargo run
 ```
+
+Debug-level logging is particularly useful for understanding rule evaluation behavior in `src/evaluator/engine/mod.rs`, where it shows which rules are skipped due to buffer overruns, invalid offsets, or type read errors.
 
 ### Debugging Tests
 
