@@ -194,11 +194,16 @@ pub fn evaluate_rules(
                 e @ (LibmagicError::EvaluationError(
                     crate::error::EvaluationError::BufferOverrun { .. }
                     | crate::error::EvaluationError::InvalidOffset { .. }
-                    | crate::error::EvaluationError::TypeReadError(_),
+                    | crate::error::EvaluationError::TypeReadError(
+                        crate::evaluator::types::TypeReadError::BufferOverrun { .. }
+                        | crate::evaluator::types::TypeReadError::InvalidPStringLength { .. },
+                    ),
                 )
                 | LibmagicError::IoError(_)),
             ) => {
-                // Expected evaluation errors for individual rules -- skip gracefully
+                // Expected data-dependent evaluation errors -- skip gracefully.
+                // TypeReadError::UnsupportedType is intentionally NOT caught here
+                // so that evaluator capability gaps propagate as errors.
                 debug!("Skipping rule '{}': {}", rule.message, e);
                 continue;
             }
@@ -247,7 +252,12 @@ pub fn evaluate_rules(
                         e @ (LibmagicError::EvaluationError(
                             crate::error::EvaluationError::BufferOverrun { .. }
                             | crate::error::EvaluationError::InvalidOffset { .. }
-                            | crate::error::EvaluationError::TypeReadError(_),
+                            | crate::error::EvaluationError::TypeReadError(
+                                crate::evaluator::types::TypeReadError::BufferOverrun { .. }
+                                | crate::evaluator::types::TypeReadError::InvalidPStringLength {
+                                    ..
+                                },
+                            ),
                         )
                         | LibmagicError::IoError(_)),
                     ) => {
