@@ -657,6 +657,43 @@ pub fn parse_value(input: &str) -> IResult<&str, Value> {
     Ok((input, value))
 }
 
+/// Parse pstring suffix flags after the `/` character.
+///
+/// Recognizes width characters (`B`, `H`, `h`, `L`, `l`) and the optional `J`
+/// modifier that indicates the stored length includes the length field itself.
+///
+/// Returns `(remaining_input, width, length_includes_itself)`.
+fn parse_pstring_suffix(input: &str) -> (&str, crate::parser::ast::PStringLengthWidth, bool) {
+    use crate::parser::ast::PStringLengthWidth;
+
+    // Parse width character
+    let (rest, width) = if let Some(rest) = input.strip_prefix('B') {
+        (rest, PStringLengthWidth::OneByte)
+    } else if let Some(rest) = input.strip_prefix('H') {
+        (rest, PStringLengthWidth::TwoByteBE)
+    } else if let Some(rest) = input.strip_prefix('h') {
+        (rest, PStringLengthWidth::TwoByteLE)
+    } else if let Some(rest) = input.strip_prefix('L') {
+        (rest, PStringLengthWidth::FourByteBE)
+    } else if let Some(rest) = input.strip_prefix('l') {
+        (rest, PStringLengthWidth::FourByteLE)
+    } else if let Some(rest) = input.strip_prefix('J') {
+        // Bare /J with no width = default OneByte + self-inclusive
+        return (rest, PStringLengthWidth::OneByte, true);
+    } else {
+        return (input, PStringLengthWidth::OneByte, false);
+    };
+
+    // Parse optional J flag after width character
+    let (rest, includes_j) = if let Some(rest) = rest.strip_prefix('J') {
+        (rest, true)
+    } else {
+        (rest, false)
+    };
+
+    (rest, width, includes_j)
+}
+
 /// Parse a type specification with an optional attached bitwise-AND mask operator
 /// (e.g., `lelong&0xf0000000`).
 ///
@@ -687,24 +724,16 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
 
     let (mut input, type_name) = crate::parser::types::parse_type_keyword(input)?;
 
-    // Handle pstring suffixes: /B, /H, /h, /L, /l
+    // Handle pstring suffixes: /B, /H, /h, /L, /l, and optional /J modifier
     let mut pstring_length_width = PStringLengthWidth::OneByte;
-    if type_name == "pstring" {
-        let (rest, width) = if let Some(rest) = input.strip_prefix("/B") {
-            (rest, PStringLengthWidth::OneByte)
-        } else if let Some(rest) = input.strip_prefix("/H") {
-            (rest, PStringLengthWidth::TwoByte)
-        } else if let Some(rest) = input.strip_prefix("/h") {
-            (rest, PStringLengthWidth::TwoByte)
-        } else if let Some(rest) = input.strip_prefix("/L") {
-            (rest, PStringLengthWidth::FourByte)
-        } else if let Some(rest) = input.strip_prefix("/l") {
-            (rest, PStringLengthWidth::FourByte)
-        } else {
-            (input, PStringLengthWidth::OneByte)
-        };
+    let mut pstring_length_includes_itself = false;
+    if type_name == "pstring"
+        && let Some(suffix_rest) = input.strip_prefix('/')
+    {
+        let (rest, width, includes_j) = parse_pstring_suffix(suffix_rest);
         input = rest;
         pstring_length_width = width;
+        pstring_length_includes_itself = includes_j;
     }
 
     // Check for attached operator with mask (like &0xf0000000)
@@ -735,11 +764,12 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
     let (input, _) = multispace0(input)?;
 
     let mut type_kind = crate::parser::types::type_keyword_to_kind(type_name);
-    // Patch PString with parsed length_width
+    // Patch PString with parsed length_width and length_includes_itself
     if let TypeKind::PString { max_length, .. } = type_kind {
         type_kind = TypeKind::PString {
             max_length,
             length_width: pstring_length_width,
+            length_includes_itself: pstring_length_includes_itself,
         };
     }
 

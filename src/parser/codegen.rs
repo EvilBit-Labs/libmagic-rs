@@ -217,16 +217,19 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
         TypeKind::PString {
             max_length,
             length_width,
+            length_includes_itself,
         } => match max_length {
             Some(value) => {
                 format!(
-                    "TypeKind::PString {{ max_length: Some({value}), length_width: {} }}",
-                    serialize_pstring_length_width(*length_width)
+                    "TypeKind::PString {{ max_length: Some({value}), length_width: {}, length_includes_itself: {} }}",
+                    serialize_pstring_length_width(*length_width),
+                    length_includes_itself
                 )
             }
             None => format!(
-                "TypeKind::PString {{ max_length: None, length_width: {} }}",
-                serialize_pstring_length_width(*length_width)
+                "TypeKind::PString {{ max_length: None, length_width: {}, length_includes_itself: {} }}",
+                serialize_pstring_length_width(*length_width),
+                length_includes_itself
             ),
         },
     }
@@ -236,8 +239,10 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
 pub fn serialize_pstring_length_width(width: PStringLengthWidth) -> &'static str {
     match width {
         PStringLengthWidth::OneByte => "PStringLengthWidth::OneByte",
-        PStringLengthWidth::TwoByte => "PStringLengthWidth::TwoByte",
-        PStringLengthWidth::FourByte => "PStringLengthWidth::FourByte",
+        PStringLengthWidth::TwoByteBE => "PStringLengthWidth::TwoByteBE",
+        PStringLengthWidth::TwoByteLE => "PStringLengthWidth::TwoByteLE",
+        PStringLengthWidth::FourByteBE => "PStringLengthWidth::FourByteBE",
+        PStringLengthWidth::FourByteLE => "PStringLengthWidth::FourByteLE",
     }
 }
 

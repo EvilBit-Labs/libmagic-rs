@@ -10,26 +10,38 @@ use serde::{Deserialize, Serialize};
 
 /// The width of the length prefix for Pascal strings.
 ///
+/// Uppercase suffix letters (`/H`, `/L`) indicate big-endian byte order.
+/// Lowercase suffix letters (`/h`, `/l`) indicate little-endian byte order.
+///
 /// # Examples
 ///
 /// ```
 /// use libmagic_rs::parser::ast::PStringLengthWidth;
 /// let width = PStringLengthWidth::OneByte;
 /// assert_eq!(width.byte_count(), 1);
-/// let width = PStringLengthWidth::TwoByte;
+/// assert!(!width.is_big_endian());
+///
+/// let width = PStringLengthWidth::TwoByteBE;
 /// assert_eq!(width.byte_count(), 2);
-/// let width = PStringLengthWidth::FourByte;
+/// assert!(width.is_big_endian());
+///
+/// let width = PStringLengthWidth::FourByteLE;
 /// assert_eq!(width.byte_count(), 4);
+/// assert!(!width.is_big_endian());
 /// ```
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[allow(clippy::enum_variant_names)]
 pub enum PStringLengthWidth {
     /// 1-byte length prefix (default, `/B` suffix)
     OneByte,
-    /// 2-byte length prefix (`/H` or `/h` suffix)
-    TwoByte,
-    /// 4-byte length prefix (`/L` or `/l` suffix)
-    FourByte,
+    /// 2-byte big-endian length prefix (`/H` suffix)
+    TwoByteBE,
+    /// 2-byte little-endian length prefix (`/h` suffix)
+    TwoByteLE,
+    /// 4-byte big-endian length prefix (`/L` suffix)
+    FourByteBE,
+    /// 4-byte little-endian length prefix (`/l` suffix)
+    FourByteLE,
 }
 
 impl PStringLengthWidth {
@@ -37,10 +49,16 @@ impl PStringLengthWidth {
     #[must_use]
     pub fn byte_count(&self) -> usize {
         match self {
-            PStringLengthWidth::OneByte => 1,
-            PStringLengthWidth::TwoByte => 2,
-            PStringLengthWidth::FourByte => 4,
+            Self::OneByte => 1,
+            Self::TwoByteBE | Self::TwoByteLE => 2,
+            Self::FourByteBE | Self::FourByteLE => 4,
         }
+    }
+
+    /// Returns `true` if the length prefix uses big-endian byte order.
+    #[must_use]
+    pub fn is_big_endian(&self) -> bool {
+        matches!(self, Self::TwoByteBE | Self::FourByteBE)
     }
 }
 
@@ -226,17 +244,23 @@ pub enum TypeKind {
     /// ```
     /// use libmagic_rs::parser::ast::{TypeKind, PStringLengthWidth};
     ///
-    /// let pstring = TypeKind::PString { max_length: None, length_width: PStringLengthWidth::OneByte };
-    /// assert_eq!(pstring, TypeKind::PString { max_length: None, length_width: PStringLengthWidth::OneByte });
+    /// let pstring = TypeKind::PString { max_length: None, length_width: PStringLengthWidth::OneByte, length_includes_itself: false };
+    /// assert_eq!(pstring, TypeKind::PString { max_length: None, length_width: PStringLengthWidth::OneByte, length_includes_itself: false });
     ///
-    /// let limited = TypeKind::PString { max_length: Some(64), length_width: PStringLengthWidth::TwoByte };
-    /// assert_eq!(limited, TypeKind::PString { max_length: Some(64), length_width: PStringLengthWidth::TwoByte });
+    /// let limited = TypeKind::PString { max_length: Some(64), length_width: PStringLengthWidth::TwoByteBE, length_includes_itself: false };
+    /// assert_eq!(limited, TypeKind::PString { max_length: Some(64), length_width: PStringLengthWidth::TwoByteBE, length_includes_itself: false });
+    ///
+    /// // /J flag: stored length includes the length field itself
+    /// let jpeg = TypeKind::PString { max_length: None, length_width: PStringLengthWidth::TwoByteBE, length_includes_itself: true };
+    /// assert_eq!(jpeg, TypeKind::PString { max_length: None, length_width: PStringLengthWidth::TwoByteBE, length_includes_itself: true });
     /// ```
     PString {
         /// Maximum length to read (caps the length value)
         max_length: Option<usize>,
         /// Width of the length prefix
         length_width: PStringLengthWidth,
+        /// Whether the stored length includes the length field itself (`/J` flag)
+        length_includes_itself: bool,
     },
 }
 
@@ -925,10 +949,12 @@ mod tests {
             TypeKind::PString {
                 max_length: None,
                 length_width: PStringLengthWidth::OneByte,
+                length_includes_itself: false,
             },
             TypeKind::PString {
                 max_length: Some(64),
                 length_width: PStringLengthWidth::OneByte,
+                length_includes_itself: false,
             },
         ];
 

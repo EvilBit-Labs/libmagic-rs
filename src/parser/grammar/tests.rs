@@ -1,40 +1,9 @@
-use crate::parser::ast::PStringLengthWidth;
-#[test]
-fn test_parse_type_and_operator_pstring_suffixes() {
-    use crate::parser::ast::TypeKind;
-    let cases = [
-        ("pstring", PStringLengthWidth::OneByte, ""),
-        ("pstring/B", PStringLengthWidth::OneByte, ""),
-        ("pstring/H", PStringLengthWidth::TwoByte, ""),
-        ("pstring/h", PStringLengthWidth::TwoByte, ""),
-        ("pstring/L", PStringLengthWidth::FourByte, ""),
-        ("pstring/l", PStringLengthWidth::FourByte, ""),
-        ("pstring/H =", PStringLengthWidth::TwoByte, "="),
-    ];
-    for (input, expected_width, expected_rest) in cases {
-        let (rest, (kind, op)) = parse_type_and_operator(input).expect(input);
-        assert_eq!(rest, expected_rest, "rest for input: {input}");
-        assert!(op.is_none(), "operator for input: {input}");
-        match kind {
-            TypeKind::PString {
-                max_length,
-                length_width,
-            } => {
-                assert_eq!(max_length, None, "max_length for input: {input}");
-                assert_eq!(
-                    length_width, expected_width,
-                    "length_width for input: {input}"
-                );
-            }
-            _ => panic!("Expected PString for input: {input}, got {kind:?}"),
-        }
-    }
-}
 // Copyright (c) 2025-2026 the libmagic-rs contributors
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
 use crate::parser::ast::Endianness;
+use crate::parser::ast::PStringLengthWidth;
 
 /// Helper function to test parsing with various whitespace patterns
 #[allow(dead_code)] // TODO: Use this helper in future whitespace tests
@@ -2026,7 +1995,8 @@ fn test_parse_type_pstring() {
             "",
             TypeKind::PString {
                 max_length: None,
-                length_width: PStringLengthWidth::OneByte
+                length_width: PStringLengthWidth::OneByte,
+                length_includes_itself: false
             }
         ))
     );
@@ -2040,7 +2010,8 @@ fn test_parse_type_pstring_with_remaining_input() {
             "=",
             TypeKind::PString {
                 max_length: None,
-                length_width: PStringLengthWidth::OneByte
+                length_width: PStringLengthWidth::OneByte,
+                length_includes_itself: false
             }
         ))
     );
@@ -2050,7 +2021,8 @@ fn test_parse_type_pstring_with_remaining_input() {
             "\"hello\"",
             TypeKind::PString {
                 max_length: None,
-                length_width: PStringLengthWidth::OneByte
+                length_width: PStringLengthWidth::OneByte,
+                length_includes_itself: false
             }
         ))
     );
@@ -2068,7 +2040,8 @@ fn test_parse_magic_rule_pstring() {
         rule.typ,
         TypeKind::PString {
             max_length: None,
-            length_width: PStringLengthWidth::OneByte
+            length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false
         }
     );
     assert_eq!(rule.op, Operator::Equal);
@@ -2088,7 +2061,8 @@ fn test_parse_magic_rule_pstring_child_rule() {
         rule.typ,
         TypeKind::PString {
             max_length: None,
-            length_width: PStringLengthWidth::OneByte
+            length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false
         }
     );
     assert_eq!(rule.message, "child pstring rule");
@@ -2102,7 +2076,8 @@ fn test_parse_type_and_operator_pstring_standalone_and() {
         typ,
         TypeKind::PString {
             max_length: None,
-            length_width: PStringLengthWidth::OneByte
+            length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false
         }
     );
     assert_eq!(op, Some(Operator::BitwiseAnd));
@@ -2157,4 +2132,47 @@ fn test_parse_type_and_operator_mask_overflow_fails() {
         result.is_err(),
         "overflowing hex mask should produce a parse error"
     );
+}
+
+#[test]
+fn test_parse_type_and_operator_pstring_suffixes() {
+    use crate::parser::ast::TypeKind;
+    let cases: &[(&str, PStringLengthWidth, bool, &str)] = &[
+        ("pstring", PStringLengthWidth::OneByte, false, ""),
+        ("pstring/B", PStringLengthWidth::OneByte, false, ""),
+        ("pstring/H", PStringLengthWidth::TwoByteBE, false, ""),
+        ("pstring/h", PStringLengthWidth::TwoByteLE, false, ""),
+        ("pstring/L", PStringLengthWidth::FourByteBE, false, ""),
+        ("pstring/l", PStringLengthWidth::FourByteLE, false, ""),
+        ("pstring/H =", PStringLengthWidth::TwoByteBE, false, "="),
+        ("pstring/J", PStringLengthWidth::OneByte, true, ""),
+        ("pstring/BJ", PStringLengthWidth::OneByte, true, ""),
+        ("pstring/HJ", PStringLengthWidth::TwoByteBE, true, ""),
+        ("pstring/hJ", PStringLengthWidth::TwoByteLE, true, ""),
+        ("pstring/LJ", PStringLengthWidth::FourByteBE, true, ""),
+        ("pstring/lJ", PStringLengthWidth::FourByteLE, true, ""),
+    ];
+    for &(input, expected_width, expected_j, expected_rest) in cases {
+        let (rest, (kind, op)) = parse_type_and_operator(input).expect(input);
+        assert_eq!(rest, expected_rest, "rest for input: {input}");
+        assert!(op.is_none(), "operator for input: {input}");
+        match kind {
+            TypeKind::PString {
+                max_length,
+                length_width,
+                length_includes_itself,
+            } => {
+                assert_eq!(max_length, None, "max_length for input: {input}");
+                assert_eq!(
+                    length_width, expected_width,
+                    "length_width for input: {input}"
+                );
+                assert_eq!(
+                    length_includes_itself, expected_j,
+                    "length_includes_itself for input: {input}"
+                );
+            }
+            _ => panic!("Expected PString for input: {input}, got {kind:?}"),
+        }
+    }
 }

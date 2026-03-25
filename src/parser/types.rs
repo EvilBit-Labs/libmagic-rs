@@ -298,6 +298,7 @@ pub fn type_keyword_to_kind(type_name: &str) -> TypeKind {
         "pstring" => TypeKind::PString {
             max_length: None,
             length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false,
         },
 
         _ => unreachable!("type_keyword_to_kind called with unknown type: {type_name}"),
@@ -478,7 +479,8 @@ mod tests {
             type_keyword_to_kind("pstring"),
             TypeKind::PString {
                 max_length: None,
-                length_width: PStringLengthWidth::OneByte
+                length_width: PStringLengthWidth::OneByte,
+                length_includes_itself: false
             }
         );
     }
@@ -492,6 +494,7 @@ mod tests {
             TypeKind::PString {
                 max_length,
                 length_width,
+                length_includes_itself: _,
             } => {
                 assert_eq!(
                     max_length, None,
