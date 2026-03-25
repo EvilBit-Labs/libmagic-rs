@@ -179,20 +179,20 @@ Float comparison behavior:
 
 ### Date/Timestamp Types
 
-| Type       | Size    | Endianness    | UTC/Local | Description                                                          |
-| ---------- | ------- | ------------- | --------- | -------------------------------------------------------------------- |
-| `date`     | 4 bytes | native        | UTC       | 32-bit Unix timestamp (signed seconds since epoch), formatted as UTC |
-| `ldate`    | 4 bytes | native        | Local     | 32-bit Unix timestamp, formatted as local time                       |
-| `bedate`   | 4 bytes | big-endian    | UTC       | 32-bit Unix timestamp, big-endian byte order, UTC                    |
-| `beldate`  | 4 bytes | big-endian    | Local     | 32-bit Unix timestamp, big-endian byte order, local time             |
-| `ledate`   | 4 bytes | little-endian | UTC       | 32-bit Unix timestamp, little-endian byte order, UTC                 |
-| `leldate`  | 4 bytes | little-endian | Local     | 32-bit Unix timestamp, little-endian byte order, local time          |
-| `qdate`    | 8 bytes | native        | UTC       | 64-bit Unix timestamp (signed seconds since epoch), formatted as UTC |
-| `qldate`   | 8 bytes | native        | Local     | 64-bit Unix timestamp, formatted as local time                       |
-| `beqdate`  | 8 bytes | big-endian    | UTC       | 64-bit Unix timestamp, big-endian byte order, UTC                    |
-| `beqldate` | 8 bytes | big-endian    | Local     | 64-bit Unix timestamp, big-endian byte order, local time             |
-| `leqdate`  | 8 bytes | little-endian | UTC       | 64-bit Unix timestamp, little-endian byte order, UTC                 |
-| `leqldate` | 8 bytes | little-endian | Local     | 64-bit Unix timestamp, little-endian byte order, local time          |
+| Type        | Size    | Endianness    | UTC/Local | Description                                                             |
+| ----------- | ------- | ------------- | --------- | ----------------------------------------------------------------------- |
+| `date`      | 4 bytes | native        | UTC       | 32-bit Unix timestamp (signed seconds since epoch), formatted as UTC    |
+| `ldate`     | 4 bytes | native        | Local     | 32-bit Unix timestamp, formatted as local time                          |
+| `bedate`    | 4 bytes | big-endian    | UTC       | 32-bit Unix timestamp, big-endian byte order, UTC                       |
+| `beldate`   | 4 bytes | big-endian    | Local     | 32-bit Unix timestamp, big-endian byte order, local time                |
+| `ledate`    | 4 bytes | little-endian | UTC       | 32-bit Unix timestamp, little-endian byte order, UTC                    |
+| `leldate`   | 4 bytes | little-endian | Local     | 32-bit Unix timestamp, little-endian byte order, local time             |
+| `qdate`     | 8 bytes | native        | UTC       | 64-bit Unix timestamp (signed seconds since epoch), formatted as UTC    |
+| `qldate`    | 8 bytes | native        | Local     | 64-bit Unix timestamp, formatted as local time                          |
+| `beqdate`   | 8 bytes | big-endian    | UTC       | 64-bit Unix timestamp, big-endian byte order, UTC                       |
+| `beqldate`  | 8 bytes | big-endian    | Local     | 64-bit Unix timestamp, big-endian byte order, local time                |
+| `leqdate`   | 8 bytes | little-endian | UTC       | 64-bit Unix timestamp, little-endian byte order, UTC                    |
+| `leqldate`  | 8 bytes | little-endian | Local     | 64-bit Unix timestamp, little-endian byte order, local time             |
 
 Timestamp values are formatted as strings matching GNU file output format: "Www Mmm DD HH:MM:SS YYYY"
 
@@ -227,13 +227,57 @@ String escape sequences:
 
 ### Pascal String Type
 
-Pascal string (pstring) is a length-prefixed string type. The first byte contains the string length (0-255), followed by that many bytes of string data. Unlike C strings, Pascal strings are not null-terminated.
+Pascal string (pstring) is a length-prefixed string type. The length prefix can be 1, 2, or 4 bytes depending on the suffix flag. Unlike C strings, Pascal strings are not null-terminated.
+
+#### Length Prefix Width
+
+The default pstring type uses a 1-byte length prefix (0-255 range). Use suffix flags to specify different prefix widths:
+
+| Suffix | Width   | Endianness    | Range           |
+| ------ | ------- | ------------- | --------------- |
+| `/B`   | 1 byte  | N/A           | 0-255 (default) |
+| `/H`   | 2 bytes | big-endian    | 0-65535         |
+| `/h`   | 2 bytes | little-endian | 0-65535         |
+| `/L`   | 4 bytes | big-endian    | 0-4294967295    |
+| `/l`   | 4 bytes | little-endian | 0-4294967295    |
+
+#### Self-Inclusive Length (`/J` Flag)
+
+The `/J` flag indicates that the stored length value includes the size of the length prefix itself (JPEG-style). This flag can be combined with any width variant.
+
+#### Examples
+
+Basic pstring with default 1-byte prefix:
 
 ```text
 0       pstring   =JPEG     JPEG image (Pascal string)
 ```
 
-The evaluator reads the length byte, then reads that many bytes as string data. The optional max_length parameter caps the length byte value:
+2-byte big-endian length prefix:
+
+```text
+0       pstring/H =JPEG     JPEG image (2-byte BE prefix)
+```
+
+4-byte little-endian length prefix:
+
+```text
+0       pstring/l x         \b, name: %s
+```
+
+Self-inclusive length with 2-byte big-endian prefix:
+
+```text
+0       pstring/HJ x        \b, JPEG-style length
+```
+
+Self-inclusive length with default 1-byte prefix:
+
+```text
+0       pstring/J  x        \b, self-inclusive length
+```
+
+The optional max_length parameter caps the length value:
 
 ```text
 0       pstring   x         \b, name: %s
