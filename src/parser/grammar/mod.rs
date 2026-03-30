@@ -17,7 +17,9 @@ use nom::{
     sequence::pair,
 };
 
-use crate::parser::ast::{MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value};
+use crate::parser::ast::{
+    Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value,
+};
 
 /// Parse a decimal number with overflow protection
 fn parse_decimal_number(input: &str) -> IResult<&str, i64> {
@@ -153,21 +155,148 @@ pub fn parse_number(input: &str) -> IResult<&str, i64> {
     Ok((input, result))
 }
 
-/// Parse an offset specification for absolute offsets
+/// Map a single-character pointer specifier to its `TypeKind` and `Endianness`.
 ///
-/// Supports decimal and hexadecimal formats, both positive and negative.
+/// GNU `file` semantics: lowercase = little-endian, uppercase = big-endian.
+/// Numeric pointer types are signed by default per GOTCHAS S6.3.
+///
+/// | Specifier | Width  | Endianness    |
+/// |-----------|--------|---------------|
+/// | `b`       | 1 byte | Little-endian |
+/// | `B`       | 1 byte | Big-endian    |
+/// | `s`       | 2 byte | Little-endian |
+/// | `S`       | 2 byte | Big-endian    |
+/// | `l`       | 4 byte | Little-endian |
+/// | `L`       | 4 byte | Big-endian    |
+/// | `q`       | 8 byte | Little-endian |
+/// | `Q`       | 8 byte | Big-endian    |
+fn pointer_specifier_to_type(spec: char) -> Option<(TypeKind, Endianness)> {
+    match spec {
+        'b' => Some((TypeKind::Byte { signed: true }, Endianness::Little)),
+        'B' => Some((TypeKind::Byte { signed: true }, Endianness::Big)),
+        's' => Some((
+            TypeKind::Short {
+                endian: Endianness::Little,
+                signed: true,
+            },
+            Endianness::Little,
+        )),
+        'S' => Some((
+            TypeKind::Short {
+                endian: Endianness::Big,
+                signed: true,
+            },
+            Endianness::Big,
+        )),
+        'l' => Some((
+            TypeKind::Long {
+                endian: Endianness::Little,
+                signed: true,
+            },
+            Endianness::Little,
+        )),
+        'L' => Some((
+            TypeKind::Long {
+                endian: Endianness::Big,
+                signed: true,
+            },
+            Endianness::Big,
+        )),
+        'q' => Some((
+            TypeKind::Quad {
+                endian: Endianness::Little,
+                signed: true,
+            },
+            Endianness::Little,
+        )),
+        'Q' => Some((
+            TypeKind::Quad {
+                endian: Endianness::Big,
+                signed: true,
+            },
+            Endianness::Big,
+        )),
+        _ => None,
+    }
+}
+
+/// Parse an indirect offset specification: `(base.type)` or `(base.type)+/-adj`
+///
+/// Reads a pointer specifier after the dot, closes the parenthesized expression,
+/// then optionally parses `+N` or `-N` adjustment after the `)`.
+fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
+    let (input, _) = char('(')(input)?;
+    let (input, base_offset) = parse_number(input)?;
+    let (input, _) = char('.')(input)?;
+    let (input, spec_char) = one_of("bBsSlLqQ")(input)?;
+
+    let (pointer_type, endian) = pointer_specifier_to_type(spec_char)
+        .ok_or_else(|| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::OneOf)))?;
+
+    let (input, _) = char(')')(input)?;
+
+    // Optional adjustment AFTER closing paren: (base.type)+N or (base.type)-N
+    // parse_number handles '-' but not '+', so consume '+' manually
+    let (input, adjustment) = if input.starts_with('+') {
+        let (input, _) = char('+')(input)?;
+        parse_number(input)?
+    } else if input.starts_with('-') {
+        parse_number(input)?
+    } else {
+        (input, 0)
+    };
+
+    Ok((
+        input,
+        OffsetSpec::Indirect {
+            base_offset,
+            pointer_type,
+            adjustment,
+            endian,
+        },
+    ))
+}
+
+/// Parse an offset specification (absolute or indirect)
+///
+/// Supports:
+/// - Absolute offsets: decimal and hexadecimal, positive and negative
+/// - Indirect offsets: `(base.type)` or `(base.type)+adj` syntax
 ///
 /// # Examples
 ///
 /// ```
 /// use libmagic_rs::parser::grammar::parse_offset;
-/// use libmagic_rs::parser::ast::OffsetSpec;
+/// use libmagic_rs::parser::ast::{Endianness, OffsetSpec, TypeKind};
 ///
+/// // Absolute offsets
 /// assert_eq!(parse_offset("0"), Ok(("", OffsetSpec::Absolute(0))));
 /// assert_eq!(parse_offset("123"), Ok(("", OffsetSpec::Absolute(123))));
 /// assert_eq!(parse_offset("0x10"), Ok(("", OffsetSpec::Absolute(16))));
 /// assert_eq!(parse_offset("-4"), Ok(("", OffsetSpec::Absolute(-4))));
 /// assert_eq!(parse_offset("-0xFF"), Ok(("", OffsetSpec::Absolute(-255))));
+///
+/// // Indirect offset (lowercase = little-endian, signed by default)
+/// assert_eq!(
+///     parse_offset("(0x3c.l)"),
+///     Ok(("", OffsetSpec::Indirect {
+///         base_offset: 0x3c,
+///         pointer_type: TypeKind::Long { endian: Endianness::Little, signed: true },
+///         adjustment: 0,
+///         endian: Endianness::Little,
+///     }))
+/// );
+///
+/// // Adjustment after closing paren
+/// assert_eq!(
+///     parse_offset("(0x3c.l)+4"),
+///     Ok(("", OffsetSpec::Indirect {
+///         base_offset: 0x3c,
+///         pointer_type: TypeKind::Long { endian: Endianness::Little, signed: true },
+///         adjustment: 4,
+///         endian: Endianness::Little,
+///     }))
+/// );
 /// ```
 ///
 /// # Errors
@@ -176,12 +305,19 @@ pub fn parse_number(input: &str) -> IResult<&str, i64> {
 /// - The input contains invalid number format (propagated from `parse_number`)
 /// - Input is empty or contains no parseable offset value
 /// - The offset value cannot be represented as a valid `i64`
+/// - Indirect offset has invalid pointer specifier or missing closing `)`
 pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
     let (input, _) = multispace0(input)?;
-    let (input, offset_value) = parse_number(input)?;
-    let (input, _) = multispace0(input)?;
 
-    Ok((input, OffsetSpec::Absolute(offset_value)))
+    if input.starts_with('(') {
+        let (input, spec) = parse_indirect_offset(input)?;
+        let (input, _) = multispace0(input)?;
+        Ok((input, spec))
+    } else {
+        let (input, offset_value) = parse_number(input)?;
+        let (input, _) = multispace0(input)?;
+        Ok((input, OffsetSpec::Absolute(offset_value)))
+    }
 }
 
 /// Parse comparison operators for magic rules

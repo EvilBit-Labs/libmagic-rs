@@ -16,7 +16,7 @@ use crate::LibmagicError;
 use crate::parser::ast::OffsetSpec;
 
 /// Map an `OffsetError` to a `LibmagicError` for a given original offset value
-fn map_offset_error(e: &OffsetError, original_offset: i64) -> LibmagicError {
+pub(crate) fn map_offset_error(e: &OffsetError, original_offset: i64) -> LibmagicError {
     match e {
         OffsetError::BufferOverrun {
             offset,
@@ -35,8 +35,8 @@ fn map_offset_error(e: &OffsetError, original_offset: i64) -> LibmagicError {
 /// Resolve any offset specification to an absolute position
 ///
 /// This is a higher-level function that handles all types of offset specifications.
-/// Currently only supports absolute offsets, but will be extended to handle indirect,
-/// relative, and from-end offsets in future tasks.
+/// Supports absolute, from-end, and indirect offsets. Relative offsets are not yet
+/// implemented.
 ///
 /// # Arguments
 ///
@@ -127,26 +127,18 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_offset_indirect_not_implemented() {
-        let buffer = b"Test data";
+    fn test_resolve_offset_indirect_success() {
+        // Byte pointer at offset 0 with value 5 → resolves to offset 5
+        let buffer = b"\x05TestXdata";
         let spec = OffsetSpec::Indirect {
             base_offset: 0,
-            pointer_type: crate::parser::ast::TypeKind::Byte { signed: true },
+            pointer_type: crate::parser::ast::TypeKind::Byte { signed: false },
             adjustment: 0,
             endian: crate::parser::ast::Endianness::Little,
         };
 
-        let result = resolve_offset(&spec, buffer);
-        assert!(result.is_err());
-
-        match result.unwrap_err() {
-            LibmagicError::EvaluationError(crate::error::EvaluationError::UnsupportedType {
-                type_name,
-            }) => {
-                assert!(type_name.contains("Indirect offsets not yet implemented"));
-            }
-            _ => panic!("Expected EvaluationError with UnsupportedType"),
-        }
+        let result = resolve_offset(&spec, buffer).unwrap();
+        assert_eq!(result, 5);
     }
 
     #[test]

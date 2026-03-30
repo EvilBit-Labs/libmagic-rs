@@ -238,17 +238,21 @@ let string_type = TypeKind::String {
 Pascal-style length-prefixed strings where the length prefix can be 1, 2, or 4 bytes depending on the `length_width` field.
 
 **Structure:**
+
 - Length prefix: 1, 2, or 4 bytes indicating string length, with configurable endianness
 - String data: The number of bytes specified by the length prefix
 
 **Example:**
-```
+
+```text
 0    pstring    JPEG
 0    pstring/H  JPEG
 ```
+
 The first line reads a 1-byte length prefix (default), then reads that many bytes as a string. The second line reads a 2-byte big-endian length prefix.
 
 **Behavior:**
+
 - Returns `Value::String` containing the string data (without the length prefix)
 - Performs bounds checking on both the length prefix and the string data
 - Supports all string comparison operators
@@ -275,6 +279,7 @@ pub enum PStringLengthWidth {
 ```
 
 **Suffix conventions:**
+
 - `/B` - 1-byte length prefix (default if no suffix specified)
 - `/H` - 2-byte big-endian length prefix
 - `/h` - 2-byte little-endian length prefix

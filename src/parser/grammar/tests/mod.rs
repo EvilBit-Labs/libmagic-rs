@@ -1,6 +1,8 @@
 // Copyright (c) 2025-2026 the libmagic-rs contributors
 // SPDX-License-Identifier: Apache-2.0
 
+mod indirect_offset;
+
 use super::*;
 use crate::parser::ast::Endianness;
 use crate::parser::ast::PStringLengthWidth;
@@ -278,6 +280,90 @@ fn test_parse_offset_boundary_values() {
     assert_eq!(
         parse_offset("0x100000"),
         Ok(("", OffsetSpec::Absolute(1_048_576)))
+    );
+}
+
+#[test]
+fn test_parse_rule_offset_indirect_child() {
+    // Level 1 child with indirect offset: >(0x3c.l)
+    assert_eq!(
+        parse_rule_offset(">(0x3c.l)"),
+        Ok((
+            "",
+            (
+                1,
+                OffsetSpec::Indirect {
+                    base_offset: 0x3c,
+                    pointer_type: TypeKind::Long {
+                        endian: Endianness::Little,
+                        signed: true
+                    },
+                    adjustment: 0,
+                    endian: Endianness::Little,
+                }
+            )
+        ))
+    );
+    // Level 2 child with adjustment after paren: >>(0x3c.l)+4
+    assert_eq!(
+        parse_rule_offset(">>(0x3c.l)+4"),
+        Ok((
+            "",
+            (
+                2,
+                OffsetSpec::Indirect {
+                    base_offset: 0x3c,
+                    pointer_type: TypeKind::Long {
+                        endian: Endianness::Little,
+                        signed: true
+                    },
+                    adjustment: 4,
+                    endian: Endianness::Little,
+                }
+            )
+        ))
+    );
+}
+
+#[test]
+fn test_parse_rule_offset_indirect_with_remaining() {
+    // >(0x3c.l) followed by type keyword
+    assert_eq!(
+        parse_rule_offset(">(0x3c.l) string"),
+        Ok((
+            "string",
+            (
+                1,
+                OffsetSpec::Indirect {
+                    base_offset: 0x3c,
+                    pointer_type: TypeKind::Long {
+                        endian: Endianness::Little,
+                        signed: true
+                    },
+                    adjustment: 0,
+                    endian: Endianness::Little,
+                }
+            )
+        ))
+    );
+    // >(0x3c.l)+4 followed by type keyword
+    assert_eq!(
+        parse_rule_offset(">(0x3c.l)+4 string"),
+        Ok((
+            "string",
+            (
+                1,
+                OffsetSpec::Indirect {
+                    base_offset: 0x3c,
+                    pointer_type: TypeKind::Long {
+                        endian: Endianness::Little,
+                        signed: true
+                    },
+                    adjustment: 4,
+                    endian: Endianness::Little,
+                }
+            )
+        ))
     );
 }
 

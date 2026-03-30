@@ -10,20 +10,23 @@ exclude = [
     "megalinter-reports/**",
     "**/*.result",
     "**/*.testfile",
+    "**/SKILL.md",           # AI stuff
+    ".claude/**/*",          # AI stuff
+    ".tessl/**/*",           # AI stuff
 ]
 validate = true
 number = true
 wrap = "no"
 end_of_line = "lf"
-# extensions = [
-#     "gfm",
-#     "frontmatter",
-#     "footnote",
-#     "simple_breaks",
-#     "gfm_alerts",
-#     "toc",
-#     "wikilink",
-# ]
+extensions = [
+    "gfm",
+    "footnote",
+    "front_matters",
+    "simple_breaks",
+    "wikilink",
+    "gfm_alerts",
+    "toc",
+]
 
 [plugin.mkdocs]
 align_semantic_breaks_in_lists = true

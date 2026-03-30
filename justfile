@@ -44,7 +44,7 @@ format-json-yaml:
     @{{ mise_exec }} prettier --write "**/*.{json,yaml,yml}"
 
 format-docs:
-    @{{ mise_exec }} mdformat --exclude "target/*" --exclude "node_modules/*" .
+    @{{ mise_exec }} mdformat .
 
 fmt:
     @{{ mise_exec }} cargo fmt --all
