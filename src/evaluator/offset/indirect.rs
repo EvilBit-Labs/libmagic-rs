@@ -254,8 +254,10 @@ mod tests {
                 "Failed for case: {name}"
             );
         }
+    }
 
-        // Quad types need resizable buffers (target offset > inline slice length)
+    #[test]
+    fn test_quad_pointer_endianness() {
         let quad_cases: &[(&str, Endianness, &[u8])] = &[
             (
                 "quad LE",
