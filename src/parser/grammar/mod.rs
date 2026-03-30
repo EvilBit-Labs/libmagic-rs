@@ -157,59 +157,60 @@ pub fn parse_number(input: &str) -> IResult<&str, i64> {
 
 /// Map a single-character pointer specifier to its `TypeKind` and `Endianness`.
 ///
-/// Libmagic convention: lowercase = native endian, uppercase = big-endian.
+/// GNU `file` semantics: lowercase = little-endian, uppercase = big-endian.
+/// Numeric pointer types are signed by default per GOTCHAS S6.3.
 ///
-/// | Specifier | Width  | Endianness |
-/// |-----------|--------|------------|
-/// | `b`, `B`  | 1 byte | N/A        |
-/// | `s`       | 2 byte | Native     |
-/// | `S`       | 2 byte | Big        |
-/// | `l`       | 4 byte | Native     |
-/// | `L`       | 4 byte | Big        |
-/// | `q`       | 4 byte | Native     |
-/// | `Q`       | 8 byte | Big        |
+/// | Specifier | Width  | Endianness    |
+/// |-----------|--------|---------------|
+/// | `b`, `B`  | 1 byte | Little-endian |
+/// | `s`       | 2 byte | Little-endian |
+/// | `S`       | 2 byte | Big-endian    |
+/// | `l`       | 4 byte | Little-endian |
+/// | `L`       | 4 byte | Big-endian    |
+/// | `q`       | 8 byte | Little-endian |
+/// | `Q`       | 8 byte | Big-endian    |
 fn pointer_specifier_to_type(spec: char) -> Option<(TypeKind, Endianness)> {
     match spec {
-        'b' | 'B' => Some((TypeKind::Byte { signed: false }, Endianness::Native)),
+        'b' | 'B' => Some((TypeKind::Byte { signed: true }, Endianness::Little)),
         's' => Some((
             TypeKind::Short {
-                endian: Endianness::Native,
-                signed: false,
+                endian: Endianness::Little,
+                signed: true,
             },
-            Endianness::Native,
+            Endianness::Little,
         )),
         'S' => Some((
             TypeKind::Short {
                 endian: Endianness::Big,
-                signed: false,
+                signed: true,
             },
             Endianness::Big,
         )),
         'l' => Some((
             TypeKind::Long {
-                endian: Endianness::Native,
-                signed: false,
+                endian: Endianness::Little,
+                signed: true,
             },
-            Endianness::Native,
+            Endianness::Little,
         )),
         'L' => Some((
             TypeKind::Long {
                 endian: Endianness::Big,
-                signed: false,
+                signed: true,
             },
             Endianness::Big,
         )),
         'q' => Some((
             TypeKind::Quad {
-                endian: Endianness::Native,
-                signed: false,
+                endian: Endianness::Little,
+                signed: true,
             },
-            Endianness::Native,
+            Endianness::Little,
         )),
         'Q' => Some((
             TypeKind::Quad {
                 endian: Endianness::Big,
-                signed: false,
+                signed: true,
             },
             Endianness::Big,
         )),
@@ -217,10 +218,10 @@ fn pointer_specifier_to_type(spec: char) -> Option<(TypeKind, Endianness)> {
     }
 }
 
-/// Parse an indirect offset specification: `(base.type)` or `(base.type+/-adj)`
+/// Parse an indirect offset specification: `(base.type)` or `(base.type)+/-adj`
 ///
-/// Reads a pointer specifier after the dot, and an optional `+N` or `-N` adjustment
-/// before the closing `)`.
+/// Reads a pointer specifier after the dot, closes the parenthesized expression,
+/// then optionally parses `+N` or `-N` adjustment after the `)`.
 fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
     let (input, _) = char('(')(input)?;
     let (input, base_offset) = parse_number(input)?;
@@ -230,7 +231,9 @@ fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
     let (pointer_type, endian) = pointer_specifier_to_type(spec_char)
         .ok_or_else(|| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::OneOf)))?;
 
-    // Optional adjustment: +N or -N
+    let (input, _) = char(')')(input)?;
+
+    // Optional adjustment AFTER closing paren: (base.type)+N or (base.type)-N
     // parse_number handles '-' but not '+', so consume '+' manually
     let (input, adjustment) = if input.starts_with('+') {
         let (input, _) = char('+')(input)?;
@@ -240,8 +243,6 @@ fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
     } else {
         (input, 0)
     };
-
-    let (input, _) = char(')')(input)?;
 
     Ok((
         input,
@@ -258,7 +259,7 @@ fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
 ///
 /// Supports:
 /// - Absolute offsets: decimal and hexadecimal, positive and negative
-/// - Indirect offsets: `(base.type)` or `(base.type+adj)` syntax
+/// - Indirect offsets: `(base.type)` or `(base.type)+adj` syntax
 ///
 /// # Examples
 ///
@@ -273,14 +274,25 @@ fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
 /// assert_eq!(parse_offset("-4"), Ok(("", OffsetSpec::Absolute(-4))));
 /// assert_eq!(parse_offset("-0xFF"), Ok(("", OffsetSpec::Absolute(-255))));
 ///
-/// // Indirect offset
+/// // Indirect offset (lowercase = little-endian, signed by default)
 /// assert_eq!(
 ///     parse_offset("(0x3c.l)"),
 ///     Ok(("", OffsetSpec::Indirect {
 ///         base_offset: 0x3c,
-///         pointer_type: TypeKind::Long { endian: Endianness::Native, signed: false },
+///         pointer_type: TypeKind::Long { endian: Endianness::Little, signed: true },
 ///         adjustment: 0,
-///         endian: Endianness::Native,
+///         endian: Endianness::Little,
+///     }))
+/// );
+///
+/// // Adjustment after closing paren
+/// assert_eq!(
+///     parse_offset("(0x3c.l)+4"),
+///     Ok(("", OffsetSpec::Indirect {
+///         base_offset: 0x3c,
+///         pointer_type: TypeKind::Long { endian: Endianness::Little, signed: true },
+///         adjustment: 4,
+///         endian: Endianness::Little,
 ///     }))
 /// );
 /// ```

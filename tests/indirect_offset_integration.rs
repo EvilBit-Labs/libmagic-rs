@@ -6,6 +6,10 @@
 //! Exercises the full pipeline: write a magic file with indirect-offset syntax,
 //! load it through `MagicDatabase::load_from_file()`, evaluate buffers, and
 //! assert correct match / no-match behavior.
+//!
+//! GNU `file` semantics: lowercase specifiers are little-endian, uppercase are
+//! big-endian. Pointer types are signed by default (GOTCHAS S6.3).
+//! Adjustment is parsed after the closing paren: `(base.type)+adj`.
 
 use std::fs;
 use std::io::Write;
@@ -13,23 +17,23 @@ use std::io::Write;
 use libmagic_rs::MagicDatabase;
 use tempfile::TempDir;
 
-/// Build a PE-like buffer where offset 0x3c holds a big-endian 4-byte pointer
+/// Build a PE-like buffer where offset 0x3c holds a little-endian 4-byte pointer
 /// to the PE signature (`PE\0\0`).
 ///
 /// Layout:
 ///   [0x00] "MZ" DOS header stub
-///   [0x3c] 4-byte big-endian pointer -> 0x80 (PE header location)
+///   [0x3c] 4-byte little-endian pointer -> 0x80 (PE header location)
 ///   [0x80] "PE\0\0" signature
 fn build_pe_like_buffer() -> Vec<u8> {
     let mut buf = vec![0u8; 0x84];
     // DOS stub magic
     buf[0] = b'M';
     buf[1] = b'Z';
-    // Big-endian pointer at 0x3c -> 0x80
-    buf[0x3c] = 0x00;
+    // Little-endian pointer at 0x3c -> 0x80
+    buf[0x3c] = 0x80;
     buf[0x3d] = 0x00;
     buf[0x3e] = 0x00;
-    buf[0x3f] = 0x80;
+    buf[0x3f] = 0x00;
     // PE signature at 0x80
     buf[0x80] = b'P';
     buf[0x81] = b'E';
@@ -43,11 +47,10 @@ fn test_indirect_offset_pe_detection_via_magic_file() {
     let temp_dir = TempDir::new().unwrap();
     let magic_path = temp_dir.path().join("pe.magic");
 
-    // Use .L (big-endian long) for deterministic cross-platform behavior.
-    // String values must be quoted for the parser.
+    // Use lowercase .l (little-endian long) -- GNU `file` semantics.
     let mut f = fs::File::create(&magic_path).unwrap();
     writeln!(f, r#"0 string "MZ" DOS executable"#).unwrap();
-    writeln!(f, r#">(0x3c.L) string "PE" (PE)"#).unwrap();
+    writeln!(f, r#">(0x3c.l) string "PE" (PE)"#).unwrap();
 
     let db = MagicDatabase::load_from_file(&magic_path).unwrap();
     let buf = build_pe_like_buffer();
@@ -72,19 +75,19 @@ fn test_indirect_offset_no_match_when_pointer_out_of_bounds() {
 
     let mut f = fs::File::create(&magic_path).unwrap();
     writeln!(f, r#"0 string "MZ" DOS executable"#).unwrap();
-    writeln!(f, r#">(0x3c.L) string "PE" (PE)"#).unwrap();
+    writeln!(f, r#">(0x3c.l) string "PE" (PE)"#).unwrap();
 
     let db = MagicDatabase::load_from_file(&magic_path).unwrap();
 
-    // Buffer has "MZ" but the pointer at 0x3c points beyond the buffer
+    // Buffer has "MZ" but the LE pointer at 0x3c points beyond the buffer
     let mut buf = vec![0u8; 0x40];
     buf[0] = b'M';
     buf[1] = b'Z';
-    // Pointer at 0x3c -> 0xFF (beyond buffer length)
-    buf[0x3c] = 0x00;
+    // Little-endian pointer at 0x3c -> 0xFF (beyond buffer length)
+    buf[0x3c] = 0xFF;
     buf[0x3d] = 0x00;
     buf[0x3e] = 0x00;
-    buf[0x3f] = 0xFF;
+    buf[0x3f] = 0x00;
 
     let result = db.evaluate_buffer(&buf).unwrap();
 
@@ -103,22 +106,22 @@ fn test_indirect_offset_no_match_when_pointer_out_of_bounds() {
 }
 
 #[test]
-fn test_indirect_offset_with_adjustment() {
+fn test_indirect_offset_with_adjustment_after_paren() {
     let temp_dir = TempDir::new().unwrap();
     let magic_path = temp_dir.path().join("adj.magic");
 
-    // Indirect offset with +4 adjustment: read pointer at 0, add 4, check there
+    // Adjustment AFTER closing paren: (base.type)+adj
     let mut f = fs::File::create(&magic_path).unwrap();
-    writeln!(f, r#"(0.L+4) string "MAGIC" Adjusted match"#).unwrap();
+    writeln!(f, r#"(0.l)+4 string "MAGIC" Adjusted match"#).unwrap();
 
     let db = MagicDatabase::load_from_file(&magic_path).unwrap();
 
-    // Pointer at offset 0 = 0x00000006 (big-endian), +4 = 10, "MAGIC" at offset 10
+    // LE pointer at offset 0 = 0x06 (little-endian), +4 = 10, "MAGIC" at offset 10
     let mut buf = vec![0u8; 20];
-    buf[0] = 0x00;
+    buf[0] = 0x06;
     buf[1] = 0x00;
     buf[2] = 0x00;
-    buf[3] = 0x06;
+    buf[3] = 0x00;
     buf[10] = b'M';
     buf[11] = b'A';
     buf[12] = b'G';
@@ -165,13 +168,13 @@ fn test_indirect_offset_loading_does_not_error() {
 
     // Verify the parsing path succeeds for all specifier variants
     let mut f = fs::File::create(&magic_path).unwrap();
-    writeln!(f, r#"(0.b) string "A" byte ptr"#).unwrap();
-    writeln!(f, r#"(0.B) string "A" Byte ptr"#).unwrap();
-    writeln!(f, r#"(0.s) string "A" short native ptr"#).unwrap();
+    writeln!(f, r#"(0.b) string "A" byte LE ptr"#).unwrap();
+    writeln!(f, r#"(0.B) string "A" Byte LE ptr"#).unwrap();
+    writeln!(f, r#"(0.s) string "A" short LE ptr"#).unwrap();
     writeln!(f, r#"(0.S) string "A" short BE ptr"#).unwrap();
-    writeln!(f, r#"(0.l) string "A" long native ptr"#).unwrap();
+    writeln!(f, r#"(0.l) string "A" long LE ptr"#).unwrap();
     writeln!(f, r#"(0.L) string "A" long BE ptr"#).unwrap();
-    writeln!(f, r#"(0.q) string "A" quad native ptr"#).unwrap();
+    writeln!(f, r#"(0.q) string "A" quad LE ptr"#).unwrap();
     writeln!(f, r#"(0.Q) string "A" quad BE ptr"#).unwrap();
 
     let result = MagicDatabase::load_from_file(&magic_path);
@@ -179,5 +182,41 @@ fn test_indirect_offset_loading_does_not_error() {
         result.is_ok(),
         "Loading magic file with all indirect specifiers should succeed: {:?}",
         result.err()
+    );
+}
+
+#[test]
+fn test_indirect_offset_child_with_adjustment_after_paren() {
+    let temp_dir = TempDir::new().unwrap();
+    let magic_path = temp_dir.path().join("pe_adj.magic");
+
+    // Child rule with (base.type)+adj syntax
+    let mut f = fs::File::create(&magic_path).unwrap();
+    writeln!(f, r#"0 string "MZ" DOS executable"#).unwrap();
+    writeln!(f, r#">(0x3c.l)+4 string "PE" (PE+4)"#).unwrap();
+
+    let db = MagicDatabase::load_from_file(&magic_path).unwrap();
+
+    // LE pointer at 0x3c = 0x7C, +4 = 0x80, "PE" at 0x80
+    let mut buf = vec![0u8; 0x84];
+    buf[0] = b'M';
+    buf[1] = b'Z';
+    buf[0x3c] = 0x7C;
+    buf[0x3d] = 0x00;
+    buf[0x3e] = 0x00;
+    buf[0x3f] = 0x00;
+    buf[0x80] = b'P';
+    buf[0x81] = b'E';
+
+    let result = db.evaluate_buffer(&buf).unwrap();
+    assert!(
+        result.description.contains("DOS executable"),
+        "Expected DOS match, got: {}",
+        result.description
+    );
+    assert!(
+        result.description.contains("(PE+4)"),
+        "Expected child match with adjustment, got: {}",
+        result.description
     );
 }

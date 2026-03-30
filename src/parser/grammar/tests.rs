@@ -282,157 +282,116 @@ fn test_parse_offset_boundary_values() {
 }
 
 // Indirect offset parsing tests
+//
+// GNU `file` semantics: lowercase = little-endian, uppercase = big-endian.
+// Numeric pointer types are signed by default (GOTCHAS S6.3).
+// Adjustment is parsed AFTER the closing `)`: (base.type)+adj
+
 #[test]
 fn test_parse_offset_indirect_all_specifiers() {
-    // .b / .B - byte
-    assert_eq!(
-        parse_offset("(0.b)"),
-        Ok((
-            "",
-            OffsetSpec::Indirect {
-                base_offset: 0,
-                pointer_type: TypeKind::Byte { signed: false },
-                adjustment: 0,
-                endian: Endianness::Native,
-            }
-        ))
-    );
-    assert_eq!(
-        parse_offset("(0.B)"),
-        Ok((
-            "",
-            OffsetSpec::Indirect {
-                base_offset: 0,
-                pointer_type: TypeKind::Byte { signed: false },
-                adjustment: 0,
-                endian: Endianness::Native,
-            }
-        ))
-    );
-
-    // .s - short native, .S - short big-endian
-    assert_eq!(
-        parse_offset("(0.s)"),
-        Ok((
-            "",
-            OffsetSpec::Indirect {
-                base_offset: 0,
-                pointer_type: TypeKind::Short {
-                    endian: Endianness::Native,
-                    signed: false
-                },
-                adjustment: 0,
-                endian: Endianness::Native,
-            }
-        ))
-    );
-    assert_eq!(
-        parse_offset("(0.S)"),
-        Ok((
-            "",
-            OffsetSpec::Indirect {
-                base_offset: 0,
-                pointer_type: TypeKind::Short {
-                    endian: Endianness::Big,
-                    signed: false
-                },
-                adjustment: 0,
+    // Table-driven: (input, expected_pointer_type, expected_endian)
+    let cases: &[(&str, TypeKind, Endianness)] = &[
+        // .b / .B - byte (little-endian, signed)
+        ("(0.b)", TypeKind::Byte { signed: true }, Endianness::Little),
+        ("(0.B)", TypeKind::Byte { signed: true }, Endianness::Little),
+        // .s - short little-endian, .S - short big-endian
+        (
+            "(0.s)",
+            TypeKind::Short {
+                endian: Endianness::Little,
+                signed: true,
+            },
+            Endianness::Little,
+        ),
+        (
+            "(0.S)",
+            TypeKind::Short {
                 endian: Endianness::Big,
-            }
-        ))
-    );
-
-    // .l - long native, .L - long big-endian
-    assert_eq!(
-        parse_offset("(0x3c.l)"),
-        Ok((
-            "",
-            OffsetSpec::Indirect {
-                base_offset: 0x3c,
-                pointer_type: TypeKind::Long {
-                    endian: Endianness::Native,
-                    signed: false
-                },
-                adjustment: 0,
-                endian: Endianness::Native,
-            }
-        ))
-    );
-    assert_eq!(
-        parse_offset("(0x3c.L)"),
-        Ok((
-            "",
-            OffsetSpec::Indirect {
-                base_offset: 0x3c,
-                pointer_type: TypeKind::Long {
-                    endian: Endianness::Big,
-                    signed: false
-                },
-                adjustment: 0,
+                signed: true,
+            },
+            Endianness::Big,
+        ),
+        // .l - long little-endian, .L - long big-endian
+        (
+            "(0x3c.l)",
+            TypeKind::Long {
+                endian: Endianness::Little,
+                signed: true,
+            },
+            Endianness::Little,
+        ),
+        (
+            "(0x3c.L)",
+            TypeKind::Long {
                 endian: Endianness::Big,
-            }
-        ))
-    );
-
-    // .q - quad native, .Q - quad big-endian
-    assert_eq!(
-        parse_offset("(0.q)"),
-        Ok((
-            "",
-            OffsetSpec::Indirect {
-                base_offset: 0,
-                pointer_type: TypeKind::Quad {
-                    endian: Endianness::Native,
-                    signed: false
-                },
-                adjustment: 0,
-                endian: Endianness::Native,
-            }
-        ))
-    );
-    assert_eq!(
-        parse_offset("(0.Q)"),
-        Ok((
-            "",
-            OffsetSpec::Indirect {
-                base_offset: 0,
-                pointer_type: TypeKind::Quad {
-                    endian: Endianness::Big,
-                    signed: false
-                },
-                adjustment: 0,
+                signed: true,
+            },
+            Endianness::Big,
+        ),
+        // .q - quad little-endian, .Q - quad big-endian
+        (
+            "(0.q)",
+            TypeKind::Quad {
+                endian: Endianness::Little,
+                signed: true,
+            },
+            Endianness::Little,
+        ),
+        (
+            "(0.Q)",
+            TypeKind::Quad {
                 endian: Endianness::Big,
-            }
-        ))
-    );
+                signed: true,
+            },
+            Endianness::Big,
+        ),
+    ];
+
+    for (input, expected_type, expected_endian) in cases {
+        let base = if input.contains("0x3c") { 0x3c } else { 0 };
+        assert_eq!(
+            parse_offset(input),
+            Ok((
+                "",
+                OffsetSpec::Indirect {
+                    base_offset: base,
+                    pointer_type: expected_type.clone(),
+                    adjustment: 0,
+                    endian: *expected_endian,
+                }
+            )),
+            "Failed for input: {input}"
+        );
+    }
 }
 
 #[test]
 fn test_parse_offset_indirect_with_positive_adjustment() {
+    // Adjustment AFTER closing paren: (base.type)+adj
     assert_eq!(
-        parse_offset("(0x3c.l+4)"),
+        parse_offset("(0x3c.l)+4"),
         Ok((
             "",
             OffsetSpec::Indirect {
                 base_offset: 0x3c,
                 pointer_type: TypeKind::Long {
-                    endian: Endianness::Native,
-                    signed: false
+                    endian: Endianness::Little,
+                    signed: true
                 },
                 adjustment: 4,
-                endian: Endianness::Native,
+                endian: Endianness::Little,
             }
         ))
     );
     assert_eq!(
-        parse_offset("(0.b+0xFF)"),
+        parse_offset("(0.b)+0xFF"),
         Ok((
             "",
             OffsetSpec::Indirect {
                 base_offset: 0,
-                pointer_type: TypeKind::Byte { signed: false },
+                pointer_type: TypeKind::Byte { signed: true },
                 adjustment: 255,
-                endian: Endianness::Native,
+                endian: Endianness::Little,
             }
         ))
     );
@@ -441,32 +400,32 @@ fn test_parse_offset_indirect_with_positive_adjustment() {
 #[test]
 fn test_parse_offset_indirect_with_negative_adjustment() {
     assert_eq!(
-        parse_offset("(0x3c.l-8)"),
+        parse_offset("(0x3c.l)-8"),
         Ok((
             "",
             OffsetSpec::Indirect {
                 base_offset: 0x3c,
                 pointer_type: TypeKind::Long {
-                    endian: Endianness::Native,
-                    signed: false
+                    endian: Endianness::Little,
+                    signed: true
                 },
                 adjustment: -8,
-                endian: Endianness::Native,
+                endian: Endianness::Little,
             }
         ))
     );
     assert_eq!(
-        parse_offset("(100.s-0x10)"),
+        parse_offset("(100.s)-0x10"),
         Ok((
             "",
             OffsetSpec::Indirect {
                 base_offset: 100,
                 pointer_type: TypeKind::Short {
-                    endian: Endianness::Native,
-                    signed: false
+                    endian: Endianness::Little,
+                    signed: true
                 },
                 adjustment: -16,
-                endian: Endianness::Native,
+                endian: Endianness::Little,
             }
         ))
     );
@@ -482,26 +441,27 @@ fn test_parse_offset_indirect_negative_base() {
             OffsetSpec::Indirect {
                 base_offset: -4,
                 pointer_type: TypeKind::Long {
-                    endian: Endianness::Native,
-                    signed: false
+                    endian: Endianness::Little,
+                    signed: true
                 },
                 adjustment: 0,
-                endian: Endianness::Native,
+                endian: Endianness::Little,
             }
         ))
     );
+    // Negative base with adjustment after paren
     assert_eq!(
-        parse_offset("(-0x10.s+2)"),
+        parse_offset("(-0x10.s)+2"),
         Ok((
             "",
             OffsetSpec::Indirect {
                 base_offset: -16,
                 pointer_type: TypeKind::Short {
-                    endian: Endianness::Native,
-                    signed: false
+                    endian: Endianness::Little,
+                    signed: true
                 },
                 adjustment: 2,
-                endian: Endianness::Native,
+                endian: Endianness::Little,
             }
         ))
     );
@@ -516,11 +476,11 @@ fn test_parse_offset_indirect_hex_base() {
             OffsetSpec::Indirect {
                 base_offset: 0xFF,
                 pointer_type: TypeKind::Long {
-                    endian: Endianness::Native,
-                    signed: false
+                    endian: Endianness::Little,
+                    signed: true
                 },
                 adjustment: 0,
-                endian: Endianness::Native,
+                endian: Endianness::Little,
             }
         ))
     );
@@ -536,15 +496,15 @@ fn test_parse_offset_indirect_with_whitespace() {
             OffsetSpec::Indirect {
                 base_offset: 0x3c,
                 pointer_type: TypeKind::Long {
-                    endian: Endianness::Native,
-                    signed: false
+                    endian: Endianness::Little,
+                    signed: true
                 },
                 adjustment: 0,
-                endian: Endianness::Native,
+                endian: Endianness::Little,
             }
         ))
     );
-    // Trailing content should be left unconsumed
+    // Trailing content after adjustment-free form
     assert_eq!(
         parse_offset("(0x3c.l) string"),
         Ok((
@@ -552,11 +512,11 @@ fn test_parse_offset_indirect_with_whitespace() {
             OffsetSpec::Indirect {
                 base_offset: 0x3c,
                 pointer_type: TypeKind::Long {
-                    endian: Endianness::Native,
-                    signed: false
+                    endian: Endianness::Little,
+                    signed: true
                 },
                 adjustment: 0,
-                endian: Endianness::Native,
+                endian: Endianness::Little,
             }
         ))
     );
@@ -588,11 +548,11 @@ fn test_parse_rule_offset_indirect() {
                 OffsetSpec::Indirect {
                     base_offset: 0x3c,
                     pointer_type: TypeKind::Long {
-                        endian: Endianness::Native,
-                        signed: false
+                        endian: Endianness::Little,
+                        signed: true
                     },
                     adjustment: 0,
-                    endian: Endianness::Native,
+                    endian: Endianness::Little,
                 }
             )
         ))
@@ -611,18 +571,18 @@ fn test_parse_rule_offset_indirect_child() {
                 OffsetSpec::Indirect {
                     base_offset: 0x3c,
                     pointer_type: TypeKind::Long {
-                        endian: Endianness::Native,
-                        signed: false
+                        endian: Endianness::Little,
+                        signed: true
                     },
                     adjustment: 0,
-                    endian: Endianness::Native,
+                    endian: Endianness::Little,
                 }
             )
         ))
     );
-    // Level 2 child with indirect offset + adjustment
+    // Level 2 child with adjustment after paren: >>(0x3c.l)+4
     assert_eq!(
-        parse_rule_offset(">>(0x3c.l+4)"),
+        parse_rule_offset(">>(0x3c.l)+4"),
         Ok((
             "",
             (
@@ -630,11 +590,11 @@ fn test_parse_rule_offset_indirect_child() {
                 OffsetSpec::Indirect {
                     base_offset: 0x3c,
                     pointer_type: TypeKind::Long {
-                        endian: Endianness::Native,
-                        signed: false
+                        endian: Endianness::Little,
+                        signed: true
                     },
                     adjustment: 4,
-                    endian: Endianness::Native,
+                    endian: Endianness::Little,
                 }
             )
         ))
@@ -643,6 +603,7 @@ fn test_parse_rule_offset_indirect_child() {
 
 #[test]
 fn test_parse_rule_offset_indirect_with_remaining() {
+    // >(0x3c.l) followed by type keyword
     assert_eq!(
         parse_rule_offset(">(0x3c.l) string"),
         Ok((
@@ -652,11 +613,30 @@ fn test_parse_rule_offset_indirect_with_remaining() {
                 OffsetSpec::Indirect {
                     base_offset: 0x3c,
                     pointer_type: TypeKind::Long {
-                        endian: Endianness::Native,
-                        signed: false
+                        endian: Endianness::Little,
+                        signed: true
                     },
                     adjustment: 0,
-                    endian: Endianness::Native,
+                    endian: Endianness::Little,
+                }
+            )
+        ))
+    );
+    // >(0x3c.l)+4 followed by type keyword
+    assert_eq!(
+        parse_rule_offset(">(0x3c.l)+4 string"),
+        Ok((
+            "string",
+            (
+                1,
+                OffsetSpec::Indirect {
+                    base_offset: 0x3c,
+                    pointer_type: TypeKind::Long {
+                        endian: Endianness::Little,
+                        signed: true
+                    },
+                    adjustment: 4,
+                    endian: Endianness::Little,
                 }
             )
         ))
