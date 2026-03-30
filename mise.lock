@@ -49,54 +49,6 @@ checksum = "sha256:5414b7124a91f4b5abee62e5c9d84802237734f8d15b9b7032732a32c3ebf
 url = "https://github.com/rhysd/actionlint/releases/download/v1.7.11/actionlint_1.7.11_windows_amd64.zip"
 
 [[tools.bun]]
-version = "1.3.10"
-backend = "core:bun"
-
-[tools.bun."platforms.linux-arm64"]
-checksum = "sha256:fa5ecb25cafa8e8f5c87a0f833719d46dd0af0a86c7837d806531212d55636d3"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.10/bun-linux-aarch64.zip"
-
-[tools.bun."platforms.linux-arm64-musl"]
-checksum = "sha256:d2c81365a2e529b78a42330d3a0056e8dbd7896b4a6782c8e392b6532141e34d"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.10/bun-linux-aarch64-musl.zip"
-
-[tools.bun."platforms.linux-x64"]
-checksum = "sha256:f57bc0187e39623de716ba3a389fda5486b2d7be7131a980ba54dc7b733d2e08"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.10/bun-linux-x64.zip"
-
-[tools.bun."platforms.linux-x64-baseline"]
-checksum = "sha256:41201a8c5ee74a9dcbb1ce25a1104f1f929838b57a845aa78d98379b0ce7cde2"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.10/bun-linux-x64-baseline.zip"
-
-[tools.bun."platforms.linux-x64-musl"]
-checksum = "sha256:48a6c32277d343db0148ce066336472ffd380358a4d26bb1329714742492d824"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.10/bun-linux-x64-musl.zip"
-
-[tools.bun."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:a7bc4cdea1ef255a83adbf39c7aafcd30e09f2b8f74deec4b10ee318bc024d1f"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.10/bun-linux-x64-musl-baseline.zip"
-
-[tools.bun."platforms.macos-arm64"]
-checksum = "sha256:82034e87c9d9b4398ea619aee2eed5d2a68c8157e9a6ae2d1052d84d533ccd8d"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.10/bun-darwin-aarch64.zip"
-
-[tools.bun."platforms.macos-x64"]
-checksum = "sha256:c1d90bf6140f20e572c473065dc6b37a4b036349b5e9e4133779cc642ad94323"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.10/bun-darwin-x64.zip"
-
-[tools.bun."platforms.macos-x64-baseline"]
-checksum = "sha256:f9686c4e4e760db4cde77a0f1fad05e552648b9c9cbfa4f7fc9a7ec26b9f3267"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.10/bun-darwin-x64-baseline.zip"
-
-[tools.bun."platforms.windows-x64"]
-checksum = "sha256:7a77b3e245e2e26965c93089a4a1332e8a326d3364c89fae1d1fd99cdd3cd73d"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.10/bun-windows-x64.zip"
-
-[tools.bun."platforms.windows-x64-baseline"]
-checksum = "sha256:715709c69b176e20994533d3292bd0b7c32de9c0c5575b916746ec6b2aa38346"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.10/bun-windows-x64-baseline.zip"
-
-[[tools.bun]]
 version = "1.3.11"
 backend = "core:bun"
 
@@ -143,54 +95,6 @@ url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.11/bun-windows-
 [tools.bun."platforms.windows-x64-baseline"]
 checksum = "sha256:9d0e0f923e9626f3bc6044fc32e0d3ab29039aea753f5678ef8801cf26f75288"
 url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.11/bun-windows-x64-baseline.zip"
-
-[[tools.cargo-binstall]]
-version = "1.17.7"
-backend = "aqua:cargo-bins/cargo-binstall"
-
-[tools.cargo-binstall."platforms.linux-arm64"]
-checksum = "sha256:b0658b0a7f0959bc1dbb4ab665931c31c7dd1109ff01cb8772af17dfdc52a9af"
-url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.7/cargo-binstall-aarch64-unknown-linux-musl.tgz"
-
-[tools.cargo-binstall."platforms.linux-arm64-musl"]
-checksum = "sha256:b0658b0a7f0959bc1dbb4ab665931c31c7dd1109ff01cb8772af17dfdc52a9af"
-url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.7/cargo-binstall-aarch64-unknown-linux-musl.tgz"
-
-[tools.cargo-binstall."platforms.linux-x64"]
-checksum = "sha256:29b5ecfb6e03c2511a617c77d312b06df0c54717644fbfda3d465ec8240532f0"
-url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.7/cargo-binstall-x86_64-unknown-linux-musl.tgz"
-
-[tools.cargo-binstall."platforms.linux-x64-baseline"]
-checksum = "sha256:29b5ecfb6e03c2511a617c77d312b06df0c54717644fbfda3d465ec8240532f0"
-url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.7/cargo-binstall-x86_64-unknown-linux-musl.tgz"
-
-[tools.cargo-binstall."platforms.linux-x64-musl"]
-checksum = "sha256:29b5ecfb6e03c2511a617c77d312b06df0c54717644fbfda3d465ec8240532f0"
-url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.7/cargo-binstall-x86_64-unknown-linux-musl.tgz"
-
-[tools.cargo-binstall."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:29b5ecfb6e03c2511a617c77d312b06df0c54717644fbfda3d465ec8240532f0"
-url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.7/cargo-binstall-x86_64-unknown-linux-musl.tgz"
-
-[tools.cargo-binstall."platforms.macos-arm64"]
-checksum = "sha256:1ad3c0c56fa3970634cce5009ed0ce61b943515f9115f8e480fd0e41d8d89085"
-url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.7/cargo-binstall-aarch64-apple-darwin.zip"
-
-[tools.cargo-binstall."platforms.macos-x64"]
-checksum = "sha256:aa7174fb938e668dea4b4c3d22fe6cefed97642cc3a7a419ba96d63d63fd729b"
-url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.7/cargo-binstall-x86_64-apple-darwin.zip"
-
-[tools.cargo-binstall."platforms.macos-x64-baseline"]
-checksum = "sha256:aa7174fb938e668dea4b4c3d22fe6cefed97642cc3a7a419ba96d63d63fd729b"
-url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.7/cargo-binstall-x86_64-apple-darwin.zip"
-
-[tools.cargo-binstall."platforms.windows-x64"]
-checksum = "sha256:c5cb2444ee04480502a8ac73d96abd9f97af8300ec04ea1c1f2a9e959c02e4d6"
-url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.7/cargo-binstall-x86_64-pc-windows-msvc.zip"
-
-[tools.cargo-binstall."platforms.windows-x64-baseline"]
-checksum = "sha256:c5cb2444ee04480502a8ac73d96abd9f97af8300ec04ea1c1f2a9e959c02e4d6"
-url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.17.7/cargo-binstall-x86_64-pc-windows-msvc.zip"
 
 [[tools.cargo-binstall]]
 version = "1.17.8"
@@ -361,54 +265,6 @@ version = "0.3.156"
 backend = "cargo:release-plz"
 
 [[tools.just]]
-version = "1.46.0"
-backend = "aqua:casey/just"
-
-[tools.just."platforms.linux-arm64"]
-checksum = "sha256:b81970c8247fa64cfb30d2a3da0e487e4253f9f2d01865ed5e7d53cdc7b02188"
-url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-aarch64-unknown-linux-musl.tar.gz"
-
-[tools.just."platforms.linux-arm64-musl"]
-checksum = "sha256:b81970c8247fa64cfb30d2a3da0e487e4253f9f2d01865ed5e7d53cdc7b02188"
-url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-aarch64-unknown-linux-musl.tar.gz"
-
-[tools.just."platforms.linux-x64"]
-checksum = "sha256:79966e6e353f535ee7d1c6221641bcc8e3381c55b0d0a6dc6e54b34f9db36eaa"
-url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-x86_64-unknown-linux-musl.tar.gz"
-
-[tools.just."platforms.linux-x64-baseline"]
-checksum = "sha256:79966e6e353f535ee7d1c6221641bcc8e3381c55b0d0a6dc6e54b34f9db36eaa"
-url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-x86_64-unknown-linux-musl.tar.gz"
-
-[tools.just."platforms.linux-x64-musl"]
-checksum = "sha256:79966e6e353f535ee7d1c6221641bcc8e3381c55b0d0a6dc6e54b34f9db36eaa"
-url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-x86_64-unknown-linux-musl.tar.gz"
-
-[tools.just."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:79966e6e353f535ee7d1c6221641bcc8e3381c55b0d0a6dc6e54b34f9db36eaa"
-url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-x86_64-unknown-linux-musl.tar.gz"
-
-[tools.just."platforms.macos-arm64"]
-checksum = "sha256:438eaf6468a115aa7db93e501cc7e3272f453f6b7083be3863adfab546b23358"
-url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-aarch64-apple-darwin.tar.gz"
-
-[tools.just."platforms.macos-x64"]
-checksum = "sha256:ec54dd60ac876261b7318f1852ef9c0319fede1e5a73c14f56d908a8edf595b8"
-url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-x86_64-apple-darwin.tar.gz"
-
-[tools.just."platforms.macos-x64-baseline"]
-checksum = "sha256:ec54dd60ac876261b7318f1852ef9c0319fede1e5a73c14f56d908a8edf595b8"
-url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-x86_64-apple-darwin.tar.gz"
-
-[tools.just."platforms.windows-x64"]
-checksum = "sha256:f0acf3f8ccbcf360b481baae9cae4c921774c89d5d932012481d3e0bda78ab39"
-url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-x86_64-pc-windows-msvc.zip"
-
-[tools.just."platforms.windows-x64-baseline"]
-checksum = "sha256:f0acf3f8ccbcf360b481baae9cae4c921774c89d5d932012481d3e0bda78ab39"
-url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-x86_64-pc-windows-msvc.zip"
-
-[[tools.just]]
 version = "1.48.1"
 backend = "aqua:casey/just"
 
@@ -501,11 +357,11 @@ version = "0.21.0"
 backend = "npm:markdownlint-cli2"
 
 [[tools."pipx:mdformat"]]
-version = "0.7.21"
+version = "1.0.0"
 backend = "pipx:mdformat"
 
 [tools."pipx:mdformat".options]
-uvx_args = "--with mdformat-gfm --with mdformat-frontmatter --with mdformat-footnote --with mdformat-simple-breaks --with mdformat-gfm-alerts --with mdformat-toc --with mdformat-wikilink --with mdformat-tables"
+uvx_args = "--with mdformat-gfm --with mdformat-config --with mdformat-footnote --with mdformat-front-matters --with mdformat-simple-breaks --with mdformat-web --with mdformat-wikilink --with mdformat-gfm-alerts --with mdformat-toc"
 
 [[tools."pipx:pre-commit"]]
 version = "4.5.1"
