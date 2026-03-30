@@ -570,3 +570,7 @@ This project has the OSSF Best Practices passing badge. Maintain these standards
 - SECURITY.md documents vulnerability reporting with scope, safe harbor, and PGP key
 - AGENTS.md must accurately reflect implemented features (not aspirational)
 - `docs/src/release-verification.md` documents artifact signing for users
+
+## Agent Rules <!-- tessl-managed -->
+
+@.tessl/RULES.md follow the [instructions](.tessl/RULES.md)
