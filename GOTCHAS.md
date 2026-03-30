@@ -59,6 +59,14 @@ The nom `tuple` combinator is deprecated. Use bare tuple syntax `(a, b, c)` dire
 
 `type_keyword_to_kind` has `#[allow(clippy::too_many_lines)]` because it exceeds 100 lines with all date keywords.
 
+### 3.5 `parse_number` Does Not Handle `+` Prefix
+
+`parse_number` handles `-` signs but not `+`. When parsing syntax like `+4` (e.g., indirect offset adjustments), consume the `+` character manually before calling `parse_number`.
+
+### 3.6 `parse_value` Requires Quoted Strings
+
+`parse_value()` does not accept bare unquoted strings. String values in magic file rules must be quoted (e.g., `string "MZ"` not `string MZ`). Integration tests writing magic files must use `r#"0 string "MZ" description"#` format.
+
 ## 4. Module Visibility & Re-exports
 
 ### 4.1 Private Engine Module
