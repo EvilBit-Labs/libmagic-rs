@@ -281,6 +281,388 @@ fn test_parse_offset_boundary_values() {
     );
 }
 
+// Indirect offset parsing tests
+#[test]
+fn test_parse_offset_indirect_all_specifiers() {
+    // .b / .B - byte
+    assert_eq!(
+        parse_offset("(0.b)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0,
+                pointer_type: TypeKind::Byte { signed: false },
+                adjustment: 0,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_offset("(0.B)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0,
+                pointer_type: TypeKind::Byte { signed: false },
+                adjustment: 0,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+
+    // .s - short native, .S - short big-endian
+    assert_eq!(
+        parse_offset("(0.s)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0,
+                pointer_type: TypeKind::Short {
+                    endian: Endianness::Native,
+                    signed: false
+                },
+                adjustment: 0,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_offset("(0.S)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0,
+                pointer_type: TypeKind::Short {
+                    endian: Endianness::Big,
+                    signed: false
+                },
+                adjustment: 0,
+                endian: Endianness::Big,
+            }
+        ))
+    );
+
+    // .l - long native, .L - long big-endian
+    assert_eq!(
+        parse_offset("(0x3c.l)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0x3c,
+                pointer_type: TypeKind::Long {
+                    endian: Endianness::Native,
+                    signed: false
+                },
+                adjustment: 0,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_offset("(0x3c.L)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0x3c,
+                pointer_type: TypeKind::Long {
+                    endian: Endianness::Big,
+                    signed: false
+                },
+                adjustment: 0,
+                endian: Endianness::Big,
+            }
+        ))
+    );
+
+    // .q - quad native, .Q - quad big-endian
+    assert_eq!(
+        parse_offset("(0.q)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0,
+                pointer_type: TypeKind::Quad {
+                    endian: Endianness::Native,
+                    signed: false
+                },
+                adjustment: 0,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_offset("(0.Q)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0,
+                pointer_type: TypeKind::Quad {
+                    endian: Endianness::Big,
+                    signed: false
+                },
+                adjustment: 0,
+                endian: Endianness::Big,
+            }
+        ))
+    );
+}
+
+#[test]
+fn test_parse_offset_indirect_with_positive_adjustment() {
+    assert_eq!(
+        parse_offset("(0x3c.l+4)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0x3c,
+                pointer_type: TypeKind::Long {
+                    endian: Endianness::Native,
+                    signed: false
+                },
+                adjustment: 4,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_offset("(0.b+0xFF)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0,
+                pointer_type: TypeKind::Byte { signed: false },
+                adjustment: 255,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+}
+
+#[test]
+fn test_parse_offset_indirect_with_negative_adjustment() {
+    assert_eq!(
+        parse_offset("(0x3c.l-8)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0x3c,
+                pointer_type: TypeKind::Long {
+                    endian: Endianness::Native,
+                    signed: false
+                },
+                adjustment: -8,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_offset("(100.s-0x10)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 100,
+                pointer_type: TypeKind::Short {
+                    endian: Endianness::Native,
+                    signed: false
+                },
+                adjustment: -16,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+}
+
+#[test]
+fn test_parse_offset_indirect_negative_base() {
+    // Negative base offsets (from end of file)
+    assert_eq!(
+        parse_offset("(-4.l)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: -4,
+                pointer_type: TypeKind::Long {
+                    endian: Endianness::Native,
+                    signed: false
+                },
+                adjustment: 0,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_offset("(-0x10.s+2)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: -16,
+                pointer_type: TypeKind::Short {
+                    endian: Endianness::Native,
+                    signed: false
+                },
+                adjustment: 2,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+}
+
+#[test]
+fn test_parse_offset_indirect_hex_base() {
+    assert_eq!(
+        parse_offset("(0xFF.l)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0xFF,
+                pointer_type: TypeKind::Long {
+                    endian: Endianness::Native,
+                    signed: false
+                },
+                adjustment: 0,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+}
+
+#[test]
+fn test_parse_offset_indirect_with_whitespace() {
+    // Leading whitespace should be handled
+    assert_eq!(
+        parse_offset(" (0x3c.l)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0x3c,
+                pointer_type: TypeKind::Long {
+                    endian: Endianness::Native,
+                    signed: false
+                },
+                adjustment: 0,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+    // Trailing content should be left unconsumed
+    assert_eq!(
+        parse_offset("(0x3c.l) string"),
+        Ok((
+            "string",
+            OffsetSpec::Indirect {
+                base_offset: 0x3c,
+                pointer_type: TypeKind::Long {
+                    endian: Endianness::Native,
+                    signed: false
+                },
+                adjustment: 0,
+                endian: Endianness::Native,
+            }
+        ))
+    );
+}
+
+#[test]
+fn test_parse_offset_indirect_parse_failures() {
+    // Missing closing paren
+    assert!(parse_offset("(0x3c.l").is_err());
+    // Missing dot and type
+    assert!(parse_offset("(0x3c)").is_err());
+    // Invalid specifier character
+    assert!(parse_offset("(0x3c.x)").is_err());
+    // Empty parens
+    assert!(parse_offset("()").is_err());
+    // Missing base
+    assert!(parse_offset("(.l)").is_err());
+}
+
+#[test]
+fn test_parse_rule_offset_indirect() {
+    // Level 0 indirect
+    assert_eq!(
+        parse_rule_offset("(0x3c.l)"),
+        Ok((
+            "",
+            (
+                0,
+                OffsetSpec::Indirect {
+                    base_offset: 0x3c,
+                    pointer_type: TypeKind::Long {
+                        endian: Endianness::Native,
+                        signed: false
+                    },
+                    adjustment: 0,
+                    endian: Endianness::Native,
+                }
+            )
+        ))
+    );
+}
+
+#[test]
+fn test_parse_rule_offset_indirect_child() {
+    // Level 1 child with indirect offset: >(0x3c.l)
+    assert_eq!(
+        parse_rule_offset(">(0x3c.l)"),
+        Ok((
+            "",
+            (
+                1,
+                OffsetSpec::Indirect {
+                    base_offset: 0x3c,
+                    pointer_type: TypeKind::Long {
+                        endian: Endianness::Native,
+                        signed: false
+                    },
+                    adjustment: 0,
+                    endian: Endianness::Native,
+                }
+            )
+        ))
+    );
+    // Level 2 child with indirect offset + adjustment
+    assert_eq!(
+        parse_rule_offset(">>(0x3c.l+4)"),
+        Ok((
+            "",
+            (
+                2,
+                OffsetSpec::Indirect {
+                    base_offset: 0x3c,
+                    pointer_type: TypeKind::Long {
+                        endian: Endianness::Native,
+                        signed: false
+                    },
+                    adjustment: 4,
+                    endian: Endianness::Native,
+                }
+            )
+        ))
+    );
+}
+
+#[test]
+fn test_parse_rule_offset_indirect_with_remaining() {
+    assert_eq!(
+        parse_rule_offset(">(0x3c.l) string"),
+        Ok((
+            "string",
+            (
+                1,
+                OffsetSpec::Indirect {
+                    base_offset: 0x3c,
+                    pointer_type: TypeKind::Long {
+                        endian: Endianness::Native,
+                        signed: false
+                    },
+                    adjustment: 0,
+                    endian: Endianness::Native,
+                }
+            )
+        ))
+    );
+}
+
 // Operator parsing tests
 #[test]
 fn test_parse_operator_equality() {
