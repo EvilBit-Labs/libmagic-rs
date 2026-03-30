@@ -167,10 +167,10 @@ thiserror = "2.0.18"
 [dev-dependencies]
 assert_cmd = "2.2.0"
 criterion = "0.8.2"
-insta = { version = "1.46.3", features = ["json"] }
+insta = { version = "1.47.1", features = ["json"] }
 nix = { version = "0.31.2", features = ["fs"] }
 predicates = "3.1.4"
-proptest = "1.10.0"
+proptest = "1.11.0"
 regex = "1.12.3"
 tempfile = "3.27.0"
 
