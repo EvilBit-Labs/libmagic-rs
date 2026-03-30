@@ -67,6 +67,10 @@ The nom `tuple` combinator is deprecated. Use bare tuple syntax `(a, b, c)` dire
 
 `parse_value()` does not accept bare unquoted strings. String values in magic file rules must be quoted (e.g., `string "MZ"` not `string MZ`). Integration tests writing magic files must use `r#"0 string "MZ" description"#` format.
 
+### 3.7 Indirect Offset Pointer Specifiers Follow GNU `file` Semantics
+
+Lowercase pointer specifiers (`.s`, `.l`, `.q`) map to **little-endian**, not native endian. Uppercase (`.S`, `.L`, `.Q`) map to big-endian. All numeric pointer types are **signed by default** (per S6.3). The adjustment is parsed **after** the closing paren: `(base.type)+adj`, not `(base.type+adj)`.
+
 ## 4. Module Visibility & Re-exports
 
 ### 4.1 Private Engine Module
