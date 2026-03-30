@@ -195,7 +195,7 @@ pub fn read_pstring(
   - `PStringLengthWidth::TwoByteLE` - 2-byte little-endian length prefix (`/h` suffix)
   - `PStringLengthWidth::FourByteBE` - 4-byte big-endian length prefix (`/L` suffix)
   - `PStringLengthWidth::FourByteLE` - 4-byte little-endian length prefix (`/l` suffix)
-- **Length interpretation**: 
+- **Length interpretation**:
   - Reads 1, 2, or 4 bytes from buffer using `from_be_bytes` or `from_le_bytes` depending on variant
   - The length value specifies how many bytes of string data follow the prefix
 - **`/J` flag** (`length_includes_itself`):
