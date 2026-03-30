@@ -245,7 +245,7 @@ impl BinaryRegex for regex::bytes::Regex {
 
 ### Offset Specifications
 
-- Indirect offsets are fully implemented (parsing + evaluation) with specifiers: `.b/.B` (byte), `.s/.S` (short), `.l/.L` (long), `.q/.Q` (quad); lowercase = native endian, uppercase = big-endian; supports `+/-` adjustments
+- Indirect offsets are fully implemented (parsing + evaluation) with specifiers: `.b/.B` (byte), `.s/.S` (short), `.l/.L` (long), `.q/.Q` (quad); lowercase = little-endian, uppercase = big-endian (GNU `file` semantics); pointer types signed by default; adjustment after closing paren: `(base.type)+adj`
 - Relative offsets are parsed into the AST but evaluation is not yet implemented (#38)
 - Only absolute and from-end offsets are fully functional
 
