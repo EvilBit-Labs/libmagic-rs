@@ -204,7 +204,7 @@ cargo test --doc   # Test documentation examples
 
 ### Currently Implemented (v0.1.0)
 
-- **Offsets**: Absolute and from-end specifications (indirect and relative are parsed but not yet evaluated)
+- **Offsets**: Absolute, from-end, and indirect specifications (relative offsets are parsed but not yet evaluated)
 - **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`; `pstring` is a Pascal string (length-prefixed) with support for 1/2/4-byte length prefixes via `/B`, `/H` (2-byte BE), `/h` (2-byte LE), `/L` (4-byte BE), `/l` (4-byte LE) suffixes, and the `/J` flag (stored length includes prefix width, JPEG convention) which is combinable with width suffixes (e.g., `pstring/HJ`); date values formatted as "Www Mmm DD HH:MM:SS YYYY" matching GNU `file` output; types are signed by default (libmagic-compatible)
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
@@ -245,7 +245,7 @@ impl BinaryRegex for regex::bytes::Regex {
 
 ### Offset Specifications
 
-- Indirect offsets are parsed into the AST but evaluation is not yet implemented (#37)
+- Indirect offsets are fully implemented (parsing + evaluation) with specifiers: `.b/.B` (byte), `.s/.S` (short), `.l/.L` (long), `.q/.Q` (quad); lowercase = native endian, uppercase = big-endian; supports `+/-` adjustments
 - Relative offsets are parsed into the AST but evaluation is not yet implemented (#38)
 - Only absolute and from-end offsets are fully functional
 
