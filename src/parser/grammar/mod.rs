@@ -162,7 +162,8 @@ pub fn parse_number(input: &str) -> IResult<&str, i64> {
 ///
 /// | Specifier | Width  | Endianness    |
 /// |-----------|--------|---------------|
-/// | `b`, `B`  | 1 byte | Little-endian |
+/// | `b`       | 1 byte | Little-endian |
+/// | `B`       | 1 byte | Big-endian    |
 /// | `s`       | 2 byte | Little-endian |
 /// | `S`       | 2 byte | Big-endian    |
 /// | `l`       | 4 byte | Little-endian |
@@ -171,7 +172,8 @@ pub fn parse_number(input: &str) -> IResult<&str, i64> {
 /// | `Q`       | 8 byte | Big-endian    |
 fn pointer_specifier_to_type(spec: char) -> Option<(TypeKind, Endianness)> {
     match spec {
-        'b' | 'B' => Some((TypeKind::Byte { signed: true }, Endianness::Little)),
+        'b' => Some((TypeKind::Byte { signed: true }, Endianness::Little)),
+        'B' => Some((TypeKind::Byte { signed: true }, Endianness::Big)),
         's' => Some((
             TypeKind::Short {
                 endian: Endianness::Little,

@@ -244,7 +244,7 @@ Pascal-style length-prefixed strings where the length prefix can be 1, 2, or 4 b
 
 **Example:**
 
-```
+```text
 0    pstring    JPEG
 0    pstring/H  JPEG
 ```

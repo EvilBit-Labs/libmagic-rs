@@ -48,6 +48,21 @@ pub fn resolve_indirect_offset(spec: &OffsetSpec, buffer: &[u8]) -> Result<usize
         }
     };
 
+    // Validate: outer endian must match inner TypeKind endian (single source of truth).
+    // Byte has no inner endian field so only multi-byte types need the check.
+    match pointer_type {
+        TypeKind::Short { endian: inner, .. }
+        | TypeKind::Long { endian: inner, .. }
+        | TypeKind::Quad { endian: inner, .. } => {
+            debug_assert_eq!(
+                *inner, endian,
+                "Indirect offset: inner TypeKind endianness ({inner:?}) \
+                 contradicts outer endian field ({endian:?})"
+            );
+        }
+        _ => {}
+    }
+
     // Step 1: Resolve base_offset to an absolute position
     let abs_base = resolve_absolute_offset(base_offset, buffer)
         .map_err(|e| map_offset_error(&e, base_offset))?;
@@ -149,7 +164,6 @@ mod tests {
     use super::*;
     use crate::parser::ast::Endianness;
 
-    /// Helper to build an `OffsetSpec::Indirect` for tests.
     fn indirect(
         base_offset: i64,
         pointer_type: TypeKind,
@@ -164,230 +178,184 @@ mod tests {
         }
     }
 
-    // ── Byte pointer ─────────────────────────────────────────────
-
     #[test]
-    fn test_byte_pointer_unsigned() {
-        // Buffer: [pointer=0x04, ..., target_byte_at_4]
-        let buffer = &[0x04, 0x00, 0x00, 0x00, 0xAA];
-        let spec = indirect(0, TypeKind::Byte { signed: false }, 0, Endianness::Little);
-        assert_eq!(resolve_indirect_offset(&spec, buffer).unwrap(), 4);
+    fn test_pointer_type_and_endianness() {
+        let cases: &[(&str, &[u8], TypeKind, Endianness, usize)] = &[
+            (
+                "byte unsigned",
+                &[0x04, 0x00, 0x00, 0x00, 0xAA],
+                TypeKind::Byte { signed: false },
+                Endianness::Little,
+                4,
+            ),
+            (
+                "byte signed positive",
+                &[0x03, 0x00, 0x00, 0xBB],
+                TypeKind::Byte { signed: true },
+                Endianness::Little,
+                3,
+            ),
+            (
+                "short LE",
+                &[0x04, 0x00, 0x00, 0x00, 0xCC],
+                TypeKind::Short {
+                    endian: Endianness::Little,
+                    signed: false,
+                },
+                Endianness::Little,
+                4,
+            ),
+            (
+                "short BE",
+                &[0x00, 0x04, 0x00, 0x00, 0xDD],
+                TypeKind::Short {
+                    endian: Endianness::Big,
+                    signed: false,
+                },
+                Endianness::Big,
+                4,
+            ),
+            (
+                "long LE",
+                &[0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF],
+                TypeKind::Long {
+                    endian: Endianness::Little,
+                    signed: false,
+                },
+                Endianness::Little,
+                6,
+            ),
+            (
+                "long BE",
+                &[0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0xFF],
+                TypeKind::Long {
+                    endian: Endianness::Big,
+                    signed: false,
+                },
+                Endianness::Big,
+                6,
+            ),
+            (
+                "signed long positive",
+                &[0x04, 0x00, 0x00, 0x00, 0xAA],
+                TypeKind::Long {
+                    endian: Endianness::Little,
+                    signed: true,
+                },
+                Endianness::Little,
+                4,
+            ),
+        ];
+        for (name, buf, ptype, endian, expected) in cases {
+            let spec = indirect(0, ptype.clone(), 0, *endian);
+            assert_eq!(
+                resolve_indirect_offset(&spec, buf).unwrap(),
+                *expected,
+                "Failed for case: {name}"
+            );
+        }
+
+        // Quad types need resizable buffers (target offset > inline slice length)
+        let quad_cases: &[(&str, Endianness, &[u8])] = &[
+            (
+                "quad LE",
+                Endianness::Little,
+                &[0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+            ),
+            (
+                "quad BE",
+                Endianness::Big,
+                &[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10],
+            ),
+        ];
+        for (name, endian, prefix) in quad_cases {
+            let mut buffer = prefix.to_vec();
+            buffer.resize(17, 0xBB);
+            let spec = indirect(
+                0,
+                TypeKind::Quad {
+                    endian: *endian,
+                    signed: false,
+                },
+                0,
+                *endian,
+            );
+            assert_eq!(
+                resolve_indirect_offset(&spec, &buffer).unwrap(),
+                16,
+                "Failed for case: {name}"
+            );
+        }
     }
 
     #[test]
-    fn test_byte_pointer_signed_positive() {
-        let buffer = &[0x03, 0x00, 0x00, 0xBB];
-        let spec = indirect(0, TypeKind::Byte { signed: true }, 0, Endianness::Little);
-        assert_eq!(resolve_indirect_offset(&spec, buffer).unwrap(), 3);
-    }
+    fn test_extract_raw_unsigned_values() {
+        let ok_cases: &[(&str, Value, u64)] = &[
+            ("Int(-1) -> u64::MAX", Value::Int(-1), u64::MAX),
+            (
+                "Int(-2) -> u64::MAX-1",
+                Value::Int(-2),
+                0xFFFF_FFFF_FFFF_FFFE,
+            ),
+            (
+                "Int(-1) sign-extended",
+                Value::Int(-1),
+                0xFFFF_FFFF_FFFF_FFFF,
+            ),
+            ("Int(42)", Value::Int(42), 42),
+            ("Uint(0xDEAD_BEEF)", Value::Uint(0xDEAD_BEEF), 0xDEAD_BEEF),
+        ];
+        for (name, value, expected) in ok_cases {
+            assert_eq!(
+                extract_raw_unsigned(value).unwrap(),
+                *expected,
+                "Failed for case: {name}"
+            );
+        }
 
-    // ── Short pointer, both endiannesses ─────────────────────────
-
-    #[test]
-    fn test_short_pointer_little_endian() {
-        // LE short at offset 0: bytes [0x04, 0x00] → 0x0004
-        let mut buffer = vec![0x04, 0x00, 0x00, 0x00, 0xCC];
-        buffer.resize(5, 0);
-        let spec = indirect(
-            0,
-            TypeKind::Short {
-                endian: Endianness::Little,
-                signed: false,
-            },
-            0,
-            Endianness::Little,
+        let err_value = Value::String("hello".to_string());
+        assert!(
+            extract_raw_unsigned(&err_value).is_err(),
+            "Failed for case: rejects non-integer"
         );
-        assert_eq!(resolve_indirect_offset(&spec, &buffer).unwrap(), 4);
     }
 
     #[test]
-    fn test_short_pointer_big_endian() {
-        // BE short at offset 0: bytes [0x00, 0x04] → 0x0004
-        let buffer = &[0x00, 0x04, 0x00, 0x00, 0xDD];
-        let spec = indirect(
-            0,
-            TypeKind::Short {
-                endian: Endianness::Big,
-                signed: false,
-            },
-            0,
-            Endianness::Big,
-        );
-        assert_eq!(resolve_indirect_offset(&spec, buffer).unwrap(), 4);
+    fn test_read_pointer_signed_negative() {
+        let cases: &[(&str, &[u8], TypeKind, u64)] = &[
+            (
+                "signed long -1",
+                &[0xFF, 0xFF, 0xFF, 0xFF],
+                TypeKind::Long {
+                    endian: Endianness::Little,
+                    signed: true,
+                },
+                u64::MAX,
+            ),
+            (
+                "signed short -2",
+                &[0xFE, 0xFF],
+                TypeKind::Short {
+                    endian: Endianness::Little,
+                    signed: true,
+                },
+                0xFFFF_FFFF_FFFF_FFFE,
+            ),
+            (
+                "signed byte -1",
+                &[0xFF],
+                TypeKind::Byte { signed: true },
+                u64::MAX,
+            ),
+        ];
+        for (name, buf, ptype, expected) in cases {
+            let raw = read_pointer(buf, 0, ptype, Endianness::Little).unwrap();
+            assert_eq!(raw, *expected, "Failed for case: {name}");
+        }
     }
-
-    // ── Long pointer, both endiannesses ──────────────────────────
-
-    #[test]
-    fn test_long_pointer_little_endian() {
-        // LE long at offset 0: bytes [0x08, 0x00, 0x00, 0x00] → 8
-        let mut buffer = vec![0x08, 0x00, 0x00, 0x00];
-        buffer.resize(9, 0xAA);
-        let spec = indirect(
-            0,
-            TypeKind::Long {
-                endian: Endianness::Little,
-                signed: false,
-            },
-            0,
-            Endianness::Little,
-        );
-        assert_eq!(resolve_indirect_offset(&spec, &buffer).unwrap(), 8);
-    }
-
-    #[test]
-    fn test_long_pointer_big_endian() {
-        // BE long at offset 0: bytes [0x00, 0x00, 0x00, 0x06] → 6
-        let buffer = &[0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0xFF];
-        let spec = indirect(
-            0,
-            TypeKind::Long {
-                endian: Endianness::Big,
-                signed: false,
-            },
-            0,
-            Endianness::Big,
-        );
-        assert_eq!(resolve_indirect_offset(&spec, buffer).unwrap(), 6);
-    }
-
-    // ── Quad pointer ─────────────────────────────────────────────
-
-    #[test]
-    fn test_quad_pointer_little_endian() {
-        // LE quad at offset 0: value = 16
-        let mut buffer = vec![0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-        buffer.resize(17, 0xBB);
-        let spec = indirect(
-            0,
-            TypeKind::Quad {
-                endian: Endianness::Little,
-                signed: false,
-            },
-            0,
-            Endianness::Little,
-        );
-        assert_eq!(resolve_indirect_offset(&spec, &buffer).unwrap(), 16);
-    }
-
-    #[test]
-    fn test_quad_pointer_big_endian() {
-        // BE quad at offset 0: bytes [0x00..0x00, 0x10] → 0x0000_0000_0000_0010 = 16
-        let mut buffer = vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10];
-        buffer.resize(17, 0xCC);
-        let spec = indirect(
-            0,
-            TypeKind::Quad {
-                endian: Endianness::Big,
-                signed: false,
-            },
-            0,
-            Endianness::Big,
-        );
-        assert_eq!(resolve_indirect_offset(&spec, &buffer).unwrap(), 16);
-    }
-
-    // ── extract_raw_unsigned unit tests ────────────────────────
-
-    #[test]
-    fn test_extract_raw_unsigned_negative_one() {
-        // Value::Int(-1) must reinterpret as u64::MAX (0xFFFF_FFFF_FFFF_FFFF)
-        let value = Value::Int(-1);
-        assert_eq!(extract_raw_unsigned(&value).unwrap(), u64::MAX);
-    }
-
-    #[test]
-    fn test_extract_raw_unsigned_negative_two() {
-        // Value::Int(-2) must reinterpret as u64::MAX - 1
-        let value = Value::Int(-2);
-        assert_eq!(extract_raw_unsigned(&value).unwrap(), 0xFFFF_FFFF_FFFF_FFFE);
-    }
-
-    #[test]
-    fn test_extract_raw_unsigned_i32_min_sign_extended() {
-        // A signed 32-bit -1 is sign-extended to i64 -1 by the reader,
-        // so extract_raw_unsigned must yield u64::MAX.
-        let value = Value::Int(-1);
-        assert_eq!(extract_raw_unsigned(&value).unwrap(), 0xFFFF_FFFF_FFFF_FFFF);
-    }
-
-    #[test]
-    fn test_extract_raw_unsigned_positive_int() {
-        let value = Value::Int(42);
-        assert_eq!(extract_raw_unsigned(&value).unwrap(), 42);
-    }
-
-    #[test]
-    fn test_extract_raw_unsigned_uint() {
-        let value = Value::Uint(0xDEAD_BEEF);
-        assert_eq!(extract_raw_unsigned(&value).unwrap(), 0xDEAD_BEEF);
-    }
-
-    #[test]
-    fn test_extract_raw_unsigned_rejects_non_integer() {
-        let value = Value::String("hello".to_string());
-        assert!(extract_raw_unsigned(&value).is_err());
-    }
-
-    // ── read_pointer signed-negative unit tests ─────────────────
-
-    #[test]
-    fn test_read_pointer_signed_long_negative_one() {
-        // LE signed long: [0xFF, 0xFF, 0xFF, 0xFF] → i32 = -1 → i64 = -1 → u64 = 0xFFFF_FFFF_FFFF_FFFF
-        let buffer = &[0xFF, 0xFF, 0xFF, 0xFF];
-        let raw = read_pointer(
-            buffer,
-            0,
-            &TypeKind::Long {
-                endian: Endianness::Little,
-                signed: true,
-            },
-            Endianness::Little,
-        )
-        .unwrap();
-        assert_eq!(raw, u64::MAX);
-    }
-
-    #[test]
-    fn test_read_pointer_signed_short_negative_two() {
-        // LE signed short: [0xFE, 0xFF] → i16 = -2 → i64 = -2 → u64 = 0xFFFF_FFFF_FFFF_FFFE
-        let buffer = &[0xFE, 0xFF];
-        let raw = read_pointer(
-            buffer,
-            0,
-            &TypeKind::Short {
-                endian: Endianness::Little,
-                signed: true,
-            },
-            Endianness::Little,
-        )
-        .unwrap();
-        assert_eq!(raw, 0xFFFF_FFFF_FFFF_FFFE);
-    }
-
-    #[test]
-    fn test_read_pointer_signed_byte_negative_one() {
-        // Signed byte: [0xFF] → i8 = -1 → i64 = -1 → u64 = 0xFFFF_FFFF_FFFF_FFFF
-        let buffer = &[0xFF];
-        let raw = read_pointer(
-            buffer,
-            0,
-            &TypeKind::Byte { signed: true },
-            Endianness::Little,
-        )
-        .unwrap();
-        assert_eq!(raw, u64::MAX);
-    }
-
-    // ── Signed negative pointer end-to-end ──────────────────────
 
     #[test]
     fn test_signed_short_negative_pointer_overruns_after_raw_conversion() {
-        // Signed LE short at offset 0: bytes [0xFE, 0xFF] → i16 = -2
-        // read_pointer extracts raw u64 = 0xFFFF_FFFF_FFFF_FFFE (verified by unit tests above).
-        // That enormous pointer value must fail bounds validation, NOT be rejected
-        // during extraction. An implementation that rejects negative Value::Int early
-        // would not reach the bounds check.
         let buffer = &[0xFE, 0xFF, 0x00, 0x00];
         let spec = indirect(
             0,
@@ -399,10 +367,6 @@ mod tests {
             Endianness::Little,
         );
         let err = resolve_indirect_offset(&spec, buffer).unwrap_err();
-
-        // After raw unsigned reinterpretation, the pointer is 0xFFFF_FFFF_FFFF_FFFE.
-        // On 64-bit: usize::try_from succeeds → BufferOverrun with that exact offset.
-        // On 32-bit: usize::try_from overflows → InvalidOffset from apply_adjustment.
         if usize::BITS == 64 {
             assert!(
                 matches!(
@@ -425,10 +389,6 @@ mod tests {
 
     #[test]
     fn test_signed_long_negative_pointer_with_adjustment_overruns() {
-        // Signed LE long at offset 0: bytes [0xFF, 0xFF, 0xFF, 0xFF] → i32 = -1
-        // extract_raw_unsigned converts Value::Int(-1) → u64::MAX (0xFFFF_FFFF_FFFF_FFFF).
-        // Adjustment of -1 yields u64::MAX - 1 = 0xFFFF_FFFF_FFFF_FFFE via checked_sub.
-        // Must fail at bounds validation, not during raw extraction.
         let buffer = &[0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00];
         let spec = indirect(
             0,
@@ -440,10 +400,6 @@ mod tests {
             Endianness::Little,
         );
         let err = resolve_indirect_offset(&spec, buffer).unwrap_err();
-
-        // After raw reinterpretation: u64::MAX. After adjustment of -1: 0xFFFF_FFFF_FFFF_FFFE.
-        // On 64-bit: usize::try_from succeeds → BufferOverrun with that exact offset.
-        // On 32-bit: usize::try_from overflows → InvalidOffset from apply_adjustment.
         if usize::BITS == 64 {
             assert!(
                 matches!(
@@ -464,213 +420,178 @@ mod tests {
         }
     }
 
-    // ── Positive and negative adjustments ────────────────────────
-
     #[test]
-    fn test_positive_adjustment() {
-        // Pointer value = 2, adjustment = +3 → final = 5
-        let buffer = &[0x02, 0x00, 0x00, 0x00, 0x00, 0xEE];
-        let spec = indirect(0, TypeKind::Byte { signed: false }, 3, Endianness::Little);
-        assert_eq!(resolve_indirect_offset(&spec, buffer).unwrap(), 5);
+    fn test_adjustments() {
+        let cases: &[(&str, &[u8], i64, usize)] = &[
+            ("positive +3", &[0x02, 0x00, 0x00, 0x00, 0x00, 0xEE], 3, 5),
+            ("negative -2", &[0x05, 0x00, 0x00, 0xFF], -2, 3),
+        ];
+        for (name, buf, adj, expected) in cases {
+            let spec = indirect(
+                0,
+                TypeKind::Byte { signed: false },
+                *adj,
+                Endianness::Little,
+            );
+            assert_eq!(
+                resolve_indirect_offset(&spec, buf).unwrap(),
+                *expected,
+                "Failed for case: {name}"
+            );
+        }
     }
-
-    #[test]
-    fn test_negative_adjustment() {
-        // Pointer value = 5, adjustment = -2 → final = 3
-        let buffer = &[0x05, 0x00, 0x00, 0xFF];
-        let spec = indirect(0, TypeKind::Byte { signed: false }, -2, Endianness::Little);
-        assert_eq!(resolve_indirect_offset(&spec, buffer).unwrap(), 3);
-    }
-
-    // ── From-end base offset ─────────────────────────────────────
 
     #[test]
     fn test_from_end_base_offset() {
-        // 8-byte buffer, base_offset = -1 → resolves to index 7
-        // Byte at index 7 = 0x02 → pointer value = 2 → final = 2
         let buffer = &[0x00, 0x00, 0xAA, 0x00, 0x00, 0x00, 0x00, 0x02];
         let spec = indirect(-1, TypeKind::Byte { signed: false }, 0, Endianness::Little);
         assert_eq!(resolve_indirect_offset(&spec, buffer).unwrap(), 2);
     }
 
-    // ── Pointer read overrun ─────────────────────────────────────
-
     #[test]
-    fn test_pointer_read_overrun_short() {
-        // Buffer has 1 byte, trying to read a short (2 bytes) at offset 0
-        let buffer = &[0x04];
-        let spec = indirect(
-            0,
-            TypeKind::Short {
-                endian: Endianness::Little,
-                signed: false,
-            },
-            0,
-            Endianness::Little,
-        );
-        let result = resolve_indirect_offset(&spec, buffer);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            LibmagicError::EvaluationError(EvaluationError::BufferOverrun { .. })
-        ));
+    fn test_pointer_read_overrun() {
+        let cases: &[(&str, &[u8], TypeKind)] = &[
+            (
+                "short from 1-byte buffer",
+                &[0x04],
+                TypeKind::Short {
+                    endian: Endianness::Little,
+                    signed: false,
+                },
+            ),
+            (
+                "long from 3-byte buffer",
+                &[0x00, 0x00, 0x00],
+                TypeKind::Long {
+                    endian: Endianness::Little,
+                    signed: false,
+                },
+            ),
+        ];
+        for (name, buf, ptype) in cases {
+            let spec = indirect(0, ptype.clone(), 0, Endianness::Little);
+            let result = resolve_indirect_offset(&spec, buf);
+            assert!(
+                matches!(
+                    result,
+                    Err(LibmagicError::EvaluationError(
+                        EvaluationError::BufferOverrun { .. }
+                    ))
+                ),
+                "Failed for case: {name}"
+            );
+        }
     }
-
-    #[test]
-    fn test_pointer_read_overrun_long() {
-        // Buffer has 3 bytes, trying to read a long (4 bytes) at offset 0
-        let buffer = &[0x00, 0x00, 0x00];
-        let spec = indirect(
-            0,
-            TypeKind::Long {
-                endian: Endianness::Little,
-                signed: false,
-            },
-            0,
-            Endianness::Little,
-        );
-        let result = resolve_indirect_offset(&spec, buffer);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            LibmagicError::EvaluationError(EvaluationError::BufferOverrun { .. })
-        ));
-    }
-
-    // ── Final offset overrun ─────────────────────────────────────
 
     #[test]
     fn test_final_offset_overrun() {
-        // Pointer value = 0xFF (255), buffer only 5 bytes → overrun
-        let buffer = &[0xFF, 0x00, 0x00, 0x00, 0x00];
-        let spec = indirect(0, TypeKind::Byte { signed: false }, 0, Endianness::Little);
-        let result = resolve_indirect_offset(&spec, buffer);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            LibmagicError::EvaluationError(EvaluationError::BufferOverrun { .. })
-        ));
+        let cases: &[(&str, &[u8], i64)] = &[
+            (
+                "pointer=0xFF, no adjustment",
+                &[0xFF, 0x00, 0x00, 0x00, 0x00],
+                0,
+            ),
+            (
+                "pointer=3, adjustment=+10",
+                &[0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+                10,
+            ),
+        ];
+        for (name, buf, adj) in cases {
+            let spec = indirect(
+                0,
+                TypeKind::Byte { signed: false },
+                *adj,
+                Endianness::Little,
+            );
+            let result = resolve_indirect_offset(&spec, buf);
+            assert!(
+                matches!(
+                    result,
+                    Err(LibmagicError::EvaluationError(
+                        EvaluationError::BufferOverrun { .. }
+                    ))
+                ),
+                "Failed for case: {name}"
+            );
+        }
     }
 
     #[test]
-    fn test_final_offset_overrun_with_adjustment() {
-        // Pointer value = 3, adjustment = +10, buffer only 8 bytes → 13 overruns
-        let buffer = &[0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-        let spec = indirect(0, TypeKind::Byte { signed: false }, 10, Endianness::Little);
-        let result = resolve_indirect_offset(&spec, buffer);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            LibmagicError::EvaluationError(EvaluationError::BufferOverrun { .. })
-        ));
-    }
-
-    // ── Arithmetic overflow/underflow ────────────────────────────
-
-    #[test]
-    fn test_adjustment_overflow() {
-        // Unsigned quad reading u64::MAX + positive adjustment → overflow
-        let buffer = &[0xFF; 16];
-        let spec = indirect(
-            0,
-            TypeKind::Quad {
-                endian: Endianness::Little,
-                signed: false,
-            },
-            1,
-            Endianness::Little,
-        );
-        let result = resolve_indirect_offset(&spec, buffer);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            LibmagicError::EvaluationError(EvaluationError::InvalidOffset { .. })
-        ));
-    }
-
-    #[test]
-    fn test_adjustment_underflow() {
-        // Pointer value = 0, adjustment = -1 → underflow
-        let buffer = &[0x00, 0x00, 0x00, 0x00];
-        let spec = indirect(0, TypeKind::Byte { signed: false }, -1, Endianness::Little);
-        let result = resolve_indirect_offset(&spec, buffer);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            LibmagicError::EvaluationError(EvaluationError::InvalidOffset { .. })
-        ));
-    }
-
-    // ── Unsupported pointer types ────────────────────────────────
-
-    #[test]
-    fn test_unsupported_pointer_type_string() {
-        let buffer = &[0x00, 0x00, 0x00, 0x00];
-        let spec = indirect(
-            0,
-            TypeKind::String { max_length: None },
-            0,
-            Endianness::Little,
-        );
-        let result = resolve_indirect_offset(&spec, buffer);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            LibmagicError::EvaluationError(EvaluationError::UnsupportedType { .. })
-        ));
+    fn test_adjustment_overflow_underflow() {
+        let cases: &[(&str, &[u8], TypeKind, i64)] = &[
+            (
+                "overflow: u64::MAX + 1",
+                &[0xFF; 16],
+                TypeKind::Quad {
+                    endian: Endianness::Little,
+                    signed: false,
+                },
+                1,
+            ),
+            (
+                "underflow: 0 - 1",
+                &[0x00, 0x00, 0x00, 0x00],
+                TypeKind::Byte { signed: false },
+                -1,
+            ),
+        ];
+        for (name, buf, ptype, adj) in cases {
+            let spec = indirect(0, ptype.clone(), *adj, Endianness::Little);
+            let result = resolve_indirect_offset(&spec, buf);
+            assert!(
+                matches!(
+                    result,
+                    Err(LibmagicError::EvaluationError(
+                        EvaluationError::InvalidOffset { .. }
+                    ))
+                ),
+                "Failed for case: {name}"
+            );
+        }
     }
 
     #[test]
-    fn test_unsupported_pointer_type_float() {
-        let buffer = &[0x00, 0x00, 0x00, 0x00];
-        let spec = indirect(
-            0,
-            TypeKind::Float {
-                endian: Endianness::Little,
-            },
-            0,
-            Endianness::Little,
-        );
-        let result = resolve_indirect_offset(&spec, buffer);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            LibmagicError::EvaluationError(EvaluationError::UnsupportedType { .. })
-        ));
+    fn test_unsupported_pointer_types() {
+        let cases: &[(&str, &[u8], TypeKind)] = &[
+            ("string", &[0x00; 4], TypeKind::String { max_length: None }),
+            (
+                "float",
+                &[0x00; 4],
+                TypeKind::Float {
+                    endian: Endianness::Little,
+                },
+            ),
+            (
+                "double",
+                &[0x00; 8],
+                TypeKind::Double {
+                    endian: Endianness::Little,
+                },
+            ),
+        ];
+        for (name, buf, ptype) in cases {
+            let spec = indirect(0, ptype.clone(), 0, Endianness::Little);
+            let result = resolve_indirect_offset(&spec, buf);
+            assert!(
+                matches!(
+                    result,
+                    Err(LibmagicError::EvaluationError(
+                        EvaluationError::UnsupportedType { .. }
+                    ))
+                ),
+                "Failed for case: {name}"
+            );
+        }
     }
-
-    #[test]
-    fn test_unsupported_pointer_type_double() {
-        let buffer = &[0x00; 8];
-        let spec = indirect(
-            0,
-            TypeKind::Double {
-                endian: Endianness::Little,
-            },
-            0,
-            Endianness::Little,
-        );
-        let result = resolve_indirect_offset(&spec, buffer);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            LibmagicError::EvaluationError(EvaluationError::UnsupportedType { .. })
-        ));
-    }
-
-    // ── PE-header-style 32-bit LE pointer at 0x3c ────────────────
 
     #[test]
     fn test_pe_header_style_offset_0x3c() {
-        // Simulate a PE file: 32-bit LE pointer at offset 0x3C points to PE header.
-        // At offset 0x3C we store LE u32 = 0x80 (128).
         let mut buffer = vec![0u8; 256];
-        // Write LE u32 value 0x80 at offset 0x3C
         buffer[0x3C] = 0x80;
         buffer[0x3D] = 0x00;
         buffer[0x3E] = 0x00;
         buffer[0x3F] = 0x00;
-        // Place "PE\0\0" signature at offset 0x80
         buffer[0x80] = b'P';
         buffer[0x81] = b'E';
         buffer[0x82] = 0x00;
@@ -687,49 +608,29 @@ mod tests {
         );
         let offset = resolve_indirect_offset(&spec, &buffer).unwrap();
         assert_eq!(offset, 0x80);
-        // Verify we can read the PE signature at that offset
         assert_eq!(&buffer[offset..offset + 4], b"PE\0\0");
     }
-
-    // ── Base offset out of bounds ────────────────────────────────
 
     #[test]
     fn test_base_offset_out_of_bounds() {
         let buffer = &[0x00, 0x01, 0x02];
         let spec = indirect(100, TypeKind::Byte { signed: false }, 0, Endianness::Little);
-        let result = resolve_indirect_offset(&spec, buffer);
-        assert!(result.is_err());
+        assert!(resolve_indirect_offset(&spec, buffer).is_err());
     }
-
-    // ── Signed pointer extraction ────────────────────────────────
-
-    #[test]
-    fn test_signed_long_pointer_positive() {
-        // Signed long value = 4 (positive) → final offset = 4
-        let buffer = &[0x04, 0x00, 0x00, 0x00, 0xAA];
-        let spec = indirect(
-            0,
-            TypeKind::Long {
-                endian: Endianness::Little,
-                signed: true,
-            },
-            0,
-            Endianness::Little,
-        );
-        assert_eq!(resolve_indirect_offset(&spec, buffer).unwrap(), 4);
-    }
-
-    // ── Non-indirect spec produces internal error ────────────────
 
     #[test]
     fn test_non_indirect_spec_returns_error() {
         let buffer = &[0x00; 8];
         let spec = OffsetSpec::Absolute(0);
         let result = resolve_indirect_offset(&spec, buffer);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            LibmagicError::EvaluationError(EvaluationError::InternalError { .. })
-        ));
+        assert!(
+            matches!(
+                result,
+                Err(LibmagicError::EvaluationError(
+                    EvaluationError::InternalError { .. }
+                ))
+            ),
+            "Expected InternalError for non-indirect spec"
+        );
     }
 }
