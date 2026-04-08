@@ -50,6 +50,8 @@ Maintains state during rule processing:
 pub struct EvaluationContext {
     /// Current offset position for relative calculations
     current_offset: usize,
+    /// End offset of the most recent successful match (GNU file anchor)
+    last_match_end: usize,
     /// Current recursion depth for safety limits
     recursion_depth: u32,
     /// Configuration for evaluation behavior
@@ -63,10 +65,12 @@ Note: Fields are private; use accessor methods like `current_offset()`, `recursi
 
 - `new()` - Create context with default configuration
 - `current_offset()` / `set_current_offset()` - Track current buffer position
+- `last_match_end()` - Get end offset of most recent match (used for relative offset resolution)
+- `set_last_match_end(pos: usize)` - Set the previous-match anchor (used internally by the engine)
 - `recursion_depth()` - Query current recursion depth
 - `increment_recursion_depth()` / `decrement_recursion_depth()` - Track recursion safely
 - `timeout_ms()` - Query configured timeout
-- `reset()` - Reset context state for reuse
+- `reset()` - Reset context state for reuse (clears `current_offset`, `last_match_end`, and `recursion_depth`)
 
 ### RuleMatch
 
@@ -94,7 +98,7 @@ The `Value` type is from `parser::ast::Value` and represents the actual matched 
 Handles all offset types safely:
 
 - **Absolute offsets**: Direct file positions (`0`, `0x100`)
-- **Relative offsets**: Based on previous match positions (`&+4`)
+- **Relative offsets**: Resolved using `last_match_end + delta` from the previous match anchor (`&+4`, `&-2`)
 - **From-end offsets**: Calculated from file size (`-4` from end)
 - **Bounds checking**: All offset calculations are validated
 
@@ -104,6 +108,10 @@ pub fn resolve_offset(
     buffer: &[u8],
 ) -> Result<usize, LibmagicError>
 ```
+
+The evaluator uses `resolve_offset_with_context` internally to thread the previous-match anchor through relative offset resolution. `resolve_offset` (the public API) defaults the anchor to 0, making `OffsetSpec::Relative(N)` resolve as if it were `OffsetSpec::Absolute(N)` when no prior match exists. Callers needing GNU `file` anchor semantics should use `evaluate_rules` with an `EvaluationContext`, which tracks the anchor across rules.
+
+Relative offsets resolve as `last_match_end + delta` with bounds and overflow checks. After each successful match, the context advances `last_match_end` by the bytes consumed by the matched type (c-string types include NUL terminators, pstring types include length prefixes).
 
 ### Type Reading (`evaluator/types/`)
 
@@ -550,6 +558,7 @@ assert_eq!(matches_j[0].message, "JPEG-style pstring with self-inclusive length"
 
 - [x] Basic evaluation engine structure
 - [x] Offset resolution (absolute, relative, from-end)
+- [x] Relative offset support with previous-match anchor tracking (PR #211, issue #38)
 - [x] Type reading with endianness support (Byte, Short, Long, Quad, Float, Double, Date, QDate, String, PString with 1/2/4-byte prefixes)
 - [x] Operator application (Equal, NotEqual, LessThan, GreaterThan, LessEqual, GreaterEqual, BitwiseAnd, BitwiseAndMask)
 - [x] Hierarchical rule processing with child evaluation

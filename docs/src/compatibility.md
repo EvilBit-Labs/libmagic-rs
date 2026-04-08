@@ -74,7 +74,7 @@ $ rmagic --json example.elf
 | Basic patterns     | ✅       | ✅     | Complete    | String, numeric matching     |
 | Hierarchical rules | ✅       | 🔄     | In Progress | Parent-child relationships   |
 | Indirect offsets   | ✅       | 📋     | Planned     | Pointer dereferencing        |
-| Relative offsets   | ✅       | 📋     | Planned     | Position-relative addressing |
+| Relative offsets   | ✅       | ✅     | Complete    | Position-relative addressing (PR #211) |
 | Search patterns    | ✅       | 📋     | Planned     | Pattern searching in ranges  |
 | Bitwise operations | ✅       | ✅     | Complete    | AND, OR operations           |
 | String operations  | ✅       | 📋     | Planned     | Case-insensitive, regex      |
