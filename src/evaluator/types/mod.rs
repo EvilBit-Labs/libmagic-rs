@@ -171,14 +171,19 @@ pub fn coerce_value_to_type(value: &Value, type_kind: &TypeKind) -> Value {
     }
 }
 
-/// Returns the number of buffer bytes a successful `read_typed_value` would
-/// consume for the given `type_kind` at `offset`.
+/// Returns the anchor-advance distance for `type_kind` at `offset`.
 ///
-/// This mirrors the consumption logic of the underlying read functions and is
-/// used by the evaluation engine to advance the GNU `file` "previous match"
-/// anchor for relative offset resolution. It is `pub(crate)` because no
-/// external caller should depend on the anchor-advance contract -- the only
-/// intended caller is `evaluate_rules` in the engine.
+/// This value is used by the evaluation engine to advance the GNU `file`
+/// "previous match" anchor for relative offset resolution. It reflects how
+/// far the anchor should move after a successful match, which may include
+/// framing bytes such as c-string NUL terminators or pstring length
+/// prefixes even when the underlying read helper (`read_string`,
+/// `read_pstring`) does not return those bytes as part of the typed value.
+/// Callers should not equate this with "bytes `read_typed_value` returned"
+/// -- it is specifically the anchor-movement distance, which is a
+/// superset for variable-width types. It is `pub(crate)` because no
+/// external caller should depend on this anchor-advance contract -- the
+/// only intended caller is `evaluate_rules` in the engine.
 ///
 /// The function is intentionally infallible. For unexpected inputs (offset
 /// past end of buffer, malformed pstring prefix, `/J` flag underflow), it
@@ -260,18 +265,23 @@ pub(crate) fn bytes_consumed(buffer: &[u8], offset: usize, type_kind: &TypeKind)
     }
 }
 
-/// Compute the buffer bytes consumed by a successful c-string read.
+/// Compute the anchor-advance distance for a successful c-string match.
 ///
-/// Mirrors `read_string`: scans from `offset` for the first NUL within
-/// `max_length` bytes (or to the end of the buffer when `max_length` is
-/// `None`), and returns `length_to_nul + 1` when a NUL was found, or
-/// `length_read` when no NUL was found (truncated by buffer end or
-/// `max_length`).
+/// Uses the same scan logic as `read_string`: it searches from `offset` for
+/// the first NUL within `max_length` bytes (or to the end of the buffer
+/// when `max_length` is `None`). Unlike the `Value::String` returned by
+/// `read_string` (which excludes the NUL terminator from its length), this
+/// helper counts the NUL terminator as consumed when one is found, so it
+/// returns `length_to_nul + 1`. When no NUL is found (truncated by buffer
+/// end or `max_length`), it returns `length_read` with no implicit
+/// terminator byte added.
 ///
-/// The `+ 1` for the NUL-found case is intentional: a `Relative(0)` rule
-/// following a NUL-terminated string match resolves to the byte
-/// *immediately after* the NUL terminator, not the NUL itself. This
-/// matches GNU `file` semantics for chained record parsing.
+/// Counting the terminator is intentional for relative-offset anchoring: a
+/// `Relative(0)` rule following a NUL-terminated string match resolves to
+/// the byte *immediately after* the NUL terminator, not the NUL itself.
+/// This matches GNU `file` semantics for chained record parsing. Do not
+/// "fix" this to align with `read_string`'s byte count -- the asymmetry is
+/// the point.
 fn string_bytes_consumed(buffer: &[u8], offset: usize, max_length: Option<usize>) -> usize {
     let Some(remaining) = buffer.get(offset..) else {
         return 0;
