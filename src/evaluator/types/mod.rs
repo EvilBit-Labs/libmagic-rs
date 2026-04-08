@@ -199,10 +199,15 @@ pub fn coerce_value_to_type(value: &Value, type_kind: &TypeKind) -> Value {
 ///   QDate): width derived from `TypeKind::bit_width()`. The engine
 ///   guarantees the offset is in-bounds; callers outside the engine must
 ///   uphold the same invariant.
-/// - **C-string** (`TypeKind::String`): scans for the first NUL within
-///   `max_length` bytes (or to the buffer end). Returns `length + 1` when a
-///   NUL is found (the NUL is consumed), or `length` if the buffer ends or
-///   `max_length` truncates first.
+/// - **C-string** (`TypeKind::String`): scans for the first NUL within a
+///   window of `max_length` bytes (or to the buffer end if `max_length` is
+///   `None`). When a NUL is found inside the window, returns
+///   `nul_index + 1` -- the NUL byte is counted as consumed, so the next
+///   relative offset reads the byte *after* the NUL. When no NUL is found
+///   inside the window, returns the window size (no implicit terminator
+///   byte is added). The NUL inclusion is intentional and matches GNU
+///   `file` semantics: a `Relative(0)` rule following a NUL-terminated
+///   string match reads the first byte after the terminator.
 /// - **Pascal string** (`TypeKind::PString`): reads the length prefix (1, 2,
 ///   or 4 bytes, BE/LE), accounts for the `/J` flag (stored length includes
 ///   prefix width), caps by `max_length`, and returns `prefix_width +
@@ -255,6 +260,11 @@ pub(crate) fn bytes_consumed(buffer: &[u8], offset: usize, type_kind: &TypeKind)
 /// `None`), and returns `length_to_nul + 1` when a NUL was found, or
 /// `length_read` when no NUL was found (truncated by buffer end or
 /// `max_length`).
+///
+/// The `+ 1` for the NUL-found case is intentional: a `Relative(0)` rule
+/// following a NUL-terminated string match resolves to the byte
+/// *immediately after* the NUL terminator, not the NUL itself. This
+/// matches GNU `file` semantics for chained record parsing.
 fn string_bytes_consumed(buffer: &[u8], offset: usize, max_length: Option<usize>) -> usize {
     let Some(remaining) = buffer.get(offset..) else {
         return 0;

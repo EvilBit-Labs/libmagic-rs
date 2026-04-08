@@ -33,6 +33,75 @@ fn test_evaluate_single_rule_relative_resolves_against_anchor_zero() {
 }
 
 #[test]
+fn test_evaluate_rules_anchor_near_saturation_skips_relative_child_gracefully() {
+    // Pin the contract that an anchor at or near `usize::MAX` does not
+    // panic and instead causes subsequent Relative rules to fail bounds
+    // checks gracefully. We can't construct a real match at usize::MAX
+    // (no realistic buffer is that big), so inject the saturated anchor
+    // directly via the pub(crate) setter and then evaluate a Relative rule.
+    use crate::EvaluationConfig;
+    use crate::evaluator::EvaluationContext;
+
+    let buffer = [0xAA, 0xBB, 0xCC, 0xDD];
+    let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+    ctx.set_last_match_end(usize::MAX);
+
+    // Relative(0) -> target = usize::MAX, which is >= buffer.len() and
+    // returns BufferOverrun -> graceful skip in evaluate_rules.
+    let rule_zero = MagicRule {
+        offset: OffsetSpec::Relative(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(0xAA),
+        message: "rel-zero-near-sat".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+    let matches = evaluate_rules(&[rule_zero], &buffer, &mut ctx).unwrap();
+    assert!(
+        matches.is_empty(),
+        "Relative(0) at usize::MAX anchor must skip, not match or panic"
+    );
+
+    // Relative(+1) -> checked_add_signed -> overflow -> InvalidOffset -> skip.
+    ctx.set_last_match_end(usize::MAX);
+    let rule_pos = MagicRule {
+        offset: OffsetSpec::Relative(1),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(0xAA),
+        message: "rel-plus-one-near-sat".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+    let matches = evaluate_rules(&[rule_pos], &buffer, &mut ctx).unwrap();
+    assert!(
+        matches.is_empty(),
+        "Relative(+1) at usize::MAX anchor must skip via InvalidOffset, not panic"
+    );
+
+    // Relative(-N) where N is small -> usize::MAX - N, still >= buffer.len() -> skip.
+    ctx.set_last_match_end(usize::MAX);
+    let rule_neg = MagicRule {
+        offset: OffsetSpec::Relative(-1),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(0xAA),
+        message: "rel-minus-one-near-sat".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+    let matches = evaluate_rules(&[rule_neg], &buffer, &mut ctx).unwrap();
+    assert!(
+        matches.is_empty(),
+        "Relative(-1) at usize::MAX anchor must skip, not panic"
+    );
+}
+
+#[test]
 fn test_evaluate_single_rule_relative_zero_resolves_to_buffer_start() {
     // Relative(0) with anchor=0 resolves to absolute 0.
     let rule = MagicRule {

@@ -73,9 +73,11 @@ use log::debug;
 /// [`EvaluationContext`](crate::evaluator::EvaluationContext), which threads
 /// the anchor across the rule list.
 ///
-/// **Behavior change:** prior to v0.5, `OffsetSpec::Relative` returned
-/// `EvaluationError::UnsupportedType` here. It now resolves successfully
-/// against anchor 0.
+/// **Behavior change:** before the relative-offset feature landed in v0.5,
+/// `OffsetSpec::Relative` returned `EvaluationError::UnsupportedType` here.
+/// It now resolves successfully against anchor 0. Callers with existing
+/// error-handling code that pattern-matched `UnsupportedType` for relative
+/// offsets must remove that arm.
 ///
 /// # Errors
 ///
@@ -150,13 +152,14 @@ fn evaluate_single_rule_with_anchor(
 /// * `context` - Mutable evaluation context for state management. **Callers
 ///   reusing a context across multiple buffers must call
 ///   [`EvaluationContext::reset`](crate::evaluator::EvaluationContext::reset)
-///   between calls** -- the GNU `file` previous-match anchor advances during
-///   evaluation and would otherwise leak across buffers. The same applies
-///   when this function returns `Err` mid-evaluation (e.g.,
-///   `LibmagicError::Timeout` or `RecursionLimitExceeded`): the anchor is
-///   left in a partially-advanced state reflecting matches before the
-///   error, and a retry on the same context without `reset()` will resolve
-///   relative offsets against that stale anchor.
+///   between calls** -- the GNU `file` previous-match anchor and the
+///   recursion-depth counter both advance during evaluation and would
+///   otherwise leak across buffers. The same applies when this function
+///   returns `Err` mid-evaluation (e.g., `LibmagicError::Timeout` or
+///   `RecursionLimitExceeded`): both the anchor and (potentially) the
+///   recursion depth are left in a partially-advanced state, and a retry
+///   on the same context without `reset()` will resolve relative offsets
+///   against the stale anchor and apply the wrong recursion budget.
 ///   [`evaluate_rules_with_config`] always builds a fresh context and is the
 ///   safer choice when context reuse isn't required.
 ///
@@ -320,9 +323,15 @@ pub fn evaluate_rules(
                         // failures are caught and logged inside the recursive evaluate_rules
                         // call (they never propagate here). This arm guards against future
                         // changes that might alter that error-handling strategy.
-                        debug!(
-                            "Skipping child evaluation under rule '{}': {}",
-                            rule.message, e
+                        //
+                        // If this fires, the parent match is still emitted but the entire
+                        // child subtree is silently dropped -- which means a partial,
+                        // possibly-incorrect classification is returned to the caller.
+                        // Logged at warn! (not debug!) so the asymmetry is visible.
+                        log::warn!(
+                            "Discarding child evaluation under rule '{}' due to unexpected error: {} -- parent match is still emitted; investigate the recursive evaluate_rules error-handling path",
+                            rule.message,
+                            e
                         );
                     }
                     Err(e) => {

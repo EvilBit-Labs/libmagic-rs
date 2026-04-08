@@ -335,6 +335,74 @@ fn relative_out_of_bounds_skips_child_gracefully() {
 }
 
 #[test]
+fn relative_anchor_can_decrease_when_later_sibling_matches_at_lower_position() {
+    // GNU `file` semantics: the anchor reflects the END of the most recent
+    // match -- not a high-watermark. If a later sibling matches at a lower
+    // absolute position, the anchor moves backwards. This test pins the
+    // documented "may increase or decrease" behavior so a future
+    // optimization that adds a max() guard fails loudly.
+    //
+    // Buffer layout:
+    //   offset 0: 0x42 (matched by rule_b at offset 2 via Absolute(2)... wait,
+    //             we need rule_a to match HIGHER, then rule_b to match LOWER.)
+    //
+    // Layout: 16 bytes. Rule A matches a 4-byte LE long at offset 8.
+    // After A, anchor = 12. Rule B matches a single byte at offset 2
+    // (Absolute(2)). After B, anchor = 3. Rule C uses Relative(0) and
+    // must read at offset 3, NOT offset 12.
+    let buffer = [
+        0x00, 0x00, 0xAA, 0x99, 0x00, 0x00, 0x00, 0x00, // bytes 0-7
+        0x78, 0x56, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, // bytes 8-15
+    ];
+
+    let rule_a = MagicRule {
+        offset: OffsetSpec::Absolute(8),
+        typ: TypeKind::Long {
+            endian: Endianness::Little,
+            signed: false,
+        },
+        op: Operator::Equal,
+        value: Value::Uint(0x1234_5678),
+        message: "rule-a-high".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+    let rule_b = MagicRule {
+        offset: OffsetSpec::Absolute(2),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(0xAA),
+        message: "rule-b-low".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+    let rule_c = MagicRule {
+        offset: OffsetSpec::Relative(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(0x99),
+        message: "rule-c-relative".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    let mut ctx = EvaluationContext::new(cfg());
+    let matches = evaluate_rules(&[rule_a, rule_b, rule_c], &buffer, &mut ctx).unwrap();
+    assert_eq!(matches.len(), 3, "all three rules should match");
+    assert_eq!(matches[0].message, "rule-a-high");
+    assert_eq!(matches[0].offset, 8);
+    assert_eq!(matches[1].message, "rule-b-low");
+    assert_eq!(matches[1].offset, 2);
+    assert_eq!(
+        matches[2].offset, 3,
+        "rule C must read at offset 3 (rule B's end), proving the anchor moved backwards from 12 -> 3"
+    );
+}
+
+#[test]
 fn relative_anchor_persists_across_non_matching_intermediate_sibling() {
     // First top-level rule matches a 4-byte LE long -> anchor advances to 4.
     // Second top-level rule does NOT match (wrong expected value) -> anchor

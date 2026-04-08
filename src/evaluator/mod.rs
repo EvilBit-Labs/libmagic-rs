@@ -121,7 +121,10 @@ impl EvaluationContext {
     /// is typically `match_offset + bytes_consumed_by_type`.
     ///
     /// `pub(crate)` because external callers should not be able to inject
-    /// arbitrary anchor state -- use `EvaluationContext::reset()` to clear it.
+    /// arbitrary anchor state. External callers that need to clear the
+    /// anchor between buffer evaluations should call
+    /// `EvaluationContext::reset()`, which resets the anchor, current
+    /// offset, and recursion depth together.
     pub(crate) fn set_last_match_end(&mut self, offset: usize) {
         self.last_match_end = offset;
     }

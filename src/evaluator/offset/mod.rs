@@ -42,9 +42,11 @@ pub(crate) fn map_offset_error(e: &OffsetError, original_offset: i64) -> Libmagi
 /// need relative offsets to anchor against actual prior matches should use
 /// `evaluate_rules` and let the engine thread the anchor.
 ///
-/// **Behavior change:** prior to v0.5, this returned
-/// `EvaluationError::UnsupportedType` for `OffsetSpec::Relative`. It now
-/// resolves successfully against anchor 0.
+/// **Behavior change:** before the relative-offset feature landed in v0.5,
+/// this function returned `EvaluationError::UnsupportedType` for
+/// `OffsetSpec::Relative`. It now resolves successfully against anchor 0.
+/// Callers with existing error-handling code that pattern-matched
+/// `UnsupportedType` for relative offsets must remove that arm.
 ///
 /// # Arguments
 ///
