@@ -43,8 +43,10 @@ pub struct EvaluationContext {
     /// End offset of the most recent successful match.
     ///
     /// This is the GNU `file`/libmagic anchor used to resolve relative
-    /// (`&+N` / `&-N`) offsets. It advances monotonically as rules match
-    /// during evaluation. A fresh context starts with this set to 0, which
+    /// (`&+N` / `&-N`) offsets. It is updated to the end of the most
+    /// recently matched rule -- the value may *increase or decrease* as
+    /// successive rules match at different positions; it is not a
+    /// high-watermark. A fresh context starts with this set to 0, which
     /// matches libmagic's behavior of resolving top-level relative offsets
     /// from the file start.
     last_match_end: usize,

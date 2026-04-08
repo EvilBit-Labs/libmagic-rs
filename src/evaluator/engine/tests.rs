@@ -5,6 +5,53 @@ use super::*;
 use crate::parser::ast::{Endianness, OffsetSpec, Operator, TypeKind, Value};
 
 #[test]
+fn test_evaluate_single_rule_relative_resolves_against_anchor_zero() {
+    // Public evaluate_single_rule has no EvaluationContext, so OffsetSpec::Relative
+    // resolves against an implicit anchor of 0 -- equivalent to absolute offset N.
+    // Pin this contract so a future refactor cannot silently regress to UnsupportedType.
+    let rule = MagicRule {
+        offset: OffsetSpec::Relative(3),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(0xCC),
+        message: "relative-no-context".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    // Anchor=0 + delta 3 -> reads at absolute offset 3.
+    let buffer = &[0xAA, 0xBB, 0xDD, 0xCC, 0xEE];
+    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    assert!(
+        result.is_some(),
+        "evaluate_single_rule with Relative(3) should resolve to absolute 3"
+    );
+    let (offset, value) = result.unwrap();
+    assert_eq!(offset, 3);
+    assert_eq!(value, Value::Uint(0xCC));
+}
+
+#[test]
+fn test_evaluate_single_rule_relative_zero_resolves_to_buffer_start() {
+    // Relative(0) with anchor=0 resolves to absolute 0.
+    let rule = MagicRule {
+        offset: OffsetSpec::Relative(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(0xAA),
+        message: "relative-zero".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    let buffer = &[0xAA, 0xBB];
+    let result = evaluate_single_rule(&rule, buffer).unwrap().unwrap();
+    assert_eq!(result.0, 0);
+}
+
+#[test]
 fn test_evaluate_single_rule_byte_equal_match() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),

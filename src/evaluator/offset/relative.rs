@@ -29,9 +29,14 @@ use crate::parser::ast::OffsetSpec;
 /// # Errors
 ///
 /// * `EvaluationError::InvalidOffset` -- arithmetic over/underflow, or the
-///   delta cannot be represented as `isize` on the current target.
+///   delta cannot be represented as `isize` on the current target. Caught
+///   by the engine's graceful-skip arm, so the rule is silently dropped.
 /// * `EvaluationError::BufferOverrun` -- the resolved target is at or past
-///   the end of the buffer.
+///   the end of the buffer. Same graceful-skip treatment.
+/// * `EvaluationError::InternalError` -- only if called with a non-`Relative`
+///   spec (programming error; debug-asserts in test/dev builds). This
+///   variant is intentionally NOT in the engine's graceful-skip list and
+///   will terminate evaluation if it ever fires in release builds.
 pub fn resolve_relative_offset(
     spec: &OffsetSpec,
     buffer: &[u8],

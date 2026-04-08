@@ -989,14 +989,24 @@ fn test_bytes_consumed_pstring_clamps_oversized_prefix_le() {
 }
 
 #[test]
-fn test_bytes_consumed_offset_at_buffer_end_returns_zero() {
-    // Defensive: bytes_consumed must not panic on bad offsets;
-    // returns 0 (the read would have failed; engine never calls us in that case).
+fn test_bytes_consumed_string_at_past_end_returns_zero() {
+    // Variable-width branch: out-of-bounds offset returns 0, which keeps
+    // the anchor in place. The engine guarantees this is never called for
+    // a successful read, but the path is exercised here for the contract.
+    let buf = b"abc";
+    let typ = TypeKind::String { max_length: None };
+    assert_eq!(bytes_consumed(buf, 10, &typ), 0);
+}
+
+#[test]
+fn test_bytes_consumed_fixed_width_ignores_offset_validity() {
+    // Fixed-width branch returns bit_width / 8 unconditionally and does NOT
+    // check the offset. This is safe because the engine guarantees it only
+    // calls bytes_consumed after a successful read; pin the contract here
+    // so a future "fix" that adds an offset check trips this assertion and
+    // forces a deliberate decision.
     let buf = b"abc";
     let typ = TypeKind::Byte { signed: false };
-    // Valid edge: offset == buf.len() means no read happened.
-    assert_eq!(bytes_consumed(buf, 3, &typ), 1); // bit_width fallback still returns 1
-    // For string: offset past end returns 0
-    let typ_s = TypeKind::String { max_length: None };
-    assert_eq!(bytes_consumed(buf, 10, &typ_s), 0);
+    assert_eq!(bytes_consumed(buf, 3, &typ), 1);
+    assert_eq!(bytes_consumed(buf, 100, &typ), 1);
 }

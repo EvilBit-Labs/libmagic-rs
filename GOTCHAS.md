@@ -26,7 +26,7 @@ Serialization functions live in `src/parser/codegen.rs`, shared by both `build.r
 
 ### 2.1 `TypeKind` Exhaustive Matches
 
-Adding a variant to `TypeKind` requires updating exhaustive matches in 10+ files: `ast`, `grammar`, `types`, `codegen`, `strength`, `property_tests`, `evaluator/types/mod.rs` (`read_typed_value`, `coerce_value_to_type`), `output/mod.rs` (2 length matches), `output/json.rs` (`format_value_as_hex`), and `grammar/tests.rs` (stale assertions). Note: `coerce_value_to_type` and output matches use catch-all `_ =>` so they compile without changes but may need semantic updates.
+Adding a variant to `TypeKind` requires updating exhaustive matches in 10+ files: `ast`, `grammar`, `types`, `codegen`, `strength`, `property_tests`, `evaluator/types/mod.rs` (`read_typed_value`, `coerce_value_to_type`, **`bytes_consumed`** -- variable-width variants must be matched explicitly or relative-offset anchors will silently corrupt), `output/mod.rs` (2 length matches), `output/json.rs` (`format_value_as_hex`), and `grammar/tests.rs` (stale assertions). Note: `coerce_value_to_type`, output matches, and `bytes_consumed` use catch-all `_ =>` so they compile without changes but may need semantic updates -- `bytes_consumed` will fire a `debug_assert` in test/dev builds for unhandled variable-width variants.
 
 ### 2.2 `Operator` Exhaustive Matches
 

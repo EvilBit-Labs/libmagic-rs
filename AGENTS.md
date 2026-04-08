@@ -100,7 +100,7 @@ evaluator/
 ├── offset/         // Offset resolution submodule
 │   ├── mod.rs      // Dispatcher (resolve_offset) and re-exports
 │   ├── absolute.rs // OffsetError, resolve_absolute_offset
-│   ├── indirect.rs // resolve_indirect_offset stub (issue #37)
+│   ├── indirect.rs // resolve_indirect_offset (fully implemented, issue #37)
 │   └── relative.rs // resolve_relative_offset (GNU `file` anchor semantics)
 └── operators/      // Operator application submodule
     ├── mod.rs      // Dispatcher (apply_operator, apply_any_value) and re-exports

@@ -181,11 +181,17 @@ pub fn coerce_value_to_type(value: &Value, type_kind: &TypeKind) -> Value {
 /// intended caller is `evaluate_rules` in the engine.
 ///
 /// The function is intentionally infallible -- the engine only calls it after
-/// a successful read, so the read shape is known to be valid. For unexpected
-/// inputs (offset past end of buffer for variable-width types, malformed
-/// pstring prefixes), it returns `0` rather than panicking, which causes the
-/// anchor to stay put. The next relative offset will then bounds-fail
-/// gracefully.
+/// a successful read, so the read shape is known to be valid. For variable-
+/// width types with unexpected inputs (offset past end of buffer, malformed
+/// pstring prefix, `/J` flag underflow), it returns `0` rather than
+/// panicking; the anchor then stays put and the next relative offset will
+/// bounds-fail gracefully. Fixed-width types do not bounds-check the offset
+/// (they return `bit_width / 8` unconditionally) because the engine's
+/// read-then-call invariant guarantees a successful read preceded the call.
+/// Calling `bytes_consumed` for a fixed-width type at an out-of-bounds
+/// offset will report a nonzero width that does not correspond to any
+/// actual buffer bytes -- do not call this function outside the engine's
+/// post-read flow.
 ///
 /// # Semantics
 ///
@@ -222,9 +228,23 @@ pub(crate) fn bytes_consumed(buffer: &[u8], offset: usize, type_kind: &TypeKind)
             *length_width,
             *length_includes_itself,
         ),
-        // Unreachable: every TypeKind variant either has a bit_width or is
-        // matched above. The catch-all guards against future variants.
-        _ => 0,
+        // A new variable-width TypeKind variant was added without updating
+        // this match. Returning 0 here would silently corrupt the GNU `file`
+        // anchor for any rule using relative offsets after a match of the
+        // new type. The debug assertion fires immediately in test/dev
+        // builds; release builds keep the 0 fallback (graceful skip rather
+        // than panic), but the asserting log highlights the gap.
+        //
+        // GOTCHAS S2.1 lists this match in the new-TypeKind-variant
+        // checklist -- see that section if you are reading this comment
+        // because the assertion just fired.
+        _ => {
+            debug_assert!(
+                false,
+                "bytes_consumed: unhandled variable-width TypeKind variant {type_kind:?} -- update bytes_consumed and GOTCHAS S2.1"
+            );
+            0
+        }
     }
 }
 

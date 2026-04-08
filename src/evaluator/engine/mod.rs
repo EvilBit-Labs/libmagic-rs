@@ -151,7 +151,12 @@ fn evaluate_single_rule_with_anchor(
 ///   reusing a context across multiple buffers must call
 ///   [`EvaluationContext::reset`](crate::evaluator::EvaluationContext::reset)
 ///   between calls** -- the GNU `file` previous-match anchor advances during
-///   evaluation and would otherwise leak across buffers.
+///   evaluation and would otherwise leak across buffers. The same applies
+///   when this function returns `Err` mid-evaluation (e.g.,
+///   `LibmagicError::Timeout` or `RecursionLimitExceeded`): the anchor is
+///   left in a partially-advanced state reflecting matches before the
+///   error, and a retry on the same context without `reset()` will resolve
+///   relative offsets against that stale anchor.
 ///   [`evaluate_rules_with_config`] always builds a fresh context and is the
 ///   safer choice when context reuse isn't required.
 ///
@@ -255,10 +260,11 @@ pub fn evaluate_rules(
             };
 
         if let Some((absolute_offset, read_value)) = match_data {
-            // Advance the GNU `file` previous-match anchor BEFORE pushing
-            // the match (so the new anchor is visible to children and
-            // following siblings). The anchor is monotonic per evaluation
-            // pass and is read by relative-offset resolution.
+            // Advance the GNU `file` previous-match anchor BEFORE recursing
+            // into children, so children and their descendants see the new
+            // anchor. The anchor is updated unconditionally to the end of
+            // this match -- it may move forward or backward depending on
+            // where successive rules match (it is *not* a high-watermark).
             let consumed = types::bytes_consumed(buffer, absolute_offset, &rule.typ);
             let new_anchor = absolute_offset.saturating_add(consumed);
             context.set_last_match_end(new_anchor);
