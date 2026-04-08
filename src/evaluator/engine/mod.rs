@@ -65,11 +65,20 @@ use log::debug;
 /// # Relative offset behavior
 ///
 /// If the rule uses [`OffsetSpec::Relative`](crate::parser::ast::OffsetSpec::Relative),
-/// this function resolves it against anchor 0 -- equivalent to an absolute
-/// offset of the same delta. There is no "previous match" context when
-/// evaluating a single rule in isolation. Callers needing the GNU `file`
-/// anchor semantics (where relative offsets resolve against the end of the
-/// most recent match) should use [`evaluate_rules`] with an
+/// this function resolves it against anchor 0. There is no "previous match"
+/// context when evaluating a single rule in isolation. The two cases are:
+///
+/// - **Non-negative delta (`Relative(N)` for `N >= 0`):** resolves to
+///   absolute offset `N`, behaving like `Absolute(N)` from the start of the
+///   buffer.
+/// - **Negative delta (`Relative(-N)` for `N > 0`):** underflows the
+///   anchor (`0 - N`) and returns `EvaluationError::InvalidOffset`. This is
+///   *not* equivalent to `Absolute(-N)`, which is interpreted as
+///   "from end" of the buffer.
+///
+/// Callers needing the GNU `file` anchor semantics (where relative offsets
+/// resolve against the end of the most recent match) should use
+/// [`evaluate_rules`] with an
 /// [`EvaluationContext`](crate::evaluator::EvaluationContext), which threads
 /// the anchor across the rule list.
 ///

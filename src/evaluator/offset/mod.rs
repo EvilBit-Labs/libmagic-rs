@@ -36,17 +36,22 @@ pub(crate) fn map_offset_error(e: &OffsetError, original_offset: i64) -> Libmagi
 ///
 /// Convenience wrapper for callers that do not have a relative-offset anchor
 /// (e.g., tests, top-level evaluation with no prior match). Internally
-/// delegates with `last_match_end = 0`, which means an `OffsetSpec::Relative`
-/// passed here resolves as if it were `OffsetSpec::Absolute` of the same
-/// delta -- matching libmagic's "no prior match" semantics. Callers that
-/// need relative offsets to anchor against actual prior matches should use
+/// delegates with `last_match_end = 0`. For `OffsetSpec::Relative`, that
+/// means non-negative deltas behave like absolute offsets from the start of
+/// the buffer (`Relative(N)` for `N >= 0` resolves to absolute `N`), but
+/// negative deltas underflow the anchor and return
+/// `EvaluationError::InvalidOffset` -- they are *not* interpreted like
+/// `OffsetSpec::Absolute(-N)` from the end of the buffer. Callers that need
+/// relative offsets to anchor against actual prior matches should use
 /// `evaluate_rules` and let the engine thread the anchor.
 ///
 /// **Behavior change:** before the relative-offset feature landed in v0.5,
 /// this function returned `EvaluationError::UnsupportedType` for
-/// `OffsetSpec::Relative`. It now resolves successfully against anchor 0.
-/// Callers with existing error-handling code that pattern-matched
-/// `UnsupportedType` for relative offsets must remove that arm.
+/// `OffsetSpec::Relative`. It now resolves against anchor 0, which can
+/// succeed (non-negative delta) or fail with `InvalidOffset` (negative
+/// delta) depending on the value. Callers with existing error-handling code
+/// that pattern-matched `UnsupportedType` for relative offsets must remove
+/// that arm.
 ///
 /// # Arguments
 ///

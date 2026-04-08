@@ -61,16 +61,21 @@ pub struct EvaluationContext {
 
 Note: Fields are private; use accessor methods like `current_offset()`, `recursion_depth()`, and `config()`.
 
-**Key Methods:**
+**Public Methods:**
 
 - `new()` - Create context with default configuration
 - `current_offset()` / `set_current_offset()` - Track current buffer position
-- `last_match_end()` - Get end offset of most recent match (used for relative offset resolution)
-- `set_last_match_end(pos: usize)` - Set the previous-match anchor (used internally by the engine)
 - `recursion_depth()` - Query current recursion depth
 - `increment_recursion_depth()` / `decrement_recursion_depth()` - Track recursion safely
 - `timeout_ms()` - Query configured timeout
 - `reset()` - Reset context state for reuse (clears `current_offset`, `last_match_end`, and `recursion_depth`)
+
+**Internal (`pub(crate)`) — engine use only, not callable from outside the crate:**
+
+- `last_match_end()` - Get end offset of the most recent match (the GNU `file` anchor used for relative offset resolution)
+- `set_last_match_end(pos: usize)` - Advance the previous-match anchor (called by `evaluate_rules` after each match)
+
+External library users should not depend on these methods. Use `evaluate_rules` (or `evaluate_rules_with_config`) with an `EvaluationContext` and let the engine manage the anchor automatically. The anchor is reset alongside the other mutable state by `EvaluationContext::reset()`.
 
 ### RuleMatch
 

@@ -999,14 +999,30 @@ fn test_bytes_consumed_string_at_past_end_returns_zero() {
 }
 
 #[test]
-fn test_bytes_consumed_fixed_width_ignores_offset_validity() {
-    // Fixed-width branch returns bit_width / 8 unconditionally and does NOT
-    // check the offset. This is safe because the engine guarantees it only
-    // calls bytes_consumed after a successful read; pin the contract here
-    // so a future "fix" that adds an offset check trips this assertion and
-    // forces a deliberate decision.
+fn test_bytes_consumed_fixed_width_returns_zero_past_end() {
+    // Fixed-width branch is bounds-checked: if offset + width > buffer.len()
+    // it returns 0, mirroring the variable-width path. The engine never
+    // calls bytes_consumed at an out-of-bounds offset, but the guard makes
+    // the contract self-consistent for any future caller.
     let buf = b"abc";
     let typ = TypeKind::Byte { signed: false };
-    assert_eq!(bytes_consumed(buf, 3, &typ), 1);
-    assert_eq!(bytes_consumed(buf, 100, &typ), 1);
+    // offset == buf.len() leaves no room for a 1-byte read.
+    assert_eq!(bytes_consumed(buf, 3, &typ), 0);
+    // Way past end.
+    assert_eq!(bytes_consumed(buf, 100, &typ), 0);
+    // Last valid index: 1-byte read fits.
+    assert_eq!(bytes_consumed(buf, 2, &typ), 1);
+
+    // Multi-byte fixed-width type at the boundary.
+    let typ_long = TypeKind::Long {
+        endian: Endianness::Little,
+        signed: false,
+    };
+    let buf4 = b"abcd";
+    // offset 0 + width 4 == buf.len() -> fits
+    assert_eq!(bytes_consumed(buf4, 0, &typ_long), 4);
+    // offset 1 + width 4 == 5 > buf.len() -> 0
+    assert_eq!(bytes_consumed(buf4, 1, &typ_long), 0);
+    // overflow: offset = usize::MAX, width = 4 -> checked_add returns None -> 0
+    assert_eq!(bytes_consumed(buf4, usize::MAX, &typ_long), 0);
 }
