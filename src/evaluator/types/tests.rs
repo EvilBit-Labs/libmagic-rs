@@ -735,7 +735,10 @@ use crate::parser::ast::PStringLengthWidth;
 
 #[test]
 fn test_bytes_consumed_fixed_width_types() {
-    // Buffer is irrelevant for fixed-width types; bytes_consumed reads bit_width.
+    // 16-byte buffer at offset 0: every fixed-width type tested below fits
+    // inside the bounds guard (`offset + width <= buffer.len()`). A separate
+    // test `test_bytes_consumed_fixed_width_returns_zero_past_end` exercises
+    // the guard's 0-return path at and past the boundary.
     let buf = &[0u8; 16];
 
     let cases: &[(TypeKind, usize)] = &[

@@ -114,7 +114,7 @@ pub fn resolve_offset(
 ) -> Result<usize, LibmagicError>
 ```
 
-The evaluator uses `resolve_offset_with_context` internally to thread the previous-match anchor through relative offset resolution. `resolve_offset` (the public API) defaults the anchor to 0, making `OffsetSpec::Relative(N)` resolve as if it were `OffsetSpec::Absolute(N)` when no prior match exists. Callers needing GNU `file` anchor semantics should use `evaluate_rules` with an `EvaluationContext`, which tracks the anchor across rules.
+The evaluator uses `resolve_offset_with_context` internally to thread the previous-match anchor through relative offset resolution. `resolve_offset` (the public API) defaults the anchor to 0. For `OffsetSpec::Relative(N)`, this means non-negative deltas resolve like `Absolute(N)` from the start of the buffer, but negative deltas underflow the anchor and return `EvaluationError::InvalidOffset` — they are *not* interpreted like `OffsetSpec::Absolute(-N)` from the end of the buffer. Callers needing GNU `file` anchor semantics (so relative offsets resolve against actual prior matches) should use `evaluate_rules` with an `EvaluationContext`, which tracks the anchor across rules.
 
 Relative offsets resolve as `last_match_end + delta` with bounds and overflow checks. After each successful match, the context advances `last_match_end` by the bytes consumed by the matched type (c-string types include NUL terminators, pstring types include length prefixes).
 
@@ -571,7 +571,8 @@ assert_eq!(matches_j[0].message, "JPEG-style pstring with self-inclusive length"
 - [x] Timeout protection
 - [x] Recursion depth limiting
 - [x] Comprehensive test coverage (150+ tests)
-- [ ] Indirect offset support (pointer dereferencing)
+- [x] Indirect offset support (pointer dereferencing, issue #37)
+- [x] Relative offset support (GNU `file` anchor semantics, issue #38)
 - [ ] Regex type support
 - [ ] Performance optimizations (rule ordering, caching)
 

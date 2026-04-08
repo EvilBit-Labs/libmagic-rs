@@ -102,6 +102,37 @@ fn test_evaluate_rules_anchor_near_saturation_skips_relative_child_gracefully() 
 }
 
 #[test]
+fn test_evaluate_single_rule_relative_negative_with_zero_anchor_errors() {
+    // Public evaluate_single_rule uses an implicit anchor of 0. A negative
+    // Relative delta underflows the anchor and must return
+    // EvaluationError::InvalidOffset -- NOT Ok(None) (the "no match" path)
+    // and NOT Absolute(-N)-style from-end semantics. Pin the contract so a
+    // future refactor can't silently convert this to a graceful skip.
+    use crate::LibmagicError;
+    use crate::error::EvaluationError;
+
+    let rule = MagicRule {
+        offset: OffsetSpec::Relative(-1),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(0xAA),
+        message: "rel-neg-top-level".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+    };
+    let buffer = &[0xAA, 0xBB];
+    let err = evaluate_single_rule(&rule, buffer).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            LibmagicError::EvaluationError(EvaluationError::InvalidOffset { offset: -1 })
+        ),
+        "Relative(-1) at anchor 0 must Err(InvalidOffset), got {err:?}"
+    );
+}
+
+#[test]
 fn test_evaluate_single_rule_relative_zero_resolves_to_buffer_start() {
     // Relative(0) with anchor=0 resolves to absolute 0.
     let rule = MagicRule {

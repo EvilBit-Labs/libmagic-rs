@@ -342,10 +342,6 @@ fn relative_anchor_can_decrease_when_later_sibling_matches_at_lower_position() {
     // documented "may increase or decrease" behavior so a future
     // optimization that adds a max() guard fails loudly.
     //
-    // Buffer layout:
-    //   offset 0: 0x42 (matched by rule_b at offset 2 via Absolute(2)... wait,
-    //             we need rule_a to match HIGHER, then rule_b to match LOWER.)
-    //
     // Layout: 16 bytes. Rule A matches a 4-byte LE long at offset 8.
     // After A, anchor = 12. Rule B matches a single byte at offset 2
     // (Absolute(2)). After B, anchor = 3. Rule C uses Relative(0) and

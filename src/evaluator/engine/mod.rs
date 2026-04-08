@@ -14,7 +14,7 @@ use crate::parser::ast::MagicRule;
 use crate::{EvaluationConfig, LibmagicError};
 
 use super::{EvaluationContext, RuleMatch, offset, operators, types};
-use log::debug;
+use log::{debug, warn};
 
 /// Evaluate a single magic rule against a file buffer
 ///
@@ -337,10 +337,9 @@ pub fn evaluate_rules(
                         // child subtree is silently dropped -- which means a partial,
                         // possibly-incorrect classification is returned to the caller.
                         // Logged at warn! (not debug!) so the asymmetry is visible.
-                        log::warn!(
+                        warn!(
                             "Discarding child evaluation under rule '{}' due to unexpected error: {} -- parent match is still emitted; investigate the recursive evaluate_rules error-handling path",
-                            rule.message,
-                            e
+                            rule.message, e
                         );
                     }
                     Err(e) => {
