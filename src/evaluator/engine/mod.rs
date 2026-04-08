@@ -62,6 +62,21 @@ use log::debug;
 /// assert!(result.is_none()); // Should not match
 /// ```
 ///
+/// # Relative offset behavior
+///
+/// If the rule uses [`OffsetSpec::Relative`](crate::parser::ast::OffsetSpec::Relative),
+/// this function resolves it against anchor 0 -- equivalent to an absolute
+/// offset of the same delta. There is no "previous match" context when
+/// evaluating a single rule in isolation. Callers needing the GNU `file`
+/// anchor semantics (where relative offsets resolve against the end of the
+/// most recent match) should use [`evaluate_rules`] with an
+/// [`EvaluationContext`](crate::evaluator::EvaluationContext), which threads
+/// the anchor across the rule list.
+///
+/// **Behavior change:** prior to v0.5, `OffsetSpec::Relative` returned
+/// `EvaluationError::UnsupportedType` here. It now resolves successfully
+/// against anchor 0.
+///
 /// # Errors
 ///
 /// * `LibmagicError::EvaluationError` - If offset resolution fails, buffer access is out of bounds,
@@ -70,8 +85,25 @@ pub fn evaluate_single_rule(
     rule: &MagicRule,
     buffer: &[u8],
 ) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
+    // Default the relative-offset anchor to 0 -- top-level evaluation with
+    // no prior match resolves Relative(N) to absolute N (libmagic semantics).
+    evaluate_single_rule_with_anchor(rule, buffer, 0)
+}
+
+/// Internal: evaluate a single rule against a buffer, supplying an explicit
+/// anchor for relative-offset resolution.
+///
+/// This is the worker behind both [`evaluate_single_rule`] (which defaults
+/// the anchor to 0) and [`evaluate_rules`] (which threads the anchor from
+/// `EvaluationContext::last_match_end()`).
+fn evaluate_single_rule_with_anchor(
+    rule: &MagicRule,
+    buffer: &[u8],
+    last_match_end: usize,
+) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
     // Step 1: Resolve the offset specification to an absolute position
-    let absolute_offset = offset::resolve_offset(&rule.offset, buffer)?;
+    let absolute_offset =
+        offset::resolve_offset_with_context(&rule.offset, buffer, last_match_end)?;
 
     // Step 2: Read and interpret bytes at the resolved offset according to the rule's type
     let read_value = types::read_typed_value(buffer, absolute_offset, &rule.typ)
@@ -115,7 +147,13 @@ pub fn evaluate_single_rule(
 ///
 /// * `rules` - The list of magic rules to evaluate
 /// * `buffer` - The file buffer to evaluate against
-/// * `context` - Mutable evaluation context for state management
+/// * `context` - Mutable evaluation context for state management. **Callers
+///   reusing a context across multiple buffers must call
+///   [`EvaluationContext::reset`](crate::evaluator::EvaluationContext::reset)
+///   between calls** -- the GNU `file` previous-match anchor advances during
+///   evaluation and would otherwise leak across buffers.
+///   [`evaluate_rules_with_config`] always builds a fresh context and is the
+///   safer choice when context reuse isn't required.
 ///
 /// # Returns
 ///
@@ -187,33 +225,44 @@ pub fn evaluate_rules(
             return Err(LibmagicError::Timeout { timeout_ms });
         }
 
-        // Evaluate the current rule with graceful error handling
-        let match_data = match evaluate_single_rule(rule, buffer) {
-            Ok(data) => data,
-            Err(
-                e @ (LibmagicError::EvaluationError(
-                    crate::error::EvaluationError::BufferOverrun { .. }
-                    | crate::error::EvaluationError::InvalidOffset { .. }
-                    | crate::error::EvaluationError::TypeReadError(
-                        crate::evaluator::types::TypeReadError::BufferOverrun { .. }
-                        | crate::evaluator::types::TypeReadError::InvalidPStringLength { .. },
-                    ),
-                )
-                | LibmagicError::IoError(_)),
-            ) => {
-                // Expected data-dependent evaluation errors -- skip gracefully.
-                // TypeReadError::UnsupportedType is intentionally NOT caught here
-                // so that evaluator capability gaps propagate as errors.
-                debug!("Skipping rule '{}': {}", rule.message, e);
-                continue;
-            }
-            Err(e) => {
-                // Unexpected errors (InternalError, UnsupportedType, etc.) should propagate
-                return Err(e);
-            }
-        };
+        // Evaluate the current rule with graceful error handling.
+        // Pass the GNU `file` anchor so OffsetSpec::Relative resolves
+        // correctly against the previous match's end position.
+        let match_data =
+            match evaluate_single_rule_with_anchor(rule, buffer, context.last_match_end()) {
+                Ok(data) => data,
+                Err(
+                    e @ (LibmagicError::EvaluationError(
+                        crate::error::EvaluationError::BufferOverrun { .. }
+                        | crate::error::EvaluationError::InvalidOffset { .. }
+                        | crate::error::EvaluationError::TypeReadError(
+                            crate::evaluator::types::TypeReadError::BufferOverrun { .. }
+                            | crate::evaluator::types::TypeReadError::InvalidPStringLength { .. },
+                        ),
+                    )
+                    | LibmagicError::IoError(_)),
+                ) => {
+                    // Expected data-dependent evaluation errors -- skip gracefully.
+                    // TypeReadError::UnsupportedType is intentionally NOT caught here
+                    // so that evaluator capability gaps propagate as errors.
+                    debug!("Skipping rule '{}': {}", rule.message, e);
+                    continue;
+                }
+                Err(e) => {
+                    // Unexpected errors (InternalError, UnsupportedType, etc.) should propagate
+                    return Err(e);
+                }
+            };
 
         if let Some((absolute_offset, read_value)) = match_data {
+            // Advance the GNU `file` previous-match anchor BEFORE pushing
+            // the match (so the new anchor is visible to children and
+            // following siblings). The anchor is monotonic per evaluation
+            // pass and is read by relative-offset resolution.
+            let consumed = types::bytes_consumed(buffer, absolute_offset, &rule.typ);
+            let new_anchor = absolute_offset.saturating_add(consumed);
+            context.set_last_match_end(new_anchor);
+
             let match_result = RuleMatch {
                 message: rule.message.clone(),
                 offset: absolute_offset,

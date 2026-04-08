@@ -101,7 +101,7 @@ evaluator/
 │   ├── mod.rs      // Dispatcher (resolve_offset) and re-exports
 │   ├── absolute.rs // OffsetError, resolve_absolute_offset
 │   ├── indirect.rs // resolve_indirect_offset stub (issue #37)
-│   └── relative.rs // resolve_relative_offset stub (issue #38)
+│   └── relative.rs // resolve_relative_offset (GNU `file` anchor semantics)
 └── operators/      // Operator application submodule
     ├── mod.rs      // Dispatcher (apply_operator, apply_any_value) and re-exports
     ├── equality.rs // apply_equal, apply_not_equal
@@ -204,7 +204,7 @@ cargo test --doc   # Test documentation examples
 
 ### Currently Implemented (v0.1.0)
 
-- **Offsets**: Absolute, from-end, and indirect specifications (relative offsets are parsed but not yet evaluated)
+- **Offsets**: Absolute, from-end, indirect, and relative specifications (relative offsets `&+N`/`&-N` are evaluated using GNU `file` semantics -- the previous-match anchor)
 - **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`; `pstring` is a Pascal string (length-prefixed) with support for 1/2/4-byte length prefixes via `/B`, `/H` (2-byte BE), `/h` (2-byte LE), `/L` (4-byte BE), `/l` (4-byte LE) suffixes, and the `/J` flag (stored length includes prefix width, JPEG convention) which is combinable with width suffixes (e.g., `pstring/HJ`); date values formatted as "Www Mmm DD HH:MM:SS YYYY" matching GNU `file` output; types are signed by default (libmagic-compatible)
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
@@ -246,7 +246,7 @@ impl BinaryRegex for regex::bytes::Regex {
 ### Offset Specifications
 
 - Indirect offsets are fully implemented (parsing + evaluation) with specifiers: `.b/.B` (byte), `.s/.S` (short), `.l/.L` (long), `.q/.Q` (quad); lowercase = little-endian, uppercase = big-endian (GNU `file` semantics); pointer types signed by default; adjustment after closing paren: `(base.type)+adj`
-- Relative offsets are parsed into the AST but evaluation is not yet implemented (#38)
+- Relative offsets are fully evaluated against the GNU `file` previous-match anchor: the engine tracks `EvaluationContext::last_match_end()`, advancing it after each successful match by the bytes consumed (variable-width types include c-string NUL terminators and pstring length prefixes). Top-level relative offsets resolve from anchor 0. Magic-file `&+N`/`&-N` *parsing* is still TODO -- relative offsets are exercised programmatically through the AST.
 
 ### Magic File Syntax
 

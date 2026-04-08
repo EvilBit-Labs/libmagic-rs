@@ -140,21 +140,60 @@ fn test_evaluation_context_reset() {
 
     // Modify the context state
     context.set_current_offset(100);
+    context.set_last_match_end(75);
     context.increment_recursion_depth().unwrap();
     context.increment_recursion_depth().unwrap();
 
     assert_eq!(context.current_offset(), 100);
+    assert_eq!(context.last_match_end(), 75);
     assert_eq!(context.recursion_depth(), 2);
 
     // Reset should restore initial state but keep config
     context.reset();
 
     assert_eq!(context.current_offset(), 0);
+    assert_eq!(context.last_match_end(), 0);
     assert_eq!(context.recursion_depth(), 0);
     assert_eq!(
         context.config().max_recursion_depth,
         config.max_recursion_depth
     );
+}
+
+#[test]
+fn test_evaluation_context_last_match_end_initial_zero() {
+    let config = EvaluationConfig::default();
+    let context = EvaluationContext::new(config);
+    assert_eq!(context.last_match_end(), 0);
+}
+
+#[test]
+fn test_evaluation_context_last_match_end_set_get() {
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+
+    context.set_last_match_end(42);
+    assert_eq!(context.last_match_end(), 42);
+
+    context.set_last_match_end(0);
+    assert_eq!(context.last_match_end(), 0);
+
+    context.set_last_match_end(usize::MAX);
+    assert_eq!(context.last_match_end(), usize::MAX);
+}
+
+#[test]
+fn test_evaluation_context_last_match_end_clone_independence() {
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+    context.set_last_match_end(100);
+
+    let cloned = context.clone();
+    assert_eq!(cloned.last_match_end(), 100);
+
+    context.set_last_match_end(200);
+    assert_eq!(context.last_match_end(), 200);
+    assert_eq!(cloned.last_match_end(), 100);
 }
 
 #[test]

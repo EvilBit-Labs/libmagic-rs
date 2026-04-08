@@ -726,3 +726,277 @@ fn test_coerce_qdate_matches_read_qdate() {
         "Coerced value should match read_qdate output"
     );
 }
+
+// ============================================================
+// bytes_consumed tests
+// ============================================================
+
+use crate::parser::ast::PStringLengthWidth;
+
+#[test]
+fn test_bytes_consumed_fixed_width_types() {
+    // Buffer is irrelevant for fixed-width types; bytes_consumed reads bit_width.
+    let buf = &[0u8; 16];
+
+    let cases: &[(TypeKind, usize)] = &[
+        (TypeKind::Byte { signed: false }, 1),
+        (TypeKind::Byte { signed: true }, 1),
+        (
+            TypeKind::Short {
+                endian: Endianness::Little,
+                signed: false,
+            },
+            2,
+        ),
+        (
+            TypeKind::Short {
+                endian: Endianness::Big,
+                signed: true,
+            },
+            2,
+        ),
+        (
+            TypeKind::Long {
+                endian: Endianness::Little,
+                signed: false,
+            },
+            4,
+        ),
+        (
+            TypeKind::Quad {
+                endian: Endianness::Big,
+                signed: false,
+            },
+            8,
+        ),
+        (
+            TypeKind::Float {
+                endian: Endianness::Little,
+            },
+            4,
+        ),
+        (
+            TypeKind::Double {
+                endian: Endianness::Big,
+            },
+            8,
+        ),
+        (
+            TypeKind::Date {
+                endian: Endianness::Little,
+                utc: false,
+            },
+            4,
+        ),
+        (
+            TypeKind::QDate {
+                endian: Endianness::Big,
+                utc: true,
+            },
+            8,
+        ),
+    ];
+
+    for (typ, expected) in cases {
+        let consumed = bytes_consumed(buf, 0, typ);
+        assert_eq!(
+            consumed, *expected,
+            "fixed-width width mismatch for {typ:?}"
+        );
+    }
+}
+
+#[test]
+fn test_bytes_consumed_string_with_nul() {
+    // "MZ\0" -> matches "MZ" and consumes 3 bytes (2 + NUL).
+    let buf = b"MZ\x00rest";
+    let typ = TypeKind::String { max_length: None };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 3);
+}
+
+#[test]
+fn test_bytes_consumed_string_at_offset() {
+    // String starting mid-buffer.
+    let buf = b"PREFIXabc\x00tail";
+    let typ = TypeKind::String { max_length: None };
+    assert_eq!(bytes_consumed(buf, 6, &typ), 4); // "abc" + NUL
+}
+
+#[test]
+fn test_bytes_consumed_string_no_nul_in_buffer() {
+    // No NUL terminator -- consumes to end of buffer (no extra byte for NUL).
+    let buf = b"NoNull";
+    let typ = TypeKind::String { max_length: None };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 6);
+}
+
+#[test]
+fn test_bytes_consumed_string_empty() {
+    // Empty string at offset 0 -- just the NUL.
+    let buf = b"\x00rest";
+    let typ = TypeKind::String { max_length: None };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 1);
+}
+
+#[test]
+fn test_bytes_consumed_string_max_length_caps() {
+    // max_length = 4, NUL is at index 14 -- read stops at 4 chars, no NUL consumed.
+    let buf = b"VeryLongString\x00rest";
+    let typ = TypeKind::String {
+        max_length: Some(4),
+    };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 4);
+}
+
+#[test]
+fn test_bytes_consumed_string_max_length_finds_nul() {
+    // max_length = 10 but NUL is at index 5 -- read stops at NUL, consumes 6.
+    let buf = b"Short\x00LongerSuffix";
+    let typ = TypeKind::String {
+        max_length: Some(10),
+    };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 6);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_one_byte() {
+    // \x05Hello -- prefix(1) + payload(5) = 6
+    let buf = b"\x05Hello";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::OneByte,
+        length_includes_itself: false,
+    };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 6);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_two_byte_be() {
+    // \x00\x05Hello -- prefix(2) + payload(5) = 7
+    let buf = b"\x00\x05Hello";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::TwoByteBE,
+        length_includes_itself: false,
+    };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 7);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_two_byte_le() {
+    let buf = b"\x05\x00Hello";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::TwoByteLE,
+        length_includes_itself: false,
+    };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 7);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_four_byte_be() {
+    let buf = b"\x00\x00\x00\x01x";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::FourByteBE,
+        length_includes_itself: false,
+    };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 5);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_j_flag() {
+    // /J: stored length 4 -> 4 - 1 (prefix) = 3 bytes payload, total 4
+    let buf = b"\x04abc";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::OneByte,
+        length_includes_itself: true,
+    };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 4);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_empty() {
+    // \x00 -- prefix says length 0, total 1 (just the prefix)
+    let buf = b"\x00";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::OneByte,
+        length_includes_itself: false,
+    };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 1);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_max_length_caps() {
+    // Stored length 10, max_length 5 -- consume prefix(1) + 5 = 6
+    let buf = b"\x0aHelloWorld";
+    let typ = TypeKind::PString {
+        max_length: Some(5),
+        length_width: PStringLengthWidth::OneByte,
+        length_includes_itself: false,
+    };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 6);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_j_flag_underflow_multi_byte() {
+    // /J with TwoByteBE: stored length 1, prefix width 2 -> underflow -> 0.
+    let buf = b"\x00\x01xx";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::TwoByteBE,
+        length_includes_itself: true,
+    };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 0);
+
+    // /J with FourByteLE: stored length 3, prefix width 4 -> underflow -> 0.
+    let buf = b"\x03\x00\x00\x00xx";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::FourByteLE,
+        length_includes_itself: true,
+    };
+    assert_eq!(bytes_consumed(buf, 0, &typ), 0);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_clamps_oversized_prefix_be() {
+    // FourByteBE prefix says 0xFFFFFFFF (4 GB), but the buffer only has
+    // 3 bytes after the prefix. bytes_consumed must clamp to the remaining
+    // buffer length, not advance the anchor to ~4 GB.
+    let buf = b"\xFF\xFF\xFF\xFFabc";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::FourByteBE,
+        length_includes_itself: false,
+    };
+    // 4 (prefix) + min(0xFFFFFFFF, 3) = 4 + 3 = 7
+    assert_eq!(bytes_consumed(buf, 0, &typ), 7);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_clamps_oversized_prefix_le() {
+    let buf = b"\xFF\xFF\xFF\xFFhello";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::FourByteLE,
+        length_includes_itself: false,
+    };
+    // 4 + min(0xFFFFFFFF, 5) = 9
+    assert_eq!(bytes_consumed(buf, 0, &typ), 9);
+}
+
+#[test]
+fn test_bytes_consumed_offset_at_buffer_end_returns_zero() {
+    // Defensive: bytes_consumed must not panic on bad offsets;
+    // returns 0 (the read would have failed; engine never calls us in that case).
+    let buf = b"abc";
+    let typ = TypeKind::Byte { signed: false };
+    // Valid edge: offset == buf.len() means no read happened.
+    assert_eq!(bytes_consumed(buf, 3, &typ), 1); // bit_width fallback still returns 1
+    // For string: offset past end returns 0
+    let typ_s = TypeKind::String { max_length: None };
+    assert_eq!(bytes_consumed(buf, 10, &typ_s), 0);
+}

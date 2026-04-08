@@ -32,11 +32,19 @@ pub(crate) fn map_offset_error(e: &OffsetError, original_offset: i64) -> Libmagi
     }
 }
 
-/// Resolve any offset specification to an absolute position
+/// Resolve any offset specification to an absolute position.
 ///
-/// This is a higher-level function that handles all types of offset specifications.
-/// Supports absolute, from-end, and indirect offsets. Relative offsets are not yet
-/// implemented.
+/// Convenience wrapper for callers that do not have a relative-offset anchor
+/// (e.g., tests, top-level evaluation with no prior match). Internally
+/// delegates with `last_match_end = 0`, which means an `OffsetSpec::Relative`
+/// passed here resolves as if it were `OffsetSpec::Absolute` of the same
+/// delta -- matching libmagic's "no prior match" semantics. Callers that
+/// need relative offsets to anchor against actual prior matches should use
+/// `evaluate_rules` and let the engine thread the anchor.
+///
+/// **Behavior change:** prior to v0.5, this returned
+/// `EvaluationError::UnsupportedType` for `OffsetSpec::Relative`. It now
+/// resolves successfully against anchor 0.
 ///
 /// # Arguments
 ///
@@ -64,12 +72,51 @@ pub(crate) fn map_offset_error(e: &OffsetError, original_offset: i64) -> Libmagi
 ///
 /// * `LibmagicError::EvaluationError` - If offset resolution fails
 pub fn resolve_offset(spec: &OffsetSpec, buffer: &[u8]) -> Result<usize, LibmagicError> {
+    resolve_offset_with_context(spec, buffer, 0)
+}
+
+/// Resolve any offset specification, including relative offsets, against a
+/// previous-match anchor.
+///
+/// This is the full dispatcher used by the evaluation engine. It handles all
+/// `OffsetSpec` variants:
+///
+/// - [`OffsetSpec::Absolute`] / [`OffsetSpec::FromEnd`]: resolved against the
+///   buffer (sign-aware), `last_match_end` ignored.
+/// - [`OffsetSpec::Indirect`]: resolved by reading a pointer value from the
+///   buffer, `last_match_end` ignored.
+/// - [`OffsetSpec::Relative`]: resolved as `last_match_end + delta`,
+///   bounds-checked. The anchor `0` makes top-level relative offsets resolve
+///   from the file start.
+///
+/// `pub(crate)` because the anchor-threading contract is internal to the
+/// evaluation engine -- external callers use [`resolve_offset`] (which
+/// hardcodes anchor 0) or go through `evaluate_rules`.
+///
+/// # Arguments
+///
+/// * `spec` - The offset specification to resolve
+/// * `buffer` - The file buffer to resolve against
+/// * `last_match_end` - End offset of the most recent successful match.
+///   Supplied by the engine via `EvaluationContext::last_match_end()`. Pass
+///   `0` if no prior match exists.
+///
+/// # Errors
+///
+/// * `LibmagicError::EvaluationError` - If offset resolution fails for any
+///   variant. Relative-offset failures surface as `BufferOverrun` (target
+///   past end of buffer) or `InvalidOffset` (arithmetic over/underflow).
+pub(crate) fn resolve_offset_with_context(
+    spec: &OffsetSpec,
+    buffer: &[u8],
+    last_match_end: usize,
+) -> Result<usize, LibmagicError> {
     match spec {
         OffsetSpec::Absolute(offset) => {
             resolve_absolute_offset(*offset, buffer).map_err(|e| map_offset_error(&e, *offset))
         }
         OffsetSpec::Indirect { .. } => indirect::resolve_indirect_offset(spec, buffer),
-        OffsetSpec::Relative(_) => relative::resolve_relative_offset(spec, buffer),
+        OffsetSpec::Relative(_) => relative::resolve_relative_offset(spec, buffer, last_match_end),
         OffsetSpec::FromEnd(offset) => {
             // FromEnd is handled the same as negative Absolute offsets
             resolve_absolute_offset(*offset, buffer).map_err(|e| map_offset_error(&e, *offset))
@@ -142,21 +189,49 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_offset_relative_not_implemented() {
+    fn test_resolve_offset_relative_via_context() {
+        // Anchor 4 + delta 3 = absolute 7, in-bounds.
+        let buffer = b"0123456789ABCDEF";
+        let spec = OffsetSpec::Relative(3);
+        let resolved = resolve_offset_with_context(&spec, buffer, 4).unwrap();
+        assert_eq!(resolved, 7);
+    }
+
+    #[test]
+    fn test_resolve_offset_relative_top_level_default() {
+        // Calling resolve_offset (no context) should default the anchor to 0.
+        let buffer = b"0123456789ABCDEF";
+        let spec = OffsetSpec::Relative(5);
+        assert_eq!(resolve_offset(&spec, buffer).unwrap(), 5);
+    }
+
+    #[test]
+    fn test_resolve_offset_with_context_passthrough_absolute() {
+        // The context-aware dispatcher must not affect non-relative variants.
         let buffer = b"Test data";
-        let spec = OffsetSpec::Relative(4);
+        let spec = OffsetSpec::Absolute(4);
+        // last_match_end is irrelevant for Absolute.
+        assert_eq!(resolve_offset_with_context(&spec, buffer, 100).unwrap(), 4);
+    }
 
-        let result = resolve_offset(&spec, buffer);
-        assert!(result.is_err());
+    #[test]
+    fn test_resolve_offset_with_context_passthrough_from_end() {
+        let buffer = b"Test data";
+        let spec = OffsetSpec::FromEnd(-3);
+        assert_eq!(resolve_offset_with_context(&spec, buffer, 999).unwrap(), 6);
+    }
 
-        match result.unwrap_err() {
-            LibmagicError::EvaluationError(crate::error::EvaluationError::UnsupportedType {
-                type_name,
-            }) => {
-                assert!(type_name.contains("Relative offsets not yet implemented"));
-            }
-            _ => panic!("Expected EvaluationError with UnsupportedType"),
-        }
+    #[test]
+    fn test_resolve_offset_with_context_passthrough_indirect() {
+        // Same indirect setup as test_resolve_offset_indirect_success above.
+        let buffer = b"\x05TestXdata";
+        let spec = OffsetSpec::Indirect {
+            base_offset: 0,
+            pointer_type: crate::parser::ast::TypeKind::Byte { signed: false },
+            adjustment: 0,
+            endian: crate::parser::ast::Endianness::Little,
+        };
+        assert_eq!(resolve_offset_with_context(&spec, buffer, 42).unwrap(), 5);
     }
 
     #[test]

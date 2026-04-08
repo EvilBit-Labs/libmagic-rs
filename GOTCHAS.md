@@ -71,6 +71,12 @@ The nom `tuple` combinator is deprecated. Use bare tuple syntax `(a, b, c)` dire
 
 Lowercase pointer specifiers (`.s`, `.l`, `.q`) map to **little-endian**, not native endian. Uppercase (`.S`, `.L`, `.Q`) map to big-endian. All numeric pointer types are **signed by default** (per S6.3). The adjustment is parsed **after** the closing paren: `(base.type)+adj`, not `(base.type+adj)`.
 
+### 3.8 Relative Offsets: Anchor is Global-Monotonic, No Save/Restore
+
+`OffsetSpec::Relative(N)` resolves against `EvaluationContext::last_match_end()`, which advances after every successful match in `evaluate_rules` and is **never saved/restored across child recursion**. This is intentional and matches GNU `file`: a sibling rule sees the anchor wherever the deepest descendant of the previous sibling left it. Do not wrap recursion in a save/restore pair "for safety" -- it would silently break sibling-after-nested chains. The recursion-depth pattern in the same loop *is* save/restore, and the asymmetry is correct.
+
+The load-bearing invariant is that the anchor is updated *before recursing into children* (so children and their followers see the new anchor). The current code also happens to set the anchor before `matches.push(...)`, but the push ordering is incidental -- only the recursion ordering is required for correctness. `bytes_consumed()` (in `evaluator/types/mod.rs`) is the source of truth for advance distance; for variable-width types it re-derives consumption from the buffer rather than trusting `Value::String.len()` (which can drift from the original byte length via `from_utf8_lossy`). Pascal-string consumption is also clamped against the remaining buffer to prevent attacker-controlled length prefixes from poisoning the anchor to `usize::MAX`.
+
 ## 4. Module Visibility & Re-exports
 
 ### 4.1 Private Engine Module

@@ -171,5 +171,156 @@ pub fn coerce_value_to_type(value: &Value, type_kind: &TypeKind) -> Value {
     }
 }
 
+/// Returns the number of buffer bytes a successful `read_typed_value` would
+/// consume for the given `type_kind` at `offset`.
+///
+/// This mirrors the consumption logic of the underlying read functions and is
+/// used by the evaluation engine to advance the GNU `file` "previous match"
+/// anchor for relative offset resolution. It is `pub(crate)` because no
+/// external caller should depend on the anchor-advance contract -- the only
+/// intended caller is `evaluate_rules` in the engine.
+///
+/// The function is intentionally infallible -- the engine only calls it after
+/// a successful read, so the read shape is known to be valid. For unexpected
+/// inputs (offset past end of buffer for variable-width types, malformed
+/// pstring prefixes), it returns `0` rather than panicking, which causes the
+/// anchor to stay put. The next relative offset will then bounds-fail
+/// gracefully.
+///
+/// # Semantics
+///
+/// - **Fixed-width types** (Byte, Short, Long, Quad, Float, Double, Date,
+///   QDate): width derived from `TypeKind::bit_width()`. The engine
+///   guarantees the offset is in-bounds; callers outside the engine must
+///   uphold the same invariant.
+/// - **C-string** (`TypeKind::String`): scans for the first NUL within
+///   `max_length` bytes (or to the buffer end). Returns `length + 1` when a
+///   NUL is found (the NUL is consumed), or `length` if the buffer ends or
+///   `max_length` truncates first.
+/// - **Pascal string** (`TypeKind::PString`): reads the length prefix (1, 2,
+///   or 4 bytes, BE/LE), accounts for the `/J` flag (stored length includes
+///   prefix width), caps by `max_length`, and returns `prefix_width +
+///   actual_payload_bytes`. The result is also clamped against the remaining
+///   buffer length so a malicious oversized length prefix cannot poison the
+///   anchor.
+#[must_use]
+pub(crate) fn bytes_consumed(buffer: &[u8], offset: usize, type_kind: &TypeKind) -> usize {
+    if let Some(bits) = type_kind.bit_width() {
+        return (bits as usize) / 8;
+    }
+
+    match type_kind {
+        TypeKind::String { max_length } => string_bytes_consumed(buffer, offset, *max_length),
+        TypeKind::PString {
+            max_length,
+            length_width,
+            length_includes_itself,
+        } => pstring_bytes_consumed(
+            buffer,
+            offset,
+            *max_length,
+            *length_width,
+            *length_includes_itself,
+        ),
+        // Unreachable: every TypeKind variant either has a bit_width or is
+        // matched above. The catch-all guards against future variants.
+        _ => 0,
+    }
+}
+
+/// Compute the buffer bytes consumed by a successful c-string read.
+///
+/// Mirrors `read_string`: scans from `offset` for the first NUL within
+/// `max_length` bytes (or to the end of the buffer when `max_length` is
+/// `None`), and returns `length_to_nul + 1` when a NUL was found, or
+/// `length_read` when no NUL was found (truncated by buffer end or
+/// `max_length`).
+fn string_bytes_consumed(buffer: &[u8], offset: usize, max_length: Option<usize>) -> usize {
+    let Some(remaining) = buffer.get(offset..) else {
+        return 0;
+    };
+    let search_len = max_length.map_or(remaining.len(), |m| m.min(remaining.len()));
+    let Some(window) = remaining.get(..search_len) else {
+        return 0;
+    };
+    match memchr::memchr(0, window) {
+        Some(nul_idx) => nul_idx.saturating_add(1),
+        None => search_len,
+    }
+}
+
+/// Compute the buffer bytes consumed by a successful pstring read.
+///
+/// Mirrors `read_pstring`: reads the length prefix, applies the `/J` flag,
+/// caps by `max_length`, and returns `prefix_width + payload_bytes`. Returns
+/// `0` for any unexpected condition (offset past end, prefix bytes missing,
+/// `/J` underflow), since the engine only calls this after a successful read.
+fn pstring_bytes_consumed(
+    buffer: &[u8],
+    offset: usize,
+    max_length: Option<usize>,
+    length_width: crate::parser::ast::PStringLengthWidth,
+    length_includes_itself: bool,
+) -> usize {
+    use crate::parser::ast::PStringLengthWidth;
+    let width = length_width.byte_count();
+    let Some(prefix_end) = offset.checked_add(width) else {
+        return 0;
+    };
+    let Some(len_bytes) = buffer.get(offset..prefix_end) else {
+        return 0;
+    };
+    let stored_length = match length_width {
+        PStringLengthWidth::OneByte => usize::from(len_bytes[0]),
+        PStringLengthWidth::TwoByteBE => {
+            let arr: [u8; 2] = match len_bytes.try_into() {
+                Ok(a) => a,
+                Err(_) => return 0,
+            };
+            usize::from(u16::from_be_bytes(arr))
+        }
+        PStringLengthWidth::TwoByteLE => {
+            let arr: [u8; 2] = match len_bytes.try_into() {
+                Ok(a) => a,
+                Err(_) => return 0,
+            };
+            usize::from(u16::from_le_bytes(arr))
+        }
+        PStringLengthWidth::FourByteBE => {
+            let arr: [u8; 4] = match len_bytes.try_into() {
+                Ok(a) => a,
+                Err(_) => return 0,
+            };
+            u32::from_be_bytes(arr) as usize
+        }
+        PStringLengthWidth::FourByteLE => {
+            let arr: [u8; 4] = match len_bytes.try_into() {
+                Ok(a) => a,
+                Err(_) => return 0,
+            };
+            u32::from_le_bytes(arr) as usize
+        }
+    };
+
+    let payload_length = if length_includes_itself {
+        match stored_length.checked_sub(width) {
+            Some(n) => n,
+            None => return 0,
+        }
+    } else {
+        stored_length
+    };
+
+    // Clamp against remaining buffer bytes after the prefix. This defends
+    // against an attacker-controlled 4-byte length prefix near u32::MAX
+    // poisoning the anchor: read_pstring would have failed to actually read
+    // a payload that long, so a successful read implies the payload fit in
+    // the buffer. Mirroring that bound here keeps the anchor truthful.
+    let remaining_after_prefix = buffer.len().saturating_sub(prefix_end);
+    let bounded_payload = payload_length.min(remaining_after_prefix);
+    let actual_length = max_length.map_or(bounded_payload, |m| m.min(bounded_payload));
+    width.saturating_add(actual_length)
+}
+
 #[cfg(test)]
 mod tests;
