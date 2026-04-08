@@ -1,61 +1,65 @@
 {
-    "name": "libmagic-rs",
-    "mode": "vendored",
-    "dependencies": {
-        "actionbook/rust-skills": {
-            "version": "1f4becdcb88d1cbccc1880594479f28891102843",
-            "source": "https://github.com/actionbook/rust-skills",
-            "include": {
-                "skills": [
-                    "coding-guidelines",
-                    "domain-cli",
-                    "m01-ownership",
-                    "m02-resource",
-                    "m03-mutability",
-                    "m04-zero-cost",
-                    "m05-type-driven",
-                    "m06-error-handling",
-                    "m07-concurrency",
-                    "m09-domain",
-                    "m10-performance",
-                    "m11-ecosystem",
-                    "m12-lifecycle",
-                    "m13-domain-error",
-                    "m14-mental-model",
-                    "m15-anti-pattern",
-                    "meta-cognition-parallel",
-                    "rust-call-graph",
-                    "rust-code-navigator",
-                    "rust-deps-visualizer",
-                    "rust-learner",
-                    "rust-refactor-helper",
-                    "rust-skill-creator",
-                    "rust-symbol-analyzer",
-                    "rust-trait-explorer",
-                    "unsafe-checker"
-                ]
-            }
-        },
-        "pantheon-ai/github-actions-generator": {
-            "version": "0.1.1"
-        },
-        "pantheon-ai/mise-complete": {
-            "version": "0.1.1"
-        },
-        "pantheon-ai/dockerfile-toolkit": {
-            "version": "0.1.0"
-        },
-        "pantheon-ai/moscow-prioritization": {
-            "version": "0.1.1"
-        },
-        "pantheon-ai/software-design-principles": {
-            "version": "0.1.4"
-        },
-        "cisco/software-security": {
-            "version": "1.2.5"
-        },
-        "tessl-labs/good-oss-citizen": {
-            "version": "1.0.1"
-        }
+  "name": "libmagic-rs",
+  "mode": "vendored",
+  "dependencies": {
+    "actionbook/rust-skills": {
+      "version": "1f4becdcb88d1cbccc1880594479f28891102843",
+      "source": "https://github.com/actionbook/rust-skills",
+      "include": {
+        "skills": [
+          "coding-guidelines",
+          "domain-cli",
+          "m01-ownership",
+          "m02-resource",
+          "m03-mutability",
+          "m04-zero-cost",
+          "m05-type-driven",
+          "m06-error-handling",
+          "m07-concurrency",
+          "m09-domain",
+          "m10-performance",
+          "m11-ecosystem",
+          "m12-lifecycle",
+          "m13-domain-error",
+          "m14-mental-model",
+          "m15-anti-pattern",
+          "meta-cognition-parallel",
+          "rust-call-graph",
+          "rust-code-navigator",
+          "rust-deps-visualizer",
+          "rust-learner",
+          "rust-refactor-helper",
+          "rust-skill-creator",
+          "rust-symbol-analyzer",
+          "rust-trait-explorer",
+          "unsafe-checker"
+        ]
+      }
+    },
+    "pantheon-ai/github-actions-generator": {
+      "version": "0.1.1"
+    },
+    "pantheon-ai/mise-complete": {
+      "version": "0.1.1"
+    },
+    "pantheon-ai/dockerfile-toolkit": {
+      "version": "0.1.0"
+    },
+    "pantheon-ai/moscow-prioritization": {
+      "version": "0.1.1"
+    },
+    "pantheon-ai/software-design-principles": {
+      "version": "0.1.4"
+    },
+    "cisco/software-security": {
+      "version": "1.2.5"
+    },
+    "tessl-labs/good-oss-citizen": {
+      "version": "1.0.1"
+    },
+    "neonwatty/logo-designer-skill": {
+      "version": "60285dd8417d5194155d8c2e349e2f8b61ffe6ff",
+      "source": "https://github.com/neonwatty/logo-designer-skill"
     }
+  }
 }

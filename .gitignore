@@ -141,6 +141,7 @@ docs/plans/
 .agents/
 .augment/
 .claude/
+.context/
 .cursor/
 .roo/
 .full-review/

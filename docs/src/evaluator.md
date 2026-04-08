@@ -50,6 +50,8 @@ Maintains state during rule processing:
 pub struct EvaluationContext {
     /// Current offset position for relative calculations
     current_offset: usize,
+    /// End offset of the most recent successful match (GNU file anchor)
+    last_match_end: usize,
     /// Current recursion depth for safety limits
     recursion_depth: u32,
     /// Configuration for evaluation behavior
@@ -59,14 +61,21 @@ pub struct EvaluationContext {
 
 Note: Fields are private; use accessor methods like `current_offset()`, `recursion_depth()`, and `config()`.
 
-**Key Methods:**
+**Public Methods:**
 
 - `new()` - Create context with default configuration
 - `current_offset()` / `set_current_offset()` - Track current buffer position
 - `recursion_depth()` - Query current recursion depth
 - `increment_recursion_depth()` / `decrement_recursion_depth()` - Track recursion safely
 - `timeout_ms()` - Query configured timeout
-- `reset()` - Reset context state for reuse
+- `reset()` - Reset context state for reuse (clears `current_offset`, `last_match_end`, and `recursion_depth`)
+
+**Internal (`pub(crate)`) — engine use only, not callable from outside the crate:**
+
+- `last_match_end()` - Get end offset of the most recent match (the GNU `file` anchor used for relative offset resolution)
+- `set_last_match_end(pos: usize)` - Advance the previous-match anchor (called by `evaluate_rules` after each match)
+
+External library users should not depend on these methods. Use `evaluate_rules` (or `evaluate_rules_with_config`) with an `EvaluationContext` and let the engine manage the anchor automatically. The anchor is reset alongside the other mutable state by `EvaluationContext::reset()`.
 
 ### RuleMatch
 
@@ -94,7 +103,7 @@ The `Value` type is from `parser::ast::Value` and represents the actual matched 
 Handles all offset types safely:
 
 - **Absolute offsets**: Direct file positions (`0`, `0x100`)
-- **Relative offsets**: Based on previous match positions (`&+4`)
+- **Relative offsets**: Resolved using `last_match_end + delta` from the previous match anchor (`&+4`, `&-2`)
 - **From-end offsets**: Calculated from file size (`-4` from end)
 - **Bounds checking**: All offset calculations are validated
 
@@ -104,6 +113,10 @@ pub fn resolve_offset(
     buffer: &[u8],
 ) -> Result<usize, LibmagicError>
 ```
+
+The evaluator uses `resolve_offset_with_context` internally to thread the previous-match anchor through relative offset resolution. `resolve_offset` (the public API) defaults the anchor to 0. For `OffsetSpec::Relative(N)`, this means non-negative deltas resolve like `Absolute(N)` from the start of the buffer, but negative deltas underflow the anchor and return `EvaluationError::InvalidOffset` — they are *not* interpreted like `OffsetSpec::Absolute(-N)` from the end of the buffer. Callers needing GNU `file` anchor semantics (so relative offsets resolve against actual prior matches) should use `evaluate_rules` with an `EvaluationContext`, which tracks the anchor across rules.
+
+Relative offsets resolve as `last_match_end + delta` with bounds and overflow checks. After each successful match, the context advances `last_match_end` by the bytes consumed by the matched type (c-string types include NUL terminators, pstring types include length prefixes).
 
 ### Type Reading (`evaluator/types/`)
 
@@ -550,6 +563,7 @@ assert_eq!(matches_j[0].message, "JPEG-style pstring with self-inclusive length"
 
 - [x] Basic evaluation engine structure
 - [x] Offset resolution (absolute, relative, from-end)
+- [x] Relative offset support with previous-match anchor tracking (PR #211, issue #38)
 - [x] Type reading with endianness support (Byte, Short, Long, Quad, Float, Double, Date, QDate, String, PString with 1/2/4-byte prefixes)
 - [x] Operator application (Equal, NotEqual, LessThan, GreaterThan, LessEqual, GreaterEqual, BitwiseAnd, BitwiseAndMask)
 - [x] Hierarchical rule processing with child evaluation
@@ -557,7 +571,8 @@ assert_eq!(matches_j[0].message, "JPEG-style pstring with self-inclusive length"
 - [x] Timeout protection
 - [x] Recursion depth limiting
 - [x] Comprehensive test coverage (150+ tests)
-- [ ] Indirect offset support (pointer dereferencing)
+- [x] Indirect offset support (pointer dereferencing, issue #37)
+- [x] Relative offset support (GNU `file` anchor semantics, issue #38)
 - [ ] Regex type support
 - [ ] Performance optimizations (rule ordering, caching)
 

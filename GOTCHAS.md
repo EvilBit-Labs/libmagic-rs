@@ -26,7 +26,7 @@ Serialization functions live in `src/parser/codegen.rs`, shared by both `build.r
 
 ### 2.1 `TypeKind` Exhaustive Matches
 
-Adding a variant to `TypeKind` requires updating exhaustive matches in 10+ files: `ast`, `grammar`, `types`, `codegen`, `strength`, `property_tests`, `evaluator/types/mod.rs` (`read_typed_value`, `coerce_value_to_type`), `output/mod.rs` (2 length matches), `output/json.rs` (`format_value_as_hex`), and `grammar/tests.rs` (stale assertions). Note: `coerce_value_to_type` and output matches use catch-all `_ =>` so they compile without changes but may need semantic updates.
+Adding a variant to `TypeKind` requires updating exhaustive matches in 10+ files: `ast`, `grammar`, `types`, `codegen`, `strength`, `property_tests`, `evaluator/types/mod.rs` (`read_typed_value`, `coerce_value_to_type`, **`bytes_consumed`** -- variable-width variants must be matched explicitly or relative-offset anchors will silently corrupt), `output/mod.rs` (2 length matches), `output/json.rs` (`format_value_as_hex`), and `grammar/tests.rs` (stale assertions). Note: `coerce_value_to_type`, output matches, and `bytes_consumed` use catch-all `_ =>` so they compile without changes but may need semantic updates -- `bytes_consumed` will fire a `debug_assert` in test/dev builds for unhandled variable-width variants.
 
 ### 2.2 `Operator` Exhaustive Matches
 
@@ -70,6 +70,12 @@ The nom `tuple` combinator is deprecated. Use bare tuple syntax `(a, b, c)` dire
 ### 3.7 Indirect Offset Pointer Specifiers Follow GNU `file` Semantics
 
 Lowercase pointer specifiers (`.s`, `.l`, `.q`) map to **little-endian**, not native endian. Uppercase (`.S`, `.L`, `.Q`) map to big-endian. All numeric pointer types are **signed by default** (per S6.3). The adjustment is parsed **after** the closing paren: `(base.type)+adj`, not `(base.type+adj)`.
+
+### 3.8 Relative Offsets: Global Anchor, No Save/Restore
+
+`OffsetSpec::Relative(N)` resolves against `EvaluationContext::last_match_end()`, which is updated after every successful match in `evaluate_rules` and is **never saved/restored across child recursion**. This is intentional and matches GNU `file`: a sibling rule sees the anchor wherever the deepest descendant of the previous sibling left it. The anchor is global/shared rather than stack-scoped, but its numeric value is not guaranteed to be non-decreasing -- a successful `Relative(-N)` rule (or any later rule that matches at a lower absolute position) can move it earlier. Do not wrap recursion in a save/restore pair "for safety" -- it would silently break sibling-after-nested chains. The recursion-depth pattern in the same loop *is* save/restore, and the asymmetry is correct.
+
+The load-bearing invariant is that the anchor is updated *before recursing into children* (so children and their followers see the new anchor). The current code also happens to set the anchor before `matches.push(...)`, but the push-ordering relative to `set_last_match_end` is incidental for anchor correctness -- only the ordering before the `evaluate_rules` recursion call matters. (Future code that reads the anchor while iterating `matches` would make this ordering load-bearing, so do not "optimize" the order without checking call sites first.) `bytes_consumed()` (in `evaluator/types/mod.rs`) is the source of truth for advance distance; for variable-width types it re-derives consumption from the buffer rather than trusting `Value::String.len()` (which can drift from the original byte length via `from_utf8_lossy`). Pascal-string consumption is also clamped against the remaining buffer to prevent attacker-controlled length prefixes from poisoning the anchor to `usize::MAX`.
 
 ## 4. Module Visibility & Re-exports
 

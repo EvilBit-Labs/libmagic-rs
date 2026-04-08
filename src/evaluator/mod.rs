@@ -40,6 +40,16 @@ pub use engine::{evaluate_rules, evaluate_rules_with_config, evaluate_single_rul
 pub struct EvaluationContext {
     /// Current offset position in the file buffer
     current_offset: usize,
+    /// End offset of the most recent successful match.
+    ///
+    /// This is the GNU `file`/libmagic anchor used to resolve relative
+    /// (`&+N` / `&-N`) offsets. It is updated to the end of the most
+    /// recently matched rule -- the value may *increase or decrease* as
+    /// successive rules match at different positions; it is not a
+    /// high-watermark. A fresh context starts with this set to 0, which
+    /// matches libmagic's behavior of resolving top-level relative offsets
+    /// from the file start.
+    last_match_end: usize,
     /// Current recursion depth for nested rule evaluation
     recursion_depth: u32,
     /// Configuration settings for evaluation behavior
@@ -66,6 +76,7 @@ impl EvaluationContext {
     pub const fn new(config: EvaluationConfig) -> Self {
         Self {
             current_offset: 0,
+            last_match_end: 0,
             recursion_depth: 0,
             config,
         }
@@ -88,6 +99,34 @@ impl EvaluationContext {
     /// * `offset` - The new offset position
     pub fn set_current_offset(&mut self, offset: usize) {
         self.current_offset = offset;
+    }
+
+    /// Get the end offset of the most recent successful match.
+    ///
+    /// This is the GNU `file`/libmagic anchor used to resolve relative
+    /// (`&+N` / `&-N`) offset specifications. A fresh context returns 0,
+    /// which makes top-level relative offsets resolve from the file start.
+    ///
+    /// `pub(crate)` because the anchor is an internal engine detail; external
+    /// consumers should not couple to it.
+    #[must_use]
+    pub(crate) const fn last_match_end(&self) -> usize {
+        self.last_match_end
+    }
+
+    /// Set the end offset of the most recent successful match.
+    ///
+    /// Called by the evaluation engine after a rule matches, to advance the
+    /// anchor used by subsequent relative offset resolution. The new value
+    /// is typically `match_offset + bytes_consumed_by_type`.
+    ///
+    /// `pub(crate)` because external callers should not be able to inject
+    /// arbitrary anchor state. External callers that need to clear the
+    /// anchor between buffer evaluations should call
+    /// `EvaluationContext::reset()`, which resets the anchor, current
+    /// offset, and recursion depth together.
+    pub(crate) fn set_last_match_end(&mut self, offset: usize) {
+        self.last_match_end = offset;
     }
 
     /// Get the current recursion depth
@@ -195,6 +234,7 @@ impl EvaluationContext {
     /// the same configuration settings.
     pub fn reset(&mut self) {
         self.current_offset = 0;
+        self.last_match_end = 0;
         self.recursion_depth = 0;
     }
 }

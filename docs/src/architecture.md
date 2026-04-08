@@ -164,8 +164,8 @@ The evaluator executes magic rules against file buffers to identify file types. 
 - `offset/`: Offset resolution submodule
   - `mod.rs`: Dispatcher (`resolve_offset`) and re-exports
   - `absolute.rs`: `OffsetError`, `resolve_absolute_offset`
-  - `indirect.rs`: `resolve_indirect_offset` stub (issue #37)
-  - `relative.rs`: `resolve_relative_offset` stub (issue #38)
+  - `indirect.rs`: `resolve_indirect_offset` for indirect pointer-based offset resolution (issue #37, shipped)
+  - `relative.rs`: `resolve_relative_offset` with GNU `file` semantics (issue #38, PR #211)
 - `operators/`: Operator application submodule
   - `mod.rs`: Dispatcher (`apply_operator`) and re-exports
   - `equality.rs`: `apply_equal`, `apply_not_equal`
@@ -185,6 +185,7 @@ The evaluator executes magic rules against file buffers to identify file types. 
 - ✅ **Recursion Limiting**: Prevent stack overflow from deep nesting
 - ✅ **Signedness Coercion**: Automatic value coercion for signed type comparisons (e.g., `0xff` → `-1` for signed byte)
 - ✅ **Comparison Operators**: Full support for `<`, `>`, `<=`, `>=` with numeric and lexicographic ordering
+- ✅ **Relative Offsets**: Resolution against previous-match anchor using GNU `file` semantics (issue #38, PR #211)
 - 📋 **Indirect Offsets**: Pointer dereferencing (planned)
 
 ### 4. I/O Module (`src/io/`)
