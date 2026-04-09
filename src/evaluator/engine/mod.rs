@@ -5,7 +5,9 @@
 //!
 //! This module contains the core recursive evaluation logic for executing magic
 //! rules against file buffers. It is responsible for:
-//! - Evaluating individual rules (`evaluate_single_rule`)
+//! - Evaluating a single rule via [`evaluate_single_rule`] (a thin wrapper
+//!   around `evaluate_rules` that delegates one rule through the full
+//!   context-aware pipeline)
 //! - Evaluating hierarchical rule sets with context (`evaluate_rules`)
 //! - Providing a convenience wrapper for evaluation with configuration
 //!   (`evaluate_rules_with_config`)
@@ -18,27 +20,37 @@ use log::{debug, warn};
 
 /// Evaluate a single magic rule against a file buffer
 ///
-/// This function performs the core rule evaluation by:
-/// 1. Resolving the rule's offset specification to an absolute position
-/// 2. Reading and interpreting bytes at that position according to the rule's type
-/// 3. Coercing the expected value to match the type's signedness and bit width
-/// 4. Applying the rule's operator to compare the read value with the expected value
+/// This is a thin wrapper around [`evaluate_rules`] that evaluates exactly
+/// one top-level rule (and any of its children) against a buffer, using the
+/// caller-provided [`EvaluationContext`] to enforce timeout, recursion, and
+/// string-size limits. It is a BREAKING API change introduced in pre-1.0:
+/// earlier versions took no context and returned `Option<(usize, Value)>`.
 ///
 /// # Arguments
 ///
 /// * `rule` - The magic rule to evaluate
 /// * `buffer` - The file buffer to evaluate against
+/// * `context` - Mutable evaluation context that carries the configured
+///   safety limits (timeout, max recursion depth, max string length) and
+///   the GNU `file` previous-match anchor used for relative-offset
+///   resolution. Callers reusing a context across multiple buffers must
+///   call [`EvaluationContext::reset`](crate::evaluator::EvaluationContext::reset)
+///   between calls -- see [`evaluate_rules`] for details.
 ///
 /// # Returns
 ///
-/// Returns `Ok(Some((offset, value)))` if the rule matches (with the resolved offset and
-/// read value), `Ok(None)` if it doesn't match, or `Err(LibmagicError)` if evaluation
-/// fails due to buffer access issues or other errors.
+/// Returns `Ok(Vec<RuleMatch>)` containing the parent match (if the rule
+/// matched) plus any child matches collected recursively. An empty vector
+/// means the rule did not match or was skipped due to a data-dependent
+/// evaluation error (buffer overrun, invalid offset, etc.). Only critical
+/// failures such as `LibmagicError::Timeout` or recursion-limit exhaustion
+/// are returned as `Err`.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use libmagic_rs::evaluator::evaluate_single_rule;
+/// use libmagic_rs::evaluator::{evaluate_single_rule, EvaluationContext};
+/// use libmagic_rs::EvaluationConfig;
 /// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
 ///
 /// // Create a rule to check for ELF magic bytes at offset 0
@@ -53,78 +65,31 @@ use log::{debug, warn};
 ///     strength_modifier: None,
 /// };
 ///
+/// let mut context = EvaluationContext::new(EvaluationConfig::default());
 /// let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
-/// let result = evaluate_single_rule(&rule, elf_buffer).unwrap();
-/// assert!(result.is_some()); // Should match
+/// let matches = evaluate_single_rule(&rule, elf_buffer, &mut context).unwrap();
+/// assert_eq!(matches.len(), 1); // Should match
 ///
+/// context.reset();
 /// let non_elf_buffer = &[0x50, 0x4b, 0x03, 0x04]; // ZIP magic bytes
-/// let result = evaluate_single_rule(&rule, non_elf_buffer).unwrap();
-/// assert!(result.is_none()); // Should not match
+/// let matches = evaluate_single_rule(&rule, non_elf_buffer, &mut context).unwrap();
+/// assert!(matches.is_empty()); // Should not match
 /// ```
-///
-/// # Relative offset behavior
-///
-/// If the rule uses [`OffsetSpec::Relative`](crate::parser::ast::OffsetSpec::Relative),
-/// this function resolves it against anchor 0. There is no "previous match"
-/// context when evaluating a single rule in isolation. The two cases are:
-///
-/// - **Non-negative delta (`Relative(N)` for `N >= 0`):** resolves to
-///   absolute offset `N`, behaving like `Absolute(N)` from the start of the
-///   buffer.
-/// - **Negative delta (`Relative(-N)` for `N > 0`):** underflows the
-///   anchor (`0 - N`) and returns `EvaluationError::InvalidOffset`. This is
-///   *not* equivalent to `Absolute(-N)`, which is interpreted as
-///   "from end" of the buffer.
-///
-/// Callers needing the GNU `file` anchor semantics (where relative offsets
-/// resolve against the end of the most recent match) should use
-/// [`evaluate_rules`] with an
-/// [`EvaluationContext`](crate::evaluator::EvaluationContext), which threads
-/// the anchor across the rule list.
-///
-/// **Behavior change:** before the relative-offset feature landed in v0.5,
-/// `OffsetSpec::Relative` returned `EvaluationError::UnsupportedType` here.
-/// It now resolves successfully against anchor 0. Callers with existing
-/// error-handling code that pattern-matched `UnsupportedType` for relative
-/// offsets must remove that arm.
-///
-/// # Limitations
-///
-/// `evaluate_single_rule` does not take an
-/// [`EvaluationContext`](crate::evaluator::EvaluationContext) and therefore
-/// bypasses the safety limits that the context normally enforces:
-///
-/// - **No timeout.** The per-evaluation wall-clock limit
-///   (`EvaluationConfig::timeout_ms`) is not checked. A pathological rule
-///   or buffer cannot be interrupted.
-/// - **No recursion limit.** The `max_recursion_depth` counter is not
-///   consulted. This function evaluates a single rule and does not recurse
-///   into `rule.children`, so it cannot itself cause unbounded recursion,
-///   but callers that implement their own child traversal on top of this
-///   API must enforce a depth limit themselves.
-/// - **No string-size limit.** `max_string_length` is not applied; the
-///   type reader uses its built-in fallbacks (read until NUL / end of
-///   buffer for `String`, length-prefixed read for `pstring`).
-///
-/// These limits are enforced only when rules are evaluated through
-/// [`evaluate_rules`] or [`evaluate_rules_with_config`], both of which
-/// thread an `EvaluationContext` that carries the validated configuration.
-/// Use [`evaluate_single_rule`] only for trusted rules against trusted
-/// buffers -- typically unit tests, debugging, or internal tooling. Prefer
-/// [`evaluate_rules_with_config`] for any code path that processes
-/// untrusted input.
 ///
 /// # Errors
 ///
-/// * `LibmagicError::EvaluationError` - If offset resolution fails, buffer access is out of bounds,
-///   or type interpretation fails
+/// * `LibmagicError::Timeout` - If evaluation exceeds the configured timeout
+/// * `LibmagicError::EvaluationError` - For critical failures such as the
+///   recursion limit being exceeded. Data-dependent errors (buffer overrun,
+///   invalid offset, malformed pstring length) are handled gracefully by
+///   [`evaluate_rules`] and surface as an empty match vector rather than
+///   an error.
 pub fn evaluate_single_rule(
     rule: &MagicRule,
     buffer: &[u8],
-) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
-    // Default the relative-offset anchor to 0 -- top-level evaluation with
-    // no prior match resolves Relative(N) to absolute N (libmagic semantics).
-    evaluate_single_rule_with_anchor(rule, buffer, 0)
+    context: &mut EvaluationContext,
+) -> Result<Vec<RuleMatch>, LibmagicError> {
+    evaluate_rules(std::slice::from_ref(rule), buffer, context)
 }
 
 /// Internal: evaluate a single rule against a buffer, supplying an explicit

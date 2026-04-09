@@ -631,8 +631,9 @@ impl MagicDatabase {
             return Ok(result);
         }
 
-        // Load the file into memory
-        let file_buffer = FileBuffer::new(path)?;
+        // Load the file into memory. Reuse the metadata we just read instead
+        // of having FileBuffer::new call canonicalize+metadata again.
+        let file_buffer = FileBuffer::from_path_and_metadata(path, &file_metadata)?;
         let buffer = file_buffer.as_slice();
 
         // Evaluate rules against the file buffer (build_result handles empty rules/matches)

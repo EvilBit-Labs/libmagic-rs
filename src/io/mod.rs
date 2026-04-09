@@ -179,6 +179,41 @@ impl FileBuffer {
         })
     }
 
+    /// Creates a new `FileBuffer` using caller-supplied metadata.
+    ///
+    /// This is a performance-focused alternative to [`FileBuffer::new`] for
+    /// callers that have already called `std::fs::metadata` on `path` (for
+    /// example, to check the empty-file case before constructing the buffer).
+    /// It skips the internal `std::fs::canonicalize` + second `metadata`
+    /// round-trip that [`FileBuffer::new`] performs, eliminating two
+    /// redundant syscalls on the hot path of
+    /// [`MagicDatabase::evaluate_file`](crate::MagicDatabase::evaluate_file).
+    ///
+    /// The caller is responsible for having read `metadata` via a path that
+    /// makes sense for their security model; this constructor does not
+    /// re-canonicalize the path. The same structural checks (regular file,
+    /// non-empty, under `MAX_FILE_SIZE`) are still applied against the
+    /// supplied metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same `IoError` variants as [`FileBuffer::new`] for
+    /// validation failures, file open failures, and mmap failures.
+    pub fn from_path_and_metadata(
+        path: &Path,
+        metadata: &std::fs::Metadata,
+    ) -> Result<Self, IoError> {
+        let path_buf = path.to_path_buf();
+        Self::check_metadata(metadata, &path_buf)?;
+        let file = Self::open_file(path, &path_buf)?;
+        let mmap = Self::create_memory_mapping(&file, &path_buf)?;
+
+        Ok(Self {
+            mmap,
+            path: path_buf,
+        })
+    }
+
     /// Opens a file for reading with proper error handling
     fn open_file(path: &Path, path_buf: &Path) -> Result<File, IoError> {
         File::open(path).map_err(|source| IoError::FileOpenError {
@@ -203,6 +238,17 @@ impl FileBuffer {
                 source,
             })?;
 
+        Self::check_metadata(&metadata, &canonical_path)
+    }
+
+    /// Apply the regular-file/size structural checks to an already-read
+    /// [`std::fs::Metadata`] value.
+    ///
+    /// Shared between [`FileBuffer::new`] (which re-reads metadata via
+    /// canonicalize) and [`FileBuffer::from_path_and_metadata`] (which reuses
+    /// caller-supplied metadata). The `reported_path` is the path to include
+    /// in any returned error.
+    fn check_metadata(metadata: &std::fs::Metadata, reported_path: &Path) -> Result<(), IoError> {
         // Check if the target is a regular file
         if !metadata.is_file() {
             let file_type = if metadata.is_dir() {
@@ -211,11 +257,11 @@ impl FileBuffer {
                 "symlink".to_string()
             } else {
                 // Check for other special file types (cross-platform)
-                Self::detect_special_file_type(&metadata)
+                Self::detect_special_file_type(metadata)
             };
 
             return Err(IoError::InvalidFileType {
-                path: canonical_path,
+                path: reported_path.to_path_buf(),
                 file_type,
             });
         }
@@ -225,14 +271,14 @@ impl FileBuffer {
         // Check if file is empty
         if file_size == 0 {
             return Err(IoError::EmptyFile {
-                path: canonical_path,
+                path: reported_path.to_path_buf(),
             });
         }
 
         // Check if file is too large
         if file_size > Self::MAX_FILE_SIZE {
             return Err(IoError::FileTooLarge {
-                path: canonical_path,
+                path: reported_path.to_path_buf(),
                 size: file_size,
                 max_size: Self::MAX_FILE_SIZE,
             });

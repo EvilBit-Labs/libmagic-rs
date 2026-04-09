@@ -8,11 +8,81 @@
 //! file types.
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
+
+/// Static, process-wide mapping from lowercased keywords to MIME types.
+///
+/// Built once via [`LazyLock`] rather than per [`MimeMapper`] instance so that
+/// constructing a [`MagicDatabase`](crate::MagicDatabase) does not pay the cost
+/// of 40+ string allocations and [`HashMap`] inserts on every construction.
+static MIME_MAPPINGS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
+    let entries: &[(&str, &str)] = &[
+        // Executables
+        ("elf", "application/x-executable"),
+        ("pe32", "application/vnd.microsoft.portable-executable"),
+        ("pe32+", "application/vnd.microsoft.portable-executable"),
+        ("mach-o", "application/x-mach-binary"),
+        ("msdos", "application/x-dosexec"),
+        // Archives
+        ("zip", "application/zip"),
+        ("gzip", "application/gzip"),
+        ("tar", "application/x-tar"),
+        ("rar", "application/vnd.rar"),
+        ("7-zip", "application/x-7z-compressed"),
+        ("bzip2", "application/x-bzip2"),
+        ("xz", "application/x-xz"),
+        // Images
+        ("jpeg", "image/jpeg"),
+        ("png", "image/png"),
+        ("gif", "image/gif"),
+        ("bmp", "image/bmp"),
+        ("webp", "image/webp"),
+        ("tiff", "image/tiff"),
+        ("ico", "image/x-icon"),
+        ("svg", "image/svg+xml"),
+        // Documents
+        ("pdf", "application/pdf"),
+        ("postscript", "application/postscript"),
+        // Audio/Video
+        ("mp3", "audio/mpeg"),
+        ("mpeg adts", "audio/mpeg"),
+        ("mpeg audio", "audio/mpeg"),
+        ("mp4", "video/mp4"),
+        ("avi", "video/x-msvideo"),
+        ("wav", "audio/wav"),
+        ("ogg", "audio/ogg"),
+        ("flac", "audio/flac"),
+        ("webm", "video/webm"),
+        // Web formats
+        ("html", "text/html"),
+        ("xml", "application/xml"),
+        ("json", "application/json"),
+        ("javascript", "text/javascript"),
+        ("css", "text/css"),
+        // Text
+        ("ascii", "text/plain"),
+        ("utf-8", "text/plain"),
+        ("text", "text/plain"),
+        // Office documents
+        ("microsoft word", "application/msword"),
+        ("microsoft excel", "application/vnd.ms-excel"),
+        ("microsoft powerpoint", "application/vnd.ms-powerpoint"),
+    ];
+
+    let mut map = HashMap::with_capacity(entries.len());
+    for &(k, v) in entries {
+        map.insert(k, v);
+    }
+    map
+});
 
 /// MIME type mapper for converting file descriptions to MIME types
 ///
 /// Provides case-insensitive matching of file type descriptions
 /// to their corresponding MIME types.
+///
+/// Internally backed by a process-wide [`LazyLock`] table, so construction is
+/// effectively free and the underlying mapping is shared across all instances.
 ///
 /// # Examples
 ///
@@ -24,20 +94,17 @@ use std::collections::HashMap;
 /// assert_eq!(mapper.get_mime_type("PNG image data"), Some("image/png".to_string()));
 /// assert_eq!(mapper.get_mime_type("unknown format"), None);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct MimeMapper {
-    /// Mapping from description keywords to MIME types
-    mappings: HashMap<String, String>,
-}
-
-impl Default for MimeMapper {
-    fn default() -> Self {
-        Self::new()
-    }
+    _private: (),
 }
 
 impl MimeMapper {
-    /// Create a new MIME mapper with hardcoded mappings
+    /// Create a new MIME mapper.
+    ///
+    /// This is a zero-cost constructor: all mappings are shared through a
+    /// process-wide [`LazyLock`] table initialized on first use. Repeated calls
+    /// to `new` do not rebuild the mapping.
     ///
     /// Includes mappings for common file types:
     /// - Executables (ELF, PE32, Mach-O)
@@ -49,91 +116,7 @@ impl MimeMapper {
     /// - Text formats
     #[must_use]
     pub fn new() -> Self {
-        let mut mappings = HashMap::new();
-
-        // Executables
-        mappings.insert("elf".to_string(), "application/x-executable".to_string());
-        mappings.insert(
-            "pe32".to_string(),
-            "application/vnd.microsoft.portable-executable".to_string(),
-        );
-        mappings.insert(
-            "pe32+".to_string(),
-            "application/vnd.microsoft.portable-executable".to_string(),
-        );
-        mappings.insert(
-            "mach-o".to_string(),
-            "application/x-mach-binary".to_string(),
-        );
-        mappings.insert("msdos".to_string(), "application/x-dosexec".to_string());
-
-        // Archives
-        mappings.insert("zip".to_string(), "application/zip".to_string());
-        mappings.insert("gzip".to_string(), "application/gzip".to_string());
-        mappings.insert("tar".to_string(), "application/x-tar".to_string());
-        mappings.insert("rar".to_string(), "application/vnd.rar".to_string());
-        mappings.insert(
-            "7-zip".to_string(),
-            "application/x-7z-compressed".to_string(),
-        );
-        mappings.insert("bzip2".to_string(), "application/x-bzip2".to_string());
-        mappings.insert("xz".to_string(), "application/x-xz".to_string());
-
-        // Images
-        mappings.insert("jpeg".to_string(), "image/jpeg".to_string());
-        mappings.insert("png".to_string(), "image/png".to_string());
-        mappings.insert("gif".to_string(), "image/gif".to_string());
-        mappings.insert("bmp".to_string(), "image/bmp".to_string());
-        mappings.insert("webp".to_string(), "image/webp".to_string());
-        mappings.insert("tiff".to_string(), "image/tiff".to_string());
-        mappings.insert("ico".to_string(), "image/x-icon".to_string());
-        mappings.insert("svg".to_string(), "image/svg+xml".to_string());
-
-        // Documents
-        mappings.insert("pdf".to_string(), "application/pdf".to_string());
-        mappings.insert(
-            "postscript".to_string(),
-            "application/postscript".to_string(),
-        );
-
-        // Audio/Video
-        mappings.insert("mp3".to_string(), "audio/mpeg".to_string());
-        mappings.insert("mpeg adts".to_string(), "audio/mpeg".to_string());
-        mappings.insert("mpeg audio".to_string(), "audio/mpeg".to_string());
-        mappings.insert("mp4".to_string(), "video/mp4".to_string());
-        mappings.insert("avi".to_string(), "video/x-msvideo".to_string());
-        mappings.insert("wav".to_string(), "audio/wav".to_string());
-        mappings.insert("ogg".to_string(), "audio/ogg".to_string());
-        mappings.insert("flac".to_string(), "audio/flac".to_string());
-        mappings.insert("webm".to_string(), "video/webm".to_string());
-
-        // Web formats
-        mappings.insert("html".to_string(), "text/html".to_string());
-        mappings.insert("xml".to_string(), "application/xml".to_string());
-        mappings.insert("json".to_string(), "application/json".to_string());
-        mappings.insert("javascript".to_string(), "text/javascript".to_string());
-        mappings.insert("css".to_string(), "text/css".to_string());
-
-        // Text
-        mappings.insert("ascii".to_string(), "text/plain".to_string());
-        mappings.insert("utf-8".to_string(), "text/plain".to_string());
-        mappings.insert("text".to_string(), "text/plain".to_string());
-
-        // Office documents
-        mappings.insert(
-            "microsoft word".to_string(),
-            "application/msword".to_string(),
-        );
-        mappings.insert(
-            "microsoft excel".to_string(),
-            "application/vnd.ms-excel".to_string(),
-        );
-        mappings.insert(
-            "microsoft powerpoint".to_string(),
-            "application/vnd.ms-powerpoint".to_string(),
-        );
-
-        Self { mappings }
+        Self { _private: () }
     }
 
     /// Get MIME type for a file description
@@ -170,35 +153,35 @@ impl MimeMapper {
 
         // Find the longest matching keyword for best specificity
         // e.g., "gzip" should match before "zip" for "gzip compressed"
-        let mut best_match: Option<(&String, &String)> = None;
+        let mut best_match: Option<(&'static str, &'static str)> = None;
 
-        for (keyword, mime_type) in &self.mappings {
-            if lower.contains(keyword.as_str()) {
+        for (keyword, mime_type) in MIME_MAPPINGS.iter() {
+            if lower.contains(*keyword) {
                 match best_match {
                     Some((best_keyword, _)) if keyword.len() > best_keyword.len() => {
-                        best_match = Some((keyword, mime_type));
+                        best_match = Some((*keyword, *mime_type));
                     }
                     None => {
-                        best_match = Some((keyword, mime_type));
+                        best_match = Some((*keyword, *mime_type));
                     }
                     _ => {}
                 }
             }
         }
 
-        best_match.map(|(_, mime_type)| mime_type.clone())
+        best_match.map(|(_, mime_type)| mime_type.to_string())
     }
 
     /// Get the number of registered MIME mappings
     #[must_use]
     pub fn len(&self) -> usize {
-        self.mappings.len()
+        MIME_MAPPINGS.len()
     }
 
     /// Check if the mapper has no mappings
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.mappings.is_empty()
+        MIME_MAPPINGS.is_empty()
     }
 }
 

@@ -456,11 +456,16 @@ pub fn evaluate_rules_with_config(
     config: &EvaluationConfig,
 ) -> Result<Vec<RuleMatch>, LibmagicError>;
 
-/// Evaluate a single rule (used internally and for testing)
+/// Evaluate a single rule with an explicit context
+///
+/// Thin wrapper around `evaluate_rules` for a single top-level rule.
+/// Takes a mutable `EvaluationContext` so timeout, recursion, and string
+/// size limits are enforced consistently.
 pub fn evaluate_single_rule(
     rule: &MagicRule,
     buffer: &[u8],
-) -> Result<Option<(usize, Value)>, LibmagicError>;
+    context: &mut EvaluationContext,
+) -> Result<Vec<RuleMatch>, LibmagicError>;
 ```
 
 ### Usage Example

@@ -78,9 +78,26 @@ pub fn read_string(
     };
 
     let string_bytes = &remaining_buffer[..read_length];
-    let string_value = String::from_utf8_lossy(string_bytes).into_owned();
+    let string_value = bytes_to_string_fast(string_bytes);
 
     Ok(Value::String(string_value))
+}
+
+/// Convert bytes to an owned `String`, avoiding an allocation when the bytes
+/// are already valid UTF-8.
+///
+/// `String::from_utf8_lossy` returns `Cow::Borrowed` for valid UTF-8 input, but
+/// calling `.into_owned()` on that borrow still allocates a fresh `String`. By
+/// trying `std::str::from_utf8` first we can hand the borrowed `&str` directly
+/// to `String::from`, which is still one allocation but avoids the double-copy
+/// path through `Cow`. Only on invalid UTF-8 do we fall back to
+/// `from_utf8_lossy`, which must allocate to insert replacement characters.
+#[inline]
+fn bytes_to_string_fast(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(valid) => String::from(valid),
+        Err(_) => String::from_utf8_lossy(bytes).into_owned(),
+    }
 }
 
 /// Reads a Pascal-style length-prefixed string from the buffer.
@@ -235,7 +252,7 @@ pub fn read_pstring(
         });
     }
     let string_bytes = &buffer[string_start..string_end];
-    let string_value = String::from_utf8_lossy(string_bytes).into_owned();
+    let string_value = bytes_to_string_fast(string_bytes);
     Ok(Value::String(string_value))
 }
 
