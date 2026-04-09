@@ -12,6 +12,7 @@ mod numeric;
 mod string;
 
 use crate::parser::ast::{TypeKind, Value};
+use std::borrow::Cow;
 use thiserror::Error;
 
 use date::format_timestamp_value;
@@ -122,6 +123,11 @@ pub fn read_typed_value(
 
 /// Coerces a rule value to the signed width implied by `type_kind`.
 ///
+/// Returns a [`Cow::Borrowed`] when no coercion is needed (the hot path for
+/// most rule evaluations, e.g. string matching), and a [`Cow::Owned`] only
+/// when the value must be transformed. This avoids an allocation on every
+/// rule evaluation for `Value::String` and other pass-through cases.
+///
 /// # Examples
 ///
 /// ```
@@ -129,45 +135,45 @@ pub fn read_typed_value(
 /// use libmagic_rs::parser::ast::{TypeKind, Value};
 ///
 /// let coerced = coerce_value_to_type(&Value::Uint(0xff), &TypeKind::Byte { signed: true });
-/// assert_eq!(coerced, Value::Int(-1));
+/// assert_eq!(*coerced, Value::Int(-1));
 /// ```
 #[must_use]
-pub fn coerce_value_to_type(value: &Value, type_kind: &TypeKind) -> Value {
+pub fn coerce_value_to_type<'a>(value: &'a Value, type_kind: &TypeKind) -> Cow<'a, Value> {
     match (value, type_kind) {
         (Value::Uint(v), TypeKind::Byte { signed: true }) if *v > i8::MAX as u64 =>
         {
             #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-            Value::Int(i64::from(*v as u8 as i8))
+            Cow::Owned(Value::Int(i64::from(*v as u8 as i8)))
         }
         (Value::Uint(v), TypeKind::Short { signed: true, .. }) if *v > i16::MAX as u64 =>
         {
             #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-            Value::Int(i64::from(*v as u16 as i16))
+            Cow::Owned(Value::Int(i64::from(*v as u16 as i16)))
         }
         (Value::Uint(v), TypeKind::Long { signed: true, .. }) if *v > i32::MAX as u64 =>
         {
             #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-            Value::Int(i64::from(*v as u32 as i32))
+            Cow::Owned(Value::Int(i64::from(*v as u32 as i32)))
         }
         (Value::Uint(v), TypeKind::Quad { signed: true, .. }) if *v > i64::MAX as u64 =>
         {
             #[allow(clippy::cast_possible_wrap)]
-            Value::Int(*v as i64)
+            Cow::Owned(Value::Int(*v as i64))
         }
         // Round f64 expected value to f32 precision for TypeKind::Float so that
         // parsed f64 literals compare correctly against f32-widened file values.
         #[allow(clippy::cast_possible_truncation)]
-        (Value::Float(v), TypeKind::Float { .. }) => Value::Float(f64::from(*v as f32)),
+        (Value::Float(v), TypeKind::Float { .. }) => Cow::Owned(Value::Float(f64::from(*v as f32))),
         // Normalize numeric expected values for date types into formatted timestamp
         // strings so they match the Value::String representation from read_date/read_qdate.
         (Value::Uint(v), TypeKind::Date { utc, .. } | TypeKind::QDate { utc, .. }) => {
-            Value::String(format_timestamp_value(*v, *utc))
+            Cow::Owned(Value::String(format_timestamp_value(*v, *utc)))
         }
         #[allow(clippy::cast_sign_loss)]
         (Value::Int(v), TypeKind::Date { utc, .. } | TypeKind::QDate { utc, .. }) if *v >= 0 => {
-            Value::String(format_timestamp_value(*v as u64, *utc))
+            Cow::Owned(Value::String(format_timestamp_value(*v as u64, *utc)))
         }
-        _ => value.clone(),
+        _ => Cow::Borrowed(value),
     }
 }
 

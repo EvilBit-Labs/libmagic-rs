@@ -169,11 +169,29 @@ pub enum OffsetSpec {
 #[non_exhaustive]
 pub enum TypeKind {
     /// Single byte
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::TypeKind;
+    ///
+    /// let byte = TypeKind::Byte { signed: true };
+    /// assert_eq!(byte, TypeKind::Byte { signed: true });
+    /// ```
     Byte {
         /// Whether value is signed
         signed: bool,
     },
     /// 16-bit integer
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+    ///
+    /// let short = TypeKind::Short { endian: Endianness::Little, signed: true };
+    /// assert_eq!(short, TypeKind::Short { endian: Endianness::Little, signed: true });
+    /// ```
     Short {
         /// Byte order
         endian: Endianness,
@@ -181,6 +199,15 @@ pub enum TypeKind {
         signed: bool,
     },
     /// 32-bit integer
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+    ///
+    /// let long = TypeKind::Long { endian: Endianness::Big, signed: false };
+    /// assert_eq!(long, TypeKind::Long { endian: Endianness::Big, signed: false });
+    /// ```
     Long {
         /// Byte order
         endian: Endianness,
@@ -264,6 +291,18 @@ pub enum TypeKind {
         utc: bool,
     },
     /// String data
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::TypeKind;
+    ///
+    /// let s = TypeKind::String { max_length: None };
+    /// assert_eq!(s, TypeKind::String { max_length: None });
+    ///
+    /// let capped = TypeKind::String { max_length: Some(32) };
+    /// assert_eq!(capped, TypeKind::String { max_length: Some(32) });
+    /// ```
     String {
         /// Maximum length to read
         max_length: Option<usize>,
@@ -458,8 +497,26 @@ pub enum Operator {
 #[non_exhaustive]
 pub enum Value {
     /// Unsigned integer value
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Value;
+    ///
+    /// let val = Value::Uint(0xDEAD_BEEF);
+    /// assert_eq!(val, Value::Uint(0xDEAD_BEEF));
+    /// ```
     Uint(u64),
     /// Signed integer value
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Value;
+    ///
+    /// let val = Value::Int(-42);
+    /// assert_eq!(val, Value::Int(-42));
+    /// ```
     Int(i64),
     /// Floating-point value (used for `float` and `double` types)
     ///
@@ -473,8 +530,26 @@ pub enum Value {
     /// ```
     Float(f64),
     /// Byte sequence
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Value;
+    ///
+    /// let val = Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]);
+    /// assert_eq!(val, Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]));
+    /// ```
     Bytes(Vec<u8>),
     /// String value
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Value;
+    ///
+    /// let val = Value::String("MZ".to_string());
+    /// assert_eq!(val, Value::String("MZ".to_string()));
+    /// ```
     String(String),
 }
 
@@ -482,10 +557,37 @@ pub enum Value {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Endianness {
     /// Little-endian byte order (least significant byte first)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Endianness;
+    ///
+    /// let e = Endianness::Little;
+    /// assert_eq!(e, Endianness::Little);
+    /// ```
     Little,
     /// Big-endian byte order (most significant byte first)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Endianness;
+    ///
+    /// let e = Endianness::Big;
+    /// assert_eq!(e, Endianness::Big);
+    /// ```
     Big,
     /// Native system byte order (matches target architecture)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::Endianness;
+    ///
+    /// let e = Endianness::Native;
+    /// assert_eq!(e, Endianness::Native);
+    /// ```
     Native,
 }
 

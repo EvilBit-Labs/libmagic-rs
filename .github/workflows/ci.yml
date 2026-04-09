@@ -7,6 +7,9 @@ on:
         branches: [main]
     workflow_dispatch:
 
+permissions:
+    contents: read
+
 defaults:
     run:
         shell: bash
@@ -101,6 +104,9 @@ jobs:
 
             - name: Combine coverage reports
               run: cargo llvm-cov report --lcov --output-path lcov.info
+
+            - name: Enforce 85% coverage threshold
+              run: cargo llvm-cov report --fail-under-lines 85
 
             - name: Upload to Codecov
               uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0

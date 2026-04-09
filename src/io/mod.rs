@@ -20,27 +20,6 @@ type BufferLength = usize;
 /// Type alias for file sizes in bytes
 type FileSize = u64;
 
-/// Internal trait for safe buffer operations
-trait SafeBufferAccess {
-    /// Validates that an access operation is within bounds
-    fn validate_access(&self, offset: BufferOffset, length: BufferLength) -> Result<(), IoError>;
-
-    /// Gets a safe slice from the buffer
-    fn get_safe_slice(&self, offset: BufferOffset, length: BufferLength) -> Result<&[u8], IoError>;
-}
-
-impl SafeBufferAccess for [u8] {
-    fn validate_access(&self, offset: BufferOffset, length: BufferLength) -> Result<(), IoError> {
-        validate_buffer_access(self.len(), offset, length)
-    }
-
-    fn get_safe_slice(&self, offset: BufferOffset, length: BufferLength) -> Result<&[u8], IoError> {
-        self.validate_access(offset, length)?;
-        let end_offset = offset + length; // Safe after validation
-        Ok(&self[offset..end_offset])
-    }
-}
-
 /// Errors that can occur during file I/O operations
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -158,17 +137,6 @@ impl FileBuffer {
     /// magic rule evaluation and may indicate malicious input.
     pub const MAX_FILE_SIZE: FileSize = 1024 * 1024 * 1024;
 
-    /// Maximum number of concurrent file mappings to prevent resource exhaustion
-    /// TODO: Implement concurrent mapping tracking in future versions
-    #[allow(dead_code)]
-    const MAX_CONCURRENT_MAPPINGS: usize = 100;
-
-    // TODO: Consider implementing adaptive I/O strategy for small files
-    // Files smaller than 4KB might benefit from regular read() instead of mmap
-    // This would require benchmarking to determine the optimal threshold
-    #[allow(dead_code)]
-    const SMALL_FILE_THRESHOLD: u64 = 4096;
-
     /// Creates a new memory-mapped file buffer
     ///
     /// # Arguments
@@ -199,11 +167,6 @@ impl FileBuffer {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn new(path: &Path) -> Result<Self, IoError> {
-        // TODO: Add additional error handling for edge cases:
-        // - Handle symbolic links and their resolution
-        // - Add validation for path length limits on different platforms
-        // - Handle special files (devices, pipes, etc.) gracefully
-        // - Add retry logic for transient I/O errors
         let path_buf = path.to_path_buf();
 
         let file = Self::open_file(path, &path_buf)?;
@@ -259,11 +222,6 @@ impl FileBuffer {
 
         let file_size = metadata.len();
 
-        // TODO: Add more comprehensive file validation:
-        // - Validate file permissions for reading
-        // - Handle sparse files and their actual disk usage
-        // - Add warnings for files that might be too small for meaningful analysis
-
         // Check if file is empty
         if file_size == 0 {
             return Err(IoError::EmptyFile {
@@ -314,7 +272,7 @@ impl FileBuffer {
         }
     }
 
-    /// Creates a symlink in a cross-platform manner
+    /// Creates a symlink in a cross-platform manner (test helper only).
     ///
     /// # Arguments
     /// * `original` - The path to the original file or directory
@@ -324,7 +282,8 @@ impl FileBuffer {
     /// * Returns `std::io::Error` if symlink creation fails (e.g., insufficient permissions)
     /// * On Windows, may require admin privileges or developer mode enabled
     /// * On non-Unix/Windows platforms, returns an "Unsupported" error
-    pub fn create_symlink<P: AsRef<std::path::Path>, Q: AsRef<std::path::Path>>(
+    #[cfg(test)]
+    pub(crate) fn create_symlink<P: AsRef<std::path::Path>, Q: AsRef<std::path::Path>>(
         original: P,
         link: Q,
     ) -> Result<(), std::io::Error> {
@@ -499,11 +458,9 @@ pub fn safe_read_bytes(
     offset: BufferOffset,
     length: BufferLength,
 ) -> Result<&[u8], IoError> {
-    // TODO: Add performance monitoring and warnings:
-    // - Log warnings for very large read operations that might impact performance
-    // - Add metrics collection for buffer access patterns
-    // - Consider caching frequently accessed buffer regions
-    buffer.get_safe_slice(offset, length)
+    validate_buffer_access(buffer.len(), offset, length)?;
+    let end_offset = offset + length; // Safe after validation
+    Ok(&buffer[offset..end_offset])
 }
 
 /// Safely reads a single byte from a buffer with bounds checking
@@ -614,17 +571,6 @@ pub fn validate_buffer_access(
     }
 
     Ok(())
-}
-
-// RAII cleanup is handled automatically by the Drop trait implementation
-// of Mmap, which properly unmaps the memory and closes file handles.
-// This implementation is kept explicit for documentation purposes.
-impl Drop for FileBuffer {
-    fn drop(&mut self) {
-        // Mmap handles cleanup automatically through its Drop implementation
-        // The memory mapping is safely unmapped and file handles are closed
-        // No explicit cleanup needed here due to RAII patterns
-    }
 }
 
 #[cfg(test)]

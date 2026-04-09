@@ -120,19 +120,20 @@ fn evaluate_single_rule_with_anchor(
     let read_value = types::read_typed_value(buffer, absolute_offset, &rule.typ)
         .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
 
-    // Step 3: Coerce the rule's expected value to match the type's signedness/width
+    // Step 3: Coerce the rule's expected value to match the type's signedness/width.
+    // `coerce_value_to_type` returns `Cow::Borrowed` on the hot path so no
+    // allocation happens for pass-through values (e.g., string matches).
     let expected_value = types::coerce_value_to_type(&rule.value, &rule.typ);
+    let expected_ref: &crate::parser::ast::Value = expected_value.as_ref();
 
     // Step 4: Apply the operator to compare the read value with the expected value
     // BitwiseNot needs type-aware bit-width masking so the complement is computed
     // at the type's natural width (e.g., byte NOT of 0x00 = 0xFF, not u64::MAX).
     let matched = match &rule.op {
-        crate::parser::ast::Operator::BitwiseNot => operators::apply_bitwise_not_with_width(
-            &read_value,
-            &expected_value,
-            rule.typ.bit_width(),
-        ),
-        op => operators::apply_operator(op, &read_value, &expected_value),
+        crate::parser::ast::Operator::BitwiseNot => {
+            operators::apply_bitwise_not_with_width(&read_value, expected_ref, rule.typ.bit_width())
+        }
+        op => operators::apply_operator(op, &read_value, expected_ref),
     };
     Ok(matched.then_some((absolute_offset, read_value)))
 }

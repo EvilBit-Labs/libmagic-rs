@@ -12,7 +12,6 @@ use clap_stdin::FileOrStdin;
 use libmagic_rs::output::json::{format_json_line_output, format_json_output};
 use libmagic_rs::parser::{MagicFileFormat, detect_format};
 use libmagic_rs::{LibmagicError, MagicDatabase};
-use std::fs;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process;
@@ -398,10 +397,24 @@ fn load_magic_database(args: &Args) -> Result<MagicDatabase, LibmagicError> {
         ));
     }
 
-    // Validate magic file format
-    validate_magic_file(&magic_file_path)?;
+    // Reject empty magic files with a clear user-facing message. The parser
+    // will silently accept a zero-byte file and produce zero rules, which
+    // surfaces as a misleading "data" classification rather than a setup
+    // error — so we catch it here where we can emit a targeted message.
+    if let Ok(metadata) = std::fs::metadata(&magic_file_path)
+        && metadata.is_file()
+        && metadata.len() == 0
+    {
+        return Err(LibmagicError::ParseError(
+            libmagic_rs::ParseError::invalid_syntax(
+                0,
+                format!("Magic file {} is empty", magic_file_path.display()),
+            ),
+        ));
+    }
 
-    // Load and return database with custom config
+    // Load and return database with custom config. Underlying parser/IO
+    // errors propagate directly without a redundant pre-validation pass.
     MagicDatabase::load_from_file_with_config(&magic_file_path, config)
 }
 
@@ -503,10 +516,8 @@ fn process_file(
     // Use the filename() method to get the path
     let file_path = PathBuf::from(file_or_stdin.filename());
 
-    // Validate file exists and is accessible
-    validate_input_file(&file_path)?;
-
-    // Evaluate file
+    // Evaluate file -- FileBuffer / evaluator surface their own errors
+    // for missing files, directories, permissions, etc.
     let result = db.evaluate_file(&file_path)?;
 
     // Output results based on format
@@ -582,83 +593,6 @@ fn validate_arguments(args: &Args) -> Result<(), LibmagicError> {
     }
 
     Ok(())
-}
-
-/// Validate that the input file exists and is accessible
-fn validate_input_file(file_path: &Path) -> Result<(), LibmagicError> {
-    if !file_path.exists() {
-        return Err(LibmagicError::IoError(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("File not found: {}", file_path.display()),
-        )));
-    }
-
-    // Check if it's a directory
-    if file_path.is_dir() {
-        return Err(LibmagicError::IoError(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!("Path is a directory, not a file: {}", file_path.display()),
-        )));
-    }
-
-    // Try to access the file to check permissions
-    match fs::File::open(file_path) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(LibmagicError::IoError(e)),
-    }
-}
-
-/// Validate that the magic file exists and is readable
-fn validate_magic_file(magic_file_path: &Path) -> Result<(), LibmagicError> {
-    if !magic_file_path.exists() {
-        return Err(LibmagicError::ParseError(
-            libmagic_rs::ParseError::invalid_syntax(
-                0,
-                format!("Magic file not found: {}", magic_file_path.display()),
-            ),
-        ));
-    }
-
-    // Directories are supported via load_magic_file
-    if magic_file_path.is_dir() {
-        return Ok(());
-    }
-
-    // Try to read the magic file to check permissions and basic format
-    // Handle both text magic files and binary .mgc files
-    match fs::read(magic_file_path) {
-        Ok(content) => {
-            // Basic validation - check if file is completely empty
-            if content.is_empty() {
-                return Err(LibmagicError::ParseError(
-                    libmagic_rs::ParseError::invalid_syntax(0, "Magic file is empty"),
-                ));
-            }
-
-            // Check if it's a binary magic file (.mgc) - these start with specific magic bytes
-            if content.starts_with(b"\x0d\x0a\x1a\x0a") || content.len() > 100_000 {
-                // Looks like a binary magic file, just check it's readable
-                Ok(())
-            } else {
-                // Try to parse as text magic file
-                match std::str::from_utf8(&content) {
-                    Ok(text_content) => {
-                        if text_content.trim().is_empty() {
-                            return Err(LibmagicError::ParseError(
-                                libmagic_rs::ParseError::invalid_syntax(0, "Magic file is empty"),
-                            ));
-                        }
-                        Ok(())
-                    }
-                    Err(_) => {
-                        // Not valid UTF-8, might be a binary file - allow it
-                        Ok(())
-                    }
-                }
-            }
-        }
-        Err(e) => Err(LibmagicError::IoError(e)),
-    }
 }
 
 #[cfg(test)]
@@ -1021,110 +955,6 @@ mod tests {
             generate_completion: None,
         };
         let result = validate_arguments(&args_with_magic);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_input_file_not_found() {
-        let result = validate_input_file(&PathBuf::from("nonexistent_file.bin"));
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            LibmagicError::IoError(e) => {
-                assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
-                assert!(e.to_string().contains("File not found"));
-            }
-            _ => panic!("Expected IoError with NotFound"),
-        }
-    }
-
-    #[test]
-    fn test_validate_input_file_directory() {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-
-        let result = validate_input_file(temp_dir.path());
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            LibmagicError::IoError(e) => {
-                assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
-                assert!(e.to_string().contains("Path is a directory"));
-            }
-            _ => panic!("Expected IoError with InvalidInput"),
-        }
-    }
-
-    #[test]
-    fn test_validate_input_file_valid() {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let temp_file = temp_dir.path().join("test_validate_file.bin");
-        fs::write(&temp_file, b"test content").expect("Failed to write test file");
-
-        let result = validate_input_file(&temp_file);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_magic_file_not_found() {
-        let result = validate_magic_file(&PathBuf::from("nonexistent_magic.db"));
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            LibmagicError::ParseError(parse_err) => {
-                let msg = parse_err.to_string();
-                assert!(msg.contains("Magic file not found"));
-            }
-            _ => panic!("Expected ParseError"),
-        }
-    }
-
-    #[test]
-    fn test_validate_magic_file_directory() {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-
-        let result = validate_magic_file(temp_dir.path());
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_magic_file_empty() {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let temp_file = temp_dir.path().join("test_empty_magic.db");
-        fs::write(&temp_file, "").expect("Failed to write test file");
-
-        let result = validate_magic_file(&temp_file);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            LibmagicError::ParseError(parse_err) => {
-                let msg = parse_err.to_string();
-                assert!(msg.contains("Magic file is empty"));
-            }
-            _ => panic!("Expected ParseError"),
-        }
-    }
-
-    #[test]
-    fn test_validate_magic_file_whitespace_only() {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let temp_file = temp_dir.path().join("test_whitespace_magic.db");
-        fs::write(&temp_file, "   \n\t  \r\n  ").expect("Failed to write test file");
-
-        let result = validate_magic_file(&temp_file);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            LibmagicError::ParseError(parse_err) => {
-                let msg = parse_err.to_string();
-                assert!(msg.contains("Magic file is empty"));
-            }
-            _ => panic!("Expected ParseError"),
-        }
-    }
-
-    #[test]
-    fn test_validate_magic_file_valid() {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let temp_file = temp_dir.path().join("test_valid_magic.db");
-        fs::write(&temp_file, "# Magic file\n0 string test Test file")
-            .expect("Failed to write test file");
-
-        let result = validate_magic_file(&temp_file);
         assert!(result.is_ok());
     }
 
