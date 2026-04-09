@@ -288,12 +288,44 @@ pub fn calculate_rule_strength(rule: &MagicRule) -> i32 {
 /// assert_eq!(rules[1].message, "byte rule");
 /// ```
 pub fn sort_rules_by_strength(rules: &mut [MagicRule]) {
-    rules.sort_by(|a, b| {
-        let strength_a = calculate_rule_strength(a);
-        let strength_b = calculate_rule_strength(b);
-        // Sort in descending order (higher strength first)
-        strength_b.cmp(&strength_a)
-    });
+    // Use a stable sort keyed on the negated strength so that higher-strength
+    // rules come first while preserving source order for ties. This avoids
+    // breaking tests that rely on deterministic ordering of equal-strength
+    // rules.
+    rules.sort_by_cached_key(|rule| -calculate_rule_strength(rule));
+}
+
+/// Sort magic rules by strength in descending order, recursively sorting child
+/// rules as well.
+///
+/// This is intended for use at magic database load time so that first-match
+/// evaluation encounters more-specific rules earlier. Child rules (nested
+/// under a parent match) are also sorted so that the same ordering benefit
+/// applies within each hierarchical level.
+///
+/// The sort is stable: rules with equal strength preserve their source
+/// order, so test assertions and libmagic-file semantics that depend on
+/// the original ordering of equal-strength siblings continue to hold.
+///
+/// # Arguments
+///
+/// * `rules` - The slice of magic rules to sort (in-place, recursive)
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
+/// use libmagic_rs::evaluator::strength::sort_rules_by_strength_recursive;
+///
+/// let mut rules: Vec<MagicRule> = vec![];
+/// sort_rules_by_strength_recursive(&mut rules);
+/// assert!(rules.is_empty());
+/// ```
+pub fn sort_rules_by_strength_recursive(rules: &mut [MagicRule]) {
+    sort_rules_by_strength(rules);
+    for rule in rules.iter_mut() {
+        sort_rules_by_strength_recursive(&mut rule.children);
+    }
 }
 
 /// Sort magic rules by strength and return the sorted vec (consuming the input).

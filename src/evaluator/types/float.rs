@@ -1,7 +1,7 @@
 // Copyright (c) 2025-2026 the libmagic-rs contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use super::TypeReadError;
+use super::{TypeReadError, read_bytes_at};
 use crate::parser::ast::{Endianness, Value};
 
 /// Safely reads a 32-bit IEEE 754 float from the buffer at the specified offset.
@@ -35,17 +35,7 @@ pub fn read_float(
     offset: usize,
     endian: Endianness,
 ) -> Result<Value, TypeReadError> {
-    let end = offset.checked_add(4).ok_or(TypeReadError::BufferOverrun {
-        offset,
-        buffer_len: buffer.len(),
-    })?;
-    let arr: [u8; 4] = buffer
-        .get(offset..end)
-        .and_then(|s| s.try_into().ok())
-        .ok_or(TypeReadError::BufferOverrun {
-            offset,
-            buffer_len: buffer.len(),
-        })?;
+    let arr: [u8; 4] = read_bytes_at(buffer, offset)?;
 
     let value = match endian {
         Endianness::Little => f32::from_le_bytes(arr),
@@ -85,17 +75,7 @@ pub fn read_double(
     offset: usize,
     endian: Endianness,
 ) -> Result<Value, TypeReadError> {
-    let end = offset.checked_add(8).ok_or(TypeReadError::BufferOverrun {
-        offset,
-        buffer_len: buffer.len(),
-    })?;
-    let arr: [u8; 8] = buffer
-        .get(offset..end)
-        .and_then(|s| s.try_into().ok())
-        .ok_or(TypeReadError::BufferOverrun {
-            offset,
-            buffer_len: buffer.len(),
-        })?;
+    let arr: [u8; 8] = read_bytes_at(buffer, offset)?;
 
     let value = match endian {
         Endianness::Little => f64::from_le_bytes(arr),

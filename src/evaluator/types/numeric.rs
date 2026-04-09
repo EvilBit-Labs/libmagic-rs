@@ -1,7 +1,7 @@
 // Copyright (c) 2025-2026 the libmagic-rs contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use super::TypeReadError;
+use super::{TypeReadError, read_bytes_at};
 use crate::parser::ast::{Endianness, Value};
 
 /// Safely reads a single byte from the buffer at the specified offset.
@@ -77,17 +77,7 @@ pub fn read_short(
     endian: Endianness,
     signed: bool,
 ) -> Result<Value, TypeReadError> {
-    let end = offset.checked_add(2).ok_or(TypeReadError::BufferOverrun {
-        offset,
-        buffer_len: buffer.len(),
-    })?;
-    let arr: [u8; 2] = buffer
-        .get(offset..end)
-        .and_then(|s| s.try_into().ok())
-        .ok_or(TypeReadError::BufferOverrun {
-            offset,
-            buffer_len: buffer.len(),
-        })?;
+    let arr: [u8; 2] = read_bytes_at(buffer, offset)?;
 
     let value = match endian {
         Endianness::Little => u16::from_le_bytes(arr),
@@ -135,17 +125,7 @@ pub fn read_long(
     endian: Endianness,
     signed: bool,
 ) -> Result<Value, TypeReadError> {
-    let end = offset.checked_add(4).ok_or(TypeReadError::BufferOverrun {
-        offset,
-        buffer_len: buffer.len(),
-    })?;
-    let arr: [u8; 4] = buffer
-        .get(offset..end)
-        .and_then(|s| s.try_into().ok())
-        .ok_or(TypeReadError::BufferOverrun {
-            offset,
-            buffer_len: buffer.len(),
-        })?;
+    let arr: [u8; 4] = read_bytes_at(buffer, offset)?;
 
     let value = match endian {
         Endianness::Little => u32::from_le_bytes(arr),
@@ -193,17 +173,7 @@ pub fn read_quad(
     endian: Endianness,
     signed: bool,
 ) -> Result<Value, TypeReadError> {
-    let end = offset.checked_add(8).ok_or(TypeReadError::BufferOverrun {
-        offset,
-        buffer_len: buffer.len(),
-    })?;
-    let arr: [u8; 8] = buffer
-        .get(offset..end)
-        .and_then(|s| s.try_into().ok())
-        .ok_or(TypeReadError::BufferOverrun {
-            offset,
-            buffer_len: buffer.len(),
-        })?;
+    let arr: [u8; 8] = read_bytes_at(buffer, offset)?;
 
     let value = match endian {
         Endianness::Little => u64::from_le_bytes(arr),

@@ -21,6 +21,30 @@ pub use float::{read_double, read_float};
 pub use numeric::{read_byte, read_long, read_quad, read_short};
 pub use string::{read_pstring, read_string};
 
+/// Reads a fixed-size byte array from the buffer at the given offset.
+///
+/// This is a shared helper for numeric, date, and float type readers that
+/// need to extract exactly `N` bytes starting at `offset`. It performs a
+/// bounds check (with overflow-safe addition) and returns a
+/// `TypeReadError::BufferOverrun` with the original offset and buffer
+/// length if the read cannot be satisfied.
+pub(super) fn read_bytes_at<const N: usize>(
+    buffer: &[u8],
+    offset: usize,
+) -> Result<[u8; N], TypeReadError> {
+    let end = offset.checked_add(N).ok_or(TypeReadError::BufferOverrun {
+        offset,
+        buffer_len: buffer.len(),
+    })?;
+    buffer
+        .get(offset..end)
+        .and_then(|s| s.try_into().ok())
+        .ok_or(TypeReadError::BufferOverrun {
+            offset,
+            buffer_len: buffer.len(),
+        })
+}
+
 /// Errors that can occur during type reading operations.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TypeReadError {
