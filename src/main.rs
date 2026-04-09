@@ -248,6 +248,8 @@ pub enum OutputFormat {
 }
 
 fn main() {
+    env_logger::init();
+
     let args = Args::parse();
 
     // Handle shell completion generation

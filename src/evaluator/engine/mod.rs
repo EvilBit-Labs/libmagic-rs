@@ -232,12 +232,23 @@ pub fn evaluate_rules(
     let start_time = std::time::Instant::now();
     let mut rule_count = 0u32;
 
+    // Entry-point timeout check: ensures every recursive descent is bounded
+    // and that evaluations of small rule sets (< 16 rules) are still guarded.
+    // Without this, the periodic every-16-rules check below never fires for
+    // flat rule lists with fewer than 16 rules, and recursion into children
+    // also restarts `rule_count` at 0.
+    if let Some(timeout_ms) = context.timeout_ms()
+        && start_time.elapsed().as_millis() >= u128::from(timeout_ms)
+    {
+        return Err(LibmagicError::Timeout { timeout_ms });
+    }
+
     for rule in rules {
         // Check timeout periodically (every 16 rules) to reduce syscall overhead
         rule_count = rule_count.wrapping_add(1);
         if rule_count.trailing_zeros() >= 4
             && let Some(timeout_ms) = context.timeout_ms()
-            && start_time.elapsed().as_millis() > u128::from(timeout_ms)
+            && start_time.elapsed().as_millis() >= u128::from(timeout_ms)
         {
             return Err(LibmagicError::Timeout { timeout_ms });
         }

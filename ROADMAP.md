@@ -2,7 +2,7 @@
 
 See [GitHub Milestones](https://github.com/EvilBit-Labs/libmagic-rs/milestones) for detailed issue tracking.
 
-## v0.1.0 - MVP (Current)
+## v0.1.0 - MVP
 
 - [x] Core AST data structures with comprehensive serialization
 - [x] Magic file parser for text format with hierarchical rules
@@ -13,27 +13,27 @@ See [GitHub Milestones](https://github.com/EvilBit-Labs/libmagic-rs/milestones) 
 - [x] Built-in fallback rules with build-time compilation
 - [x] Strength calculation and `!:strength` parsing
 - [x] Comprehensive error handling, rustdoc, and mdbook documentation
-- [x] High test coverage across 1,058+ tests
+- [x] High test coverage across 1,200+ tests
 
 ## v0.2.0 - Core Primitives
 
-- [ ] Split evaluator module into focused submodules ([#59](https://github.com/EvilBit-Labs/libmagic-rs/issues/59))
-- [ ] Disambiguate `MatchResult` types ([#60](https://github.com/EvilBit-Labs/libmagic-rs/issues/60))
+- [x] Split evaluator module into focused submodules ([#59](https://github.com/EvilBit-Labs/libmagic-rs/issues/59))
+- [x] Disambiguate `MatchResult` types ([#60](https://github.com/EvilBit-Labs/libmagic-rs/issues/60))
 - [ ] Extract CLI tests into integration tests ([#61](https://github.com/EvilBit-Labs/libmagic-rs/issues/61))
-- [ ] Pre-create evaluator submodules for new features ([#62](https://github.com/EvilBit-Labs/libmagic-rs/issues/62))
-- [ ] Comparison operators: `>`, `<`, `>=`, `<=` ([#34](https://github.com/EvilBit-Labs/libmagic-rs/issues/34))
-- [ ] Bitwise XOR, NOT, and any-value operators ([#35](https://github.com/EvilBit-Labs/libmagic-rs/issues/35))
-- [ ] Indirect offset resolution ([#37](https://github.com/EvilBit-Labs/libmagic-rs/issues/37))
-- [ ] Relative offset resolution ([#38](https://github.com/EvilBit-Labs/libmagic-rs/issues/38))
+- [x] Pre-create evaluator submodules for new features ([#62](https://github.com/EvilBit-Labs/libmagic-rs/issues/62))
+- [x] Comparison operators: `>`, `<`, `>=`, `<=` ([#34](https://github.com/EvilBit-Labs/libmagic-rs/issues/34))
+- [x] Bitwise XOR, NOT, and any-value operators ([#35](https://github.com/EvilBit-Labs/libmagic-rs/issues/35))
+- [x] Indirect offset resolution ([#37](https://github.com/EvilBit-Labs/libmagic-rs/issues/37))
+- [x] Relative offset resolution ([#38](https://github.com/EvilBit-Labs/libmagic-rs/issues/38))
 - [x] Quad (64-bit integer) type ([#36](https://github.com/EvilBit-Labs/libmagic-rs/issues/36))
 
 ## v0.3.0 - Advanced Features
 
-- [ ] Convert `evaluator/types.rs` to directory module ([#63](https://github.com/EvilBit-Labs/libmagic-rs/issues/63))
+- [x] Convert `evaluator/types.rs` to directory module ([#63](https://github.com/EvilBit-Labs/libmagic-rs/issues/63))
 - [ ] Regex and search types ([#39](https://github.com/EvilBit-Labs/libmagic-rs/issues/39))
-- [ ] Float and double types ([#40](https://github.com/EvilBit-Labs/libmagic-rs/issues/40))
+- [x] Float and double types ([#40](https://github.com/EvilBit-Labs/libmagic-rs/issues/40))
 - [x] Date and timestamp types ([#41](https://github.com/EvilBit-Labs/libmagic-rs/issues/41))
-- [ ] Pascal string type ([#43](https://github.com/EvilBit-Labs/libmagic-rs/issues/43))
+- [x] Pascal string type ([#43](https://github.com/EvilBit-Labs/libmagic-rs/issues/43))
 - [ ] Meta-types: default, clear, name, use, indirect ([#42](https://github.com/EvilBit-Labs/libmagic-rs/issues/42))
 
 ## v0.4.0 - API and UX Polish
@@ -50,7 +50,7 @@ See [GitHub Milestones](https://github.com/EvilBit-Labs/libmagic-rs/milestones) 
 - [ ] Stable API with semver guarantees
 - [ ] Migration guide from C libmagic
 - [ ] Performance parity validation
-- [ ] crates.io publication
+- [x] crates.io publication
 
 ## Non-Goals
 

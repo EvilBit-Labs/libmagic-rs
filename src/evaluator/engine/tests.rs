@@ -1425,9 +1425,10 @@ fn test_evaluate_rules_timeout() {
     let mut context = EvaluationContext::new(config);
 
     let result = evaluate_rules(&rules, buffer, &mut context);
-    if let Err(LibmagicError::Timeout { timeout_ms }) = result {
-        assert_eq!(timeout_ms, 0);
-    }
+    assert!(
+        matches!(result, Err(LibmagicError::Timeout { timeout_ms: 0 })),
+        "Expected timeout error, got: {result:?}"
+    );
 }
 
 #[test]
@@ -1748,12 +1749,10 @@ fn test_error_recovery_timeout_propagation() {
 
     let result = evaluate_rules(&rules, buffer, &mut context);
 
-    match result {
-        Ok(_) | Err(LibmagicError::Timeout { .. }) => {}
-        Err(e) => {
-            panic!("Unexpected error type: {e:?}");
-        }
-    }
+    assert!(
+        matches!(result, Err(LibmagicError::Timeout { timeout_ms: 0 })),
+        "Expected timeout error, got: {result:?}"
+    );
 }
 
 #[test]

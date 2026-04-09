@@ -75,14 +75,17 @@ libmagic-rs follows a **parser-evaluator architecture**:
 
 ### Module Overview
 
-| Module              | Purpose                     | Status         |
-| ------------------- | --------------------------- | -------------- |
-| `parser/`           | Magic file parsing with nom | In Development |
-| `parser/ast.rs`     | AST data structures         | Complete       |
-| `parser/grammar.rs` | Parsing combinators         | Partial        |
-| `evaluator/`        | Rule evaluation engine      | Planned        |
-| `io/`               | Memory-mapped file I/O      | Complete       |
-| `output/`           | Result formatting           | Planned        |
+| Module             | Purpose                                           | Status      |
+| ------------------ | ------------------------------------------------- | ----------- |
+| `parser/`          | Magic file parsing with nom                       | Implemented |
+| `parser/ast.rs`    | AST data structures                               | Implemented |
+| `parser/grammar/`  | Parsing combinators                               | Implemented |
+| `evaluator/`       | Rule evaluation engine                            | Implemented |
+| `io/`              | Memory-mapped file I/O                            | Implemented |
+| `output/`          | Result formatting (text and JSON)                 | Implemented |
+| `mime.rs`          | MIME type lookup table                            | Implemented |
+| `tags.rs`          | Tag inference from rule descriptions              | Implemented |
+| `builtin_rules.rs` | Built-in magic rules generated from `.magic` file | Implemented |
 
 See [Architecture Documentation](docs/src/architecture.md) for detailed information.
 
@@ -238,7 +241,7 @@ pub fn parse_rule(input: &str) -> Result<MagicRule, ParseError> {
 2. **Add tests** for new functionality
 3. **Run the full test suite** locally: `just ci-check`
 4. **Create a pull request** with a clear description
-5. **Keep your PR up to date**: PRs must be within 3 commits of `main` to merge. Mergify automatically updates PRs in the merge queue, but you may need to rebase more frequently than before.
+5. **Keep your PR up to date**: PRs must be within 3 commits of `main` to merge. Rebase onto `main` if your branch has fallen behind.
 6. **Address review feedback** promptly
 
 ### Code Review Requirements
@@ -252,7 +255,7 @@ All pull requests require review before merging. Reviewers check for:
 - **Documentation**: Public APIs have rustdoc with examples, AGENTS.md updated if architecture changes
 - **Performance**: No unnecessary allocations in hot paths, no regressions in benchmarks
 
-All CI checks run before merge through the merge queue, including quality checks, tests, coverage, and cross-platform tests (ubuntu-latest, ubuntu-22.04, macos-latest, windows-latest). Merge protections prevent manual merges and require the quality check and cross-platform tests for ubuntu-latest, macos-latest, and windows-latest to pass. PRs are merged through the queue when conditions are met.
+All CI checks must pass before merge, including quality checks, tests, coverage, and cross-platform tests (ubuntu-latest, ubuntu-22.04, macos-latest, windows-latest). Mergify enforces merge protections that require the quality check and cross-platform tests for ubuntu-latest, macos-latest, and windows-latest to pass. Bot PRs are auto-merged when conditions are met; human PRs are merged manually by maintainers once CI is green and review is complete.
 
 ### Developer Certificate of Origin (DCO)
 

@@ -155,7 +155,7 @@ impl FileBuffer {
     /// This limit prevents memory exhaustion attacks and ensures reasonable
     /// processing times. Files larger than this are likely not suitable for
     /// magic rule evaluation and may indicate malicious input.
-    const MAX_FILE_SIZE: FileSize = 1024 * 1024 * 1024;
+    pub const MAX_FILE_SIZE: FileSize = 1024 * 1024 * 1024;
 
     /// Maximum number of concurrent file mappings to prevent resource exhaustion
     /// TODO: Implement concurrent mapping tracking in future versions
