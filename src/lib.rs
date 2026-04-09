@@ -185,6 +185,17 @@ pub struct EvaluationConfig {
     /// When `true`, evaluation stops after the first matching rule.
     /// When `false`, all rules are evaluated to find all matches.
     /// Default is `true` for performance.
+    ///
+    /// # Semantics
+    ///
+    /// "First match" refers to the first *top-level* rule that matches.
+    /// Children of the first matching top-level rule are always evaluated
+    /// before the stop check; the stop check applies to subsequent
+    /// top-level rules. In other words, `stop_at_first_match = true` does
+    /// not truncate the child subtree of the matching rule -- it only
+    /// prevents later sibling top-level rules from being evaluated. A
+    /// successful top-level match therefore returns one parent `RuleMatch`
+    /// plus any descendant `RuleMatch` values its children produced.
     pub stop_at_first_match: bool,
 
     /// Enable MIME type mapping in results
@@ -558,6 +569,35 @@ impl MagicDatabase {
     ///
     /// Returns `LibmagicError::IoError` if the file cannot be accessed.
     /// Returns `LibmagicError::EvaluationError` if rule evaluation fails.
+    ///
+    /// # Security
+    ///
+    /// This method has a time-of-check/time-of-use (TOCTOU) window between
+    /// resolving the path and memory-mapping the file
+    /// ([CWE-367](https://cwe.mitre.org/data/definitions/367.html)).
+    /// Internally, `evaluate_file` first calls `std::fs::metadata(path)` to
+    /// detect the empty-file case, then opens and memory-maps the file via
+    /// [`io::FileBuffer::new`], which itself re-validates file metadata
+    /// (regular file, size bounds) before calling `create_memory_mapping`.
+    /// Between these validation steps and the final `mmap` call, the path
+    /// may be swapped (for example, via a symlink replacement or rename)
+    /// by another process. The content that gets mapped may therefore
+    /// differ from the file that passed validation.
+    ///
+    /// The I/O layer mitigates the common shapes of this attack by
+    /// canonicalizing the path and rejecting special file types, and the
+    /// mapping itself is read-only, so a successful exploit cannot corrupt
+    /// the victim file. The residual risk is that `evaluate_file` may
+    /// classify a different file than the caller intended.
+    ///
+    /// **For adversarial or untrusted environments, prefer
+    /// [`MagicDatabase::evaluate_buffer`]**: load the bytes yourself using
+    /// whatever resource-bounded, TOCTOU-aware I/O strategy your
+    /// application requires (e.g., `openat` with `O_NOFOLLOW`, holding an
+    /// open file descriptor across validation and read), then pass the
+    /// in-memory slice directly to `evaluate_buffer`. See
+    /// [the security assurance case](https://evilbit-labs.github.io/libmagic-rs/security-assurance.html)
+    /// for the residual-risk discussion.
     ///
     /// # Examples
     ///

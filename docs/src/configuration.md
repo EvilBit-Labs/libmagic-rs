@@ -18,13 +18,19 @@ pub struct EvaluationConfig {
 
 ### Field Reference
 
-| Field                 | Type          | Default | Bounds         | Purpose                                                       |
-| --------------------- | ------------- | ------- | -------------- | ------------------------------------------------------------- |
-| `max_recursion_depth` | `u32`         | 20      | 1 -- 1000      | Limits nested rule traversal depth to prevent stack overflow  |
-| `max_string_length`   | `usize`       | 8192    | 1 -- 1_048_576 | Caps bytes read for string types to prevent memory exhaustion |
-| `stop_at_first_match` | `bool`        | `true`  | --             | When true, evaluation stops after the first matching rule     |
-| `enable_mime_types`   | `bool`        | `false` | --             | When true, maps file type descriptions to standard MIME types |
-| `timeout_ms`          | `Option<u64>` | `None`  | 1 -- 300_000   | Per-file evaluation timeout in milliseconds; `None` disables  |
+| Field                 | Type          | Default | Bounds         | Purpose                                                                                                                      |
+| --------------------- | ------------- | ------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `max_recursion_depth` | `u32`         | 20      | 1 -- 1000      | Limits nested rule traversal depth to prevent stack overflow                                                                 |
+| `max_string_length`   | `usize`       | 8192    | 1 -- 1_048_576 | Caps bytes read for string types to prevent memory exhaustion                                                                |
+| `stop_at_first_match` | `bool`        | `true`  | --             | When true, evaluation stops after the first matching top-level rule (children of that rule are still evaluated -- see below) |
+| `enable_mime_types`   | `bool`        | `false` | --             | When true, maps file type descriptions to standard MIME types                                                                |
+| `timeout_ms`          | `Option<u64>` | `None`  | 1 -- 300_000   | Per-file evaluation timeout in milliseconds; `None` disables                                                                 |
+
+### `stop_at_first_match` Semantics
+
+"First match" refers to the first *top-level* rule that matches. Children of the first matching top-level rule are always evaluated before the stop check; the stop check applies to subsequent top-level rules.
+
+In other words, `stop_at_first_match = true` does not truncate the child subtree of the matching rule -- it only prevents later sibling top-level rules from being evaluated. A successful top-level match therefore returns one parent match plus any descendant matches its children produced. If you need the absolute minimum work done per evaluation, combine this setting with a shallow `max_recursion_depth` and a magic rule set whose top-level rules are already specific enough that children add only refinement (not new classification).
 
 ## Constructor Presets
 

@@ -3,7 +3,6 @@
 
 use super::TypeReadError;
 use crate::parser::ast::{Endianness, Value};
-use byteorder::{BigEndian, ByteOrder, LittleEndian, NativeEndian};
 
 /// Safely reads a 32-bit IEEE 754 float from the buffer at the specified offset.
 ///
@@ -40,17 +39,18 @@ pub fn read_float(
         offset,
         buffer_len: buffer.len(),
     })?;
-    let bytes = buffer
+    let arr: [u8; 4] = buffer
         .get(offset..end)
+        .and_then(|s| s.try_into().ok())
         .ok_or(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
         })?;
 
     let value = match endian {
-        Endianness::Little => LittleEndian::read_f32(bytes),
-        Endianness::Big => BigEndian::read_f32(bytes),
-        Endianness::Native => NativeEndian::read_f32(bytes),
+        Endianness::Little => f32::from_le_bytes(arr),
+        Endianness::Big => f32::from_be_bytes(arr),
+        Endianness::Native => f32::from_ne_bytes(arr),
     };
 
     Ok(Value::Float(f64::from(value)))
@@ -89,17 +89,18 @@ pub fn read_double(
         offset,
         buffer_len: buffer.len(),
     })?;
-    let bytes = buffer
+    let arr: [u8; 8] = buffer
         .get(offset..end)
+        .and_then(|s| s.try_into().ok())
         .ok_or(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
         })?;
 
     let value = match endian {
-        Endianness::Little => LittleEndian::read_f64(bytes),
-        Endianness::Big => BigEndian::read_f64(bytes),
-        Endianness::Native => NativeEndian::read_f64(bytes),
+        Endianness::Little => f64::from_le_bytes(arr),
+        Endianness::Big => f64::from_be_bytes(arr),
+        Endianness::Native => f64::from_ne_bytes(arr),
     };
 
     Ok(Value::Float(value))

@@ -143,7 +143,6 @@ name = "rmagic"
 path = "src/main.rs"
 
 [dependencies]
-byteorder = "1.5.0"
 cfg-if = "1.0.4"
 chrono = { version = "0.4.41", default-features = false, features = ["std", "clock"] }
 clap = { version = "4.6.0", features = ["derive"] }
@@ -186,6 +185,9 @@ harness = false
 [[bench]]
 name = "io_bench"
 harness = false
+
+[profile.dev.package."*"]
+opt-level = 2
 
 [profile.release]
 lto = "thin"

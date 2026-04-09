@@ -36,7 +36,7 @@ jobs:
               uses: jontze/action-mdbook@6c0be56d14c4bf16861b00af61f50ff7400ce502 # v4.0.0
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
-                  mdbook-version: latest
+                  mdbook-version: 0.5.2
                   use-mermaid: true
                   use-toc: true
                   use-admonish: true

@@ -3,7 +3,6 @@
 
 use super::TypeReadError;
 use crate::parser::ast::{Endianness, Value};
-use byteorder::{BigEndian, ByteOrder, LittleEndian, NativeEndian};
 
 /// Safely reads a single byte from the buffer at the specified offset.
 ///
@@ -82,17 +81,18 @@ pub fn read_short(
         offset,
         buffer_len: buffer.len(),
     })?;
-    let bytes = buffer
+    let arr: [u8; 2] = buffer
         .get(offset..end)
+        .and_then(|s| s.try_into().ok())
         .ok_or(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
         })?;
 
     let value = match endian {
-        Endianness::Little => LittleEndian::read_u16(bytes),
-        Endianness::Big => BigEndian::read_u16(bytes),
-        Endianness::Native => NativeEndian::read_u16(bytes),
+        Endianness::Little => u16::from_le_bytes(arr),
+        Endianness::Big => u16::from_be_bytes(arr),
+        Endianness::Native => u16::from_ne_bytes(arr),
     };
 
     if signed {
@@ -139,17 +139,18 @@ pub fn read_long(
         offset,
         buffer_len: buffer.len(),
     })?;
-    let bytes = buffer
+    let arr: [u8; 4] = buffer
         .get(offset..end)
+        .and_then(|s| s.try_into().ok())
         .ok_or(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
         })?;
 
     let value = match endian {
-        Endianness::Little => LittleEndian::read_u32(bytes),
-        Endianness::Big => BigEndian::read_u32(bytes),
-        Endianness::Native => NativeEndian::read_u32(bytes),
+        Endianness::Little => u32::from_le_bytes(arr),
+        Endianness::Big => u32::from_be_bytes(arr),
+        Endianness::Native => u32::from_ne_bytes(arr),
     };
 
     if signed {
@@ -196,17 +197,18 @@ pub fn read_quad(
         offset,
         buffer_len: buffer.len(),
     })?;
-    let bytes = buffer
+    let arr: [u8; 8] = buffer
         .get(offset..end)
+        .and_then(|s| s.try_into().ok())
         .ok_or(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
         })?;
 
     let value = match endian {
-        Endianness::Little => LittleEndian::read_u64(bytes),
-        Endianness::Big => BigEndian::read_u64(bytes),
-        Endianness::Native => NativeEndian::read_u64(bytes),
+        Endianness::Little => u64::from_le_bytes(arr),
+        Endianness::Big => u64::from_be_bytes(arr),
+        Endianness::Native => u64::from_ne_bytes(arr),
     };
 
     if signed {

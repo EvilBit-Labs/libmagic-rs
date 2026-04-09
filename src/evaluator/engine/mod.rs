@@ -88,6 +88,32 @@ use log::{debug, warn};
 /// error-handling code that pattern-matched `UnsupportedType` for relative
 /// offsets must remove that arm.
 ///
+/// # Limitations
+///
+/// `evaluate_single_rule` does not take an
+/// [`EvaluationContext`](crate::evaluator::EvaluationContext) and therefore
+/// bypasses the safety limits that the context normally enforces:
+///
+/// - **No timeout.** The per-evaluation wall-clock limit
+///   (`EvaluationConfig::timeout_ms`) is not checked. A pathological rule
+///   or buffer cannot be interrupted.
+/// - **No recursion limit.** The `max_recursion_depth` counter is not
+///   consulted. This function evaluates a single rule and does not recurse
+///   into `rule.children`, so it cannot itself cause unbounded recursion,
+///   but callers that implement their own child traversal on top of this
+///   API must enforce a depth limit themselves.
+/// - **No string-size limit.** `max_string_length` is not applied; the
+///   type reader uses its built-in fallbacks (read until NUL / end of
+///   buffer for `String`, length-prefixed read for `pstring`).
+///
+/// These limits are enforced only when rules are evaluated through
+/// [`evaluate_rules`] or [`evaluate_rules_with_config`], both of which
+/// thread an `EvaluationContext` that carries the validated configuration.
+/// Use [`evaluate_single_rule`] only for trusted rules against trusted
+/// buffers -- typically unit tests, debugging, or internal tooling. Prefer
+/// [`evaluate_rules_with_config`] for any code path that processes
+/// untrusted input.
+///
 /// # Errors
 ///
 /// * `LibmagicError::EvaluationError` - If offset resolution fails, buffer access is out of bounds,
