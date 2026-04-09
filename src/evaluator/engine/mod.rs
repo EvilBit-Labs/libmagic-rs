@@ -13,7 +13,7 @@
 use crate::parser::ast::MagicRule;
 use crate::{EvaluationConfig, LibmagicError};
 
-use super::{EvaluationContext, RuleMatch, offset, operators, types};
+use super::{EvaluationContext, RecursionGuard, RuleMatch, offset, operators, types};
 use log::{debug, warn};
 
 /// Evaluate a single magic rule against a file buffer
@@ -331,27 +331,19 @@ pub fn evaluate_rules(
 
             // If this rule has children, evaluate them recursively
             if !rule.children.is_empty() {
-                // Check recursion depth limit - this is a critical error that should stop evaluation
-                context.increment_recursion_depth()?;
+                // Check recursion depth limit - this is a critical error that should stop evaluation.
+                // `RecursionGuard` decrements the depth on drop, so every exit path below
+                // (Ok, graceful warn!, or early-return via `?`) restores the counter.
+                let mut guard = RecursionGuard::enter(context)?;
 
                 // Recursively evaluate child rules with graceful error handling
-                match evaluate_rules(&rule.children, buffer, context) {
+                match evaluate_rules(&rule.children, buffer, guard.context()) {
                     Ok(child_matches) => {
                         matches.extend(child_matches);
                     }
                     Err(LibmagicError::Timeout { timeout_ms }) => {
-                        // Timeout is critical, propagate it up
-                        let _ = context.decrement_recursion_depth();
+                        // Timeout is critical, propagate it up (guard drops here).
                         return Err(LibmagicError::Timeout { timeout_ms });
-                    }
-                    Err(
-                        e @ LibmagicError::EvaluationError(
-                            crate::error::EvaluationError::RecursionLimitExceeded { .. },
-                        ),
-                    ) => {
-                        // Recursion limit is critical, propagate the original error
-                        let _ = context.decrement_recursion_depth();
-                        return Err(e);
                     }
                     Err(
                         e @ (LibmagicError::EvaluationError(
@@ -381,14 +373,12 @@ pub fn evaluate_rules(
                         );
                     }
                     Err(e) => {
-                        // Unexpected errors in children should propagate
-                        let _ = context.decrement_recursion_depth();
+                        // Unexpected errors in children (including RecursionLimitExceeded)
+                        // should propagate. The guard drops here, decrementing the depth.
                         return Err(e);
                     }
                 }
-
-                // Restore recursion depth
-                context.decrement_recursion_depth()?;
+                // `guard` drops here, decrementing the recursion depth.
             }
 
             // Stop at first match if configured to do so

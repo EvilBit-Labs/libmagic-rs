@@ -239,6 +239,50 @@ impl EvaluationContext {
     }
 }
 
+/// RAII guard that increments recursion depth on entry and decrements on drop.
+///
+/// Replaces the manual `increment_recursion_depth` / `decrement_recursion_depth`
+/// pair with a scope-based guard, eliminating the risk of mismatched calls and
+/// the need to swallow cleanup errors on error-return paths.
+///
+/// Obtain a guard via [`RecursionGuard::enter`], which borrows the context
+/// mutably for the guard's lifetime. Use [`RecursionGuard::context`] to access
+/// the borrowed context for the duration of the recursive call. The guard
+/// automatically decrements the recursion depth when it goes out of scope.
+///
+/// The guard is `pub(crate)` because recursion-depth management is an internal
+/// detail of the evaluation engine.
+pub(crate) struct RecursionGuard<'a> {
+    context: &'a mut EvaluationContext,
+}
+
+impl<'a> RecursionGuard<'a> {
+    /// Enter a new recursion level, incrementing the context's recursion depth.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LibmagicError::EvaluationError` if incrementing would exceed
+    /// the maximum recursion depth configured in the evaluation config.
+    pub(crate) fn enter(context: &'a mut EvaluationContext) -> Result<Self, LibmagicError> {
+        context.increment_recursion_depth()?;
+        Ok(Self { context })
+    }
+
+    /// Access the underlying context for the duration of the guard.
+    pub(crate) fn context(&mut self) -> &mut EvaluationContext {
+        self.context
+    }
+}
+
+impl Drop for RecursionGuard<'_> {
+    fn drop(&mut self) {
+        // Safe to ignore: `decrement_recursion_depth` only fails when the
+        // depth is already 0, which is impossible here because `enter` just
+        // incremented it and the depth is only mutated through guard pairs.
+        let _ = self.context.decrement_recursion_depth();
+    }
+}
+
 /// Result of evaluating a magic rule
 ///
 /// Contains information extracted from a successful rule match, including

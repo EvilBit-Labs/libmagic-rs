@@ -846,6 +846,26 @@ impl Default for EvaluationMetadata {
 /// Contains the file type description, optional MIME type, confidence score,
 /// individual match details, and evaluation metadata.
 ///
+/// # Relationship to [`crate::output::EvaluationResult`]
+///
+/// This is the **library-facing** result type returned by [`MagicDatabase::evaluate`].
+/// It carries a rolled-up description, MIME type, and confidence score along with
+/// raw [`evaluator::RuleMatch`] values. It intentionally does **not** carry the
+/// analyzed filename or a surface-level error string, because those are caller
+/// concerns (a caller may evaluate an in-memory buffer that has no filename).
+///
+/// The parallel type [`crate::output::EvaluationResult`] is the **output-facing**
+/// result used by the CLI and JSON/text formatters. It adds `filename` and
+/// `error`, carries enriched [`crate::output::MatchResult`] values (with
+/// extracted tags), and uses `u32` counters in its metadata to match the JSON
+/// output schema.
+///
+/// The two types are **intentionally distinct** — do not try to unify them.
+/// Convert library → output explicitly via
+/// [`crate::output::EvaluationResult::from_library_result`], which is the single
+/// named conversion point. Any drift between the two hierarchies should be
+/// resolved there, not by back-channel field copying in call sites.
+///
 /// # Examples
 ///
 /// ```
