@@ -201,6 +201,13 @@ pub struct EvaluationConfig {
 }
 
 impl Default for EvaluationConfig {
+    /// Returns the default evaluation configuration.
+    ///
+    /// # Security
+    ///
+    /// The default configuration has no timeout. When processing untrusted
+    /// input, use [`EvaluationConfig::performance()`] or set `timeout_ms`
+    /// explicitly to prevent denial of service.
     fn default() -> Self {
         Self {
             max_recursion_depth: 20,

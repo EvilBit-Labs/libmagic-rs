@@ -162,6 +162,18 @@ libmagic-rs --timeout-ms 5000 sample.bin
 
 If evaluation exceeds the timeout, the file is skipped and an error message is printed to stderr with exit code 5.
 
+## Security Considerations
+
+The default configuration returned by `EvaluationConfig::default()` (and `EvaluationConfig::new()`) has `timeout_ms: None`, meaning evaluation runs without a wall-clock limit. This is appropriate for trusted input, but a maliciously crafted file or magic rule could cause an unbounded evaluation and a denial-of-service condition.
+
+When processing untrusted input, do one of the following:
+
+- Use the `EvaluationConfig::performance()` preset, which sets `timeout_ms: Some(1000)` (1 second) along with tighter recursion and string-length bounds.
+- Set `timeout_ms` explicitly via struct update syntax, for example `EvaluationConfig { timeout_ms: Some(5000), ..EvaluationConfig::default() }`.
+- Pass `--timeout-ms <ms>` on the CLI.
+
+The other bounds enforced by `validate()` (recursion depth, string length, resource combination) protect against stack overflow and memory exhaustion regardless of the timeout setting, but only the timeout limits total evaluation wall-clock time.
+
 ## Choosing a Preset
 
 | Scenario                    | Preset               | Why                                      |

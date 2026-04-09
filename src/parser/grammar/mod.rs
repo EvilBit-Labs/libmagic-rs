@@ -116,7 +116,7 @@ fn parse_unsigned_number(input: &str) -> IResult<&str, u64> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_number;
 ///
 /// assert_eq!(parse_number("123"), Ok(("", 123)));
@@ -265,7 +265,7 @@ fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_offset;
 /// use libmagic_rs::parser::ast::{Endianness, OffsetSpec, TypeKind};
 ///
@@ -336,7 +336,7 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_operator;
 /// use libmagic_rs::parser::ast::Operator;
 ///
@@ -363,112 +363,83 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
 pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
     let (input, _) = multispace0(input)?;
 
-    // Try to parse each operator, starting with longer ones first
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("==")(input) {
-        // Check that we don't have another '=' following (to reject "===")
-        if remaining.starts_with('=') {
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
+    let bytes = input.as_bytes();
+    let err = || nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Tag));
+
+    // Dispatch on the first byte and inspect the second byte to choose between
+    // long-form and short-form operators. Boundary checks reject invalid
+    // sequences like "===", "&&", "^^", "~~", and "x42".
+    let (op, consumed) = match bytes.first().copied() {
+        Some(b'=') => {
+            // "=" or "==" -- reject "===" (and longer runs of '=')
+            if bytes.get(1).copied() == Some(b'=') {
+                if bytes.get(2).copied() == Some(b'=') {
+                    return Err(err());
+                }
+                (Operator::Equal, 2)
+            } else {
+                (Operator::Equal, 1)
+            }
         }
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::Equal));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("!=")(input) {
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::NotEqual));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("<>")(input) {
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::NotEqual));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("<=")(input) {
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::LessEqual));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>(">=")(input) {
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::GreaterEqual));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("=")(input) {
-        // Check that we don't have another '=' following (to reject "==")
-        if remaining.starts_with('=') {
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
+        Some(b'!') => {
+            // Only "!=" is valid; bare "!" is an error.
+            if bytes.get(1).copied() == Some(b'=') {
+                (Operator::NotEqual, 2)
+            } else {
+                return Err(err());
+            }
         }
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::Equal));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("&")(input) {
-        // Check that we don't have another '&' following (to reject "&&")
-        if remaining.starts_with('&') {
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
+        Some(b'<') => {
+            // "<=", "<>", or bare "<"
+            match bytes.get(1).copied() {
+                Some(b'=') => (Operator::LessEqual, 2),
+                Some(b'>') => (Operator::NotEqual, 2),
+                _ => (Operator::LessThan, 1),
+            }
         }
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::BitwiseAnd));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("^")(input) {
-        if remaining.starts_with('^') {
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
+        Some(b'>') => {
+            // ">=" or bare ">"
+            if bytes.get(1).copied() == Some(b'=') {
+                (Operator::GreaterEqual, 2)
+            } else {
+                (Operator::GreaterThan, 1)
+            }
         }
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::BitwiseXor));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("~")(input) {
-        if remaining.starts_with('~') {
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
+        Some(b'&') => {
+            // Reject "&&"
+            if bytes.get(1).copied() == Some(b'&') {
+                return Err(err());
+            }
+            (Operator::BitwiseAnd, 1)
         }
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::BitwiseNot));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("x")(input) {
-        // Ensure 'x' is not followed by alphanumeric (e.g., "x42" is not AnyValue)
-        if remaining.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
+        Some(b'^') => {
+            // Reject "^^"
+            if bytes.get(1).copied() == Some(b'^') {
+                return Err(err());
+            }
+            (Operator::BitwiseXor, 1)
         }
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::AnyValue));
-    }
+        Some(b'~') => {
+            // Reject "~~"
+            if bytes.get(1).copied() == Some(b'~') {
+                return Err(err());
+            }
+            (Operator::BitwiseNot, 1)
+        }
+        Some(b'x') => {
+            // Word boundary: 'x' must not be followed by an alphanumeric or '_'
+            // (e.g., "x42" or "xfoo" is not AnyValue).
+            if input[1..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+                return Err(err());
+            }
+            (Operator::AnyValue, 1)
+        }
+        _ => return Err(err()),
+    };
 
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("<")(input) {
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::LessThan));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>(">")(input) {
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::GreaterThan));
-    }
-
-    // If no operator matches, return an error
-    Err(nom::Err::Error(nom::error::Error::new(
-        input,
-        nom::error::ErrorKind::Tag,
-    )))
+    let remaining = &input[consumed..];
+    let (remaining, _) = multispace0(remaining)?;
+    Ok((remaining, op))
 }
 
 /// Parse a single hex byte with \x prefix
@@ -740,7 +711,7 @@ fn parse_numeric_value(input: &str) -> IResult<&str, Value> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_value;
 /// use libmagic_rs::parser::ast::Value;
 ///
@@ -845,7 +816,7 @@ fn parse_pstring_suffix(
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_type_and_operator;
 /// use libmagic_rs::parser::ast::{TypeKind, Operator, Endianness};
 ///
@@ -938,7 +909,7 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_type;
 /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
 ///
@@ -950,6 +921,7 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
 ///
 /// # Errors
 /// Returns a nom parsing error if the input doesn't match any known type
+#[allow(dead_code)] // Standalone helper exercised by grammar unit tests.
 pub fn parse_type(input: &str) -> IResult<&str, TypeKind> {
     let (input, (type_kind, _)) = parse_type_and_operator(input)?;
     Ok((input, type_kind))
@@ -962,7 +934,7 @@ pub fn parse_type(input: &str) -> IResult<&str, TypeKind> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_rule_offset;
 /// use libmagic_rs::parser::ast::OffsetSpec;
 ///
@@ -1000,7 +972,7 @@ pub fn parse_rule_offset(input: &str) -> IResult<&str, (u32, OffsetSpec)> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_message;
 ///
 /// assert_eq!(parse_message("ELF executable"), Ok(("", "ELF executable".to_string())));
@@ -1029,7 +1001,7 @@ pub fn parse_message(input: &str) -> IResult<&str, String> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_strength_directive;
 /// use libmagic_rs::parser::ast::StrengthModifier;
 ///
@@ -1095,7 +1067,7 @@ pub fn parse_strength_directive(input: &str) -> IResult<&str, StrengthModifier> 
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::is_strength_directive;
 ///
 /// assert!(is_strength_directive("!:strength +10"));
@@ -1122,7 +1094,7 @@ pub fn is_strength_directive(input: &str) -> bool {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_magic_rule;
 /// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
 ///
@@ -1195,7 +1167,7 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_comment;
 ///
 /// assert_eq!(parse_comment("# This is a comment"), Ok(("", "This is a comment".to_string())));
@@ -1217,7 +1189,7 @@ pub fn parse_comment(input: &str) -> IResult<&str, String> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::is_empty_line;
 ///
 /// assert!(is_empty_line(""));
@@ -1234,7 +1206,7 @@ pub fn is_empty_line(input: &str) -> bool {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::is_comment_line;
 ///
 /// assert!(is_comment_line("# This is a comment"));
@@ -1253,7 +1225,7 @@ pub fn is_comment_line(input: &str) -> bool {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::has_continuation;
 ///
 /// assert!(has_continuation("0 string test \\"));

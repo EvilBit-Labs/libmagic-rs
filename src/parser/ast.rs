@@ -96,6 +96,7 @@ impl PStringLengthWidth {
 
 /// Offset specification for locating data in files
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum OffsetSpec {
     /// Absolute offset from file start (or from file end if negative)
     ///
@@ -165,6 +166,7 @@ pub enum OffsetSpec {
 
 /// Data type specifications for interpreting bytes
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TypeKind {
     /// Single byte
     Byte {
@@ -326,6 +328,7 @@ impl TypeKind {
 
 /// Comparison and bitwise operators
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Operator {
     /// Equality comparison (`=` or `==`)
     ///
@@ -452,6 +455,7 @@ pub enum Operator {
 
 /// Value types for rule matching
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Value {
     /// Unsigned integer value
     Uint(u64),

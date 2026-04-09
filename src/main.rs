@@ -306,6 +306,10 @@ fn handle_error(error: LibmagicError) -> i32 {
             eprintln!("File error: {msg}");
             3
         }
+        _ => {
+            eprintln!("Unknown error: {error}");
+            1
+        }
     }
 }
 

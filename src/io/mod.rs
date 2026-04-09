@@ -43,6 +43,7 @@ impl SafeBufferAccess for [u8] {
 
 /// Errors that can occur during file I/O operations
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum IoError {
     /// File could not be opened for reading
     #[error("Failed to open file '{path}': {source}")]

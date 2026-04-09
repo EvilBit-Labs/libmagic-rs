@@ -426,6 +426,11 @@ pub fn evaluate_rules_with_config(
     buffer: &[u8],
     config: &EvaluationConfig,
 ) -> Result<Vec<RuleMatch>, LibmagicError> {
+    // Validate the configuration before constructing a context so that
+    // out-of-range values (e.g. zero recursion depth, excessive timeouts)
+    // are rejected at the API boundary rather than triggering subtle
+    // failures during evaluation.
+    config.validate()?;
     let mut context = EvaluationContext::new(config.clone());
     evaluate_rules(rules, buffer, &mut context)
 }

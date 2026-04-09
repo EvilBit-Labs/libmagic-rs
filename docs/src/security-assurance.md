@@ -134,7 +134,17 @@ Most OWASP Top 10 categories target web applications and are not applicable to a
 | CI integrity        | All GitHub Actions pinned to SHA hashes                                                       |
 | Code review         | Required on all PRs; automated by CodeRabbit with security-focused checks                     |
 
-## 7. Ongoing Assurance
+## 7. Known Limitations and Residual Risk
+
+### 7.1 Default Configuration Has No Timeout
+
+`EvaluationConfig::default()` (and `EvaluationConfig::new()`) sets `timeout_ms: None`, meaning evaluation runs without a wall-clock limit. The other validated bounds (recursion depth, string length, resource combination) prevent stack overflow and unbounded memory growth, but they do not bound total CPU time. A maliciously crafted file or magic rule that stays within those bounds could still drive evaluation into a long-running state, resulting in a denial-of-service condition for callers that process untrusted input with the default configuration.
+
+**Mitigation for callers:** When processing untrusted input, use `EvaluationConfig::performance()` (which sets a 1-second timeout) or set `timeout_ms` explicitly. The CLI exposes this as `--timeout-ms`. See [Configuration: Security Considerations](configuration.md#security-considerations) for details.
+
+This behavior is documented in the development gotchas (`GOTCHAS.md` section 13.1, "`EvaluationConfig::default()` Has No Timeout") and is intentional: changing the default would silently break callers that legitimately need long-running evaluation on trusted input.
+
+## 8. Ongoing Assurance
 
 This assurance case is maintained as a living document. It is updated when:
 

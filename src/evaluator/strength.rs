@@ -371,257 +371,295 @@ mod tests {
     // ============================================================
 
     #[test]
-    fn test_strength_type_byte() {
-        let rule = make_rule(
-            TypeKind::Byte { signed: true },
-            Operator::Equal,
-            OffsetSpec::Absolute(0),
-            Value::Uint(0),
-        );
-        let strength = calculate_default_strength(&rule);
-        // Byte: 5, Equal: 10, Absolute: 10, Numeric: 0 = 25
-        assert_eq!(strength, 25);
-    }
-
-    #[test]
-    fn test_strength_type_short() {
-        let rule = make_rule(
-            TypeKind::Short {
-                endian: Endianness::Little,
-                signed: false,
-            },
-            Operator::Equal,
-            OffsetSpec::Absolute(0),
-            Value::Uint(0),
-        );
-        let strength = calculate_default_strength(&rule);
-        // Short: 10, Equal: 10, Absolute: 10, Numeric: 0 = 30
-        assert_eq!(strength, 30);
-    }
-
-    #[test]
-    fn test_strength_type_long() {
-        let rule = make_rule(
-            TypeKind::Long {
-                endian: Endianness::Big,
-                signed: false,
-            },
-            Operator::Equal,
-            OffsetSpec::Absolute(0),
-            Value::Uint(0),
-        );
-        let strength = calculate_default_strength(&rule);
-        // Long: 15, Equal: 10, Absolute: 10, Numeric: 0 = 35
-        assert_eq!(strength, 35);
-    }
-
-    #[test]
-    fn test_strength_type_quad() {
-        let rule = make_rule(
-            TypeKind::Quad {
-                endian: Endianness::Little,
-                signed: false,
-            },
-            Operator::Equal,
-            OffsetSpec::Absolute(0),
-            Value::Uint(0),
-        );
-        let strength = calculate_default_strength(&rule);
-        // Quad: 16, Equal: 10, Absolute: 10, Numeric: 0 = 36
-        assert_eq!(strength, 36);
-    }
-
-    #[test]
-    fn test_strength_type_date() {
-        let rule = make_rule(
-            TypeKind::Date {
-                endian: Endianness::Big,
-                utc: true,
-            },
-            Operator::Equal,
-            OffsetSpec::Absolute(0),
-            Value::Uint(0),
-        );
-        let strength = calculate_default_strength(&rule);
-        // Date: 15, Equal: 10, Absolute: 10, Numeric: 0 = 35
-        assert_eq!(strength, 35);
-    }
-
-    #[test]
-    fn test_strength_type_qdate() {
-        let rule = make_rule(
-            TypeKind::QDate {
-                endian: Endianness::Little,
-                utc: false,
-            },
-            Operator::Equal,
-            OffsetSpec::Absolute(0),
-            Value::Uint(0),
-        );
-        let strength = calculate_default_strength(&rule);
-        // QDate: 16, Equal: 10, Absolute: 10, Numeric: 0 = 36
-        assert_eq!(strength, 36);
-    }
-
-    #[test]
-    fn test_strength_type_string() {
-        let rule = make_rule(
-            TypeKind::String { max_length: None },
-            Operator::Equal,
-            OffsetSpec::Absolute(0),
-            Value::String("ELF".to_string()),
-        );
-        let strength = calculate_default_strength(&rule);
-        // String: 20, Equal: 10, Absolute: 10, String length 3: 3 = 43
-        assert_eq!(strength, 43);
-    }
-
-    #[test]
-    fn test_strength_type_string_with_max_length() {
-        let rule = make_rule(
-            TypeKind::String {
-                max_length: Some(10),
-            },
-            Operator::Equal,
-            OffsetSpec::Absolute(0),
-            Value::String("TEST".to_string()),
-        );
-        let strength = calculate_default_strength(&rule);
-        // String with max_length: 25, Equal: 10, Absolute: 10, String length 4: 4 = 49
-        assert_eq!(strength, 49);
-    }
-
-    #[test]
-    fn test_strength_operator_not_equal() {
-        let rule = make_rule(
-            TypeKind::Byte { signed: true },
-            Operator::NotEqual,
-            OffsetSpec::Absolute(0),
-            Value::Uint(0),
-        );
-        let strength = calculate_default_strength(&rule);
-        // Byte: 5, NotEqual: 5, Absolute: 10, Numeric: 0 = 20
-        assert_eq!(strength, 20);
-    }
-
-    #[test]
-    fn test_strength_operator_bitwise_and() {
-        let rule = make_rule(
-            TypeKind::Byte { signed: true },
-            Operator::BitwiseAnd,
-            OffsetSpec::Absolute(0),
-            Value::Uint(0),
-        );
-        let strength = calculate_default_strength(&rule);
-        // Byte: 5, BitwiseAnd: 3, Absolute: 10, Numeric: 0 = 18
-        assert_eq!(strength, 18);
-    }
-
-    #[test]
-    fn test_strength_operator_bitwise_and_mask() {
-        let rule = make_rule(
-            TypeKind::Byte { signed: true },
-            Operator::BitwiseAndMask(0xFF),
-            OffsetSpec::Absolute(0),
-            Value::Uint(0),
-        );
-        let strength = calculate_default_strength(&rule);
-        // Byte: 5, BitwiseAndMask: 7, Absolute: 10, Numeric: 0 = 22
-        assert_eq!(strength, 22);
-    }
-
-    #[test]
-    fn test_strength_comparison_operators() {
-        let operators = [
-            Operator::LessThan,
-            Operator::GreaterThan,
-            Operator::LessEqual,
-            Operator::GreaterEqual,
-        ];
-        for op in operators {
-            let rule = make_rule(
-                TypeKind::Byte { signed: true },
-                op.clone(),
-                OffsetSpec::Absolute(0),
-                Value::Uint(0),
-            );
-            let strength = calculate_default_strength(&rule);
-            // Byte: 5, Comparison: 6, Absolute: 10, Numeric: 0 = 21
-            assert_eq!(strength, 21, "Failed for operator: {op:?}");
-        }
-    }
-
-    #[test]
-    fn test_strength_offset_indirect() {
-        let rule = make_rule(
-            TypeKind::Byte { signed: true },
-            Operator::Equal,
-            OffsetSpec::Indirect {
-                base_offset: 0,
-                pointer_type: TypeKind::Long {
-                    endian: Endianness::Little,
-                    signed: false,
+    #[allow(clippy::too_many_lines)]
+    fn test_calculate_default_strength_table() {
+        // Table of (rule_factory, expected_strength, description). Each case
+        // exercises one strength contribution dimension (type, operator,
+        // offset, or value length); the formula is documented in each row.
+        type Case = (fn() -> MagicRule, i32, &'static str);
+        let cases: &[Case] = &[
+            // --- Type contribution (Equal/Absolute/numeric baseline) ---
+            (
+                || {
+                    make_rule(
+                        TypeKind::Byte { signed: true },
+                        Operator::Equal,
+                        OffsetSpec::Absolute(0),
+                        Value::Uint(0),
+                    )
                 },
-                adjustment: 0,
-                endian: Endianness::Little,
-            },
-            Value::Uint(0),
-        );
-        let strength = calculate_default_strength(&rule);
-        // Byte: 5, Equal: 10, Indirect: 5, Numeric: 0 = 20
-        assert_eq!(strength, 20);
-    }
+                25, // Byte 5 + Equal 10 + Absolute 10 + Numeric 0
+                "type=byte",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::Short {
+                            endian: Endianness::Little,
+                            signed: false,
+                        },
+                        Operator::Equal,
+                        OffsetSpec::Absolute(0),
+                        Value::Uint(0),
+                    )
+                },
+                30, // Short 10 + Equal 10 + Absolute 10
+                "type=short",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::Long {
+                            endian: Endianness::Big,
+                            signed: false,
+                        },
+                        Operator::Equal,
+                        OffsetSpec::Absolute(0),
+                        Value::Uint(0),
+                    )
+                },
+                35, // Long 15 + Equal 10 + Absolute 10
+                "type=long",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::Quad {
+                            endian: Endianness::Little,
+                            signed: false,
+                        },
+                        Operator::Equal,
+                        OffsetSpec::Absolute(0),
+                        Value::Uint(0),
+                    )
+                },
+                36, // Quad 16 + Equal 10 + Absolute 10
+                "type=quad",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::Date {
+                            endian: Endianness::Big,
+                            utc: true,
+                        },
+                        Operator::Equal,
+                        OffsetSpec::Absolute(0),
+                        Value::Uint(0),
+                    )
+                },
+                35, // Date 15 + Equal 10 + Absolute 10
+                "type=date",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::QDate {
+                            endian: Endianness::Little,
+                            utc: false,
+                        },
+                        Operator::Equal,
+                        OffsetSpec::Absolute(0),
+                        Value::Uint(0),
+                    )
+                },
+                36, // QDate 16 + Equal 10 + Absolute 10
+                "type=qdate",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::String { max_length: None },
+                        Operator::Equal,
+                        OffsetSpec::Absolute(0),
+                        Value::String("ELF".to_string()),
+                    )
+                },
+                43, // String 20 + Equal 10 + Absolute 10 + len(3)
+                "type=string len=3",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::String {
+                            max_length: Some(10),
+                        },
+                        Operator::Equal,
+                        OffsetSpec::Absolute(0),
+                        Value::String("TEST".to_string()),
+                    )
+                },
+                49, // String w/max 25 + Equal 10 + Absolute 10 + len(4)
+                "type=string max_length=10",
+            ),
+            // --- Operator contribution (Byte/Absolute baseline) ---
+            (
+                || {
+                    make_rule(
+                        TypeKind::Byte { signed: true },
+                        Operator::NotEqual,
+                        OffsetSpec::Absolute(0),
+                        Value::Uint(0),
+                    )
+                },
+                20, // Byte 5 + NotEqual 5 + Absolute 10
+                "op=not_equal",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::Byte { signed: true },
+                        Operator::BitwiseAnd,
+                        OffsetSpec::Absolute(0),
+                        Value::Uint(0),
+                    )
+                },
+                18, // Byte 5 + BitwiseAnd 3 + Absolute 10
+                "op=bitwise_and",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::Byte { signed: true },
+                        Operator::BitwiseAndMask(0xFF),
+                        OffsetSpec::Absolute(0),
+                        Value::Uint(0),
+                    )
+                },
+                22, // Byte 5 + BitwiseAndMask 7 + Absolute 10
+                "op=bitwise_and_mask",
+            ),
+            // Comparison operators (all should give the same strength).
+            (
+                || {
+                    make_rule(
+                        TypeKind::Byte { signed: true },
+                        Operator::LessThan,
+                        OffsetSpec::Absolute(0),
+                        Value::Uint(0),
+                    )
+                },
+                21, // Byte 5 + Comparison 6 + Absolute 10
+                "op=less_than",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::Byte { signed: true },
+                        Operator::GreaterThan,
+                        OffsetSpec::Absolute(0),
+                        Value::Uint(0),
+                    )
+                },
+                21,
+                "op=greater_than",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::Byte { signed: true },
+                        Operator::LessEqual,
+                        OffsetSpec::Absolute(0),
+                        Value::Uint(0),
+                    )
+                },
+                21,
+                "op=less_equal",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::Byte { signed: true },
+                        Operator::GreaterEqual,
+                        OffsetSpec::Absolute(0),
+                        Value::Uint(0),
+                    )
+                },
+                21,
+                "op=greater_equal",
+            ),
+            // --- Offset contribution (Byte/Equal baseline) ---
+            (
+                || {
+                    make_rule(
+                        TypeKind::Byte { signed: true },
+                        Operator::Equal,
+                        OffsetSpec::Indirect {
+                            base_offset: 0,
+                            pointer_type: TypeKind::Long {
+                                endian: Endianness::Little,
+                                signed: false,
+                            },
+                            adjustment: 0,
+                            endian: Endianness::Little,
+                        },
+                        Value::Uint(0),
+                    )
+                },
+                20, // Byte 5 + Equal 10 + Indirect 5
+                "offset=indirect",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::Byte { signed: true },
+                        Operator::Equal,
+                        OffsetSpec::Relative(4),
+                        Value::Uint(0),
+                    )
+                },
+                18, // Byte 5 + Equal 10 + Relative 3
+                "offset=relative",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::Byte { signed: true },
+                        Operator::Equal,
+                        OffsetSpec::FromEnd(-4),
+                        Value::Uint(0),
+                    )
+                },
+                23, // Byte 5 + Equal 10 + FromEnd 8
+                "offset=from_end",
+            ),
+            // --- Value-length contribution ---
+            (
+                || {
+                    make_rule(
+                        TypeKind::Byte { signed: true },
+                        Operator::Equal,
+                        OffsetSpec::Absolute(0),
+                        Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
+                    )
+                },
+                29, // Byte 5 + Equal 10 + Absolute 10 + bytes len(4)
+                "value=bytes len=4",
+            ),
+            (
+                || {
+                    make_rule(
+                        TypeKind::String { max_length: None },
+                        Operator::Equal,
+                        OffsetSpec::Absolute(0),
+                        Value::String(
+                            "This is a very long string that exceeds the cap".to_string(),
+                        ),
+                    )
+                },
+                60, // String 20 + Equal 10 + Absolute 10 + capped len(20)
+                "value=long_string (cap)",
+            ),
+        ];
 
-    #[test]
-    fn test_strength_offset_relative() {
-        let rule = make_rule(
-            TypeKind::Byte { signed: true },
-            Operator::Equal,
-            OffsetSpec::Relative(4),
-            Value::Uint(0),
-        );
-        let strength = calculate_default_strength(&rule);
-        // Byte: 5, Equal: 10, Relative: 3, Numeric: 0 = 18
-        assert_eq!(strength, 18);
-    }
-
-    #[test]
-    fn test_strength_offset_from_end() {
-        let rule = make_rule(
-            TypeKind::Byte { signed: true },
-            Operator::Equal,
-            OffsetSpec::FromEnd(-4),
-            Value::Uint(0),
-        );
-        let strength = calculate_default_strength(&rule);
-        // Byte: 5, Equal: 10, FromEnd: 8, Numeric: 0 = 23
-        assert_eq!(strength, 23);
-    }
-
-    #[test]
-    fn test_strength_value_bytes() {
-        let rule = make_rule(
-            TypeKind::Byte { signed: true },
-            Operator::Equal,
-            OffsetSpec::Absolute(0),
-            Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
-        );
-        let strength = calculate_default_strength(&rule);
-        // Byte: 5, Equal: 10, Absolute: 10, Bytes length 4: 4 = 29
-        assert_eq!(strength, 29);
-    }
-
-    #[test]
-    fn test_strength_value_long_string() {
-        let rule = make_rule(
-            TypeKind::String { max_length: None },
-            Operator::Equal,
-            OffsetSpec::Absolute(0),
-            Value::String("This is a very long string that exceeds the cap".to_string()),
-        );
-        let strength = calculate_default_strength(&rule);
-        // String: 20, Equal: 10, Absolute: 10, String length capped at 20: 20 = 60
-        assert_eq!(strength, 60);
+        for (factory, expected, desc) in cases {
+            let rule = factory();
+            let strength = calculate_default_strength(&rule);
+            assert_eq!(
+                strength, *expected,
+                "calculate_default_strength mismatch for case '{desc}'"
+            );
+        }
     }
 
     // ============================================================
