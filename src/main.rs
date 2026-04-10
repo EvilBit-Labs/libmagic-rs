@@ -523,8 +523,16 @@ fn process_file(
     // Use the filename() method to get the path
     let file_path = PathBuf::from(file_or_stdin.filename());
 
-    // Evaluate file -- FileBuffer / evaluator surface their own errors
-    // for missing files, directories, permissions, etc.
+    // Reject directories early with a clear message. On some platforms
+    // (notably Windows) FileBuffer may accept a directory path without
+    // error, producing a misleading "data" classification.
+    if file_path.is_dir() {
+        return Err(LibmagicError::IoError(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("Path is a directory, not a file: {}", file_path.display()),
+        )));
+    }
+
     let result = db.evaluate_file(&file_path)?;
 
     // Output results based on format
