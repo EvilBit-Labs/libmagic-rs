@@ -290,7 +290,7 @@ fn test_coerce_value_to_type_float_rounds_to_f32() {
     // After coercion, value should match f32 precision
     #[allow(clippy::cast_possible_truncation)]
     let expected = f64::from(0.1_f64 as f32);
-    assert_eq!(coerced, Value::Float(expected));
+    assert_eq!(*coerced, Value::Float(expected));
 }
 
 #[test]
@@ -303,7 +303,7 @@ fn test_coerce_value_to_type_double_preserves_f64() {
             endian: Endianness::Native,
         },
     );
-    assert_eq!(coerced, Value::Float(0.1_f64));
+    assert_eq!(*coerced, Value::Float(0.1_f64));
 }
 
 #[test]
@@ -627,7 +627,7 @@ fn test_coerce_value_to_type() {
     for (i, (input, type_kind, expected)) in cases.iter().enumerate() {
         let result = coerce_value_to_type(input, type_kind);
         assert_eq!(
-            result, *expected,
+            *result, *expected,
             "Case {i}: coerce({input:?}, {type_kind:?})"
         );
     }
@@ -644,32 +644,32 @@ fn test_coerce_value_to_type_date_numeric() {
     // Uint(0) -> epoch string
     let result = coerce_value_to_type(&Value::Uint(0), &date_type);
     assert_eq!(
-        result,
+        *result,
         Value::String("Thu Jan  1 00:00:00 1970".to_string())
     );
 
     // Uint(1_000_000_000) -> known date
     let result = coerce_value_to_type(&Value::Uint(1_000_000_000), &date_type);
     assert_eq!(
-        result,
+        *result,
         Value::String("Sun Sep  9 01:46:40 2001".to_string())
     );
 
     // Int(0) -> epoch string
     let result = coerce_value_to_type(&Value::Int(0), &date_type);
     assert_eq!(
-        result,
+        *result,
         Value::String("Thu Jan  1 00:00:00 1970".to_string())
     );
 
     // Negative Int should pass through unchanged
     let result = coerce_value_to_type(&Value::Int(-1), &date_type);
-    assert_eq!(result, Value::Int(-1));
+    assert_eq!(*result, Value::Int(-1));
 
     // String values should pass through unchanged
     let s = Value::String("already a string".to_string());
     let result = coerce_value_to_type(&s, &date_type);
-    assert_eq!(result, s);
+    assert_eq!(*result, s);
 }
 
 #[test]
@@ -682,13 +682,13 @@ fn test_coerce_value_to_type_qdate_numeric() {
 
     let result = coerce_value_to_type(&Value::Uint(0), &qdate_type);
     assert_eq!(
-        result,
+        *result,
         Value::String("Thu Jan  1 00:00:00 1970".to_string())
     );
 
     let result = coerce_value_to_type(&Value::Uint(1_000_000_000), &qdate_type);
     assert_eq!(
-        result,
+        *result,
         Value::String("Sun Sep  9 01:46:40 2001".to_string())
     );
 }
@@ -705,7 +705,7 @@ fn test_coerce_date_matches_read_date() {
     let read_val = read_date(buffer, 0, Endianness::Big, true).unwrap();
     let coerced = coerce_value_to_type(&Value::Uint(1_000_000_000), &date_type);
     assert_eq!(
-        read_val, coerced,
+        read_val, *coerced,
         "Coerced value should match read_date output"
     );
 }
@@ -722,7 +722,7 @@ fn test_coerce_qdate_matches_read_qdate() {
     let read_val = read_qdate(buffer, 0, Endianness::Big, true).unwrap();
     let coerced = coerce_value_to_type(&Value::Uint(1_000_000_000), &qdate_type);
     assert_eq!(
-        read_val, coerced,
+        read_val, *coerced,
         "Coerced value should match read_qdate output"
     );
 }

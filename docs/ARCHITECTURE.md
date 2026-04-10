@@ -73,17 +73,22 @@ libmagic-rs is a pure-Rust implementation of the libmagic library for file type 
 ```text
 libmagic-rs/
 ├── src/
-│   ├── lib.rs              # Public API, MagicDatabase, EvaluationConfig
+│   ├── lib.rs              # Public API, MagicDatabase (624 lines)
 │   ├── main.rs             # CLI binary (rmagic)
+│   ├── config.rs           # EvaluationConfig with security limits (307 lines)
 │   ├── error.rs            # Error types (LibmagicError, ParseError, EvaluationError)
 │   ├── builtin_rules.rs    # Pre-compiled magic rules
 │   ├── builtin_rules.magic # Built-in rule definitions
 │   ├── build_helpers.rs    # Build script utilities
 │   │
 │   ├── parser/             # Magic file parsing
-│   │   ├── mod.rs          # Parser interface, file loading
+│   │   ├── mod.rs          # Parser interface
 │   │   ├── ast.rs          # AST definitions (MagicRule, TypeKind::Byte { signed: bool }, etc.)
-│   │   └── grammar.rs      # nom-based parsing combinators
+│   │   ├── grammar/        # nom-based parsing combinators
+│   │   │   ├── mod.rs      # Rule and type parsing (796 lines)
+│   │   │   ├── numbers.rs  # Decimal/hex number parsing
+│   │   │   └── value.rs    # Value-literal parsing
+│   │   └── loader.rs       # Magic file loading and format detection
 │   │
 │   ├── evaluator/          # Rule evaluation engine
 │   │   ├── mod.rs          # Public API surface with re-exports, EvaluationContext, RuleMatch
@@ -235,7 +240,7 @@ pub struct MagicDatabase {
 
 ### EvaluationConfig
 
-Controls evaluation behavior with security-focused defaults.
+Controls evaluation behavior with security-focused defaults. Extracted from `lib.rs` to `config.rs` (307 lines) in PR #212.
 
 ```rust
 pub struct EvaluationConfig {
@@ -252,6 +257,12 @@ pub struct EvaluationConfig {
 - Recursion depth: 1-1000 (default: 20)
 - String length: 1-1MB (default: 8192)
 - Timeout: 1-300000ms (5 minutes max)
+
+**Configuration Presets:**
+
+- `EvaluationConfig::new()` - Default balanced configuration
+- `EvaluationConfig::performance()` - Fast evaluation (depth 10, string 1024, 1s timeout)
+- `EvaluationConfig::comprehensive()` - Find all matches (depth 50, string 32768, 30s timeout)
 
 ### MagicRule (AST)
 
@@ -452,7 +463,6 @@ pub trait SafeBufferAccess {
 Vetted dependencies with minimal unsafe:
 
 - `memmap2` - Memory mapping (audited)
-- `byteorder` - Endianness (no unsafe)
 - `nom` - Parsing (no unsafe)
 - `thiserror` - Error handling (no unsafe)
 
@@ -488,7 +498,7 @@ The evaluation hot path is optimized for:
 ### Adding New Types
 
 1. Add variant to `TypeKind` enum (`ast.rs`)
-2. Add parsing logic (`grammar.rs`)
+2. Add parsing logic (`grammar/mod.rs`)
 3. Add reading logic (`types.rs`)
 4. Add serialization support (`build_helpers.rs`)
 5. Add tests
@@ -507,7 +517,7 @@ The `Quad` type (64-bit integer) demonstrates the type system extension pattern.
 ### Adding New Operators
 
 1. Add variant to `Operator` enum (`ast.rs`)
-2. Add parsing logic (`grammar.rs`)
+2. Add parsing logic (`grammar/mod.rs`)
 3. Add comparison logic (`operators.rs`)
 4. Add serialization for build-time (`build.rs` and `build_helpers.rs`)
 5. Add tests

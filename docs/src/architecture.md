@@ -48,7 +48,10 @@ The parser is responsible for converting magic files (text-based DSL) into an Ab
 **Key Files:**
 
 - `ast.rs`: Core data structures representing magic rules (✅ Complete)
-- `grammar.rs`: nom-based parsing components for magic file syntax (✅ Complete)
+- `grammar/`: nom-based parsing components for magic file syntax (✅ Complete)
+  - `mod.rs`: Main grammar dispatcher (796 lines)
+  - `numbers.rs`: Numeric type parsing (decimal/hex, signed/unsigned)
+  - `value.rs`: Value literal parsing (strings, floats, hex bytes)
 - `mod.rs`: Parser interface, format detection, and hierarchical rule building (✅ Complete)
 
 **Responsibilities:**
@@ -71,7 +74,7 @@ The parser is responsible for converting magic files (text-based DSL) into an Ab
 - ✅ **File parsing**: Complete magic file parsing with `parse_text_magic_file()`
 - ✅ **Hierarchy building**: Parent-child relationships via `build_rule_hierarchy()`
 - ✅ **Format detection**: Text, directory, and binary format detection
-- 📋 **Indirect offsets**: Pointer dereferencing patterns
+- ✅ **Indirect offsets**: Pointer dereferencing patterns
 
 ### 2. AST Data Structures (`src/parser/ast.rs`)
 
@@ -186,9 +189,35 @@ The evaluator executes magic rules against file buffers to identify file types. 
 - ✅ **Signedness Coercion**: Automatic value coercion for signed type comparisons (e.g., `0xff` → `-1` for signed byte)
 - ✅ **Comparison Operators**: Full support for `<`, `>`, `<=`, `>=` with numeric and lexicographic ordering
 - ✅ **Relative Offsets**: Resolution against previous-match anchor using GNU `file` semantics (issue #38, PR #211)
-- 📋 **Indirect Offsets**: Pointer dereferencing (planned)
+- ✅ **Indirect Offsets**: Pointer dereferencing (implemented)
 
-### 4. I/O Module (`src/io/`)
+### 4. Configuration Module (`src/config.rs`)
+
+Extracted from `lib.rs`, this module defines `EvaluationConfig` (307 lines) for controlling rule evaluation behavior.
+
+**Responsibilities:**
+
+- **Security limits**: Maximum recursion depth, string length, and evaluation timeout
+- **Matching strategy**: Stop-at-first-match or collect-all-matches mode
+- **MIME type mapping**: Enable/disable MIME type lookup for results
+- **Configuration presets**: `default()`, `performance()`, and `comprehensive()` constructors
+- **Validation**: Comprehensive security checks for configuration values
+
+**Key Types:**
+
+```rust
+pub struct EvaluationConfig {
+    pub max_recursion_depth: u32,
+    pub max_string_length: usize,
+    pub stop_at_first_match: bool,
+    pub enable_mime_types: bool,
+    pub timeout_ms: Option<u64>,
+}
+```
+
+The `validate()` method enforces safe limits on all fields (recursion depth ≤ 1000, string length ≤ 1MB, timeout ≤ 5 minutes, and resource-combination checks) to prevent stack overflow, memory exhaustion, and denial-of-service attacks.
+
+### 5. I/O Module (`src/io/`)
 
 Provides efficient file access through memory-mapped I/O. (✅ Complete)
 
@@ -214,7 +243,7 @@ pub fn safe_read_byte(buffer: &[u8], offset: usize) -> Result<u8, IoError>
 pub fn validate_buffer_access(buffer_size: usize, offset: usize, length: usize) -> Result<(), IoError>
 ```
 
-### 5. Output Module (`src/output/`)
+### 6. Output Module (`src/output/`)
 
 Formats evaluation results into different output formats.
 
@@ -396,7 +425,9 @@ pub enum EvaluationError {
 
 ```mermaid
 flowchart TD
-    L[lib.rs<br/>Public API and coordination]
+    L[lib.rs<br/>Public API and coordination<br/>624 lines]
+    C[config.rs<br/>EvaluationConfig<br/>307 lines]
+    L --> C
     L --> P[parser/<br/>Magic file parsing]
     L --> E[evaluator/<br/>Rule evaluation engine]
     L --> O[output/<br/>Result formatting]
@@ -405,11 +436,13 @@ flowchart TD
 
     P --> ER
     E --> P
+    E --> C
     E --> I
     E --> ER
     O --> ER
 
     style L fill:#2a1a4a,stroke:#b39ddb,color:#e0e0e0
+    style C fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
     style P fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
     style E fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
     style O fill:#4a3000,stroke:#ffb74d,color:#e0e0e0

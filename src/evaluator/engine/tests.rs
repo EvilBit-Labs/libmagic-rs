@@ -4,6 +4,26 @@
 use super::*;
 use crate::parser::ast::{Endianness, OffsetSpec, Operator, TypeKind, Value};
 
+/// Legacy one-shot single-rule helper used by the engine unit tests.
+///
+/// The public [`evaluate_single_rule`] API was reshaped in todo 025 to
+/// accept a mutable [`EvaluationContext`] and return `Vec<RuleMatch>` by
+/// delegating through [`evaluate_rules`]. That delegation folds
+/// data-dependent errors (buffer overrun, invalid offset, etc.) into an
+/// empty vector -- great for library callers, but many of the tests
+/// below were written against the older raw evaluator which returned
+/// `Result<Option<(usize, Value)>, LibmagicError>` and specifically
+/// asserted the `Err` path on out-of-bounds reads. This helper preserves
+/// that lower-level contract so the historical tests keep exercising the
+/// raw evaluator semantics without being rewritten en masse; the new
+/// public surface is covered by its own targeted tests.
+fn evaluate_single_rule_legacy(
+    rule: &MagicRule,
+    buffer: &[u8],
+) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
+    evaluate_single_rule_with_anchor(rule, buffer, 0)
+}
+
 #[test]
 fn test_evaluate_single_rule_relative_resolves_against_anchor_zero() {
     // Public evaluate_single_rule has no EvaluationContext, so OffsetSpec::Relative
@@ -22,7 +42,7 @@ fn test_evaluate_single_rule_relative_resolves_against_anchor_zero() {
 
     // Anchor=0 + delta 3 -> reads at absolute offset 3.
     let buffer = &[0xAA, 0xBB, 0xDD, 0xCC, 0xEE];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(
         result.is_some(),
         "evaluate_single_rule with Relative(3) should resolve to absolute 3"
@@ -122,7 +142,7 @@ fn test_evaluate_single_rule_relative_negative_with_zero_anchor_errors() {
         strength_modifier: None,
     };
     let buffer = &[0xAA, 0xBB];
-    let err = evaluate_single_rule(&rule, buffer).unwrap_err();
+    let err = evaluate_single_rule_legacy(&rule, buffer).unwrap_err();
     assert!(
         matches!(
             err,
@@ -147,7 +167,7 @@ fn test_evaluate_single_rule_relative_zero_resolves_to_buffer_start() {
     };
 
     let buffer = &[0xAA, 0xBB];
-    let result = evaluate_single_rule(&rule, buffer).unwrap().unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap().unwrap();
     assert_eq!(result.0, 0);
 }
 
@@ -165,7 +185,7 @@ fn test_evaluate_single_rule_byte_equal_match() {
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -183,7 +203,7 @@ fn test_evaluate_single_rule_byte_equal_no_match() {
     };
 
     let buffer = &[0x50, 0x4b, 0x03, 0x04]; // ZIP magic bytes
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_none());
 }
 
@@ -201,7 +221,7 @@ fn test_evaluate_single_rule_byte_not_equal_match() {
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some()); // 0x7f != 0x00
 }
 
@@ -219,7 +239,7 @@ fn test_evaluate_single_rule_byte_not_equal_no_match() {
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_none()); // 0x7f == 0x7f, so NotEqual is false
 }
 
@@ -237,7 +257,7 @@ fn test_evaluate_single_rule_byte_bitwise_and_match() {
     };
 
     let buffer = &[0xff, 0x45, 0x4c, 0x46]; // 0xff has high bit set
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some()); // 0xff & 0x80 = 0x80 (non-zero)
 }
 
@@ -255,7 +275,7 @@ fn test_evaluate_single_rule_byte_bitwise_and_no_match() {
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // 0x7f has high bit clear
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_none()); // 0x7f & 0x80 = 0x00 (zero)
 }
 
@@ -276,7 +296,7 @@ fn test_evaluate_single_rule_short_little_endian() {
     };
 
     let buffer = &[0x34, 0x12, 0x56, 0x78]; // 0x1234 in little-endian
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -297,7 +317,7 @@ fn test_evaluate_single_rule_short_big_endian() {
     };
 
     let buffer = &[0x12, 0x34, 0x56, 0x78]; // 0x1234 in big-endian
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -318,7 +338,7 @@ fn test_evaluate_single_rule_short_signed_positive() {
     };
 
     let buffer = &[0xff, 0x7f, 0x00, 0x00]; // 0x7fff in little-endian
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -339,7 +359,7 @@ fn test_evaluate_single_rule_short_signed_negative() {
     };
 
     let buffer = &[0xff, 0xff, 0x00, 0x00]; // 0xffff in little-endian
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -360,7 +380,7 @@ fn test_evaluate_single_rule_long_little_endian() {
     };
 
     let buffer = &[0x78, 0x56, 0x34, 0x12, 0x00]; // 0x12345678 in little-endian
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -381,7 +401,7 @@ fn test_evaluate_single_rule_long_big_endian() {
     };
 
     let buffer = &[0x12, 0x34, 0x56, 0x78, 0x00]; // 0x12345678 in big-endian
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -402,7 +422,7 @@ fn test_evaluate_single_rule_long_signed_positive() {
     };
 
     let buffer = &[0xff, 0xff, 0xff, 0x7f, 0x00]; // 0x7fffffff in little-endian
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -423,7 +443,7 @@ fn test_evaluate_single_rule_long_signed_negative() {
     };
 
     let buffer = &[0xff, 0xff, 0xff, 0xff, 0x00]; // 0xffffffff in little-endian
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -441,7 +461,7 @@ fn test_evaluate_single_rule_different_offsets() {
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -459,7 +479,7 @@ fn test_evaluate_single_rule_negative_offset() {
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -477,7 +497,7 @@ fn test_evaluate_single_rule_from_end_offset() {
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -495,7 +515,7 @@ fn test_evaluate_single_rule_offset_out_of_bounds() {
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-    let result = evaluate_single_rule(&rule, buffer);
+    let result = evaluate_single_rule_legacy(&rule, buffer);
     assert!(result.is_err());
 
     match result.unwrap_err() {
@@ -524,7 +544,7 @@ fn test_evaluate_single_rule_short_insufficient_bytes() {
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-    let result = evaluate_single_rule(&rule, buffer);
+    let result = evaluate_single_rule_legacy(&rule, buffer);
     assert!(result.is_err());
 
     match result.unwrap_err() {
@@ -553,7 +573,7 @@ fn test_evaluate_single_rule_long_insufficient_bytes() {
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
-    let result = evaluate_single_rule(&rule, buffer);
+    let result = evaluate_single_rule_legacy(&rule, buffer);
     assert!(result.is_err());
 
     match result.unwrap_err() {
@@ -579,7 +599,7 @@ fn test_evaluate_single_rule_empty_buffer() {
     };
 
     let buffer = &[];
-    let result = evaluate_single_rule(&rule, buffer);
+    let result = evaluate_single_rule_legacy(&rule, buffer);
     assert!(result.is_err());
 
     match result.unwrap_err() {
@@ -605,7 +625,7 @@ fn test_evaluate_single_rule_string_type_supported() {
     };
 
     let buffer = b"test\x00 data";
-    let result = evaluate_single_rule(&rule, buffer);
+    let result = evaluate_single_rule_legacy(&rule, buffer);
     assert!(result.is_ok());
     let matches = result.unwrap();
     assert!(matches.is_some());
@@ -621,7 +641,7 @@ fn test_evaluate_single_rule_string_type_supported() {
         strength_modifier: None,
     };
 
-    let result = evaluate_single_rule(&rule_no_match, buffer);
+    let result = evaluate_single_rule_legacy(&rule_no_match, buffer);
     assert!(result.is_ok());
     let matches = result.unwrap();
     assert!(matches.is_none());
@@ -641,7 +661,7 @@ fn test_evaluate_single_rule_cross_type_comparison() {
     };
 
     let buffer = &[42];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -662,7 +682,7 @@ fn test_evaluate_single_rule_bitwise_and_with_shorts() {
     };
 
     let buffer = &[0x34, 0x12];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -683,7 +703,7 @@ fn test_evaluate_single_rule_bitwise_and_with_longs() {
     };
 
     let buffer = &[0x12, 0x34, 0x56, 0x78];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -704,11 +724,11 @@ fn test_evaluate_single_rule_comprehensive_elf_check() {
     };
 
     let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01];
-    let result = evaluate_single_rule(&rule, elf_buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, elf_buffer).unwrap();
     assert!(result.is_some());
 
     let non_elf_buffer = &[0x50, 0x4b, 0x03, 0x04, 0x14, 0x00];
-    let result = evaluate_single_rule(&rule, non_elf_buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, non_elf_buffer).unwrap();
     assert!(result.is_none());
 }
 
@@ -729,7 +749,7 @@ fn test_evaluate_single_rule_native_endianness() {
     };
 
     let buffer = &[0x01, 0x02];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -747,7 +767,11 @@ fn test_evaluate_single_rule_all_operators() {
         level: 0,
         strength_modifier: None,
     };
-    assert!(evaluate_single_rule(&equal_rule, buffer).unwrap().is_some());
+    assert!(
+        evaluate_single_rule_legacy(&equal_rule, buffer)
+            .unwrap()
+            .is_some()
+    );
 
     let not_equal_rule = MagicRule {
         offset: OffsetSpec::Absolute(1),
@@ -760,7 +784,7 @@ fn test_evaluate_single_rule_all_operators() {
         strength_modifier: None,
     };
     assert!(
-        evaluate_single_rule(&not_equal_rule, buffer)
+        evaluate_single_rule_legacy(&not_equal_rule, buffer)
             .unwrap()
             .is_some()
     );
@@ -776,7 +800,7 @@ fn test_evaluate_single_rule_all_operators() {
         strength_modifier: None,
     };
     assert!(
-        evaluate_single_rule(&bitwise_and_rule, buffer)
+        evaluate_single_rule_legacy(&bitwise_and_rule, buffer)
             .unwrap()
             .is_some()
     );
@@ -797,7 +821,7 @@ fn test_evaluate_single_rule_comparison_operators() {
         strength_modifier: None,
     };
     assert!(
-        evaluate_single_rule(&less_than_rule, buffer)
+        evaluate_single_rule_legacy(&less_than_rule, buffer)
             .unwrap()
             .is_some()
     );
@@ -813,7 +837,7 @@ fn test_evaluate_single_rule_comparison_operators() {
         strength_modifier: None,
     };
     assert!(
-        evaluate_single_rule(&greater_than_rule, buffer)
+        evaluate_single_rule_legacy(&greater_than_rule, buffer)
             .unwrap()
             .is_some()
     );
@@ -829,7 +853,7 @@ fn test_evaluate_single_rule_comparison_operators() {
         strength_modifier: None,
     };
     assert!(
-        evaluate_single_rule(&less_equal_rule, buffer)
+        evaluate_single_rule_legacy(&less_equal_rule, buffer)
             .unwrap()
             .is_some()
     );
@@ -845,7 +869,7 @@ fn test_evaluate_single_rule_comparison_operators() {
         strength_modifier: None,
     };
     assert!(
-        evaluate_single_rule(&greater_equal_rule, buffer)
+        evaluate_single_rule_legacy(&greater_equal_rule, buffer)
             .unwrap()
             .is_some()
     );
@@ -866,7 +890,7 @@ fn test_evaluate_comparison_with_signed_byte() {
         strength_modifier: None,
     };
     assert!(
-        evaluate_single_rule(&signed_rule, buffer)
+        evaluate_single_rule_legacy(&signed_rule, buffer)
             .unwrap()
             .is_some()
     );
@@ -882,7 +906,7 @@ fn test_evaluate_comparison_with_signed_byte() {
         strength_modifier: None,
     };
     assert!(
-        evaluate_single_rule(&unsigned_rule, buffer)
+        evaluate_single_rule_legacy(&unsigned_rule, buffer)
             .unwrap()
             .is_none()
     );
@@ -914,7 +938,7 @@ fn test_evaluate_comparison_operators_negative_cases() {
             level: 0,
             strength_modifier: None,
         };
-        let result = evaluate_single_rule(&rule, buffer).unwrap();
+        let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
         assert_eq!(
             result.is_some(),
             expected,
@@ -940,7 +964,7 @@ fn test_evaluate_single_rule_edge_case_values() {
     };
 
     let max_buffer = &[0xff, 0xff, 0xff, 0xff];
-    let result = evaluate_single_rule(&max_uint_rule, max_buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&max_uint_rule, max_buffer).unwrap();
     assert!(result.is_some());
 
     let min_int_rule = MagicRule {
@@ -958,7 +982,7 @@ fn test_evaluate_single_rule_edge_case_values() {
     };
 
     let min_buffer = &[0x00, 0x00, 0x00, 0x80];
-    let result = evaluate_single_rule(&min_int_rule, min_buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&min_int_rule, min_buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -976,7 +1000,7 @@ fn test_evaluate_single_rule_various_buffer_sizes() {
     };
 
     let single_buffer = &[0xaa];
-    let result = evaluate_single_rule(&single_byte_rule, single_buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&single_byte_rule, single_buffer).unwrap();
     assert!(result.is_some());
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -992,7 +1016,7 @@ fn test_evaluate_single_rule_various_buffer_sizes() {
         strength_modifier: None,
     };
 
-    let result = evaluate_single_rule(&large_rule, &large_buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&large_rule, &large_buffer).unwrap();
     assert!(result.is_some());
 }
 
@@ -1425,9 +1449,10 @@ fn test_evaluate_rules_timeout() {
     let mut context = EvaluationContext::new(config);
 
     let result = evaluate_rules(&rules, buffer, &mut context);
-    if let Err(LibmagicError::Timeout { timeout_ms }) = result {
-        assert_eq!(timeout_ms, 0);
-    }
+    assert!(
+        matches!(result, Err(LibmagicError::Timeout { timeout_ms: 0 })),
+        "Expected timeout error, got: {result:?}"
+    );
 }
 
 #[test]
@@ -1748,12 +1773,10 @@ fn test_error_recovery_timeout_propagation() {
 
     let result = evaluate_rules(&rules, buffer, &mut context);
 
-    match result {
-        Ok(_) | Err(LibmagicError::Timeout { .. }) => {}
-        Err(e) => {
-            panic!("Unexpected error type: {e:?}");
-        }
-    }
+    assert!(
+        matches!(result, Err(LibmagicError::Timeout { timeout_ms: 0 })),
+        "Expected timeout error, got: {result:?}"
+    );
 }
 
 #[test]
@@ -1849,7 +1872,7 @@ fn test_any_value_parse_and_evaluate_paren_message() {
     assert_eq!(rule.message, "(0)");
 
     let buffer = &[0x00, 0x01, 0x02, 0x03];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(
         result.is_some(),
         "AnyValue rule should match unconditionally"
@@ -1866,7 +1889,7 @@ fn test_any_value_parse_and_evaluate_backslash_message() {
     assert_eq!(rule.message, "\\b, data");
 
     let buffer = &[0xFF, 0xFE, 0xFD, 0xFC];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(
         result.is_some(),
         "AnyValue rule should match unconditionally"
@@ -1882,7 +1905,7 @@ fn test_any_value_parse_and_evaluate_no_message() {
     assert_eq!(rule.op, Operator::AnyValue);
 
     let buffer = &[0x42];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(
         result.is_some(),
         "AnyValue rule should match unconditionally"
@@ -1899,7 +1922,7 @@ fn test_bitwise_xor_parse_and_evaluate_match() {
     assert_eq!(rule.message, "XOR match");
 
     let buffer = &[0x0F];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(
         result.is_some(),
         "BitwiseXor should match when XOR is non-zero"
@@ -1915,7 +1938,7 @@ fn test_bitwise_xor_parse_and_evaluate_no_match() {
     assert_eq!(rule.op, Operator::BitwiseXor);
 
     let buffer = &[0x42];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(
         result.is_none(),
         "BitwiseXor should not match when XOR is zero"
@@ -1932,7 +1955,7 @@ fn test_bitwise_not_parse_and_evaluate_match() {
     assert_eq!(rule.message, "NOT match");
 
     let buffer = &[0x00];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(
         result.is_some(),
         "BitwiseNot should match when NOT(value) equals operand at byte width"
@@ -1948,7 +1971,7 @@ fn test_bitwise_not_parse_and_evaluate_no_match() {
     assert_eq!(rule.op, Operator::BitwiseNot);
 
     let buffer = &[0x42];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(
         result.is_none(),
         "BitwiseNot should not match when NOT(value) != operand"
@@ -1970,7 +1993,7 @@ fn test_evaluate_rules_skips_out_of_bounds_rule() {
 
     let buffer = &[0x7f, 0x45];
 
-    let single_result = evaluate_single_rule(&rule, buffer);
+    let single_result = evaluate_single_rule_legacy(&rule, buffer);
     assert!(single_result.is_err());
 
     let rules = vec![rule];
@@ -2051,7 +2074,7 @@ fn test_evaluate_single_rule_pstring_match() {
     };
 
     let buffer = &[5, b'H', b'e', b'l', b'l', b'o'];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(
         result.is_some(),
         "PString rule should match when buffer contains matching pascal string"
@@ -2077,7 +2100,7 @@ fn test_evaluate_single_rule_pstring_no_match() {
     };
 
     let buffer = &[5, b'H', b'e', b'l', b'l', b'o'];
-    let result = evaluate_single_rule(&rule, buffer).unwrap();
+    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
     assert!(
         result.is_none(),
         "PString rule should not match when strings differ"
@@ -2121,5 +2144,243 @@ fn test_evaluate_single_rule_pstring_with_child_rule() {
         matches.len(),
         2,
         "Both parent PString and child byte rules should match"
+    );
+}
+
+// ============================================================
+// Deep nesting & resource exhaustion safety tests (todo 028)
+// ============================================================
+
+/// Build a linear chain of `depth` nested rules, each reading a distinct byte.
+/// Level 0 reads buffer[0], level 1 reads buffer[1], ..., level (depth-1) reads
+/// buffer[depth-1]. The buffer is constructed so every level matches.
+fn build_linear_nested_chain(depth: u32) -> (MagicRule, Vec<u8>) {
+    assert!(depth > 0, "depth must be > 0");
+    let buffer: Vec<u8> = (0..depth).map(|i| (i & 0xFF) as u8).collect();
+
+    // Start with the deepest (innermost) rule and build outward.
+    let last = depth - 1;
+    let mut current = MagicRule {
+        offset: OffsetSpec::Absolute(i64::from(last)),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(last & 0xFF)),
+        message: format!("Level {last}"),
+        children: vec![],
+        level: last,
+        strength_modifier: None,
+    };
+
+    for i in (0..last).rev() {
+        current = MagicRule {
+            offset: OffsetSpec::Absolute(i64::from(i)),
+            typ: TypeKind::Byte { signed: false },
+            op: Operator::Equal,
+            value: Value::Uint(u64::from(i & 0xFF)),
+            message: format!("Level {i}"),
+            children: vec![current],
+            level: i,
+            strength_modifier: None,
+        };
+    }
+
+    (current, buffer)
+}
+
+#[test]
+fn test_deep_nesting_twenty_levels_all_match() {
+    // Build a 20-level linear nested rule tree. With max_recursion_depth=20,
+    // every level should match. A 20-level tree only needs 19 increments of
+    // the recursion counter (the leaf has no children), so it fits under the
+    // default limit exactly.
+    let (root, buffer) = build_linear_nested_chain(20);
+    let rules = vec![root];
+
+    let config = EvaluationConfig {
+        max_recursion_depth: 20,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&rules, &buffer, &mut context)
+        .expect("20-level chain should evaluate without error under default limit");
+
+    assert_eq!(
+        matches.len(),
+        20,
+        "Every one of 20 nested levels should match, got {}",
+        matches.len()
+    );
+    for (i, m) in matches.iter().enumerate() {
+        assert_eq!(m.message, format!("Level {i}"));
+    }
+}
+
+#[test]
+fn test_deep_nesting_exceeds_limit_returns_recursion_error() {
+    // Same 20-level tree, but with max_recursion_depth=5. Evaluation must
+    // return RecursionLimitExceeded and must not panic.
+    let (root, buffer) = build_linear_nested_chain(20);
+    let rules = vec![root];
+
+    let config = EvaluationConfig {
+        max_recursion_depth: 5,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let result = evaluate_rules(&rules, &buffer, &mut context);
+    let err = result.expect_err("Expected RecursionLimitExceeded for 20-level tree with limit 5");
+
+    assert!(
+        matches!(
+            err,
+            LibmagicError::EvaluationError(
+                crate::error::EvaluationError::RecursionLimitExceeded { .. }
+            )
+        ),
+        "Expected RecursionLimitExceeded, got: {err:?}"
+    );
+}
+
+#[test]
+fn test_resource_exhaustion_large_rule_count_completes_or_times_out() {
+    // Generate 2000 independent flat rules. Each rule reads byte 0 and
+    // compares against a distinct value; only one will match. Evaluation
+    // must either complete successfully or return a Timeout error -- it
+    // must never panic and must finish well under the test timeout.
+    let rule_count: u32 = 2000;
+    let rules: Vec<MagicRule> = (0..rule_count)
+        .map(|i| MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Byte { signed: false },
+            op: Operator::Equal,
+            value: Value::Uint(u64::from(i & 0xFF)),
+            message: format!("Rule {i}"),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        })
+        .collect();
+
+    // Buffer containing 0x00 so exactly the rules with value 0 match
+    // (there will be several because we mask with 0xFF above).
+    let buffer = vec![0u8; 64];
+
+    let config = EvaluationConfig {
+        max_recursion_depth: 20,
+        max_string_length: 8192,
+        stop_at_first_match: false,
+        enable_mime_types: false,
+        // Generous timeout: even CI should finish 2000 trivial byte reads
+        // in well under 10 seconds.
+        timeout_ms: Some(10_000),
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let start = std::time::Instant::now();
+    let result = evaluate_rules(&rules, &buffer, &mut context);
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < std::time::Duration::from_secs(30),
+        "Large-rule-count evaluation took too long: {elapsed:?}"
+    );
+
+    match result {
+        Ok(matches) => {
+            // Rules whose (i & 0xFF) == 0 match byte 0: that's rule_count/256
+            // rounded up. Verify we got at least one match and did not panic.
+            assert!(
+                !matches.is_empty(),
+                "Expected at least one match in large rule set"
+            );
+        }
+        Err(LibmagicError::Timeout { .. }) => {
+            // Acceptable: the timeout fired instead of completing.
+        }
+        Err(e) => panic!("Unexpected error from large rule set evaluation: {e:?}"),
+    }
+}
+
+#[test]
+fn test_resource_exhaustion_large_buffer_completes_without_panic() {
+    // 1 MiB buffer of zeros. Evaluate a handful of rules across it and
+    // verify no panic and reasonable runtime.
+    let buffer = vec![0u8; 1024 * 1024];
+
+    let rules = vec![
+        MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Byte { signed: false },
+            op: Operator::Equal,
+            value: Value::Uint(0x00),
+            message: "zero byte at 0".to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        },
+        MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Long {
+                endian: Endianness::Little,
+                signed: false,
+            },
+            op: Operator::Equal,
+            value: Value::Uint(0),
+            message: "zero long at 0".to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        },
+        MagicRule {
+            offset: OffsetSpec::Absolute(512 * 1024),
+            typ: TypeKind::Byte { signed: false },
+            op: Operator::Equal,
+            value: Value::Uint(0x00),
+            message: "zero byte at mid".to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        },
+        // Out-of-bounds rule should fail gracefully, not panic.
+        MagicRule {
+            offset: OffsetSpec::Absolute(i64::try_from(buffer.len() + 100).unwrap()),
+            typ: TypeKind::Byte { signed: false },
+            op: Operator::Equal,
+            value: Value::Uint(0x00),
+            message: "out of bounds".to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        },
+    ];
+
+    let config = EvaluationConfig {
+        max_recursion_depth: 20,
+        max_string_length: 8192,
+        stop_at_first_match: false,
+        enable_mime_types: false,
+        timeout_ms: Some(10_000),
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let start = std::time::Instant::now();
+    let matches = evaluate_rules(&rules, &buffer, &mut context)
+        .expect("Large-buffer evaluation should not return an error");
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < std::time::Duration::from_secs(30),
+        "Large-buffer evaluation took too long: {elapsed:?}"
+    );
+
+    // Three in-bounds rules should match; the out-of-bounds rule should
+    // silently fail without panicking.
+    assert_eq!(
+        matches.len(),
+        3,
+        "Expected 3 matches (in-bounds rules only), got {}",
+        matches.len()
     );
 }

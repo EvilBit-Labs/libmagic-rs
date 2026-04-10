@@ -78,9 +78,24 @@ pub fn read_string(
     };
 
     let string_bytes = &remaining_buffer[..read_length];
-    let string_value = String::from_utf8_lossy(string_bytes).into_owned();
+    let string_value = bytes_to_string_fast(string_bytes);
 
     Ok(Value::String(string_value))
+}
+
+/// Convert bytes to an owned `String`, avoiding a double allocation on the
+/// common valid-UTF-8 path.
+///
+/// Both branches produce an owned `String` (one allocation), but differ in
+/// cost: `String::from(valid_str)` is a single `memcpy`, whereas
+/// `from_utf8_lossy(...).into_owned()` must scan for and insert replacement
+/// characters. The fast path skips the lossy scan entirely.
+#[inline]
+fn bytes_to_string_fast(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(valid) => String::from(valid),
+        Err(_) => String::from_utf8_lossy(bytes).into_owned(),
+    }
 }
 
 /// Reads a Pascal-style length-prefixed string from the buffer.
@@ -235,7 +250,7 @@ pub fn read_pstring(
         });
     }
     let string_bytes = &buffer[string_start..string_end];
-    let string_value = String::from_utf8_lossy(string_bytes).into_owned();
+    let string_value = bytes_to_string_fast(string_bytes);
     Ok(Value::String(string_value))
 }
 

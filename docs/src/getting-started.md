@@ -12,7 +12,7 @@ This guide will help you get up and running with libmagic-rs, whether you want t
 
 ### From Source
 
-Currently, libmagic-rs is only available from source as it's in early development:
+libmagic-rs is published on [crates.io](https://crates.io/crates/libmagic-rs) at version 0.5.0. You can also build from source:
 
 ```bash
 # Clone the repository
@@ -85,6 +85,13 @@ Add libmagic-rs to your `Cargo.toml`:
 
 ```toml
 [dependencies]
+libmagic-rs = "0.5.0"
+```
+
+For the latest development version:
+
+```toml
+[dependencies]
 libmagic-rs = { git = "https://github.com/EvilBit-Labs/libmagic-rs.git" }
 ```
 
@@ -119,13 +126,17 @@ Understanding the project layout will help you navigate the codebase:
 libmagic-rs/
 ├── Cargo.toml              # Project configuration
 ├── src/
-│   ├── lib.rs              # Library API (MagicDatabase, EvaluationConfig, etc.)
+│   ├── lib.rs              # Library API (MagicDatabase, etc.)
 │   ├── main.rs             # CLI implementation (rmagic binary)
+│   ├── config.rs           # EvaluationConfig and validation logic
 │   ├── error.rs            # Error types (LibmagicError, ParseError, EvaluationError)
 │   ├── parser/
 │   │   ├── mod.rs          # Magic file parser entry point
 │   │   ├── ast.rs          # AST data structures
-│   │   ├── grammar.rs      # nom-based parsing combinators
+│   │   ├── grammar/        # nom-based parsing combinators
+│   │   │   ├── mod.rs      # Main grammar parser
+│   │   │   ├── numbers.rs  # Numeric literal parsing
+│   │   │   └── value.rs    # Value literal parsing
 │   │   ├── loader.rs       # File/directory loading with format detection
 │   │   └── format.rs       # Magic file format detection
 │   ├── evaluator/
@@ -207,7 +218,7 @@ cargo watch -x "test ast_structures"
 - **Confidence Scoring**: Match confidence based on rule hierarchy depth
 - **Timeout Protection**: Configurable per-file evaluation timeouts
 - **Build System**: Cargo configuration with strict clippy pedantic linting
-- **Testing**: 940+ comprehensive tests across all modules
+- **Testing**: 1,200+ comprehensive tests across all modules
 - **Documentation**: This guide, API documentation, and architecture docs
 
 ## Example Magic Rules

@@ -216,7 +216,7 @@ fn test_magic_database_load_directory() {
 }
 
 #[test]
-#[ignore = "Evaluator not fully implemented - TODO: Enable once evaluator correctly matches rules"]
+#[ignore = "Parser does not decode \\xNN escape sequences inside string values yet; rule matches 'data' instead of 'ELF'. Re-enable once grammar supports hex escapes in parse_value()."]
 fn test_magic_database_evaluate_after_load() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
@@ -298,7 +298,7 @@ fn test_binary_format_error_message_quality() {
 // ============================================================
 
 #[test]
-#[ignore = "Evaluator not fully implemented - TODO: Enable once evaluator correctly matches rules"]
+#[ignore = "Parser does not decode \\xNN escape sequences inside string values yet; rule matches 'data' instead of 'ZIP'. Re-enable once grammar supports hex escapes in parse_value()."]
 fn test_end_to_end_text_file_to_evaluation() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
@@ -324,7 +324,7 @@ fn test_end_to_end_text_file_to_evaluation() {
 }
 
 #[test]
-#[ignore = "Evaluator not fully implemented - TODO: Enable once evaluator correctly matches rules"]
+#[ignore = "Parser does not decode \\xNN escape sequences inside string values yet; rules match 'data' instead of the expected magic type. Re-enable once grammar supports hex escapes in parse_value()."]
 fn test_end_to_end_directory_to_evaluation() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
 

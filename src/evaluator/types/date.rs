@@ -1,9 +1,8 @@
 // Copyright (c) 2025-2026 the libmagic-rs contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use super::TypeReadError;
+use super::{TypeReadError, read_bytes_at};
 use crate::parser::ast::{Endianness, Value};
-use byteorder::{BigEndian, ByteOrder, LittleEndian, NativeEndian};
 
 /// Day-of-week names matching GNU `file` output format.
 const DAY_NAMES: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
@@ -50,21 +49,12 @@ pub fn read_date(
     endian: Endianness,
     utc: bool,
 ) -> Result<Value, TypeReadError> {
-    let end = offset.checked_add(4).ok_or(TypeReadError::BufferOverrun {
-        offset,
-        buffer_len: buffer.len(),
-    })?;
-    let bytes = buffer
-        .get(offset..end)
-        .ok_or(TypeReadError::BufferOverrun {
-            offset,
-            buffer_len: buffer.len(),
-        })?;
+    let arr: [u8; 4] = read_bytes_at(buffer, offset)?;
 
     let secs = match endian {
-        Endianness::Little => LittleEndian::read_u32(bytes),
-        Endianness::Big => BigEndian::read_u32(bytes),
-        Endianness::Native => NativeEndian::read_u32(bytes),
+        Endianness::Little => u32::from_le_bytes(arr),
+        Endianness::Big => u32::from_be_bytes(arr),
+        Endianness::Native => u32::from_ne_bytes(arr),
     };
 
     Ok(Value::String(format_unix_timestamp_32(secs, utc)))
@@ -107,21 +97,12 @@ pub fn read_qdate(
     endian: Endianness,
     utc: bool,
 ) -> Result<Value, TypeReadError> {
-    let end = offset.checked_add(8).ok_or(TypeReadError::BufferOverrun {
-        offset,
-        buffer_len: buffer.len(),
-    })?;
-    let bytes = buffer
-        .get(offset..end)
-        .ok_or(TypeReadError::BufferOverrun {
-            offset,
-            buffer_len: buffer.len(),
-        })?;
+    let arr: [u8; 8] = read_bytes_at(buffer, offset)?;
 
     let secs = match endian {
-        Endianness::Little => LittleEndian::read_u64(bytes),
-        Endianness::Big => BigEndian::read_u64(bytes),
-        Endianness::Native => NativeEndian::read_u64(bytes),
+        Endianness::Little => u64::from_le_bytes(arr),
+        Endianness::Big => u64::from_be_bytes(arr),
+        Endianness::Native => u64::from_ne_bytes(arr),
     };
 
     Ok(Value::String(format_unix_timestamp_64(secs, utc)))

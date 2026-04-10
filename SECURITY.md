@@ -4,8 +4,8 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
-| < 0.1   | :x:                |
+| 0.5.x   | :white_check_mark: |
+| < 0.5   | :x:                |
 
 Users on unsupported versions should upgrade to the latest release. Please review the [release notes](https://github.com/EvilBit-Labs/libmagic-rs/releases) when upgrading.
 

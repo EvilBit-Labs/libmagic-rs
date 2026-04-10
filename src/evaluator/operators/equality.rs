@@ -455,279 +455,93 @@ mod tests {
     }
 
     // Tests for apply_not_equal function
-    #[test]
-    fn test_apply_not_equal_uint_same_value() {
-        let left = Value::Uint(42);
-        let right = Value::Uint(42);
-        assert!(!apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_uint_different_value() {
-        let left = Value::Uint(42);
-        let right = Value::Uint(24);
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_uint_zero() {
-        let left = Value::Uint(0);
-        let right = Value::Uint(0);
-        assert!(!apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_uint_max_value() {
-        let left = Value::Uint(u64::MAX);
-        let right = Value::Uint(u64::MAX);
-        assert!(!apply_not_equal(&left, &right));
-
-        let left = Value::Uint(u64::MAX);
-        let right = Value::Uint(0);
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_int_same_value() {
-        let left = Value::Int(42);
-        let right = Value::Int(42);
-        assert!(!apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_int_different_value() {
-        let left = Value::Int(42);
-        let right = Value::Int(-42);
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_int_negative() {
-        let left = Value::Int(-100);
-        let right = Value::Int(-100);
-        assert!(!apply_not_equal(&left, &right));
-
-        let left = Value::Int(-100);
-        let right = Value::Int(100);
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_int_zero() {
-        let left = Value::Int(0);
-        let right = Value::Int(0);
-        assert!(!apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_int_extreme_values() {
-        let left = Value::Int(i64::MAX);
-        let right = Value::Int(i64::MAX);
-        assert!(!apply_not_equal(&left, &right));
-
-        let left = Value::Int(i64::MIN);
-        let right = Value::Int(i64::MIN);
-        assert!(!apply_not_equal(&left, &right));
-
-        let left = Value::Int(i64::MAX);
-        let right = Value::Int(i64::MIN);
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_bytes_same_value() {
-        let left = Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]);
-        let right = Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]);
-        assert!(!apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_bytes_different_value() {
-        let left = Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]);
-        let right = Value::Bytes(vec![0x50, 0x4b, 0x03, 0x04]);
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_bytes_empty() {
-        let left = Value::Bytes(vec![]);
-        let right = Value::Bytes(vec![]);
-        assert!(!apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_bytes_different_length() {
-        let left = Value::Bytes(vec![0x7f, 0x45]);
-        let right = Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]);
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_bytes_single_byte() {
-        let left = Value::Bytes(vec![0x7f]);
-        let right = Value::Bytes(vec![0x7f]);
-        assert!(!apply_not_equal(&left, &right));
-
-        let left = Value::Bytes(vec![0x7f]);
-        let right = Value::Bytes(vec![0x45]);
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_string_same_value() {
-        let left = Value::String("hello".to_string());
-        let right = Value::String("hello".to_string());
-        assert!(!apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_string_different_value() {
-        let left = Value::String("hello".to_string());
-        let right = Value::String("world".to_string());
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_string_empty() {
-        let left = Value::String(String::new());
-        let right = Value::String(String::new());
-        assert!(!apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_string_case_sensitive() {
-        let left = Value::String("Hello".to_string());
-        let right = Value::String("hello".to_string());
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_string_unicode() {
-        let left = Value::String("\u{1f980} Rust".to_string());
-        let right = Value::String("\u{1f980} Rust".to_string());
-        assert!(!apply_not_equal(&left, &right));
-
-        let left = Value::String("\u{1f980} Rust".to_string());
-        let right = Value::String("\u{1f40d} Python".to_string());
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_string_whitespace() {
-        let left = Value::String("hello world".to_string());
-        let right = Value::String("hello world".to_string());
-        assert!(!apply_not_equal(&left, &right));
-
-        let left = Value::String("hello world".to_string());
-        let right = Value::String("hello  world".to_string()); // Extra space
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    // Cross-type comparison tests for not_equal (should all return true)
-    #[test]
-    fn test_apply_not_equal_uint_vs_int() {
-        // Same numeric value across types should be equal (not not-equal)
-        let left = Value::Uint(42);
-        let right = Value::Int(42);
-        assert!(!apply_not_equal(&left, &right));
-
-        let left = Value::Uint(0);
-        let right = Value::Int(0);
-        assert!(!apply_not_equal(&left, &right));
-
-        // Different numeric values should be not-equal
-        let left = Value::Uint(42);
-        let right = Value::Int(-42);
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_uint_vs_bytes() {
-        let left = Value::Uint(42);
-        let right = Value::Bytes(vec![42]);
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_uint_vs_string() {
-        let left = Value::Uint(42);
-        let right = Value::String("42".to_string());
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_int_vs_bytes() {
-        let left = Value::Int(-42);
-        let right = Value::Bytes(vec![214]); // -42 as u8
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_int_vs_string() {
-        let left = Value::Int(-42);
-        let right = Value::String("-42".to_string());
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_bytes_vs_string() {
-        let left = Value::Bytes(vec![104, 101, 108, 108, 111]); // "hello" as bytes
-        let right = Value::String("hello".to_string());
-        assert!(apply_not_equal(&left, &right));
-    }
-
-    #[test]
-    fn test_apply_not_equal_all_cross_type_combinations() {
-        let values = [
-            Value::Uint(42),
-            Value::Int(42),
-            Value::Bytes(vec![42]),
-            Value::String("42".to_string()),
-        ];
-
-        // Test cross-type comparisons for not_equal
-        for (i, left) in values.iter().enumerate() {
-            for (j, right) in values.iter().enumerate() {
-                if i != j {
-                    let result = apply_not_equal(left, right);
-                    // Uint(42) and Int(42) should be equal, so not_equal is false
-                    if (i <= 1) && (j <= 1) {
-                        assert!(
-                            !result,
-                            "Integer cross-type not_equal should be false: {left:?} vs {right:?}"
-                        );
-                    } else {
-                        assert!(
-                            result,
-                            "Non-integer cross-type not_equal should be true: {left:?} vs {right:?}"
-                        );
-                    }
-                }
-            }
-        }
-    }
+    //
+    // Per project guidelines, we do not maintain 1:1 mirrors of the apply_equal
+    // tests above. Instead, the single consistency test below proves the
+    // contract `apply_not_equal == !apply_equal` over a representative table of
+    // value pairs covering all variants and edge cases that the per-case
+    // not_equal tests previously exercised. Float-specific cases are covered
+    // separately because of the epsilon/NaN/infinity semantics.
 
     #[test]
     fn test_apply_not_equal_consistency_with_equal() {
         let test_cases = vec![
+            // Uint variants: same/different/zero/max/cross-max
             (Value::Uint(42), Value::Uint(42)),
             (Value::Uint(42), Value::Uint(24)),
+            (Value::Uint(0), Value::Uint(0)),
+            (Value::Uint(u64::MAX), Value::Uint(u64::MAX)),
+            (Value::Uint(u64::MAX), Value::Uint(0)),
+            // Int variants: same/different/negative/zero/extremes
+            (Value::Int(42), Value::Int(42)),
+            (Value::Int(42), Value::Int(-42)),
             (Value::Int(-100), Value::Int(-100)),
             (Value::Int(-100), Value::Int(100)),
-            (Value::Bytes(vec![1, 2, 3]), Value::Bytes(vec![1, 2, 3])),
-            (Value::Bytes(vec![1, 2, 3]), Value::Bytes(vec![3, 2, 1])),
+            (Value::Int(0), Value::Int(0)),
+            (Value::Int(i64::MAX), Value::Int(i64::MAX)),
+            (Value::Int(i64::MIN), Value::Int(i64::MIN)),
+            (Value::Int(i64::MAX), Value::Int(i64::MIN)),
+            // Bytes variants: same/different/empty/different-length/single
             (
-                Value::String("test".to_string()),
-                Value::String("test".to_string()),
+                Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
+                Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
             ),
             (
-                Value::String("test".to_string()),
-                Value::String("different".to_string()),
+                Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
+                Value::Bytes(vec![0x50, 0x4b, 0x03, 0x04]),
             ),
-            // Cross-type cases
+            (Value::Bytes(vec![]), Value::Bytes(vec![])),
+            (
+                Value::Bytes(vec![0x7f, 0x45]),
+                Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
+            ),
+            (Value::Bytes(vec![0x7f]), Value::Bytes(vec![0x7f])),
+            (Value::Bytes(vec![0x7f]), Value::Bytes(vec![0x45])),
+            // String variants: same/different/empty/case/unicode/whitespace
+            (
+                Value::String("hello".to_string()),
+                Value::String("hello".to_string()),
+            ),
+            (
+                Value::String("hello".to_string()),
+                Value::String("world".to_string()),
+            ),
+            (Value::String(String::new()), Value::String(String::new())),
+            (
+                Value::String("Hello".to_string()),
+                Value::String("hello".to_string()),
+            ),
+            (
+                Value::String("\u{1f980} Rust".to_string()),
+                Value::String("\u{1f980} Rust".to_string()),
+            ),
+            (
+                Value::String("\u{1f980} Rust".to_string()),
+                Value::String("\u{1f40d} Python".to_string()),
+            ),
+            (
+                Value::String("hello world".to_string()),
+                Value::String("hello world".to_string()),
+            ),
+            (
+                Value::String("hello world".to_string()),
+                Value::String("hello  world".to_string()),
+            ),
+            // Cross-type cases (Uint vs Int with coercion, plus incompatible)
             (Value::Uint(42), Value::Int(42)),
+            (Value::Uint(0), Value::Int(0)),
+            (Value::Uint(42), Value::Int(-42)),
+            (Value::Uint(42), Value::Bytes(vec![42])),
             (Value::Uint(42), Value::String("42".to_string())),
+            (Value::Int(-42), Value::Bytes(vec![214])),
+            (Value::Int(-42), Value::String("-42".to_string())),
+            (
+                Value::Bytes(vec![104, 101, 108, 108, 111]),
+                Value::String("hello".to_string()),
+            ),
             (Value::Bytes(vec![42]), Value::Uint(42)),
+            // Edge: empty bytes vs empty string (cross-type, unequal)
+            (Value::Bytes(vec![]), Value::String(String::new())),
         ];
 
         // Test that apply_not_equal is always the negation of apply_equal
@@ -739,26 +553,6 @@ mod tests {
                 "apply_not_equal should be negation of apply_equal: {left:?} vs {right:?}"
             );
         }
-    }
-
-    #[test]
-    fn test_apply_not_equal_edge_cases() {
-        // Test with maximum values
-        let max_unsigned = Value::Uint(u64::MAX);
-        let max_signed = Value::Int(i64::MAX);
-        let min_int = Value::Int(i64::MIN);
-
-        assert!(!apply_not_equal(&max_unsigned, &max_unsigned));
-        assert!(!apply_not_equal(&max_signed, &max_signed));
-        assert!(!apply_not_equal(&min_int, &min_int));
-
-        // Test with empty collections
-        let empty_bytes = Value::Bytes(vec![]);
-        let empty_string = Value::String(String::new());
-
-        assert!(!apply_not_equal(&empty_bytes, &empty_bytes));
-        assert!(!apply_not_equal(&empty_string, &empty_string));
-        assert!(apply_not_equal(&empty_bytes, &empty_string));
     }
 
     // ============================================================
@@ -810,90 +604,36 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_not_equal_float_exact_same_value() {
-        assert!(!apply_not_equal(&Value::Float(1.0), &Value::Float(1.0)));
-        assert!(!apply_not_equal(&Value::Float(0.0), &Value::Float(0.0)));
-    }
-
-    #[test]
-    fn test_apply_not_equal_float_near_equal_within_epsilon() {
-        let a = 1.0_f64;
-        let b = a + f64::EPSILON;
-        assert!(
-            !apply_not_equal(&Value::Float(a), &Value::Float(b)),
-            "values differing by f64::EPSILON should not be not-equal"
-        );
-    }
-
-    #[test]
-    fn test_apply_not_equal_float_clearly_unequal() {
-        assert!(apply_not_equal(&Value::Float(1.0), &Value::Float(2.0)));
-        assert!(apply_not_equal(&Value::Float(-1.0), &Value::Float(1.0)));
-    }
-
-    #[test]
-    fn test_apply_not_equal_float_nan() {
+    fn test_apply_not_equal_float_consistency_with_equal() {
+        // apply_not_equal must be the negation of apply_equal for all float
+        // edge cases: exact equality, epsilon-near, clearly unequal, NaN
+        // (NaN != NaN), and infinities (same sign equal, opposite sign unequal).
         let nan = f64::NAN;
-        // NaN != NaN should be true (NaN is never equal to anything)
-        assert!(apply_not_equal(&Value::Float(nan), &Value::Float(nan)));
-        assert!(apply_not_equal(&Value::Float(nan), &Value::Float(0.0)));
-    }
-
-    #[test]
-    fn test_apply_not_equal_float_infinity() {
-        assert!(!apply_not_equal(
-            &Value::Float(f64::INFINITY),
-            &Value::Float(f64::INFINITY)
-        ));
-        assert!(apply_not_equal(
-            &Value::Float(f64::INFINITY),
-            &Value::Float(f64::NEG_INFINITY)
-        ));
-    }
-
-    #[test]
-    fn test_apply_not_equal_various_value_combinations() {
-        // Test various combinations to ensure comprehensive coverage
+        let near_a = 1.0_f64;
+        let near_b = near_a + f64::EPSILON;
         let test_cases = vec![
-            // Uint variations
-            (Value::Uint(0), Value::Uint(1), true),
-            (Value::Uint(100), Value::Uint(100), false),
-            (Value::Uint(u64::MAX), Value::Uint(u64::MAX - 1), true),
-            // Int variations
-            (Value::Int(0), Value::Int(-1), true),
-            (Value::Int(-50), Value::Int(-50), false),
-            (Value::Int(i64::MIN), Value::Int(i64::MAX), true),
-            // Bytes variations
-            (Value::Bytes(vec![0]), Value::Bytes(vec![1]), true),
+            (Value::Float(1.0), Value::Float(1.0)),
+            (Value::Float(0.0), Value::Float(0.0)),
+            (Value::Float(near_a), Value::Float(near_b)),
+            (Value::Float(1.0), Value::Float(2.0)),
+            (Value::Float(-1.0), Value::Float(1.0)),
+            (Value::Float(nan), Value::Float(nan)),
+            (Value::Float(nan), Value::Float(0.0)),
+            (Value::Float(0.0), Value::Float(nan)),
+            (Value::Float(f64::INFINITY), Value::Float(f64::INFINITY)),
             (
-                Value::Bytes(vec![255, 254]),
-                Value::Bytes(vec![255, 254]),
-                false,
+                Value::Float(f64::NEG_INFINITY),
+                Value::Float(f64::NEG_INFINITY),
             ),
-            (Value::Bytes(vec![]), Value::Bytes(vec![0]), true),
-            // String variations
-            (
-                Value::String("a".to_string()),
-                Value::String("b".to_string()),
-                true,
-            ),
-            (
-                Value::String("same".to_string()),
-                Value::String("same".to_string()),
-                false,
-            ),
-            (
-                Value::String(String::new()),
-                Value::String("non-empty".to_string()),
-                true,
-            ),
+            (Value::Float(f64::INFINITY), Value::Float(f64::NEG_INFINITY)),
+            (Value::Float(f64::INFINITY), Value::Float(1.0)),
         ];
-
-        for (left, right, expected) in test_cases {
+        for (left, right) in test_cases {
+            let equal_result = apply_equal(&left, &right);
+            let not_equal_result = apply_not_equal(&left, &right);
             assert_eq!(
-                apply_not_equal(&left, &right),
-                expected,
-                "apply_not_equal({left:?}, {right:?}) should be {expected}"
+                equal_result, !not_equal_result,
+                "apply_not_equal should be negation of apply_equal: {left:?} vs {right:?}"
             );
         }
     }

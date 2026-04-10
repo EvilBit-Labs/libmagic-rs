@@ -134,7 +134,12 @@ pub mod ast;
 #[allow(dead_code)]
 pub(crate) mod codegen;
 mod format;
-pub mod grammar;
+// `grammar` exposes nom-based parser combinators that are implementation
+// details of the magic-file parsing pipeline. Keep them visible to the rest
+// of the crate (for sibling modules and unit tests) but never to external
+// consumers -- the only supported parser entry points are the
+// `parse_text_magic_file` / `load_magic_file` functions in this module.
+pub(crate) mod grammar;
 mod hierarchy;
 mod loader;
 pub(crate) mod preprocessing;
@@ -142,9 +147,6 @@ pub mod types;
 
 // Re-export AST types for convenience
 pub use ast::{Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value};
-
-// Re-export parser functions for convenience
-pub use grammar::{parse_number, parse_offset};
 
 // Re-export format detection and loading
 pub use format::{MagicFileFormat, detect_format};

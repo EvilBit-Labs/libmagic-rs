@@ -89,6 +89,27 @@ pub struct MatchResult {
 /// Contains all matches found during rule evaluation, along with metadata
 /// about the evaluation process and the file being analyzed.
 ///
+/// # Relationship to [`crate::EvaluationResult`]
+///
+/// This is the **output-facing** result type used by the CLI and the JSON/text
+/// formatters. It carries a `filename`, an optional `error` string, enriched
+/// [`MatchResult`] values (with tags extracted from descriptions), and metadata
+/// counters as `u32` to match the stable JSON output schema.
+///
+/// The parallel type [`crate::EvaluationResult`] is the **library-facing** result
+/// returned by [`crate::MagicDatabase::evaluate_file`] and
+/// [`crate::MagicDatabase::evaluate_buffer`]. It holds the raw
+/// [`crate::evaluator::RuleMatch`] hierarchy, a rolled-up description / MIME type /
+/// confidence triple, and `usize` counters in its metadata. It deliberately does
+/// not include a filename, because it can be produced from an in-memory buffer.
+///
+/// The two types are **intentionally distinct** — do not try to unify them
+/// (`u32` vs `usize`, different fields, different consumers). Use
+/// [`EvaluationResult::from_library_result`] as the single named conversion
+/// point from library → output; any field additions that need to cross the
+/// boundary should be wired through that function so the two hierarchies do
+/// not drift.
+///
 /// # Examples
 ///
 /// ```

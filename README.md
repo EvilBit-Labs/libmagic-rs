@@ -21,9 +21,9 @@ A pure-Rust implementation of libmagic, the library that powers the `file` comma
 
 ## Project Status
 
-**v0.1.1** -- The core file identification pipeline is functional. Common file types can be identified using text magic files today.
+**v0.5.0** -- The core file identification pipeline is functional. Common file types can be identified using text magic files today.
 
-- 1,068 tests with >94% line coverage
+- 1,200+ tests with >94% line coverage
 - Zero unsafe code (`unsafe_code = "forbid"` enforced project-wide)
 - Zero warnings with strict clippy linting
 - Published on [crates.io](https://crates.io/crates/libmagic-rs)
@@ -41,12 +41,12 @@ A pure-Rust implementation of libmagic, the library that powers the `file` comma
 
 ### Supported Magic File Syntax
 
-| Category       | Supported                                                                   |
-| -------------- | --------------------------------------------------------------------------- |
-| **Types**      | `byte`, `short`, `long`, `string` (with endianness and sign options)        |
-| **Operators**  | `=`, `!=`, `&` (bitwise AND with optional mask)                             |
-| **Offsets**    | Absolute, from-end (indirect and relative are parsed but not yet evaluated) |
-| **Directives** | `!:strength` (parsed; `!:mime`, `!:ext`, `!:apple` planned)                 |
+| Category       | Supported                                                                                                                                                                                                                                                                                                                                                                            |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Types**      | `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` (with big/little-endian variants), unsigned variants (`ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`), 32-bit dates (`date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`), and 64-bit dates (`qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`) |
+| **Operators**  | `=`, `!=`, `<`, `>`, `<=`, `>=`, `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)                                                                                                                                                                                                                                                         |
+| **Offsets**    | Absolute, from-end, indirect, and relative (all fully evaluated; magic-file `&+N`/`&-N` parsing for relative is pending)                                                                                                                                                                                                                                                             |
+| **Directives** | `!:strength` (parsed; `!:mime`, `!:ext`, `!:apple` planned)                                                                                                                                                                                                                                                                                                                          |
 
 ## Quick Start
 
@@ -176,7 +176,7 @@ See [ROADMAP.md](ROADMAP.md) for the full roadmap, or [GitHub Milestones](https:
 
 | Milestone            | Focus                                                                             |
 | -------------------- | --------------------------------------------------------------------------------- |
-| **v0.1.x** (current) | MVP: parser, evaluator, CLI, built-in rules, 94%+ test coverage                   |
+| **v0.5.x** (current) | MVP: parser, evaluator, CLI, built-in rules, 94%+ test coverage                   |
 | **v0.2.0**           | Comparison operators, bitwise XOR/NOT, indirect/relative offsets, 64-bit integers |
 | **v0.3.0**           | Regex, float/double, date/timestamp, pascal strings, meta-types                   |
 | **v0.4.0**           | Builder API, JSON metadata, parse warnings, improved errors                       |
