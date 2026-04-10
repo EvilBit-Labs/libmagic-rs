@@ -83,6 +83,7 @@ libmagic-rs follows a **parser-evaluator architecture**:
 | `evaluator/`       | Rule evaluation engine                            | Implemented |
 | `io/`              | Memory-mapped file I/O                            | Implemented |
 | `output/`          | Result formatting (text and JSON)                 | Implemented |
+| `config.rs`        | Evaluation configuration and validation           | Implemented |
 | `mime.rs`          | MIME type lookup table                            | Implemented |
 | `tags.rs`          | Tag inference from rule descriptions              | Implemented |
 | `builtin_rules.rs` | Built-in magic rules generated from `.magic` file | Implemented |

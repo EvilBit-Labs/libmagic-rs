@@ -83,15 +83,13 @@ pub fn read_string(
     Ok(Value::String(string_value))
 }
 
-/// Convert bytes to an owned `String`, avoiding an allocation when the bytes
-/// are already valid UTF-8.
+/// Convert bytes to an owned `String`, avoiding a double allocation on the
+/// common valid-UTF-8 path.
 ///
-/// `String::from_utf8_lossy` returns `Cow::Borrowed` for valid UTF-8 input, but
-/// calling `.into_owned()` on that borrow still allocates a fresh `String`. By
-/// trying `std::str::from_utf8` first we can hand the borrowed `&str` directly
-/// to `String::from`, which is still one allocation but avoids the double-copy
-/// path through `Cow`. Only on invalid UTF-8 do we fall back to
-/// `from_utf8_lossy`, which must allocate to insert replacement characters.
+/// Both branches produce an owned `String` (one allocation), but differ in
+/// cost: `String::from(valid_str)` is a single `memcpy`, whereas
+/// `from_utf8_lossy(...).into_owned()` must scan for and insert replacement
+/// characters. The fast path skips the lossy scan entirely.
 #[inline]
 fn bytes_to_string_fast(bytes: &[u8]) -> String {
     match std::str::from_utf8(bytes) {

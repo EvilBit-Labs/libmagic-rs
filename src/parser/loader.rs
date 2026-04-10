@@ -34,10 +34,10 @@ pub const MAX_MAGIC_FILE_SIZE: u64 = 1024 * 1024 * 1024;
 /// size limit, or the file contents cannot be read / decoded as UTF-8.
 fn read_magic_file_bounded(path: &Path) -> Result<String, ParseError> {
     let metadata = std::fs::metadata(path).map_err(|e| {
-        ParseError::invalid_syntax(
-            0,
+        ParseError::IoError(std::io::Error::new(
+            e.kind(),
             format!("Failed to read metadata for '{}': {}", path.display(), e),
-        )
+        ))
     })?;
 
     if metadata.len() > MAX_MAGIC_FILE_SIZE {

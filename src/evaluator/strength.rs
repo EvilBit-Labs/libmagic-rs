@@ -292,7 +292,7 @@ pub fn sort_rules_by_strength(rules: &mut [MagicRule]) {
     // rules come first while preserving source order for ties. This avoids
     // breaking tests that rely on deterministic ordering of equal-strength
     // rules.
-    rules.sort_by_cached_key(|rule| -calculate_rule_strength(rule));
+    rules.sort_by_cached_key(|rule| calculate_rule_strength(rule).saturating_neg());
 }
 
 /// Sort magic rules by strength in descending order, recursively sorting child

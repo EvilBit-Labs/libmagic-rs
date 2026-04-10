@@ -29,7 +29,7 @@ Current test suite includes **1,200+ comprehensive tests**:
 ```bash
 # Run current test suite
 cargo test
-# Output: running 1200 tests ... test result: ok. 1200 passed; 0 failed
+# Output: running N tests ... test result: ok. N passed; 0 failed
 ```
 
 **Test Categories:**

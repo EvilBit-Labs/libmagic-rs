@@ -512,8 +512,10 @@ pub fn safe_read_bytes(
     length: BufferLength,
 ) -> Result<&[u8], IoError> {
     validate_buffer_access(buffer.len(), offset, length)?;
-    let end_offset = offset + length; // Safe after validation
-    Ok(&buffer[offset..end_offset])
+    let end_offset = offset + length; // Safe: validate_buffer_access proved bounds
+    // Use .get() for defense-in-depth; the validate call above guarantees
+    // this range is in-bounds, so the unwrap_or fallback is unreachable.
+    Ok(buffer.get(offset..end_offset).unwrap_or(&[]))
 }
 
 /// Safely reads a single byte from a buffer with bounds checking

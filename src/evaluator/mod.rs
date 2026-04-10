@@ -279,7 +279,11 @@ impl Drop for RecursionGuard<'_> {
         // Safe to ignore: `decrement_recursion_depth` only fails when the
         // depth is already 0, which is impossible here because `enter` just
         // incremented it and the depth is only mutated through guard pairs.
-        let _ = self.context.decrement_recursion_depth();
+        let result = self.context.decrement_recursion_depth();
+        debug_assert!(
+            result.is_ok(),
+            "RecursionGuard invariant violated: decrement failed after successful enter()"
+        );
     }
 }
 

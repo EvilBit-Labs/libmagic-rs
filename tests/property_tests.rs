@@ -192,7 +192,7 @@ proptest! {
         prop_assert_eq!(rule.level, deserialized.level);
     }
 
-    /// Parser must never panic on arbitrary byte input.
+    /// Parser must never panic on arbitrary input (bytes converted via lossy UTF-8).
     #[test]
     fn prop_parser_never_panics_on_arbitrary_input(
         input in prop::collection::vec(any::<u8>(), 0..4096)
