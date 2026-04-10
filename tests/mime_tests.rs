@@ -22,8 +22,8 @@ fn test_mime_enabled_returns_type_for_elf() {
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db.evaluate_buffer(b"\x7fELF\x02\x01\x01\x00").unwrap();
     assert_eq!(
-        result.mime_type,
-        Some("application/x-executable".to_string())
+        result.mime_type.as_deref(),
+        Some("application/x-executable")
     );
 }
 
@@ -35,7 +35,7 @@ fn test_mime_enabled_returns_type_for_pdf() {
     };
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db.evaluate_buffer(b"%PDF-\x00\x00\x00").unwrap();
-    assert_eq!(result.mime_type, Some("application/pdf".to_string()));
+    assert_eq!(result.mime_type.as_deref(), Some("application/pdf"));
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn test_mime_enabled_returns_type_for_png() {
     let result = db
         .evaluate_buffer(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
         .unwrap();
-    assert_eq!(result.mime_type, Some("image/png".to_string()));
+    assert_eq!(result.mime_type.as_deref(), Some("image/png"));
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn test_mime_enabled_returns_type_for_jpeg() {
     let result = db
         .evaluate_buffer(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00")
         .unwrap();
-    assert_eq!(result.mime_type, Some("image/jpeg".to_string()));
+    assert_eq!(result.mime_type.as_deref(), Some("image/jpeg"));
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn test_mime_enabled_returns_type_for_zip() {
     };
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db.evaluate_buffer(b"PK\x03\x04rest of zip").unwrap();
-    assert_eq!(result.mime_type, Some("application/zip".to_string()));
+    assert_eq!(result.mime_type.as_deref(), Some("application/zip"));
 }
 
 #[test]
@@ -106,15 +106,15 @@ fn test_mapper_hardcoded_executables() {
     let mapper = MimeMapper::new();
     assert_eq!(
         mapper.get_mime_type("ELF 64-bit LSB executable"),
-        Some("application/x-executable".to_string())
+        Some("application/x-executable")
     );
     assert_eq!(
         mapper.get_mime_type("PE32 executable (DLL)"),
-        Some("application/vnd.microsoft.portable-executable".to_string())
+        Some("application/vnd.microsoft.portable-executable")
     );
     assert_eq!(
         mapper.get_mime_type("Mach-O 64-bit executable"),
-        Some("application/x-mach-binary".to_string())
+        Some("application/x-mach-binary")
     );
 }
 
@@ -123,49 +123,40 @@ fn test_mapper_hardcoded_archives() {
     let mapper = MimeMapper::new();
     assert_eq!(
         mapper.get_mime_type("Zip archive data"),
-        Some("application/zip".to_string())
+        Some("application/zip")
     );
     assert_eq!(
         mapper.get_mime_type("gzip compressed data"),
-        Some("application/gzip".to_string())
+        Some("application/gzip")
     );
     assert_eq!(
         mapper.get_mime_type("POSIX tar archive"),
-        Some("application/x-tar".to_string())
+        Some("application/x-tar")
     );
     assert_eq!(
         mapper.get_mime_type("RAR archive data"),
-        Some("application/vnd.rar".to_string())
+        Some("application/vnd.rar")
     );
     assert_eq!(
         mapper.get_mime_type("7-zip archive"),
-        Some("application/x-7z-compressed".to_string())
+        Some("application/x-7z-compressed")
     );
 }
 
 #[test]
 fn test_mapper_hardcoded_images() {
     let mapper = MimeMapper::new();
-    assert_eq!(
-        mapper.get_mime_type("JPEG image data"),
-        Some("image/jpeg".to_string())
-    );
+    assert_eq!(mapper.get_mime_type("JPEG image data"), Some("image/jpeg"));
     assert_eq!(
         mapper.get_mime_type("PNG image data, 800x600"),
-        Some("image/png".to_string())
+        Some("image/png")
     );
     assert_eq!(
         mapper.get_mime_type("GIF image data, version 89a"),
-        Some("image/gif".to_string())
+        Some("image/gif")
     );
-    assert_eq!(
-        mapper.get_mime_type("BMP image data"),
-        Some("image/bmp".to_string())
-    );
-    assert_eq!(
-        mapper.get_mime_type("WebP image data"),
-        Some("image/webp".to_string())
-    );
+    assert_eq!(mapper.get_mime_type("BMP image data"), Some("image/bmp"));
+    assert_eq!(mapper.get_mime_type("WebP image data"), Some("image/webp"));
 }
 
 #[test]
@@ -173,29 +164,23 @@ fn test_mapper_hardcoded_documents() {
     let mapper = MimeMapper::new();
     assert_eq!(
         mapper.get_mime_type("PDF document, version 1.4"),
-        Some("application/pdf".to_string())
+        Some("application/pdf")
     );
     assert_eq!(
         mapper.get_mime_type("PostScript document"),
-        Some("application/postscript".to_string())
+        Some("application/postscript")
     );
 }
 
 #[test]
 fn test_mapper_hardcoded_web() {
     let mapper = MimeMapper::new();
-    assert_eq!(
-        mapper.get_mime_type("HTML document"),
-        Some("text/html".to_string())
-    );
+    assert_eq!(mapper.get_mime_type("HTML document"), Some("text/html"));
     assert_eq!(
         mapper.get_mime_type("XML document"),
-        Some("application/xml".to_string())
+        Some("application/xml")
     );
-    assert_eq!(
-        mapper.get_mime_type("JSON data"),
-        Some("application/json".to_string())
-    );
+    assert_eq!(mapper.get_mime_type("JSON data"), Some("application/json"));
 }
 
 #[test]
@@ -217,7 +202,7 @@ fn test_mapper_prefers_longer_match() {
     // "gzip" should match before "zip" for "gzip compressed"
     assert_eq!(
         mapper.get_mime_type("gzip compressed data"),
-        Some("application/gzip".to_string())
+        Some("application/gzip")
     );
 }
 

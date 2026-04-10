@@ -150,7 +150,7 @@ impl EvaluationContext {
     ///
     /// Returns `LibmagicError::EvaluationError` if incrementing would exceed
     /// the maximum recursion depth configured in the evaluation config.
-    pub fn increment_recursion_depth(&mut self) -> Result<(), LibmagicError> {
+    pub(crate) fn increment_recursion_depth(&mut self) -> Result<(), LibmagicError> {
         if self.recursion_depth >= self.config.max_recursion_depth {
             return Err(LibmagicError::EvaluationError(
                 crate::error::EvaluationError::recursion_limit_exceeded(self.recursion_depth),
@@ -166,7 +166,7 @@ impl EvaluationContext {
     ///
     /// Returns an error if the recursion depth is already 0, as this indicates
     /// a programming error in the evaluation logic (mismatched increment/decrement calls).
-    pub fn decrement_recursion_depth(&mut self) -> Result<(), LibmagicError> {
+    pub(crate) fn decrement_recursion_depth(&mut self) -> Result<(), LibmagicError> {
         if self.recursion_depth == 0 {
             return Err(LibmagicError::EvaluationError(
                 crate::error::EvaluationError::internal_error(

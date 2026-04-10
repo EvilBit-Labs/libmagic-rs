@@ -197,7 +197,7 @@ impl EvaluationConfig {
     ///
     /// # Errors
     ///
-    /// Returns `LibmagicError::InvalidFormat` if any configuration values
+    /// Returns `LibmagicError::ConfigError` if any configuration values
     /// are invalid or out of reasonable bounds.
     ///
     /// # Examples
@@ -303,5 +303,196 @@ impl EvaluationConfig {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Presets ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_default_validates() {
+        assert!(EvaluationConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn test_performance_validates() {
+        assert!(EvaluationConfig::performance().validate().is_ok());
+    }
+
+    #[test]
+    fn test_comprehensive_validates() {
+        assert!(EvaluationConfig::comprehensive().validate().is_ok());
+    }
+
+    // ── Recursion depth boundaries ──────────────────────────────
+
+    #[test]
+    fn test_recursion_depth_zero_rejected() {
+        let cfg = EvaluationConfig {
+            max_recursion_depth: 0,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_recursion_depth_one_accepted() {
+        let cfg = EvaluationConfig {
+            max_recursion_depth: 1,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_recursion_depth_at_max_accepted() {
+        let cfg = EvaluationConfig {
+            max_recursion_depth: 1000,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_recursion_depth_above_max_rejected() {
+        let cfg = EvaluationConfig {
+            max_recursion_depth: 1001,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    // ── String length boundaries ────────────────────────────────
+
+    #[test]
+    fn test_string_length_zero_rejected() {
+        let cfg = EvaluationConfig {
+            max_string_length: 0,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_string_length_one_accepted() {
+        let cfg = EvaluationConfig {
+            max_string_length: 1,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_string_length_at_max_accepted() {
+        let cfg = EvaluationConfig {
+            max_string_length: 1_048_576,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_string_length_above_max_rejected() {
+        let cfg = EvaluationConfig {
+            max_string_length: 1_048_577,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    // ── Timeout boundaries ──────────────────────────────────────
+
+    #[test]
+    fn test_timeout_none_accepted() {
+        let cfg = EvaluationConfig {
+            timeout_ms: None,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_timeout_zero_rejected() {
+        let cfg = EvaluationConfig {
+            timeout_ms: Some(0),
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_timeout_one_accepted() {
+        let cfg = EvaluationConfig {
+            timeout_ms: Some(1),
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_timeout_at_max_accepted() {
+        let cfg = EvaluationConfig {
+            timeout_ms: Some(300_000),
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_timeout_above_max_rejected() {
+        let cfg = EvaluationConfig {
+            timeout_ms: Some(300_001),
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    // ── Resource combination guard ──────────────────────────────
+
+    #[test]
+    fn test_high_recursion_with_large_string_rejected() {
+        let cfg = EvaluationConfig {
+            max_recursion_depth: 101,
+            max_string_length: 65537,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_high_recursion_with_normal_string_accepted() {
+        let cfg = EvaluationConfig {
+            max_recursion_depth: 101,
+            max_string_length: 65536,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_normal_recursion_with_large_string_accepted() {
+        let cfg = EvaluationConfig {
+            max_recursion_depth: 100,
+            max_string_length: 65537,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    // ── evaluate_rules_with_config rejects invalid config ───────
+
+    #[test]
+    fn test_evaluate_rules_with_config_rejects_invalid() {
+        use crate::evaluator::evaluate_rules_with_config;
+
+        let invalid_cfg = EvaluationConfig {
+            max_recursion_depth: 0,
+            ..Default::default()
+        };
+        let result = evaluate_rules_with_config(&[], &[], &invalid_cfg);
+        assert!(result.is_err());
     }
 }

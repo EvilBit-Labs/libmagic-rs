@@ -90,8 +90,8 @@ static MIME_MAPPINGS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::
 /// use libmagic_rs::mime::MimeMapper;
 ///
 /// let mapper = MimeMapper::new();
-/// assert_eq!(mapper.get_mime_type("ELF 64-bit executable"), Some("application/x-executable".to_string()));
-/// assert_eq!(mapper.get_mime_type("PNG image data"), Some("image/png".to_string()));
+/// assert_eq!(mapper.get_mime_type("ELF 64-bit executable"), Some("application/x-executable"));
+/// assert_eq!(mapper.get_mime_type("PNG image data"), Some("image/png"));
 /// assert_eq!(mapper.get_mime_type("unknown format"), None);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
@@ -131,7 +131,7 @@ impl MimeMapper {
     ///
     /// # Returns
     ///
-    /// `Some(String)` with the MIME type if a match is found, `None` otherwise.
+    /// `Some(&'static str)` with the MIME type if a match is found, `None` otherwise.
     ///
     /// # Examples
     ///
@@ -141,14 +141,14 @@ impl MimeMapper {
     /// let mapper = MimeMapper::new();
     ///
     /// // Case-insensitive matching
-    /// assert_eq!(mapper.get_mime_type("ELF executable"), Some("application/x-executable".to_string()));
-    /// assert_eq!(mapper.get_mime_type("elf executable"), Some("application/x-executable".to_string()));
+    /// assert_eq!(mapper.get_mime_type("ELF executable"), Some("application/x-executable"));
+    /// assert_eq!(mapper.get_mime_type("elf executable"), Some("application/x-executable"));
     ///
     /// // Matches within longer descriptions
-    /// assert_eq!(mapper.get_mime_type("PNG image data, 800x600"), Some("image/png".to_string()));
+    /// assert_eq!(mapper.get_mime_type("PNG image data, 800x600"), Some("image/png"));
     /// ```
     #[must_use]
-    pub fn get_mime_type(&self, description: &str) -> Option<String> {
+    pub fn get_mime_type(&self, description: &str) -> Option<&'static str> {
         let lower = description.to_lowercase();
 
         // Find the longest matching keyword for best specificity
@@ -169,7 +169,7 @@ impl MimeMapper {
             }
         }
 
-        best_match.map(|(_, mime_type)| mime_type.to_string())
+        best_match.map(|(_, mime_type)| mime_type)
     }
 
     /// Get the number of registered MIME mappings
@@ -201,7 +201,7 @@ mod tests {
         let mapper = MimeMapper::new();
         assert_eq!(
             mapper.get_mime_type("ELF 64-bit LSB executable"),
-            Some("application/x-executable".to_string())
+            Some("application/x-executable")
         );
     }
 
@@ -210,7 +210,7 @@ mod tests {
         let mapper = MimeMapper::new();
         assert_eq!(
             mapper.get_mime_type("PE32 executable"),
-            Some("application/vnd.microsoft.portable-executable".to_string())
+            Some("application/vnd.microsoft.portable-executable")
         );
     }
 
@@ -219,7 +219,7 @@ mod tests {
         let mapper = MimeMapper::new();
         assert_eq!(
             mapper.get_mime_type("PE32+ executable (DLL)"),
-            Some("application/vnd.microsoft.portable-executable".to_string())
+            Some("application/vnd.microsoft.portable-executable")
         );
     }
 
@@ -228,7 +228,7 @@ mod tests {
         let mapper = MimeMapper::new();
         assert_eq!(
             mapper.get_mime_type("Zip archive data"),
-            Some("application/zip".to_string())
+            Some("application/zip")
         );
     }
 
@@ -237,7 +237,7 @@ mod tests {
         let mapper = MimeMapper::new();
         assert_eq!(
             mapper.get_mime_type("JPEG image data, JFIF standard"),
-            Some("image/jpeg".to_string())
+            Some("image/jpeg")
         );
     }
 
@@ -246,7 +246,7 @@ mod tests {
         let mapper = MimeMapper::new();
         assert_eq!(
             mapper.get_mime_type("PNG image data, 800 x 600"),
-            Some("image/png".to_string())
+            Some("image/png")
         );
     }
 
@@ -255,7 +255,7 @@ mod tests {
         let mapper = MimeMapper::new();
         assert_eq!(
             mapper.get_mime_type("GIF image data, version 89a"),
-            Some("image/gif".to_string())
+            Some("image/gif")
         );
     }
 
@@ -264,7 +264,7 @@ mod tests {
         let mapper = MimeMapper::new();
         assert_eq!(
             mapper.get_mime_type("PDF document, version 1.4"),
-            Some("application/pdf".to_string())
+            Some("application/pdf")
         );
     }
 
@@ -273,11 +273,11 @@ mod tests {
         let mapper = MimeMapper::new();
         assert_eq!(
             mapper.get_mime_type("elf executable"),
-            Some("application/x-executable".to_string())
+            Some("application/x-executable")
         );
         assert_eq!(
             mapper.get_mime_type("ELF EXECUTABLE"),
-            Some("application/x-executable".to_string())
+            Some("application/x-executable")
         );
     }
 
@@ -293,7 +293,7 @@ mod tests {
         let mapper = MimeMapper::new();
         assert_eq!(
             mapper.get_mime_type("gzip compressed data"),
-            Some("application/gzip".to_string())
+            Some("application/gzip")
         );
     }
 
@@ -302,26 +302,20 @@ mod tests {
         let mapper = MimeMapper::new();
         assert_eq!(
             mapper.get_mime_type("POSIX tar archive"),
-            Some("application/x-tar".to_string())
+            Some("application/x-tar")
         );
     }
 
     #[test]
     fn test_html_mime_type() {
         let mapper = MimeMapper::new();
-        assert_eq!(
-            mapper.get_mime_type("HTML document"),
-            Some("text/html".to_string())
-        );
+        assert_eq!(mapper.get_mime_type("HTML document"), Some("text/html"));
     }
 
     #[test]
     fn test_json_mime_type() {
         let mapper = MimeMapper::new();
-        assert_eq!(
-            mapper.get_mime_type("JSON data"),
-            Some("application/json".to_string())
-        );
+        assert_eq!(mapper.get_mime_type("JSON data"), Some("application/json"));
     }
 
     #[test]
@@ -329,7 +323,7 @@ mod tests {
         let mapper = MimeMapper::new();
         assert_eq!(
             mapper.get_mime_type("Audio file with ID3 version 2.4.0, contains: MPEG ADTS, layer III, v1, 128 kbps, 44.1 kHz, JntStereo"),
-            Some("audio/mpeg".to_string())
+            Some("audio/mpeg")
         );
     }
 

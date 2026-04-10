@@ -306,7 +306,7 @@ fn handle_error(error: LibmagicError) -> i32 {
             3
         }
         _ => {
-            eprintln!("Unknown error: {error}");
+            eprintln!("Error: {error}");
             1
         }
     }
@@ -401,10 +401,17 @@ fn load_magic_database(args: &Args) -> Result<MagicDatabase, LibmagicError> {
     // will silently accept a zero-byte file and produce zero rules, which
     // surfaces as a misleading "data" classification rather than a setup
     // error — so we catch it here where we can emit a targeted message.
-    if let Ok(metadata) = std::fs::metadata(&magic_file_path)
-        && metadata.is_file()
-        && metadata.len() == 0
-    {
+    let metadata = std::fs::metadata(&magic_file_path).map_err(|e| {
+        LibmagicError::IoError(std::io::Error::new(
+            e.kind(),
+            format!(
+                "Cannot access magic file {}: {e}",
+                magic_file_path.display()
+            ),
+        ))
+    })?;
+
+    if metadata.is_file() && metadata.len() == 0 {
         return Err(LibmagicError::ParseError(
             libmagic_rs::ParseError::invalid_syntax(
                 0,

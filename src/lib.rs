@@ -425,7 +425,9 @@ impl MagicDatabase {
         };
 
         let mime_type = if self.config.enable_mime_types {
-            self.mime_mapper.get_mime_type(&description)
+            self.mime_mapper
+                .get_mime_type(&description)
+                .map(String::from)
         } else {
             None
         };
@@ -560,7 +562,8 @@ impl Default for EvaluationMetadata {
 ///
 /// # Relationship to [`crate::output::EvaluationResult`]
 ///
-/// This is the **library-facing** result type returned by [`MagicDatabase::evaluate`].
+/// This is the **library-facing** result type returned by [`MagicDatabase::evaluate_file`]
+/// and [`MagicDatabase::evaluate_buffer`].
 /// It carries a rolled-up description, MIME type, and confidence score along with
 /// raw [`evaluator::RuleMatch`] values. It intentionally does **not** carry the
 /// analyzed filename or a surface-level error string, because those are caller

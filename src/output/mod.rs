@@ -97,7 +97,8 @@ pub struct MatchResult {
 /// counters as `u32` to match the stable JSON output schema.
 ///
 /// The parallel type [`crate::EvaluationResult`] is the **library-facing** result
-/// returned by [`crate::MagicDatabase::evaluate`]. It holds the raw
+/// returned by [`crate::MagicDatabase::evaluate_file`] and
+/// [`crate::MagicDatabase::evaluate_buffer`]. It holds the raw
 /// [`crate::evaluator::RuleMatch`] hierarchy, a rolled-up description / MIME type /
 /// confidence triple, and `usize` counters in its metadata. It deliberately does
 /// not include a filename, because it can be produced from an in-memory buffer.

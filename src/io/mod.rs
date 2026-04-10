@@ -189,11 +189,18 @@ impl FileBuffer {
     /// redundant syscalls on the hot path of
     /// [`MagicDatabase::evaluate_file`](crate::MagicDatabase::evaluate_file).
     ///
+    /// # Security
+    ///
+    /// This constructor deliberately skips `std::fs::canonicalize` for
+    /// performance. Symlink resolution and path canonicalization are the
+    /// caller's responsibility. In adversarial environments (untrusted file
+    /// paths), prefer [`FileBuffer::new`] or [`MagicDatabase::evaluate_buffer`]
+    /// instead.
+    ///
     /// The caller is responsible for having read `metadata` via a path that
-    /// makes sense for their security model; this constructor does not
-    /// re-canonicalize the path. The same structural checks (regular file,
-    /// non-empty, under `MAX_FILE_SIZE`) are still applied against the
-    /// supplied metadata.
+    /// makes sense for their security model. The same structural checks
+    /// (regular file, non-empty, under `MAX_FILE_SIZE`) are still applied
+    /// against the supplied metadata.
     ///
     /// # Errors
     ///

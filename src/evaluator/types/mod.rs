@@ -46,6 +46,7 @@ pub(super) fn read_bytes_at<const N: usize>(
 }
 
 /// Errors that can occur during type reading operations.
+#[non_exhaustive]
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TypeReadError {
     /// Buffer access beyond available data.

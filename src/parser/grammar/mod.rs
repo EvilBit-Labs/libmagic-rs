@@ -307,7 +307,10 @@ pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
         Some(b'x') => {
             // Word boundary: 'x' must not be followed by an alphanumeric or '_'
             // (e.g., "x42" or "xfoo" is not AnyValue).
-            if input[1..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+            if input
+                .get(1..)
+                .is_some_and(|s| s.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+            {
                 return Err(err());
             }
             (Operator::AnyValue, 1)
