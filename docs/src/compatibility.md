@@ -69,18 +69,18 @@ $ rmagic --json example.elf
 
 ### Magic File Format Compatibility
 
-| Feature            | GNU file | rmagic | Status      | Notes                        |
-| ------------------ | -------- | ------ | ----------- | ---------------------------- |
-| Basic patterns     | ✅       | ✅     | Complete    | String, numeric matching     |
-| Hierarchical rules | ✅       | 🔄     | In Progress | Parent-child relationships   |
-| Indirect offsets   | ✅       | 📋     | Planned     | Pointer dereferencing        |
-| Relative offsets   | ✅       | ✅     | Complete    | Position-relative addressing (PR #211) |
-| Search patterns    | ✅       | 📋     | Planned     | Pattern searching in ranges  |
-| Bitwise operations | ✅       | ✅     | Complete    | AND, OR operations           |
-| String operations  | ✅       | 📋     | Planned     | Case-insensitive, regex      |
-| Date/time formats  | ✅       | 📋     | Planned     | Unix timestamps, etc.        |
-| Floating point     | ✅       | 📋     | Planned     | Float, double types          |
-| Unicode support    | ✅       | 📋     | Planned     | UTF-8, UTF-16 strings        |
+| Feature            | GNU file | rmagic | Status   | Notes                                  |
+| ------------------ | -------- | ------ | -------- | -------------------------------------- |
+| Basic patterns     | ✅       | ✅     | Complete | String, numeric matching               |
+| Hierarchical rules | ✅       | ✅     | Complete | Parent-child relationships             |
+| Indirect offsets   | ✅       | ✅     | Complete | Pointer dereferencing                  |
+| Relative offsets   | ✅       | ✅     | Complete | Position-relative addressing (PR #211) |
+| Search patterns    | ✅       | 📋     | Planned  | Pattern searching in ranges            |
+| Bitwise operations | ✅       | ✅     | Complete | AND, XOR, NOT operations               |
+| String operations  | ✅       | 📋     | Planned  | Case-insensitive, regex                |
+| Date/time formats  | ✅       | ✅     | Complete | 32-bit and 64-bit timestamps           |
+| Floating point     | ✅       | ✅     | Complete | Float, double with endianness          |
+| Unicode support    | ✅       | 📋     | Planned  | UTF-8, UTF-16 strings                  |
 
 ## libmagic C Library Compatibility
 

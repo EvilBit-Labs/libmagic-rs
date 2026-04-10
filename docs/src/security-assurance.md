@@ -134,7 +134,31 @@ Most OWASP Top 10 categories target web applications and are not applicable to a
 | CI integrity        | All GitHub Actions pinned to SHA hashes                                                       |
 | Code review         | Required on all PRs; automated by CodeRabbit with security-focused checks                     |
 
-## 7. Ongoing Assurance
+## 7. Known Limitations and Residual Risk
+
+### 7.1 Default Configuration Has No Timeout
+
+`EvaluationConfig::default()` (and `EvaluationConfig::new()`) sets `timeout_ms: None`, meaning evaluation runs without a wall-clock limit. The other validated bounds (recursion depth, string length, resource combination) prevent stack overflow and unbounded memory growth, but they do not bound total CPU time. A maliciously crafted file or magic rule that stays within those bounds could still drive evaluation into a long-running state, resulting in a denial-of-service condition for callers that process untrusted input with the default configuration.
+
+**Mitigation for callers:** When processing untrusted input, use `EvaluationConfig::performance()` (which sets a 1-second timeout) or set `timeout_ms` explicitly. The CLI exposes this as `--timeout-ms`. See [Configuration: Security Considerations](configuration.md#security-considerations) for details.
+
+This behavior is documented in the development gotchas (`GOTCHAS.md` section 13.1, "`EvaluationConfig::default()` Has No Timeout") and is intentional: changing the default would silently break callers that legitimately need long-running evaluation on trusted input.
+
+### 7.2 TOCTOU Window in `evaluate_file`
+
+`MagicDatabase::evaluate_file` has a time-of-check/time-of-use (TOCTOU) window between path validation and memory mapping ([CWE-367](https://cwe.mitre.org/data/definitions/367.html)). The method calls `std::fs::metadata(path)` to handle the empty-file case, then opens and memory-maps the file via the I/O layer, which itself re-validates file metadata (regular file, size bounds) before calling the underlying `mmap`. Between these validation steps and the final mapping, the path may be swapped -- for example via a symlink replacement or rename -- by another process. The bytes that ultimately get mapped may therefore belong to a different file than the one that passed validation.
+
+The I/O layer mitigates the common shapes of this attack by canonicalizing the path and rejecting non-regular file types (directories, FIFOs, sockets, block/character devices). The mapping is always read-only, so a successful race cannot corrupt the target file or the caller's process state. The residual risk is **incorrect classification**: `evaluate_file` may return a file-type description for a file other than the one the caller named.
+
+**Mitigation for callers:** When processing untrusted paths in an adversarial environment, do not use `evaluate_file`. Instead:
+
+1. Open the file yourself using a TOCTOU-aware I/O strategy appropriate to your platform -- e.g., `openat` with `O_NOFOLLOW`, or holding a single open file descriptor across validation and read.
+2. Read the bytes into memory (bounded by your own size limit).
+3. Pass the resulting `&[u8]` to `MagicDatabase::evaluate_buffer`, which has no filesystem interaction and therefore no TOCTOU window.
+
+The `evaluate_file` rustdoc (`# Security` section) cross-references this subsection.
+
+## 8. Ongoing Assurance
 
 This assurance case is maintained as a living document. It is updated when:
 

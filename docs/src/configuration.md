@@ -18,13 +18,19 @@ pub struct EvaluationConfig {
 
 ### Field Reference
 
-| Field                 | Type          | Default | Bounds         | Purpose                                                       |
-| --------------------- | ------------- | ------- | -------------- | ------------------------------------------------------------- |
-| `max_recursion_depth` | `u32`         | 20      | 1 -- 1000      | Limits nested rule traversal depth to prevent stack overflow  |
-| `max_string_length`   | `usize`       | 8192    | 1 -- 1_048_576 | Caps bytes read for string types to prevent memory exhaustion |
-| `stop_at_first_match` | `bool`        | `true`  | --             | When true, evaluation stops after the first matching rule     |
-| `enable_mime_types`   | `bool`        | `false` | --             | When true, maps file type descriptions to standard MIME types |
-| `timeout_ms`          | `Option<u64>` | `None`  | 1 -- 300_000   | Per-file evaluation timeout in milliseconds; `None` disables  |
+| Field                 | Type          | Default | Bounds         | Purpose                                                                                                                      |
+| --------------------- | ------------- | ------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `max_recursion_depth` | `u32`         | 20      | 1 -- 1000      | Limits nested rule traversal depth to prevent stack overflow                                                                 |
+| `max_string_length`   | `usize`       | 8192    | 1 -- 1_048_576 | Caps bytes read for string types to prevent memory exhaustion                                                                |
+| `stop_at_first_match` | `bool`        | `true`  | --             | When true, evaluation stops after the first matching top-level rule (children of that rule are still evaluated -- see below) |
+| `enable_mime_types`   | `bool`        | `false` | --             | When true, maps file type descriptions to standard MIME types                                                                |
+| `timeout_ms`          | `Option<u64>` | `None`  | 1 -- 300_000   | Per-file evaluation timeout in milliseconds; `None` disables                                                                 |
+
+### `stop_at_first_match` Semantics
+
+"First match" refers to the first *top-level* rule that matches. Children of the first matching top-level rule are always evaluated before the stop check; the stop check applies to subsequent top-level rules.
+
+In other words, `stop_at_first_match = true` does not truncate the child subtree of the matching rule -- it only prevents later sibling top-level rules from being evaluated. A successful top-level match therefore returns one parent match plus any descendant matches its children produced. If you need the absolute minimum work done per evaluation, combine this setting with a shallow `max_recursion_depth` and a magic rule set whose top-level rules are already specific enough that children add only refinement (not new classification).
 
 ## Constructor Presets
 
@@ -161,6 +167,18 @@ libmagic-rs --timeout-ms 5000 sample.bin
 ```
 
 If evaluation exceeds the timeout, the file is skipped and an error message is printed to stderr with exit code 5.
+
+## Security Considerations
+
+The default configuration returned by `EvaluationConfig::default()` (and `EvaluationConfig::new()`) has `timeout_ms: None`, meaning evaluation runs without a wall-clock limit. This is appropriate for trusted input, but a maliciously crafted file or magic rule could cause an unbounded evaluation and a denial-of-service condition.
+
+When processing untrusted input, do one of the following:
+
+- Use the `EvaluationConfig::performance()` preset, which sets `timeout_ms: Some(1000)` (1 second) along with tighter recursion and string-length bounds.
+- Set `timeout_ms` explicitly via struct update syntax, for example `EvaluationConfig { timeout_ms: Some(5000), ..EvaluationConfig::default() }`.
+- Pass `--timeout-ms <ms>` on the CLI.
+
+The other bounds enforced by `validate()` (recursion depth, string length, resource combination) protect against stack overflow and memory exhaustion regardless of the timeout setting, but only the timeout limits total evaluation wall-clock time.
 
 ## Choosing a Preset
 

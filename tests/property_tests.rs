@@ -191,6 +191,30 @@ proptest! {
         prop_assert_eq!(rule.message, deserialized.message);
         prop_assert_eq!(rule.level, deserialized.level);
     }
+
+    /// Parser must never panic on arbitrary input (bytes converted via lossy UTF-8).
+    #[test]
+    fn prop_parser_never_panics_on_arbitrary_input(
+        input in prop::collection::vec(any::<u8>(), 0..4096)
+    ) {
+        let text = String::from_utf8_lossy(&input);
+        let _ = libmagic_rs::parser::parse_text_magic_file(&text);
+    }
+
+    /// Evaluator must never panic on arbitrary (rule, buffer) pairs, with a 1-second timeout guard.
+    #[test]
+    fn prop_arbitrary_rule_evaluation_never_panics(
+        rule in arb_magic_rule(),
+        buffer in prop::collection::vec(any::<u8>(), 0..1024)
+    ) {
+        use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
+        let config = EvaluationConfig {
+            timeout_ms: Some(1000),
+            ..EvaluationConfig::default()
+        };
+        let mut context = EvaluationContext::new(config);
+        let _ = evaluate_rules(&[rule], &buffer, &mut context);
+    }
 }
 
 // =============================================================================

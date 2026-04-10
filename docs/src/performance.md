@@ -26,7 +26,7 @@ let read_length = memchr::memchr(0, &remaining_buffer[..search_len])
 
 ### Unified Offset and Value Resolution
 
-The `evaluate_single_rule` function resolves the offset, reads the typed value, and applies the operator in a single pass, returning `Option<(usize, Value)>`. Callers receive the resolved offset and matched value directly, avoiding redundant re-resolution when constructing match results.
+The internal `evaluate_single_rule_with_anchor` worker resolves the offset, reads the typed value, and applies the operator in a single pass, returning `Option<(usize, Value)>`. Callers receive the resolved offset and matched value directly, avoiding redundant re-resolution when constructing match results. The public `evaluate_single_rule` now delegates to `evaluate_rules` so safety limits (timeout, recursion, max string length) are enforced consistently across all entry points.
 
 ### Pre-Allocated Collections
 

@@ -143,13 +143,13 @@ name = "rmagic"
 path = "src/main.rs"
 
 [dependencies]
-byteorder = "1.5.0"
 cfg-if = "1.0.4"
 chrono = { version = "0.4.41", default-features = false, features = ["std", "clock"] }
 clap = { version = "4.6.0", features = ["derive"] }
 clap-stdin = "0.8.1"
 clap_complete = "4.6.0"
 ctrlc = { version = "3.5.2", features = ["termination"] }
+env_logger = "0.11"
 log = "0.4"
 memchr = "2.8.0"
 memmap2 = "0.9.10"
@@ -185,6 +185,9 @@ harness = false
 [[bench]]
 name = "io_bench"
 harness = false
+
+[profile.dev.package."*"]
+opt-level = 2
 
 [profile.release]
 lto = "thin"

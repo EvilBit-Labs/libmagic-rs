@@ -11,6 +11,7 @@
 /// This enum represents all possible errors that can occur during
 /// magic file parsing, rule evaluation, and file I/O operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum LibmagicError {
     /// Error that occurred during magic file parsing.
     #[error("Parse error: {0}")]
@@ -69,6 +70,7 @@ pub enum LibmagicError {
 
 /// Errors that can occur during magic file parsing.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ParseError {
     /// Invalid syntax in magic file.
     #[error("Invalid syntax at line {line}: {message}")]
@@ -142,6 +144,7 @@ pub enum ParseError {
 
 /// Errors that can occur during rule evaluation.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum EvaluationError {
     /// Buffer overrun during file reading.
     #[error("Buffer overrun at offset {offset}")]

@@ -14,6 +14,47 @@ use std::path::{Path, PathBuf};
 
 use super::format::{MagicFileFormat, detect_format};
 
+/// Maximum magic file size (1 GB).
+///
+/// Applied before loading a magic file (or any file within a magic directory)
+/// into memory to prevent memory-exhaustion `DoS` from maliciously oversized
+/// inputs.
+///
+/// This value is kept in sync with `crate::io::FileBuffer::MAX_FILE_SIZE`.
+/// The constant is duplicated (rather than imported) because this module is
+/// also pulled in by `build.rs` via `#[path]` and the build script cannot
+/// reference lib-only modules such as `crate::io`. A unit test below asserts
+/// the two constants remain equal.
+pub const MAX_MAGIC_FILE_SIZE: u64 = 1024 * 1024 * 1024;
+
+/// Reads a magic file into a `String` after verifying its size does not
+/// exceed [`MAX_MAGIC_FILE_SIZE`].
+///
+/// Returns a `ParseError` if metadata cannot be read, the file exceeds the
+/// size limit, or the file contents cannot be read / decoded as UTF-8.
+fn read_magic_file_bounded(path: &Path) -> Result<String, ParseError> {
+    let metadata = std::fs::metadata(path).map_err(|e| {
+        ParseError::IoError(std::io::Error::new(
+            e.kind(),
+            format!("Failed to read metadata for '{}': {}", path.display(), e),
+        ))
+    })?;
+
+    if metadata.len() > MAX_MAGIC_FILE_SIZE {
+        return Err(ParseError::invalid_syntax(
+            0,
+            format!(
+                "Magic file '{}' is too large: {} bytes (maximum allowed: {} bytes)",
+                path.display(),
+                metadata.len(),
+                MAX_MAGIC_FILE_SIZE
+            ),
+        ));
+    }
+
+    std::fs::read_to_string(path).map_err(ParseError::from)
+}
+
 /// Loads and parses all magic files from a directory, merging them into a single rule set.
 ///
 /// This function reads all regular files in the specified directory, parses each as a magic file,
@@ -129,11 +170,11 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
     let file_count = file_paths.len();
 
     for path in file_paths {
-        // Read file contents
-        let contents = match fs::read_to_string(&path) {
+        // Read file contents (size-bounded to prevent memory exhaustion)
+        let contents = match read_magic_file_bounded(&path) {
             Ok(contents) => contents,
             Err(e) => {
-                // I/O errors are critical
+                // I/O errors (including oversized files) are critical
                 return Err(ParseError::invalid_syntax(
                     0,
                     format!("Failed to read file '{}': {}", path.display(), e),
@@ -267,8 +308,10 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
 /// - Invalid syntax is rejected with descriptive errors
 /// - Binary `.mgc` files are rejected (not parsed)
 ///
-/// Note: File size limits and memory exhaustion protection are not currently implemented.
-/// Large magic files will be loaded entirely into memory.
+/// A 1 GB size limit ([`MAX_MAGIC_FILE_SIZE`]) is enforced on each file loaded
+/// (both standalone files and files within a directory) to prevent memory
+/// exhaustion from maliciously oversized inputs. Files exceeding the limit are
+/// rejected with a `ParseError` before their contents are read.
 ///
 /// # See Also
 ///
@@ -282,8 +325,8 @@ pub fn load_magic_file(path: &Path) -> Result<Vec<MagicRule>, ParseError> {
     // Dispatch to appropriate handler based on format
     match format {
         MagicFileFormat::Text => {
-            // Read file contents and parse as text magic file
-            let content = std::fs::read_to_string(path)?;
+            // Read file contents (size-bounded) and parse as text magic file
+            let content = read_magic_file_bounded(path)?;
             super::parse_text_magic_file(&content)
         }
         MagicFileFormat::Directory => {
@@ -583,6 +626,52 @@ mod tests {
         assert!(
             error_msg.contains("InvalidSyntax") || error_msg.contains("syntax"),
             "Error should be parse error: {error_msg}",
+        );
+    }
+
+    #[test]
+    fn test_max_magic_file_size_matches_file_buffer_limit() {
+        // Ensure the duplicated limit stays in sync with FileBuffer::MAX_FILE_SIZE.
+        // loader.rs cannot `use crate::io::FileBuffer` at module scope because
+        // build.rs pulls this file in via `#[path]`, but tests compile as part
+        // of the library and can reach it fine.
+        assert_eq!(
+            MAX_MAGIC_FILE_SIZE,
+            crate::io::FileBuffer::MAX_FILE_SIZE,
+            "MAX_MAGIC_FILE_SIZE must match FileBuffer::MAX_FILE_SIZE"
+        );
+    }
+
+    #[test]
+    fn test_load_magic_file_rejects_oversized_file() {
+        use std::fs::File;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let oversized = temp_dir.path().join("huge.magic");
+
+        // Create a sparse file whose reported size exceeds MAX_MAGIC_FILE_SIZE
+        // without actually consuming that much disk space.
+        let file = File::create(&oversized).expect("Failed to create oversized file");
+        file.set_len(MAX_MAGIC_FILE_SIZE + 1)
+            .expect("Failed to set sparse file length");
+        drop(file);
+
+        let result = load_magic_file(&oversized);
+
+        assert!(
+            result.is_err(),
+            "Loading a file larger than MAX_MAGIC_FILE_SIZE must fail"
+        );
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("too large"),
+            "Error should indicate size limit violation, got: {err_msg}"
+        );
+        assert!(
+            err_msg.contains(&MAX_MAGIC_FILE_SIZE.to_string()),
+            "Error should mention the maximum allowed size, got: {err_msg}"
         );
     }
 }

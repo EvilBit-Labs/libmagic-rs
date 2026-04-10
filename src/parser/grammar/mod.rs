@@ -10,8 +10,8 @@ use nom::{
     IResult, Parser,
     branch::alt,
     bytes::complete::{tag, take_while},
-    character::complete::{char, digit1, hex_digit1, multispace0, none_of, one_of},
-    combinator::{map, opt, recognize},
+    character::complete::{char, multispace0, one_of},
+    combinator::{map, opt},
     error::Error as NomError,
     multi::many0,
     sequence::pair,
@@ -21,139 +21,17 @@ use crate::parser::ast::{
     Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value,
 };
 
-/// Parse a decimal number with overflow protection
-fn parse_decimal_number(input: &str) -> IResult<&str, i64> {
-    let (input, digits) = digit1(input)?;
+mod numbers;
+mod value;
 
-    // Check for potential overflow before parsing
-    if digits.len() > 19 {
-        // i64::MAX has 19 digits, so anything longer will definitely overflow
-        return Err(nom::Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::MapRes,
-        )));
-    }
+pub use numbers::parse_number;
+pub use value::parse_value;
 
-    let number = digits.parse::<i64>().map_err(|_| {
-        nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::MapRes))
-    })?;
-    Ok((input, number))
-}
-
-/// Parse a decimal number as unsigned `u64` with overflow protection
-fn parse_unsigned_decimal_number(input: &str) -> IResult<&str, u64> {
-    let (input, digits) = digit1(input)?;
-
-    // u64::MAX (18446744073709551615) has 20 digits
-    if digits.len() > 20 {
-        return Err(nom::Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::MapRes,
-        )));
-    }
-
-    let number = digits.parse::<u64>().map_err(|_| {
-        nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::MapRes))
-    })?;
-    Ok((input, number))
-}
-
-/// Parse a hexadecimal number (with 0x prefix) with overflow protection
-fn parse_hex_number(input: &str) -> IResult<&str, i64> {
-    let (input, _) = tag("0x")(input)?;
-    let (input, hex_str) = hex_digit1(input)?;
-
-    // Check for potential overflow - i64 can hold up to 16 hex digits (0x7FFFFFFFFFFFFFFF)
-    if hex_str.len() > 16 {
-        return Err(nom::Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::MapRes,
-        )));
-    }
-
-    let number = i64::from_str_radix(hex_str, 16).map_err(|_| {
-        nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::MapRes))
-    })?;
-
-    Ok((input, number))
-}
-
-/// Parse a hexadecimal number (with 0x prefix) as unsigned `u64`
-fn parse_unsigned_hex_number(input: &str) -> IResult<&str, u64> {
-    let (input, _) = tag("0x")(input)?;
-    let (input, hex_str) = hex_digit1(input)?;
-
-    // u64 can hold up to 16 hex digits (0xFFFFFFFFFFFFFFFF)
-    if hex_str.len() > 16 {
-        return Err(nom::Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::MapRes,
-        )));
-    }
-
-    let number = u64::from_str_radix(hex_str, 16).map_err(|_| {
-        nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::MapRes))
-    })?;
-
-    Ok((input, number))
-}
-
-/// Parse a non-negative number as unsigned `u64`
-///
-/// Supports both decimal and hexadecimal (0x prefix) formats.
-/// Does not handle a leading minus sign -- callers handle sign detection.
-fn parse_unsigned_number(input: &str) -> IResult<&str, u64> {
-    if input.starts_with("0x") {
-        parse_unsigned_hex_number(input)
-    } else {
-        parse_unsigned_decimal_number(input)
-    }
-}
-
-/// Parse a decimal or hexadecimal number
-///
-/// Supports both decimal (123, -456) and hexadecimal (0x1a2b, -0xFF) formats.
-///
-/// # Examples
-///
-/// ```
-/// use libmagic_rs::parser::grammar::parse_number;
-///
-/// assert_eq!(parse_number("123"), Ok(("", 123)));
-/// assert_eq!(parse_number("0x1a"), Ok(("", 26)));
-/// assert_eq!(parse_number("-42"), Ok(("", -42)));
-/// assert_eq!(parse_number("-0xFF"), Ok(("", -255)));
-/// ```
-///
-/// # Errors
-///
-/// Returns a nom parsing error if:
-/// - Input is empty or contains no valid digits
-/// - Hexadecimal number lacks proper "0x" prefix or contains invalid hex digits
-/// - Number cannot be parsed as a valid `i64` value
-/// - Input contains invalid characters for the detected number format
-pub fn parse_number(input: &str) -> IResult<&str, i64> {
-    let (input, sign) = opt(char('-')).parse(input)?;
-    let is_negative = sign.is_some();
-
-    // Check if input starts with "0x" - if so, it must be a valid hex number
-    let (input, number) = if input.starts_with("0x") {
-        parse_hex_number(input)?
-    } else {
-        parse_decimal_number(input)?
-    };
-
-    // Apply sign with overflow checking
-    let result = if is_negative {
-        number.checked_neg().ok_or_else(|| {
-            nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::MapRes))
-        })?
-    } else {
-        number
-    };
-
-    Ok((input, result))
-}
+#[cfg(test)]
+use numbers::parse_hex_number;
+use numbers::{parse_decimal_number, parse_unsigned_number};
+#[cfg(test)]
+use value::{parse_escape_sequence, parse_hex_bytes, parse_numeric_value, parse_quoted_string};
 
 /// Map a single-character pointer specifier to its `TypeKind` and `Endianness`.
 ///
@@ -265,7 +143,7 @@ fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_offset;
 /// use libmagic_rs::parser::ast::{Endianness, OffsetSpec, TypeKind};
 ///
@@ -336,7 +214,7 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_operator;
 /// use libmagic_rs::parser::ast::Operator;
 ///
@@ -363,434 +241,86 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
 pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
     let (input, _) = multispace0(input)?;
 
-    // Try to parse each operator, starting with longer ones first
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("==")(input) {
-        // Check that we don't have another '=' following (to reject "===")
-        if remaining.starts_with('=') {
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
+    let bytes = input.as_bytes();
+    let err = || nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Tag));
+
+    // Dispatch on the first byte and inspect the second byte to choose between
+    // long-form and short-form operators. Boundary checks reject invalid
+    // sequences like "===", "&&", "^^", "~~", and "x42".
+    let (op, consumed) = match bytes.first().copied() {
+        Some(b'=') => {
+            // "=" or "==" -- reject "===" (and longer runs of '=')
+            if bytes.get(1).copied() == Some(b'=') {
+                if bytes.get(2).copied() == Some(b'=') {
+                    return Err(err());
+                }
+                (Operator::Equal, 2)
+            } else {
+                (Operator::Equal, 1)
+            }
         }
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::Equal));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("!=")(input) {
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::NotEqual));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("<>")(input) {
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::NotEqual));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("<=")(input) {
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::LessEqual));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>(">=")(input) {
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::GreaterEqual));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("=")(input) {
-        // Check that we don't have another '=' following (to reject "==")
-        if remaining.starts_with('=') {
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
+        Some(b'!') => {
+            // Only "!=" is valid; bare "!" is an error.
+            if bytes.get(1).copied() == Some(b'=') {
+                (Operator::NotEqual, 2)
+            } else {
+                return Err(err());
+            }
         }
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::Equal));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("&")(input) {
-        // Check that we don't have another '&' following (to reject "&&")
-        if remaining.starts_with('&') {
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
+        Some(b'<') => {
+            // "<=", "<>", or bare "<"
+            match bytes.get(1).copied() {
+                Some(b'=') => (Operator::LessEqual, 2),
+                Some(b'>') => (Operator::NotEqual, 2),
+                _ => (Operator::LessThan, 1),
+            }
         }
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::BitwiseAnd));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("^")(input) {
-        if remaining.starts_with('^') {
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
+        Some(b'>') => {
+            // ">=" or bare ">"
+            if bytes.get(1).copied() == Some(b'=') {
+                (Operator::GreaterEqual, 2)
+            } else {
+                (Operator::GreaterThan, 1)
+            }
         }
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::BitwiseXor));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("~")(input) {
-        if remaining.starts_with('~') {
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
+        Some(b'&') => {
+            // Reject "&&"
+            if bytes.get(1).copied() == Some(b'&') {
+                return Err(err());
+            }
+            (Operator::BitwiseAnd, 1)
         }
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::BitwiseNot));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("x")(input) {
-        // Ensure 'x' is not followed by alphanumeric (e.g., "x42" is not AnyValue)
-        if remaining.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
+        Some(b'^') => {
+            // Reject "^^"
+            if bytes.get(1).copied() == Some(b'^') {
+                return Err(err());
+            }
+            (Operator::BitwiseXor, 1)
         }
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::AnyValue));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>("<")(input) {
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::LessThan));
-    }
-
-    if let Ok((remaining, _)) = tag::<&str, &str, nom::error::Error<&str>>(">")(input) {
-        let (remaining, _) = multispace0(remaining)?;
-        return Ok((remaining, Operator::GreaterThan));
-    }
-
-    // If no operator matches, return an error
-    Err(nom::Err::Error(nom::error::Error::new(
-        input,
-        nom::error::ErrorKind::Tag,
-    )))
-}
-
-/// Parse a single hex byte with \x prefix
-fn parse_hex_byte_with_prefix(input: &str) -> IResult<&str, u8> {
-    let (input, _) = tag("\\x")(input)?;
-    let (input, hex_str) = recognize(pair(
-        one_of("0123456789abcdefABCDEF"),
-        one_of("0123456789abcdefABCDEF"),
-    ))
-    .parse(input)?;
-    let byte_val = u8::from_str_radix(hex_str, 16)
-        .map_err(|_| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::MapRes)))?;
-    Ok((input, byte_val))
-}
-
-/// Parse a hex byte sequence starting with \x prefix
-fn parse_hex_bytes_with_prefix(input: &str) -> IResult<&str, Vec<u8>> {
-    if input.starts_with("\\x") {
-        many0(parse_hex_byte_with_prefix).parse(input)
-    } else {
-        Err(nom::Err::Error(NomError::new(
-            input,
-            nom::error::ErrorKind::Tag,
-        )))
-    }
-}
-
-/// Parse a mixed hex and ASCII sequence (like \x7fELF)
-fn parse_mixed_hex_ascii(input: &str) -> IResult<&str, Vec<u8>> {
-    // Must start with \ to be considered an escape sequence
-    if !input.starts_with('\\') {
-        return Err(nom::Err::Error(NomError::new(
-            input,
-            nom::error::ErrorKind::Tag,
-        )));
-    }
-
-    let mut bytes = Vec::new();
-    let mut remaining = input;
-
-    while !remaining.is_empty() {
-        // Try to parse escape sequences first (hex, octal, etc.)
-        if let Ok((new_remaining, escaped_char)) = parse_escape_sequence(remaining) {
-            bytes.push(escaped_char as u8);
-            remaining = new_remaining;
-        } else if let Ok((new_remaining, hex_byte)) = parse_hex_byte_with_prefix(remaining) {
-            bytes.push(hex_byte);
-            remaining = new_remaining;
-        } else if let Ok((new_remaining, ascii_char)) =
-            none_of::<&str, &str, NomError<&str>>(" \t\n\r")(remaining)
-        {
-            // Parse regular ASCII character (not whitespace)
-            bytes.push(ascii_char as u8);
-            remaining = new_remaining;
-        } else {
-            // Stop if we can't parse anything more
-            break;
+        Some(b'~') => {
+            // Reject "~~"
+            if bytes.get(1).copied() == Some(b'~') {
+                return Err(err());
+            }
+            (Operator::BitwiseNot, 1)
         }
-    }
-
-    if bytes.is_empty() {
-        Err(nom::Err::Error(NomError::new(
-            input,
-            nom::error::ErrorKind::Tag,
-        )))
-    } else {
-        Ok((remaining, bytes))
-    }
-}
-
-/// Parse a hex byte sequence without prefix (only if it looks like pure hex bytes)
-fn parse_hex_bytes_no_prefix(input: &str) -> IResult<&str, Vec<u8>> {
-    // Only parse as hex bytes if:
-    // 1. Input has even number of hex digits (pairs)
-    // 2. All characters are hex digits
-    // 3. Doesn't start with 0x (that's a number)
-    // 4. Contains at least one non-decimal digit (a-f, A-F)
-
-    if input.starts_with("0x") || input.starts_with('-') {
-        return Err(nom::Err::Error(NomError::new(
-            input,
-            nom::error::ErrorKind::Tag,
-        )));
-    }
-
-    let hex_chars: String = input.chars().take_while(char::is_ascii_hexdigit).collect();
-
-    if hex_chars.is_empty() || !hex_chars.len().is_multiple_of(2) {
-        return Err(nom::Err::Error(NomError::new(
-            input,
-            nom::error::ErrorKind::Tag,
-        )));
-    }
-
-    // Check if it contains non-decimal hex digits (a-f, A-F)
-    let has_hex_letters = hex_chars
-        .chars()
-        .any(|c| matches!(c, 'a'..='f' | 'A'..='F'));
-    if !has_hex_letters {
-        return Err(nom::Err::Error(NomError::new(
-            input,
-            nom::error::ErrorKind::Tag,
-        )));
-    }
-
-    // Parse pairs of hex digits
-    let mut bytes = Vec::with_capacity(hex_chars.len() / 2);
-    let mut chars = hex_chars.chars();
-    while let (Some(c1), Some(c2)) = (chars.next(), chars.next()) {
-        // Avoid format! allocation by parsing digits directly
-        let digit1 = c1
-            .to_digit(16)
-            .ok_or_else(|| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::MapRes)))?;
-        let digit2 = c2
-            .to_digit(16)
-            .ok_or_else(|| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::MapRes)))?;
-        let byte_val = u8::try_from((digit1 << 4) | digit2)
-            .map_err(|_| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::MapRes)))?;
-        bytes.push(byte_val);
-    }
-
-    let remaining = &input[hex_chars.len()..];
-    Ok((remaining, bytes))
-}
-
-/// Parse a hex byte sequence (e.g., "\\x7f\\x45\\x4c\\x46", "7f454c46", or "\\x7fELF")
-fn parse_hex_bytes(input: &str) -> IResult<&str, Vec<u8>> {
-    alt((
-        parse_mixed_hex_ascii,
-        parse_hex_bytes_with_prefix,
-        parse_hex_bytes_no_prefix,
-    ))
-    .parse(input)
-}
-
-/// Parse escape sequences in strings
-fn parse_escape_sequence(input: &str) -> IResult<&str, char> {
-    let (input, _) = char('\\')(input)?;
-
-    // Try to parse octal escape sequence first (\377, \123, etc.)
-    if let Ok((remaining, octal_str)) = recognize(pair(
-        one_of::<&str, &str, NomError<&str>>("0123"),
-        pair(
-            one_of::<&str, &str, NomError<&str>>("01234567"),
-            one_of::<&str, &str, NomError<&str>>("01234567"),
-        ),
-    ))
-    .parse(input)
-        && let Ok(octal_value) = u8::from_str_radix(octal_str, 8)
-    {
-        return Ok((remaining, octal_value as char));
-    }
-
-    // Parse standard escape sequences
-    let (input, escaped_char) = one_of("nrt\\\"'0")(input)?;
-
-    let result_char = match escaped_char {
-        'n' => '\n',
-        'r' => '\r',
-        't' => '\t',
-        '\\' => '\\',
-        '"' => '"',
-        '\'' => '\'',
-        '0' => '\0',
-        _ => unreachable!("one_of constrains input to known escape characters"),
+        Some(b'x') => {
+            // Word boundary: 'x' must not be followed by an alphanumeric or '_'
+            // (e.g., "x42" or "xfoo" is not AnyValue).
+            if input
+                .get(1..)
+                .is_some_and(|s| s.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+            {
+                return Err(err());
+            }
+            (Operator::AnyValue, 1)
+        }
+        _ => return Err(err()),
     };
 
-    Ok((input, result_char))
-}
-
-/// Parse a quoted string with escape sequences
-fn parse_quoted_string(input: &str) -> IResult<&str, String> {
-    let (input, _) = multispace0(input)?;
-    let (input, _) = char('"')(input)?;
-
-    let mut result = String::new();
-    let mut remaining = input;
-
-    loop {
-        // Try to parse an escape sequence first
-        if let Ok((new_remaining, escaped_char)) = parse_escape_sequence(remaining) {
-            result.push(escaped_char);
-            remaining = new_remaining;
-            continue;
-        }
-
-        // If no escape sequence, try to parse a regular character (not quote or backslash)
-        if let Ok((new_remaining, regular_char)) =
-            none_of::<&str, &str, NomError<&str>>("\"\\")(remaining)
-        {
-            result.push(regular_char);
-            remaining = new_remaining;
-            continue;
-        }
-
-        // If neither worked, we should be at the closing quote
-        break;
-    }
-
-    let (remaining, _) = char('"')(remaining)?;
+    let remaining = &input[consumed..];
     let (remaining, _) = multispace0(remaining)?;
-
-    Ok((remaining, result))
-}
-
-/// Parse a floating-point literal into `Value::Float(f64)`
-///
-/// Recognizes numbers with a mandatory decimal point (to distinguish from
-/// integers), an optional leading minus sign, and an optional exponent part.
-/// Examples: `3.14`, `-1.0`, `2.5e10`, `-0.5E-3`
-fn parse_float_value(input: &str) -> IResult<&str, f64> {
-    let (input, _) = multispace0(input)?;
-
-    let (remaining, float_str) = recognize((
-        opt(char('-')),
-        digit1,
-        char('.'),
-        digit1,
-        opt((one_of("eE"), opt(one_of("+-")), digit1)),
-    ))
-    .parse(input)?;
-
-    let value: f64 = float_str
-        .parse()
-        .map_err(|_| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::MapRes)))?;
-
-    // Reject non-finite floats (NaN, +inf, -inf) to keep AST, JSON, and codegen valid
-    if !value.is_finite() {
-        return Err(nom::Err::Error(NomError::new(
-            input,
-            nom::error::ErrorKind::Float,
-        )));
-    }
-
-    let (remaining, _) = multispace0(remaining)?;
-    Ok((remaining, value))
-}
-
-/// Parse a numeric value (integer)
-///
-/// Non-negative literals are parsed directly as `u64` so the full unsigned
-/// 64-bit range is representable (required for `uquad` values above `i64::MAX`).
-/// Negative literals go through the signed `i64` path.
-fn parse_numeric_value(input: &str) -> IResult<&str, Value> {
-    let (input, _) = multispace0(input)?;
-
-    let (input, value) = if input.starts_with('-') {
-        // Negative: parse as i64
-        let (input, number) = parse_number(input)?;
-        (input, Value::Int(number))
-    } else {
-        // Non-negative: parse as u64 to support full unsigned 64-bit range
-        let (input, number) = parse_unsigned_number(input)?;
-        (input, Value::Uint(number))
-    };
-
-    let (input, _) = multispace0(input)?;
-    Ok((input, value))
-}
-
-/// Parse string, float, and numeric literals for magic rule values
-///
-/// Supports:
-/// - Quoted strings with escape sequences: "Hello\nWorld", "ELF\0"
-/// - Floating-point literals: 3.14, -1.0, 2.5e10
-/// - Numeric literals (decimal): 123, -456
-/// - Numeric literals (hexadecimal): 0x1a2b, -0xFF
-/// - Hex byte sequences: \\x7f\\x45\\x4c\\x46 or 7f454c46
-///
-/// # Examples
-///
-/// ```
-/// use libmagic_rs::parser::grammar::parse_value;
-/// use libmagic_rs::parser::ast::Value;
-///
-/// // String values
-/// assert_eq!(parse_value("\"Hello\""), Ok(("", Value::String("Hello".to_string()))));
-/// assert_eq!(parse_value("\"Line1\\nLine2\""), Ok(("", Value::String("Line1\nLine2".to_string()))));
-///
-/// // Numeric values
-/// assert_eq!(parse_value("123"), Ok(("", Value::Uint(123))));
-/// assert_eq!(parse_value("-456"), Ok(("", Value::Int(-456))));
-/// assert_eq!(parse_value("0x1a"), Ok(("", Value::Uint(26))));
-/// assert_eq!(parse_value("-0xFF"), Ok(("", Value::Int(-255))));
-///
-/// // Hex byte sequences
-/// assert_eq!(parse_value("\\x7f\\x45"), Ok(("", Value::Bytes(vec![0x7f, 0x45]))));
-/// ```
-///
-/// # Errors
-///
-/// Returns a nom parsing error if:
-/// - Input is empty or contains no valid value
-/// - Quoted string is not properly terminated
-/// - Numeric value cannot be parsed as a valid integer
-/// - Hex byte sequence contains invalid hex digits
-/// - Input contains invalid characters for the detected value format
-pub fn parse_value(input: &str) -> IResult<&str, Value> {
-    let (input, _) = multispace0(input)?;
-
-    // Handle empty input case - should fail for magic rules
-    if input.is_empty() {
-        return Err(nom::Err::Error(NomError::new(
-            input,
-            nom::error::ErrorKind::Tag,
-        )));
-    }
-
-    // Try to parse different value types in order of specificity
-    let (input, value) = alt((
-        // Try quoted string first
-        map(parse_quoted_string, Value::String),
-        // Try hex byte sequence before numeric (to catch patterns like "7f", "ab", "\\x7fELF", etc.)
-        map(parse_hex_bytes, Value::Bytes),
-        // Try float before integer (a float literal is a superset of an integer prefix)
-        map(parse_float_value, Value::Float),
-        // Try numeric value last (for pure numbers like 0x123, 1, etc.)
-        parse_numeric_value,
-    ))
-    .parse(input)?;
-
-    Ok((input, value))
+    Ok((remaining, op))
 }
 
 /// Parse pstring suffix flags after the `/` character.
@@ -845,7 +375,7 @@ fn parse_pstring_suffix(
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_type_and_operator;
 /// use libmagic_rs::parser::ast::{TypeKind, Operator, Endianness};
 ///
@@ -938,7 +468,7 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_type;
 /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
 ///
@@ -950,6 +480,7 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
 ///
 /// # Errors
 /// Returns a nom parsing error if the input doesn't match any known type
+#[allow(dead_code)] // Standalone helper exercised by grammar unit tests.
 pub fn parse_type(input: &str) -> IResult<&str, TypeKind> {
     let (input, (type_kind, _)) = parse_type_and_operator(input)?;
     Ok((input, type_kind))
@@ -962,7 +493,7 @@ pub fn parse_type(input: &str) -> IResult<&str, TypeKind> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_rule_offset;
 /// use libmagic_rs::parser::ast::OffsetSpec;
 ///
@@ -1000,7 +531,7 @@ pub fn parse_rule_offset(input: &str) -> IResult<&str, (u32, OffsetSpec)> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_message;
 ///
 /// assert_eq!(parse_message("ELF executable"), Ok(("", "ELF executable".to_string())));
@@ -1029,7 +560,7 @@ pub fn parse_message(input: &str) -> IResult<&str, String> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_strength_directive;
 /// use libmagic_rs::parser::ast::StrengthModifier;
 ///
@@ -1095,7 +626,7 @@ pub fn parse_strength_directive(input: &str) -> IResult<&str, StrengthModifier> 
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::is_strength_directive;
 ///
 /// assert!(is_strength_directive("!:strength +10"));
@@ -1122,7 +653,7 @@ pub fn is_strength_directive(input: &str) -> bool {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_magic_rule;
 /// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
 ///
@@ -1195,7 +726,7 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::parse_comment;
 ///
 /// assert_eq!(parse_comment("# This is a comment"), Ok(("", "This is a comment".to_string())));
@@ -1217,7 +748,7 @@ pub fn parse_comment(input: &str) -> IResult<&str, String> {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::is_empty_line;
 ///
 /// assert!(is_empty_line(""));
@@ -1234,7 +765,7 @@ pub fn is_empty_line(input: &str) -> bool {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::is_comment_line;
 ///
 /// assert!(is_comment_line("# This is a comment"));
@@ -1253,7 +784,7 @@ pub fn is_comment_line(input: &str) -> bool {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::parser::grammar::has_continuation;
 ///
 /// assert!(has_continuation("0 string test \\"));

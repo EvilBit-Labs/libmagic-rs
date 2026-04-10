@@ -7,6 +7,15 @@
 #[derive(Debug, thiserror::Error)]
 pub enum OffsetError {
     /// Buffer overrun - offset is beyond buffer bounds
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::evaluator::offset::OffsetError;
+    ///
+    /// let err = OffsetError::BufferOverrun { offset: 100, buffer_len: 32 };
+    /// assert!(matches!(err, OffsetError::BufferOverrun { .. }));
+    /// ```
     #[error("Buffer overrun: offset {offset} is beyond buffer length {buffer_len}")]
     BufferOverrun {
         /// The requested offset
@@ -16,6 +25,15 @@ pub enum OffsetError {
     },
 
     /// Invalid offset specification
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::evaluator::offset::OffsetError;
+    ///
+    /// let err = OffsetError::InvalidOffset { reason: "negative offset exceeds buffer".to_string() };
+    /// assert!(matches!(err, OffsetError::InvalidOffset { .. }));
+    /// ```
     #[error("Invalid offset: {reason}")]
     InvalidOffset {
         /// Reason why the offset is invalid
@@ -23,6 +41,15 @@ pub enum OffsetError {
     },
 
     /// Arithmetic overflow in offset calculation
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::evaluator::offset::OffsetError;
+    ///
+    /// let err = OffsetError::ArithmeticOverflow;
+    /// assert!(matches!(err, OffsetError::ArithmeticOverflow));
+    /// ```
     #[error("Arithmetic overflow in offset calculation")]
     ArithmeticOverflow,
 }

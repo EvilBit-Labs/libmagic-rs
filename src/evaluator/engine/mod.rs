@@ -5,7 +5,9 @@
 //!
 //! This module contains the core recursive evaluation logic for executing magic
 //! rules against file buffers. It is responsible for:
-//! - Evaluating individual rules (`evaluate_single_rule`)
+//! - Evaluating a single rule via [`evaluate_single_rule`] (a thin wrapper
+//!   around `evaluate_rules` that delegates one rule through the full
+//!   context-aware pipeline)
 //! - Evaluating hierarchical rule sets with context (`evaluate_rules`)
 //! - Providing a convenience wrapper for evaluation with configuration
 //!   (`evaluate_rules_with_config`)
@@ -13,32 +15,42 @@
 use crate::parser::ast::MagicRule;
 use crate::{EvaluationConfig, LibmagicError};
 
-use super::{EvaluationContext, RuleMatch, offset, operators, types};
+use super::{EvaluationContext, RecursionGuard, RuleMatch, offset, operators, types};
 use log::{debug, warn};
 
 /// Evaluate a single magic rule against a file buffer
 ///
-/// This function performs the core rule evaluation by:
-/// 1. Resolving the rule's offset specification to an absolute position
-/// 2. Reading and interpreting bytes at that position according to the rule's type
-/// 3. Coercing the expected value to match the type's signedness and bit width
-/// 4. Applying the rule's operator to compare the read value with the expected value
+/// This is a thin wrapper around [`evaluate_rules`] that evaluates exactly
+/// one top-level rule (and any of its children) against a buffer, using the
+/// caller-provided [`EvaluationContext`] to enforce timeout, recursion, and
+/// string-size limits. It is a BREAKING API change introduced in pre-1.0:
+/// earlier versions took no context and returned `Option<(usize, Value)>`.
 ///
 /// # Arguments
 ///
 /// * `rule` - The magic rule to evaluate
 /// * `buffer` - The file buffer to evaluate against
+/// * `context` - Mutable evaluation context that carries the configured
+///   safety limits (timeout, max recursion depth, max string length) and
+///   the GNU `file` previous-match anchor used for relative-offset
+///   resolution. Callers reusing a context across multiple buffers must
+///   call [`EvaluationContext::reset`](crate::evaluator::EvaluationContext::reset)
+///   between calls -- see [`evaluate_rules`] for details.
 ///
 /// # Returns
 ///
-/// Returns `Ok(Some((offset, value)))` if the rule matches (with the resolved offset and
-/// read value), `Ok(None)` if it doesn't match, or `Err(LibmagicError)` if evaluation
-/// fails due to buffer access issues or other errors.
+/// Returns `Ok(Vec<RuleMatch>)` containing the parent match (if the rule
+/// matched) plus any child matches collected recursively. An empty vector
+/// means the rule did not match or was skipped due to a data-dependent
+/// evaluation error (buffer overrun, invalid offset, etc.). Only critical
+/// failures such as `LibmagicError::Timeout` or recursion-limit exhaustion
+/// are returned as `Err`.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use libmagic_rs::evaluator::evaluate_single_rule;
+/// use libmagic_rs::evaluator::{evaluate_single_rule, EvaluationContext};
+/// use libmagic_rs::EvaluationConfig;
 /// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
 ///
 /// // Create a rule to check for ELF magic bytes at offset 0
@@ -53,52 +65,31 @@ use log::{debug, warn};
 ///     strength_modifier: None,
 /// };
 ///
+/// let mut context = EvaluationContext::new(EvaluationConfig::default());
 /// let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
-/// let result = evaluate_single_rule(&rule, elf_buffer).unwrap();
-/// assert!(result.is_some()); // Should match
+/// let matches = evaluate_single_rule(&rule, elf_buffer, &mut context).unwrap();
+/// assert_eq!(matches.len(), 1); // Should match
 ///
+/// context.reset();
 /// let non_elf_buffer = &[0x50, 0x4b, 0x03, 0x04]; // ZIP magic bytes
-/// let result = evaluate_single_rule(&rule, non_elf_buffer).unwrap();
-/// assert!(result.is_none()); // Should not match
+/// let matches = evaluate_single_rule(&rule, non_elf_buffer, &mut context).unwrap();
+/// assert!(matches.is_empty()); // Should not match
 /// ```
-///
-/// # Relative offset behavior
-///
-/// If the rule uses [`OffsetSpec::Relative`](crate::parser::ast::OffsetSpec::Relative),
-/// this function resolves it against anchor 0. There is no "previous match"
-/// context when evaluating a single rule in isolation. The two cases are:
-///
-/// - **Non-negative delta (`Relative(N)` for `N >= 0`):** resolves to
-///   absolute offset `N`, behaving like `Absolute(N)` from the start of the
-///   buffer.
-/// - **Negative delta (`Relative(-N)` for `N > 0`):** underflows the
-///   anchor (`0 - N`) and returns `EvaluationError::InvalidOffset`. This is
-///   *not* equivalent to `Absolute(-N)`, which is interpreted as
-///   "from end" of the buffer.
-///
-/// Callers needing the GNU `file` anchor semantics (where relative offsets
-/// resolve against the end of the most recent match) should use
-/// [`evaluate_rules`] with an
-/// [`EvaluationContext`](crate::evaluator::EvaluationContext), which threads
-/// the anchor across the rule list.
-///
-/// **Behavior change:** before the relative-offset feature landed in v0.5,
-/// `OffsetSpec::Relative` returned `EvaluationError::UnsupportedType` here.
-/// It now resolves successfully against anchor 0. Callers with existing
-/// error-handling code that pattern-matched `UnsupportedType` for relative
-/// offsets must remove that arm.
 ///
 /// # Errors
 ///
-/// * `LibmagicError::EvaluationError` - If offset resolution fails, buffer access is out of bounds,
-///   or type interpretation fails
+/// * `LibmagicError::Timeout` - If evaluation exceeds the configured timeout
+/// * `LibmagicError::EvaluationError` - For critical failures such as the
+///   recursion limit being exceeded. Data-dependent errors (buffer overrun,
+///   invalid offset, malformed pstring length) are handled gracefully by
+///   [`evaluate_rules`] and surface as an empty match vector rather than
+///   an error.
 pub fn evaluate_single_rule(
     rule: &MagicRule,
     buffer: &[u8],
-) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
-    // Default the relative-offset anchor to 0 -- top-level evaluation with
-    // no prior match resolves Relative(N) to absolute N (libmagic semantics).
-    evaluate_single_rule_with_anchor(rule, buffer, 0)
+    context: &mut EvaluationContext,
+) -> Result<Vec<RuleMatch>, LibmagicError> {
+    evaluate_rules(std::slice::from_ref(rule), buffer, context)
 }
 
 /// Internal: evaluate a single rule against a buffer, supplying an explicit
@@ -120,19 +111,20 @@ fn evaluate_single_rule_with_anchor(
     let read_value = types::read_typed_value(buffer, absolute_offset, &rule.typ)
         .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
 
-    // Step 3: Coerce the rule's expected value to match the type's signedness/width
+    // Step 3: Coerce the rule's expected value to match the type's signedness/width.
+    // `coerce_value_to_type` returns `Cow::Borrowed` on the hot path so no
+    // allocation happens for pass-through values (e.g., string matches).
     let expected_value = types::coerce_value_to_type(&rule.value, &rule.typ);
+    let expected_ref: &crate::parser::ast::Value = expected_value.as_ref();
 
     // Step 4: Apply the operator to compare the read value with the expected value
     // BitwiseNot needs type-aware bit-width masking so the complement is computed
     // at the type's natural width (e.g., byte NOT of 0x00 = 0xFF, not u64::MAX).
     let matched = match &rule.op {
-        crate::parser::ast::Operator::BitwiseNot => operators::apply_bitwise_not_with_width(
-            &read_value,
-            &expected_value,
-            rule.typ.bit_width(),
-        ),
-        op => operators::apply_operator(op, &read_value, &expected_value),
+        crate::parser::ast::Operator::BitwiseNot => {
+            operators::apply_bitwise_not_with_width(&read_value, expected_ref, rule.typ.bit_width())
+        }
+        op => operators::apply_operator(op, &read_value, expected_ref),
     };
     Ok(matched.then_some((absolute_offset, read_value)))
 }
@@ -232,12 +224,23 @@ pub fn evaluate_rules(
     let start_time = std::time::Instant::now();
     let mut rule_count = 0u32;
 
+    // Entry-point timeout check: ensures every recursive descent is bounded
+    // and that evaluations of small rule sets (< 16 rules) are still guarded.
+    // Without this, the periodic every-16-rules check below never fires for
+    // flat rule lists with fewer than 16 rules, and recursion into children
+    // also restarts `rule_count` at 0.
+    if let Some(timeout_ms) = context.timeout_ms()
+        && start_time.elapsed().as_millis() >= u128::from(timeout_ms)
+    {
+        return Err(LibmagicError::Timeout { timeout_ms });
+    }
+
     for rule in rules {
         // Check timeout periodically (every 16 rules) to reduce syscall overhead
         rule_count = rule_count.wrapping_add(1);
         if rule_count.trailing_zeros() >= 4
             && let Some(timeout_ms) = context.timeout_ms()
-            && start_time.elapsed().as_millis() > u128::from(timeout_ms)
+            && start_time.elapsed().as_millis() >= u128::from(timeout_ms)
         {
             return Err(LibmagicError::Timeout { timeout_ms });
         }
@@ -293,27 +296,19 @@ pub fn evaluate_rules(
 
             // If this rule has children, evaluate them recursively
             if !rule.children.is_empty() {
-                // Check recursion depth limit - this is a critical error that should stop evaluation
-                context.increment_recursion_depth()?;
+                // Check recursion depth limit - this is a critical error that should stop evaluation.
+                // `RecursionGuard` decrements the depth on drop, so every exit path below
+                // (Ok, graceful warn!, or early-return via `?`) restores the counter.
+                let mut guard = RecursionGuard::enter(context)?;
 
                 // Recursively evaluate child rules with graceful error handling
-                match evaluate_rules(&rule.children, buffer, context) {
+                match evaluate_rules(&rule.children, buffer, guard.context()) {
                     Ok(child_matches) => {
                         matches.extend(child_matches);
                     }
                     Err(LibmagicError::Timeout { timeout_ms }) => {
-                        // Timeout is critical, propagate it up
-                        let _ = context.decrement_recursion_depth();
+                        // Timeout is critical, propagate it up (guard drops here).
                         return Err(LibmagicError::Timeout { timeout_ms });
-                    }
-                    Err(
-                        e @ LibmagicError::EvaluationError(
-                            crate::error::EvaluationError::RecursionLimitExceeded { .. },
-                        ),
-                    ) => {
-                        // Recursion limit is critical, propagate the original error
-                        let _ = context.decrement_recursion_depth();
-                        return Err(e);
                     }
                     Err(
                         e @ (LibmagicError::EvaluationError(
@@ -343,14 +338,12 @@ pub fn evaluate_rules(
                         );
                     }
                     Err(e) => {
-                        // Unexpected errors in children should propagate
-                        let _ = context.decrement_recursion_depth();
+                        // Unexpected errors in children (including RecursionLimitExceeded)
+                        // should propagate. The guard drops here, decrementing the depth.
                         return Err(e);
                     }
                 }
-
-                // Restore recursion depth
-                context.decrement_recursion_depth()?;
+                // `guard` drops here, decrementing the recursion depth.
             }
 
             // Stop at first match if configured to do so
@@ -415,6 +408,11 @@ pub fn evaluate_rules_with_config(
     buffer: &[u8],
     config: &EvaluationConfig,
 ) -> Result<Vec<RuleMatch>, LibmagicError> {
+    // Validate the configuration before constructing a context so that
+    // out-of-range values (e.g. zero recursion depth, excessive timeouts)
+    // are rejected at the API boundary rather than triggering subtle
+    // failures during evaluation.
+    config.validate()?;
     let mut context = EvaluationContext::new(config.clone());
     evaluate_rules(rules, buffer, &mut context)
 }
