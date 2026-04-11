@@ -411,39 +411,55 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
         pstring_length_includes_itself = includes_j;
     }
 
-    // Handle regex suffixes: flag letters (`c`, `l`). An optional decimal
-    // line-count prefix (e.g., `regex/1l`) is consumed but not yet used.
-    let mut regex_case_insensitive = false;
-    let mut regex_start_of_line = false;
+    // Handle regex suffixes: flag letters (`c`, `s`, `l`) and an optional
+    // decimal count. GNU `file`'s `parse_string_modifier` accepts flag
+    // letters and digits in any interleaved order with "last range wins"
+    // semantics; we implement the same: scan the suffix character by
+    // character, setting flag bits on letters and parsing a new numeric
+    // count on digit sequences (which overwrites any previously-seen
+    // count). This accepts both `regex/1l` and `regex/l1` as equivalent.
+    let mut regex_flags = crate::parser::ast::RegexFlags::default();
+    let mut regex_count: Option<u32> = None;
     if type_name == "regex"
         && let Some(suffix_rest) = input.strip_prefix('/')
     {
         let mut rest = suffix_rest;
-        let mut flags_consumed = 0usize;
+        let mut any_modifier = false;
 
-        // Consume optional line-count prefix (ignored; not yet evaluated)
-        if rest.starts_with(|c: char| c.is_ascii_digit()) {
-            let (after_number, _line_count) = parse_decimal_number(rest).map_err(|_| {
-                nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
-            })?;
-            rest = after_number;
-        }
-
-        // Scan flag letters. Stop at whitespace or at operator boundary
-        // characters (`=`, `!`, `<`, `>`, `&`, `^`, `~`, `x`) so forms like
-        // `regex/c=...` or `regex/l!=...` leave the operator for
-        // `parse_operator` to handle, mirroring how `search/256=...` works.
-        // Uses `strip_prefix` instead of direct slicing per AGENTS.md
-        // "Memory Safety First" rule.
+        // Scan modifier sequence. Stop at whitespace or at operator
+        // boundary characters (`=`, `!`, `<`, `>`, `&`, `^`, `~`, `x`) so
+        // forms like `regex/c=...` or `regex/l!=...` leave the operator
+        // for `parse_operator` to handle.
         loop {
             if let Some(next) = rest.strip_prefix('c') {
-                regex_case_insensitive = true;
+                regex_flags.case_insensitive = true;
                 rest = next;
-                flags_consumed += 1;
+                any_modifier = true;
+            } else if let Some(next) = rest.strip_prefix('s') {
+                regex_flags.start_offset = true;
+                rest = next;
+                any_modifier = true;
             } else if let Some(next) = rest.strip_prefix('l') {
-                regex_start_of_line = true;
+                regex_flags.line_based = true;
                 rest = next;
-                flags_consumed += 1;
+                any_modifier = true;
+            } else if rest.starts_with(|c: char| c.is_ascii_digit()) {
+                let (after_number, n) = parse_decimal_number(rest).map_err(|_| {
+                    nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
+                })?;
+                // `0` is a valid sentinel in libmagic (means "unset"), but
+                // with a dedicated 8192-byte default we don't need a
+                // sentinel. Reject 0 explicitly so callers get a clear
+                // parse error instead of a silently-dropped count.
+                let count_value = u32::try_from(n)
+                    .ok()
+                    .and_then(::std::num::NonZeroU32::new)
+                    .ok_or_else(|| {
+                        nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
+                    })?;
+                regex_count = Some(count_value.get());
+                rest = after_number;
+                any_modifier = true;
             } else {
                 match rest.chars().next() {
                     Some(c) if c.is_whitespace() => break,
@@ -458,8 +474,8 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
             }
         }
 
-        // A bare `regex/` with no valid flags is a parse error
-        if flags_consumed == 0 {
+        // A bare `regex/` with no valid modifier is a parse error.
+        if !any_modifier {
             return Err(nom::Err::Error(nom::error::Error::new(
                 input,
                 nom::error::ErrorKind::Tag,
@@ -469,17 +485,22 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
         input = rest;
     }
 
-    // Handle search suffix: required decimal range (e.g., `search/256`)
-    let mut search_range: Option<usize> = None;
+    // Handle search suffix: required decimal range (e.g., `search/256`).
+    // Per GNU `file` magic(5), the range is mandatory. `search/0` and
+    // bare `search` are rejected at parse time via `NonZeroUsize`.
+    let mut search_range: Option<::std::num::NonZeroUsize> = None;
     if type_name == "search"
         && let Some(suffix_rest) = input.strip_prefix('/')
     {
         let (rest, n) = parse_decimal_number(suffix_rest).map_err(|_| {
             nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
         })?;
-        let range_value = usize::try_from(n).map_err(|_| {
-            nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
-        })?;
+        let range_value = usize::try_from(n)
+            .ok()
+            .and_then(::std::num::NonZeroUsize::new)
+            .ok_or_else(|| {
+                nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
+            })?;
         search_range = Some(range_value);
         input = rest;
     }
@@ -518,12 +539,16 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
     // length-width and `/J` flag.
     let type_kind = match type_name {
         "regex" => TypeKind::Regex {
-            case_insensitive: regex_case_insensitive,
-            start_of_line: regex_start_of_line,
+            flags: regex_flags,
+            count: regex_count.and_then(::std::num::NonZeroU32::new),
         },
-        "search" => TypeKind::Search {
-            range: search_range,
-        },
+        "search" => {
+            // Mandatory range: reject bare `search` at parse time.
+            let range = search_range.ok_or_else(|| {
+                nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Tag))
+            })?;
+            TypeKind::Search { range }
+        }
         _ => {
             let mut kind = crate::parser::types::type_keyword_to_kind(type_name);
             if let TypeKind::PString { max_length, .. } = kind {

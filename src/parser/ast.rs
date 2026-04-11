@@ -7,6 +7,7 @@
 //! and their components, including offset specifications, type kinds, operators, and values.
 
 use serde::{Deserialize, Serialize};
+use std::num::{NonZeroU32, NonZeroUsize};
 
 /// The width of the length prefix for Pascal strings.
 ///
@@ -337,70 +338,138 @@ pub enum TypeKind {
     },
     /// Regular expression matching against file contents
     ///
-    /// Regex types match a regular expression pattern against the file buffer. The `/c` flag
-    /// makes the match case-insensitive, and the `/l` flag anchors matching to line starts.
+    /// Regex rules match a POSIX-extended regular expression pattern against the
+    /// file buffer. Patterns are compiled with multi-line mode always enabled
+    /// (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match
+    /// at line boundaries and `.` does not match `\n`. The `flags` control
+    /// case sensitivity, anchor advance semantics, and whether `count` is
+    /// measured in bytes or lines. The scan window is always capped at
+    /// [`REGEX_MAX_BYTES`] (8192) regardless of `count`.
     ///
     /// # Examples
     ///
     /// ```
-    /// use libmagic_rs::parser::ast::TypeKind;
+    /// use libmagic_rs::parser::ast::{TypeKind, RegexFlags};
+    /// use std::num::NonZeroU32;
     ///
-    /// // Plain `regex` with no flags
+    /// // Plain `regex` -- no flags, default 8192-byte scan window.
     /// let plain = TypeKind::Regex {
-    ///     case_insensitive: false,
-    ///     start_of_line: false,
+    ///     flags: RegexFlags::default(),
+    ///     count: None,
     /// };
-    /// assert_eq!(
-    ///     plain,
-    ///     TypeKind::Regex {
-    ///         case_insensitive: false,
-    ///         start_of_line: false,
-    ///     }
-    /// );
     ///
-    /// // `regex/l` -- start-of-line anchored
-    /// let line_anchored = TypeKind::Regex {
-    ///     case_insensitive: false,
-    ///     start_of_line: true,
+    /// // `regex/1l` -- scan the first line only (1 line, capped at 8192 bytes).
+    /// let first_line = TypeKind::Regex {
+    ///     flags: RegexFlags {
+    ///         line_based: true,
+    ///         ..RegexFlags::default()
+    ///     },
+    ///     count: NonZeroU32::new(1),
     /// };
-    /// assert_eq!(
-    ///     line_anchored,
-    ///     TypeKind::Regex {
-    ///         case_insensitive: false,
-    ///         start_of_line: true,
-    ///     }
-    /// );
+    ///
+    /// // `regex/cs` -- case-insensitive, anchor advances to match-start.
+    /// let case_insensitive_start = TypeKind::Regex {
+    ///     flags: RegexFlags {
+    ///         case_insensitive: true,
+    ///         start_offset: true,
+    ///         line_based: false,
+    ///     },
+    ///     count: None,
+    /// };
     /// ```
     Regex {
-        /// Case-insensitive matching (`/c` flag)
-        case_insensitive: bool,
-        /// Anchor matches to line starts (`/l` flag)
-        start_of_line: bool,
+        /// Modifier flags from the `/[csl]` suffix.
+        flags: RegexFlags,
+        /// Optional numeric count from `regex/N[flags]`. Interpretation
+        /// depends on `flags.line_based`:
+        ///
+        /// * `None`: use the 8192-byte default scan window.
+        /// * `Some(n)` with `flags.line_based == false`: scan at most `n`
+        ///   bytes, capped at 8192.
+        /// * `Some(n)` with `flags.line_based == true`: scan at most `n`
+        ///   lines, with an effective byte cap of `min(n * 80, 8192)`.
+        ///
+        /// The 8192-byte hard cap matches GNU `file`'s `FILE_REGEX_MAX` and
+        /// prevents runaway regex scans against large buffers.
+        count: Option<NonZeroU32>,
     },
     /// Multi-byte pattern search within a bounded range
     ///
-    /// Search types look for a literal pattern within `range` bytes of the offset. Unlike
-    /// [`TypeKind::String`], which only matches at the exact offset, `search` scans forward
-    /// up to `range` bytes for the first occurrence.
+    /// Search rules look for a literal byte pattern within `range` bytes of
+    /// the offset. Unlike [`TypeKind::String`], which only matches at the
+    /// exact offset, `search` scans forward up to `range` bytes for the
+    /// first occurrence. The range is **mandatory** per GNU `file`'s
+    /// magic(5) specification and is stored as a [`NonZeroUsize`] so a
+    /// zero-range search is unrepresentable.
     ///
     /// # Examples
     ///
     /// ```
     /// use libmagic_rs::parser::ast::TypeKind;
+    /// use std::num::NonZeroUsize;
     ///
-    /// // `search/256` -- search within 256 bytes
-    /// let bounded = TypeKind::Search { range: Some(256) };
-    /// assert_eq!(bounded, TypeKind::Search { range: Some(256) });
-    ///
-    /// // `search` with no range (default behavior is implementation-defined)
-    /// let unbounded = TypeKind::Search { range: None };
-    /// assert_eq!(unbounded, TypeKind::Search { range: None });
+    /// // `search/256` -- scan up to 256 bytes for the literal pattern.
+    /// let bounded = TypeKind::Search {
+    ///     range: NonZeroUsize::new(256).unwrap(),
+    /// };
     /// ```
     Search {
-        /// Byte range to search within
-        range: Option<usize>,
+        /// Scan window width in bytes, starting at the rule's offset.
+        range: NonZeroUsize,
     },
 }
+
+/// Regex modifier flags parsed from the `/[csl]` suffix on a `regex` rule.
+///
+/// All flags default to `false` via [`RegexFlags::default`]. The `Default`
+/// impl is equivalent to a plain `regex` type with no suffix, which scans
+/// 8192 bytes in byte mode and advances the anchor to match-end.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::RegexFlags;
+///
+/// let plain = RegexFlags::default();
+/// assert!(!plain.case_insensitive);
+/// assert!(!plain.start_offset);
+/// assert!(!plain.line_based);
+///
+/// let case_and_line = RegexFlags {
+///     case_insensitive: true,
+///     start_offset: false,
+///     line_based: true,
+/// };
+/// assert!(case_and_line.case_insensitive);
+/// assert!(case_and_line.line_based);
+/// ```
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RegexFlags {
+    /// `/c` -- case-insensitive matching. When `true`, ASCII letter
+    /// casing is ignored during pattern matching.
+    pub case_insensitive: bool,
+    /// `/s` -- advance the GNU `file` previous-match anchor to the start
+    /// of the matched region instead of its end. Matches libmagic's
+    /// `REGEX_OFFSET_START` flag, which zeros the length contribution in
+    /// `moffset()` for `FILE_REGEX`. Useful for chaining child rules that
+    /// need to re-match from the position where the parent regex began.
+    pub start_offset: bool,
+    /// `/l` -- measure the scan window in lines instead of bytes. When
+    /// `true`, `count` is interpreted as a line count rather than a byte
+    /// count. The effective byte window is still capped at 8192 bytes
+    /// regardless (see [`TypeKind::Regex::count`] for the details).
+    ///
+    /// Note: this flag does **not** control multi-line regex matching;
+    /// libmagic always compiles patterns with `REG_NEWLINE`, so `^`/`$`
+    /// match at line boundaries regardless of `/l`.
+    pub line_based: bool,
+}
+
+/// The hard upper bound on regex scan window size, matching GNU `file`'s
+/// `FILE_REGEX_MAX` constant in `src/file.h`. Any regex rule -- including
+/// ones with explicit counts larger than this -- is capped at this many
+/// bytes to prevent runaway scans against large buffers.
+pub const REGEX_MAX_BYTES: usize = 8192;
 
 impl TypeKind {
     /// Returns the bit width of integer types, or `None` for non-integer types (e.g., String).

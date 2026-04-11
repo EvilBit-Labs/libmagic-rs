@@ -11,6 +11,7 @@
 
 use super::TypeReadError;
 use crate::parser::ast::Value;
+use std::num::NonZeroUsize;
 
 /// Scan a bounded window of `buffer` for the first occurrence of `pattern`.
 ///
@@ -19,9 +20,10 @@ use crate::parser::ast::Value;
 /// * `buffer` - File buffer to scan
 /// * `offset` - Starting position within the buffer
 /// * `pattern` - Literal bytes to search for (from the rule's value operand)
-/// * `range` - Optional byte range to scan starting at `offset`. When
-///   `Some(n)`, the window is the smaller of `n` and the buffer remainder.
-///   When `None`, the window extends to the end of the buffer.
+/// * `range` - Byte range to scan starting at `offset`. The window is the
+///   smaller of `range` and the buffer remainder. Per GNU `file`'s
+///   magic(5), the range is mandatory and is therefore a [`NonZeroUsize`]
+///   in the type signature.
 ///
 /// # Returns
 ///
@@ -39,7 +41,7 @@ pub fn read_search(
     buffer: &[u8],
     offset: usize,
     pattern: &[u8],
-    range: Option<usize>,
+    range: NonZeroUsize,
 ) -> Result<Option<Value>, TypeReadError> {
     if offset >= buffer.len() {
         return Err(TypeReadError::BufferOverrun {
@@ -49,11 +51,7 @@ pub fn read_search(
     }
 
     let remaining = &buffer[offset..];
-
-    let window_len = match range {
-        Some(n) => n.min(remaining.len()),
-        None => remaining.len(),
-    };
+    let window_len = range.get().min(remaining.len());
     let window = &remaining[..window_len];
 
     match memchr::memmem::find(window, pattern) {
@@ -87,7 +85,7 @@ pub(super) fn search_bytes_consumed(
     buffer: &[u8],
     offset: usize,
     pattern: &[u8],
-    range: Option<usize>,
+    range: NonZeroUsize,
 ) -> usize {
     let Some(remaining) = buffer.get(offset..) else {
         debug_assert!(
@@ -97,10 +95,7 @@ pub(super) fn search_bytes_consumed(
         );
         return 0;
     };
-    let window_len = match range {
-        Some(n) => n.min(remaining.len()),
-        None => remaining.len(),
-    };
+    let window_len = range.get().min(remaining.len());
     let window = &remaining[..window_len];
     memchr::memmem::find(window, pattern).map_or(0, |idx| idx + pattern.len())
 }
@@ -109,24 +104,28 @@ pub(super) fn search_bytes_consumed(
 mod tests {
     use super::*;
 
+    fn nz(n: usize) -> NonZeroUsize {
+        NonZeroUsize::new(n).expect("non-zero in test")
+    }
+
     #[test]
     fn test_read_search_basic_match() {
         let buffer = b"Hello, World!";
-        let result = read_search(buffer, 0, b"World", None).unwrap();
+        let result = read_search(buffer, 0, b"World", nz(100)).unwrap();
         assert_eq!(result, Some(Value::String("World".to_string())));
     }
 
     #[test]
     fn test_read_search_no_match_returns_none() {
         let buffer = b"Hello, World!";
-        let result = read_search(buffer, 0, b"xyz", None).unwrap();
+        let result = read_search(buffer, 0, b"xyz", nz(100)).unwrap();
         assert_eq!(result, None);
     }
 
     #[test]
     fn test_read_search_bounded_range_finds() {
         let buffer = b"abcdefWorldxyz";
-        let result = read_search(buffer, 0, b"World", Some(14)).unwrap();
+        let result = read_search(buffer, 0, b"World", nz(14)).unwrap();
         assert_eq!(result, Some(Value::String("World".to_string())));
     }
 
@@ -134,28 +133,28 @@ mod tests {
     fn test_read_search_bounded_range_too_small() {
         let buffer = b"abcdefWorldxyz";
         // Range only covers "abcde" -- World is past the window
-        let result = read_search(buffer, 0, b"World", Some(5)).unwrap();
+        let result = read_search(buffer, 0, b"World", nz(5)).unwrap();
         assert_eq!(result, None);
     }
 
     #[test]
     fn test_read_search_range_larger_than_buffer() {
         let buffer = b"Hello";
-        let result = read_search(buffer, 0, b"lo", Some(1000)).unwrap();
+        let result = read_search(buffer, 0, b"lo", nz(1000)).unwrap();
         assert_eq!(result, Some(Value::String("lo".to_string())));
     }
 
     #[test]
     fn test_read_search_at_offset() {
         let buffer = b"junk_prefix_World!";
-        let result = read_search(buffer, 12, b"World", None).unwrap();
+        let result = read_search(buffer, 12, b"World", nz(100)).unwrap();
         assert_eq!(result, Some(Value::String("World".to_string())));
     }
 
     #[test]
     fn test_read_search_offset_past_end() {
         let buffer = b"Hello";
-        let result = read_search(buffer, 10, b"x", None);
+        let result = read_search(buffer, 10, b"x", nz(100));
         assert!(matches!(
             result,
             Err(TypeReadError::BufferOverrun {
@@ -168,7 +167,7 @@ mod tests {
     #[test]
     fn test_read_search_binary_pattern() {
         let buffer = &[0x00, 0xff, 0xfe, 0xaa, 0xbb, 0xcc];
-        let result = read_search(buffer, 0, &[0xaa, 0xbb], None).unwrap();
+        let result = read_search(buffer, 0, &[0xaa, 0xbb], nz(100)).unwrap();
         // Invalid UTF-8 gets replaced with U+FFFD, but the match is still Some
         match result {
             Some(Value::String(s)) => assert!(!s.is_empty()),
@@ -184,14 +183,14 @@ mod tests {
         // using `search` with an empty pattern are nonsensical; the
         // grammar layer should reject them, not the reader.
         let buffer = b"Hello";
-        let result = read_search(buffer, 0, b"", None).unwrap();
+        let result = read_search(buffer, 0, b"", nz(100)).unwrap();
         assert_eq!(result, Some(Value::String(String::new())));
     }
 
     #[test]
     fn test_read_search_multi_char_pattern() {
         let buffer = b"The quick brown fox jumps over the lazy dog";
-        let result = read_search(buffer, 0, b"brown", Some(50)).unwrap();
+        let result = read_search(buffer, 0, b"brown", nz(50)).unwrap();
         assert_eq!(result, Some(Value::String("brown".to_string())));
     }
 
@@ -204,7 +203,7 @@ mod tests {
         // Window size 10 (`abcWorldxy`), pattern "World" at index 3,
         // length 5, so match-end = 3 + 5 = 8.
         assert_eq!(
-            search_bytes_consumed(buffer, 0, b"World", Some(10)),
+            search_bytes_consumed(buffer, 0, b"World", nz(10)),
             8,
             "expected match-end (8), not window-end (10)"
         );
@@ -213,15 +212,7 @@ mod tests {
     #[test]
     fn test_search_bytes_consumed_no_match_returns_zero() {
         let buffer = b"abcdefghij";
-        assert_eq!(search_bytes_consumed(buffer, 0, b"XYZ", Some(10)), 0);
-    }
-
-    #[test]
-    fn test_search_bytes_consumed_unbounded_range() {
-        let buffer = b"prefix_World_suffix";
-        // No range cap, so the scan looks through the entire buffer tail;
-        // match "World" starts at index 7, length 5, match-end = 12.
-        assert_eq!(search_bytes_consumed(buffer, 0, b"World", None), 12);
+        assert_eq!(search_bytes_consumed(buffer, 0, b"XYZ", nz(10)), 0);
     }
 
     #[test]
@@ -230,7 +221,7 @@ mod tests {
         // the scan only sees the window.
         let buffer = b"abcdefWorldxyz";
         // Range 5 means window is "abcde" -- no "World" inside it.
-        assert_eq!(search_bytes_consumed(buffer, 0, b"World", Some(5)), 0);
+        assert_eq!(search_bytes_consumed(buffer, 0, b"World", nz(5)), 0);
     }
 
     #[test]
@@ -238,6 +229,6 @@ mod tests {
         // Pattern lands exactly at the window boundary: window is 8
         // bytes, pattern "def" occupies indices 3..6, match-end = 6.
         let buffer = b"abcdefgh_ignored";
-        assert_eq!(search_bytes_consumed(buffer, 0, b"def", Some(8)), 6);
+        assert_eq!(search_bytes_consumed(buffer, 0, b"def", nz(8)), 6);
     }
 }

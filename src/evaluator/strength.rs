@@ -78,17 +78,19 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
             if max_length.is_some() { base + 5 } else { base }
         }
         // Regex matches a pattern -- treat similarly to an unbounded string.
-        TypeKind::Regex { .. } => 20,
-        // Search is a bounded scan; bounded searches are more constrained
-        // and therefore more specific, matching the max_length bonus used
-        // for String and PString.
-        TypeKind::Search { range } => {
-            if range.is_some() {
+        // A rule with an explicit `count` is more constrained (narrower scan
+        // window) and therefore more specific.
+        TypeKind::Regex { count, .. } => {
+            if count.is_some() {
                 25
             } else {
                 20
             }
         }
+        // Search is always a bounded scan (the range is mandatory), so it
+        // gets the "constrained match" bonus unconditionally. This matches
+        // the max_length bonus used for String and PString.
+        TypeKind::Search { .. } => 25,
         // 64-bit types are most specific among numerics
         TypeKind::Quad { .. } | TypeKind::Double { .. } | TypeKind::QDate { .. } => 16,
         // 32-bit types are fairly specific

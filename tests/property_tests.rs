@@ -65,13 +65,25 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
                 length_width: width,
                 length_includes_itself: includes_self,
             }),
-        (any::<bool>(), any::<bool>()).prop_map(|(case_insensitive, start_of_line)| {
-            TypeKind::Regex {
-                case_insensitive,
-                start_of_line,
-            }
+        (
+            any::<bool>(),
+            any::<bool>(),
+            any::<bool>(),
+            prop::option::of(1u32..=4096u32),
+        )
+            .prop_map(|(case_insensitive, start_offset, line_based, count)| {
+                TypeKind::Regex {
+                    flags: libmagic_rs::parser::ast::RegexFlags {
+                        case_insensitive,
+                        start_offset,
+                        line_based,
+                    },
+                    count: count.and_then(::std::num::NonZeroU32::new),
+                }
+            }),
+        (1usize..=4096usize).prop_map(|range| TypeKind::Search {
+            range: ::std::num::NonZeroUsize::new(range).unwrap(),
         }),
-        prop::option::of(0usize..4096usize).prop_map(|range| TypeKind::Search { range }),
     ]
 }
 

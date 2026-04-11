@@ -1009,8 +1009,8 @@ fn test_bytes_consumed_regex_with_string_pattern() {
     // and verifies the match-end byte count matches the reader's view.
     let buf = b"prefix_World_suffix";
     let typ = TypeKind::Regex {
-        case_insensitive: false,
-        start_of_line: false,
+        flags: crate::parser::ast::RegexFlags::default(),
+        count: None,
     };
     let pattern = Value::String("World".to_string());
     // "World" starts at index 7 in the buffer, length 5, so a scan from
@@ -1025,8 +1025,8 @@ fn test_bytes_consumed_regex_with_string_pattern() {
 fn test_bytes_consumed_regex_no_match_returns_zero() {
     let buf = b"abcdef";
     let typ = TypeKind::Regex {
-        case_insensitive: false,
-        start_of_line: false,
+        flags: crate::parser::ast::RegexFlags::default(),
+        count: None,
     };
     let pattern = Value::String("xyz".to_string());
     assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 0);
@@ -1038,11 +1038,28 @@ fn test_bytes_consumed_regex_zero_width_match_returns_zero() {
     // stays put. Cross-check with the direct reader in regex.rs.
     let buf = b"hello";
     let typ = TypeKind::Regex {
-        case_insensitive: false,
-        start_of_line: false,
+        flags: crate::parser::ast::RegexFlags::default(),
+        count: None,
     };
     let pattern = Value::String("^".to_string());
     assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 0);
+}
+
+#[test]
+fn test_bytes_consumed_regex_start_offset_flag_uses_match_start() {
+    // /s flag changes the anchor advance to match-start instead of
+    // match-end. Regression guard for V2.
+    let buf = b"prefix_World_suffix";
+    let typ = TypeKind::Regex {
+        flags: crate::parser::ast::RegexFlags {
+            start_offset: true,
+            ..crate::parser::ast::RegexFlags::default()
+        },
+        count: None,
+    };
+    let pattern = Value::String("World".to_string());
+    // Match-start for "World" at index 7 is 7, not 12.
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 7);
 }
 
 #[test]
@@ -1051,7 +1068,9 @@ fn test_bytes_consumed_search_with_pattern_is_match_end() {
     // entire window size instead of match-end. Per GNU `file` softmagic.c
     // FILE_SEARCH, the anchor advances to `base + match_idx + pattern.len()`.
     let buf = b"abcWorld_xyz";
-    let typ = TypeKind::Search { range: Some(10) };
+    let typ = TypeKind::Search {
+        range: ::std::num::NonZeroUsize::new(10).unwrap(),
+    };
     let pattern = Value::String("World".to_string());
     // "World" is at index 3, length 5, match-end = 8.
     assert_eq!(
@@ -1064,21 +1083,11 @@ fn test_bytes_consumed_search_with_pattern_is_match_end() {
 #[test]
 fn test_bytes_consumed_search_no_match_returns_zero() {
     let buf = b"abcdefghij";
-    let typ = TypeKind::Search { range: Some(10) };
+    let typ = TypeKind::Search {
+        range: ::std::num::NonZeroUsize::new(10).unwrap(),
+    };
     let pattern = Value::String("XYZ".to_string());
     assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 0);
-}
-
-#[test]
-fn test_bytes_consumed_search_unbounded_match_end() {
-    let buf = b"prefix_World_suffix";
-    let typ = TypeKind::Search { range: None };
-    let pattern = Value::String("World".to_string());
-    // Unbounded scan finds "World" at index 7, match-end = 12.
-    assert_eq!(
-        bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)),
-        12
-    );
 }
 
 #[test]
@@ -1087,7 +1096,9 @@ fn test_bytes_consumed_search_bytes_pattern_works() {
     // the dispatch path accepts it and computes the same match-end as a
     // Value::String pattern would.
     let buf = &[0x00, 0xff, 0xde, 0xad, 0xbe, 0xef, 0x11];
-    let typ = TypeKind::Search { range: Some(7) };
+    let typ = TypeKind::Search {
+        range: ::std::num::NonZeroUsize::new(7).unwrap(),
+    };
     let pattern = Value::Bytes(vec![0xde, 0xad, 0xbe, 0xef]);
     // 0xde at index 2, length 4, match-end = 6.
     assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 6);

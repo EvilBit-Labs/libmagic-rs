@@ -2278,76 +2278,42 @@ fn test_parse_type_and_operator_pstring_suffixes() {
 
 #[test]
 fn test_parse_type_and_operator_regex_and_search_suffixes() {
-    use crate::parser::ast::TypeKind;
+    use crate::parser::ast::{RegexFlags, TypeKind};
+    use std::num::{NonZeroU32, NonZeroUsize};
+
+    fn rx(case: bool, start: bool, line: bool, count: Option<u32>) -> TypeKind {
+        TypeKind::Regex {
+            flags: RegexFlags {
+                case_insensitive: case,
+                start_offset: start,
+                line_based: line,
+            },
+            count: count.and_then(NonZeroU32::new),
+        }
+    }
+    fn sr(n: usize) -> TypeKind {
+        TypeKind::Search {
+            range: NonZeroUsize::new(n).unwrap(),
+        }
+    }
+
     let cases: &[(&str, TypeKind, &str)] = &[
-        (
-            "regex",
-            TypeKind::Regex {
-                case_insensitive: false,
-                start_of_line: false,
-            },
-            "",
-        ),
-        (
-            "regex/c",
-            TypeKind::Regex {
-                case_insensitive: true,
-                start_of_line: false,
-            },
-            "",
-        ),
-        (
-            "regex/l",
-            TypeKind::Regex {
-                case_insensitive: false,
-                start_of_line: true,
-            },
-            "",
-        ),
-        (
-            "regex/cl",
-            TypeKind::Regex {
-                case_insensitive: true,
-                start_of_line: true,
-            },
-            "",
-        ),
-        (
-            "regex/lc",
-            TypeKind::Regex {
-                case_insensitive: true,
-                start_of_line: true,
-            },
-            "",
-        ),
-        (
-            "regex/1l",
-            TypeKind::Regex {
-                case_insensitive: false,
-                start_of_line: true,
-            },
-            "",
-        ),
-        (
-            "regex/1c",
-            TypeKind::Regex {
-                case_insensitive: true,
-                start_of_line: false,
-            },
-            "",
-        ),
-        (
-            "regex/c =",
-            TypeKind::Regex {
-                case_insensitive: true,
-                start_of_line: false,
-            },
-            "=",
-        ),
-        ("search", TypeKind::Search { range: None }, ""),
-        ("search/256", TypeKind::Search { range: Some(256) }, ""),
-        ("search/0", TypeKind::Search { range: Some(0) }, ""),
-        ("search/256 =", TypeKind::Search { range: Some(256) }, "="),
+        ("regex", rx(false, false, false, None), ""),
+        ("regex/c", rx(true, false, false, None), ""),
+        ("regex/l", rx(false, false, true, None), ""),
+        ("regex/s", rx(false, true, false, None), ""),
+        ("regex/cl", rx(true, false, true, None), ""),
+        ("regex/lc", rx(true, false, true, None), ""),
+        ("regex/cs", rx(true, true, false, None), ""),
+        ("regex/csl", rx(true, true, true, None), ""),
+        ("regex/1l", rx(false, false, true, Some(1)), ""),
+        ("regex/l1", rx(false, false, true, Some(1)), ""),
+        ("regex/1c", rx(true, false, false, Some(1)), ""),
+        ("regex/256", rx(false, false, false, Some(256)), ""),
+        ("regex/c =", rx(true, false, false, None), "="),
+        ("search/256", sr(256), ""),
+        ("search/1", sr(1), ""),
+        ("search/256 =", sr(256), "="),
     ];
     for &(input, ref expected_kind, expected_rest) in cases {
         let (rest, (kind, op)) = parse_type_and_operator(input).expect(input);
@@ -2358,20 +2324,30 @@ fn test_parse_type_and_operator_regex_and_search_suffixes() {
 }
 
 #[test]
+fn test_parse_type_and_operator_search_requires_range() {
+    // Bare `search` (no /N suffix) is a hard parse error per GNU `file`.
+    assert!(parse_type_and_operator("search").is_err());
+    // `search/0` is also rejected -- `NonZeroUsize` makes a zero-width
+    // scan unrepresentable.
+    assert!(parse_type_and_operator("search/0").is_err());
+}
+
+#[test]
 fn test_parse_type_and_operator_regex_invalid_suffix() {
-    // Bare slash with no flags
+    // Bare slash with no flags or count
     assert!(parse_type_and_operator("regex/").is_err());
     // Unrecognized flag letter
     assert!(parse_type_and_operator("regex/z").is_err());
-    // Numeric line-count prefix with no flag letters following
-    assert!(parse_type_and_operator("regex/256").is_err());
     // Non-operator trailing character is still rejected
     assert!(parse_type_and_operator("regex/cz").is_err());
+    // regex/0 is rejected because a zero count has no valid semantics
+    // (our parser uses NonZeroU32 to express "user specified a count").
+    assert!(parse_type_and_operator("regex/0").is_err());
 }
 
 #[test]
 fn test_parse_type_and_operator_regex_operator_adjacent() {
-    use crate::parser::ast::{Operator, TypeKind};
+    use crate::parser::ast::{Operator, RegexFlags, TypeKind};
 
     // `regex/c=` should leave `=` for parse_operator, matching the `regex/c =`
     // (space-separated) behavior and mirroring `search/256=`.
@@ -2381,8 +2357,11 @@ fn test_parse_type_and_operator_regex_operator_adjacent() {
     assert_eq!(
         kind,
         TypeKind::Regex {
-            case_insensitive: true,
-            start_of_line: false,
+            flags: RegexFlags {
+                case_insensitive: true,
+                ..RegexFlags::default()
+            },
+            count: None,
         }
     );
 
@@ -2393,8 +2372,11 @@ fn test_parse_type_and_operator_regex_operator_adjacent() {
     assert_eq!(
         kind,
         TypeKind::Regex {
-            case_insensitive: false,
-            start_of_line: true,
+            flags: RegexFlags {
+                line_based: true,
+                ..RegexFlags::default()
+            },
+            count: None,
         }
     );
 
@@ -2408,6 +2390,9 @@ fn test_parse_type_and_operator_regex_operator_adjacent() {
 
 #[test]
 fn test_parse_magic_rule_regex_and_search() {
+    use crate::parser::ast::RegexFlags;
+    use std::num::{NonZeroU32, NonZeroUsize};
+
     // regex/c: case-insensitive flag
     let input = r#"0 regex/c "hello" case-insensitive match"#;
     let (remaining, rule) = parse_magic_rule(input).unwrap();
@@ -2416,8 +2401,11 @@ fn test_parse_magic_rule_regex_and_search() {
     assert_eq!(
         rule.typ,
         TypeKind::Regex {
-            case_insensitive: true,
-            start_of_line: false,
+            flags: RegexFlags {
+                case_insensitive: true,
+                ..RegexFlags::default()
+            },
+            count: None,
         }
     );
     assert_eq!(rule.op, Operator::Equal);
@@ -2428,14 +2416,18 @@ fn test_parse_magic_rule_regex_and_search() {
     let input = r#"0 search/256 "MZ" DOS executable"#;
     let (remaining, rule) = parse_magic_rule(input).unwrap();
     assert_eq!(remaining, "");
-    assert_eq!(rule.typ, TypeKind::Search { range: Some(256) });
+    assert_eq!(
+        rule.typ,
+        TypeKind::Search {
+            range: NonZeroUsize::new(256).unwrap(),
+        }
+    );
     assert_eq!(rule.op, Operator::Equal);
     assert_eq!(rule.value, Value::String("MZ".to_string()));
     assert_eq!(rule.message, "DOS executable");
 
-    // regex/1l: numeric line-count prefix at child level (mirrors regex-eol.magic
-    // syntax shape; the magic-file `&+N`/`&-N` relative-offset syntax is not
-    // yet parseable, so we use an absolute offset here).
+    // regex/1l: line-based with a count of 1 (mirrors regex-eol.magic
+    // syntax). The count is now preserved, not discarded.
     let input = r#">1 regex/1l "[0-9]+" version line"#;
     let (remaining, rule) = parse_magic_rule(input).unwrap();
     assert_eq!(remaining, "");
@@ -2443,8 +2435,11 @@ fn test_parse_magic_rule_regex_and_search() {
     assert_eq!(
         rule.typ,
         TypeKind::Regex {
-            case_insensitive: false,
-            start_of_line: true,
+            flags: RegexFlags {
+                line_based: true,
+                ..RegexFlags::default()
+            },
+            count: NonZeroU32::new(1),
         }
     );
     assert_eq!(rule.message, "version line");

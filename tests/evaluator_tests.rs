@@ -537,11 +537,20 @@ fn test_regex_eol_corpus() {
     // comparison succeeds on a buffer with no NUL terminator. `Relative(1)`
     // on each child matches the `&+1` anchor offset (previous match end + 1,
     // skipping the `;` separator).
+    // `regex/1l` == 1-line scan window, line_based = true, count = 1.
+    // Multi-line mode is always on so `^`/`$` match at line boundaries
+    // regardless; the `/l` flag controls only the scan window extent.
+    let one_line_regex = libmagic_rs::parser::ast::RegexFlags {
+        line_based: true,
+        ..libmagic_rs::parser::ast::RegexFlags::default()
+    };
+    let one = ::std::num::NonZeroU32::new(1);
+
     let inner_regex = MagicRule {
         offset: OffsetSpec::Relative(1),
         typ: TypeKind::Regex {
-            case_insensitive: false,
-            start_of_line: true,
+            flags: one_line_regex,
+            count: one,
         },
         op: Operator::Equal,
         value: Value::String("[^;]+$".to_string()),
@@ -554,8 +563,8 @@ fn test_regex_eol_corpus() {
     let version_regex = MagicRule {
         offset: OffsetSpec::Relative(1),
         typ: TypeKind::Regex {
-            case_insensitive: false,
-            start_of_line: true,
+            flags: one_line_regex,
+            count: one,
         },
         op: Operator::Equal,
         value: Value::String("[0-9]+(\\.[0-9]+)+".to_string()),

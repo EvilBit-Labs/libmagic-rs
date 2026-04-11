@@ -160,12 +160,12 @@ pub fn read_typed_value(
 ///
 /// ```
 /// use libmagic_rs::evaluator::types::read_typed_value_with_pattern;
-/// use libmagic_rs::parser::ast::{TypeKind, Value};
+/// use libmagic_rs::parser::ast::{RegexFlags, TypeKind, Value};
 ///
 /// let haystack = b"abc123def";
 /// let regex_type = TypeKind::Regex {
-///     case_insensitive: false,
-///     start_of_line: false,
+///     flags: RegexFlags::default(),
+///     count: None,
 /// };
 /// let pattern = Value::String("[0-9]+".to_string());
 /// let regex_result =
@@ -207,10 +207,7 @@ pub fn read_typed_value_with_pattern(
             *length_width,
             *length_includes_itself,
         ),
-        TypeKind::Regex {
-            case_insensitive,
-            start_of_line,
-        } => {
+        TypeKind::Regex { flags, count } => {
             let pattern_str = match pattern {
                 Some(Value::String(s)) => s.as_str(),
                 _ => {
@@ -224,14 +221,8 @@ pub fn read_typed_value_with_pattern(
             // shape. The engine path goes through `read_pattern_match`
             // directly and preserves the `Option` so it can distinguish a
             // zero-width match from a miss.
-            Ok(read_regex(
-                buffer,
-                offset,
-                pattern_str,
-                *case_insensitive,
-                *start_of_line,
-            )?
-            .unwrap_or_else(|| Value::String(String::new())))
+            Ok(read_regex(buffer, offset, pattern_str, *flags, *count)?
+                .unwrap_or_else(|| Value::String(String::new())))
         }
         TypeKind::Search { range } => {
             let pattern_bytes: &[u8] = match pattern {
@@ -274,10 +265,7 @@ pub(crate) fn read_pattern_match(
     pattern: Option<&Value>,
 ) -> Result<Option<Value>, TypeReadError> {
     match type_kind {
-        TypeKind::Regex {
-            case_insensitive,
-            start_of_line,
-        } => {
+        TypeKind::Regex { flags, count } => {
             let pattern_str = match pattern {
                 Some(Value::String(s)) => s.as_str(),
                 _ => {
@@ -286,13 +274,7 @@ pub(crate) fn read_pattern_match(
                     });
                 }
             };
-            read_regex(
-                buffer,
-                offset,
-                pattern_str,
-                *case_insensitive,
-                *start_of_line,
-            )
+            read_regex(buffer, offset, pattern_str, *flags, *count)
         }
         TypeKind::Search { range } => {
             let pattern_bytes: &[u8] = match pattern {
@@ -456,17 +438,10 @@ pub(crate) fn bytes_consumed_with_pattern(
             *length_width,
             *length_includes_itself,
         ),
-        TypeKind::Regex {
-            case_insensitive,
-            start_of_line,
-        } => match pattern {
-            Some(Value::String(s)) => regex::regex_bytes_consumed(
-                buffer,
-                offset,
-                s.as_str(),
-                *case_insensitive,
-                *start_of_line,
-            ),
+        TypeKind::Regex { flags, count } => match pattern {
+            Some(Value::String(s)) => {
+                regex::regex_bytes_consumed(buffer, offset, s.as_str(), *flags, *count)
+            }
             // Invariant: the engine only calls `bytes_consumed_with_pattern`
             // after a successful `read_typed_value_with_pattern`/`read_pattern_match`,
             // which requires `Some(Value::String(_))` for regex. If we land

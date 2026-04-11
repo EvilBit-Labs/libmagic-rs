@@ -301,14 +301,24 @@ pub fn type_keyword_to_kind(type_name: &str) -> TypeKind {
             length_includes_itself: false,
         },
 
-        // REGEX type -- suffix parsing (flags) handled in grammar/mod.rs
+        // REGEX type -- suffix parsing (flags and count) handled in
+        // `parse_type_and_operator` in grammar/mod.rs, which constructs
+        // the final `TypeKind::Regex` directly. The value returned here
+        // is a bare-`regex` placeholder used only by the round-trip
+        // keyword test; grammar never observes it.
         "regex" => TypeKind::Regex {
-            case_insensitive: false,
-            start_of_line: false,
+            flags: crate::parser::ast::RegexFlags::default(),
+            count: None,
         },
 
-        // SEARCH type -- range parsing handled in grammar/mod.rs
-        "search" => TypeKind::Search { range: None },
+        // SEARCH type -- range parsing handled in grammar/mod.rs, which
+        // constructs the final `TypeKind::Search` directly from the
+        // mandatory `/N` suffix. The value returned here is a placeholder
+        // with `range = 1` used only by the round-trip keyword test; a
+        // real search rule always has its range set by the grammar layer.
+        "search" => TypeKind::Search {
+            range: ::std::num::NonZeroUsize::new(1).expect("1 is nonzero"),
+        },
 
         _ => unreachable!("type_keyword_to_kind called with unknown type: {type_name}"),
     }

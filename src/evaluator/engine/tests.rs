@@ -2394,8 +2394,8 @@ fn test_regex_rule_with_metacharacters_matches() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Regex {
-            case_insensitive: false,
-            start_of_line: false,
+            flags: crate::parser::ast::RegexFlags::default(),
+            count: None,
         },
         op: Operator::Equal,
         value: Value::String("[0-9]+".to_string()),
@@ -2418,8 +2418,8 @@ fn test_regex_rule_with_metacharacters_no_match() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Regex {
-            case_insensitive: false,
-            start_of_line: false,
+            flags: crate::parser::ast::RegexFlags::default(),
+            count: None,
         },
         op: Operator::Equal,
         value: Value::String("[0-9]+".to_string()),
@@ -2440,7 +2440,9 @@ fn test_regex_rule_with_metacharacters_no_match() {
 fn test_search_rule_not_equal_succeeds_when_pattern_absent() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Search { range: Some(64) },
+        typ: TypeKind::Search {
+            range: ::std::num::NonZeroUsize::new(64).unwrap(),
+        },
         op: Operator::NotEqual,
         value: Value::String("needle".to_string()),
         message: "no needle".to_string(),
@@ -2464,8 +2466,8 @@ fn test_regex_rule_with_ordering_operator_is_rejected() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Regex {
-            case_insensitive: false,
-            start_of_line: false,
+            flags: crate::parser::ast::RegexFlags::default(),
+            count: None,
         },
         op: Operator::GreaterThan,
         value: Value::String("[0-9]+".to_string()),
@@ -2487,7 +2489,9 @@ fn test_regex_rule_with_ordering_operator_is_rejected() {
 fn test_search_rule_with_bitwise_operator_is_rejected() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Search { range: Some(32) },
+        typ: TypeKind::Search {
+            range: ::std::num::NonZeroUsize::new(32).unwrap(),
+        },
         op: Operator::BitwiseAnd,
         value: Value::String("needle".to_string()),
         message: "bogus".to_string(),
@@ -2528,8 +2532,8 @@ fn test_regex_parent_advances_anchor_for_relative_child() {
     let parent = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Regex {
-            case_insensitive: false,
-            start_of_line: false,
+            flags: crate::parser::ast::RegexFlags::default(),
+            count: None,
         },
         op: Operator::Equal,
         value: Value::String("abc".to_string()),
@@ -2573,7 +2577,9 @@ fn test_search_parent_advances_anchor_to_match_end_not_window_end() {
     };
     let parent = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Search { range: Some(14) },
+        typ: TypeKind::Search {
+            range: ::std::num::NonZeroUsize::new(14).unwrap(),
+        },
         op: Operator::Equal,
         value: Value::String("needle".to_string()),
         message: "found needle".to_string(),
@@ -2608,7 +2614,9 @@ fn test_search_parent_relative_child_at_positive_offset() {
     };
     let parent = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Search { range: Some(32) },
+        typ: TypeKind::Search {
+            range: ::std::num::NonZeroUsize::new(32).unwrap(),
+        },
         op: Operator::Equal,
         value: Value::String("NEEDLE".to_string()),
         message: "found".to_string(),
