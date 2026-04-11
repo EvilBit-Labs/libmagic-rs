@@ -44,7 +44,7 @@ Adding a variant to `Value` requires updating: `ast`, `codegen`, `strength`, `pr
 
 ### 2.5 Zero-Width Regex Matches vs Misses
 
-`read_regex` returns `Ok(Some(Value::String("")))` for a legitimate zero-width match (`^`, `a*`, lookaheads, `.{0}`) and `Ok(None)` for a genuine miss. An earlier revision collapsed both cases to `Value::String(String::new())` and distinguished them by `is_empty()`, which broke every pattern that legitimately matches zero bytes. The structured `Option` is the invariant — do not re-flatten it. `read_typed_value_with_pattern` does collapse `None` to `Value::String(String::new())` for back-compat with its single-`Value` return shape, but the engine does not go through that function for pattern types; it calls `read_pattern_match` directly.
+`read_regex` returns `Ok(Some(Value::String("")))` for a legitimate zero-width match (`^`, `a*`, `.{0}`) and `Ok(None)` for a genuine miss. (The Rust `regex` crate does not support look-around assertions such as lookaheads or lookbehinds -- they are excluded to preserve linear-time matching guarantees.) An earlier revision collapsed both cases to `Value::String(String::new())` and distinguished them by `is_empty()`, which broke every pattern that legitimately matches zero bytes. The structured `Option` is the invariant — do not re-flatten it. `read_typed_value_with_pattern` does collapse `None` to `Value::String(String::new())` for back-compat with its single-`Value` return shape, but the engine does not go through that function for pattern types; it calls `read_pattern_match` directly.
 
 ### 2.6 Search Anchor Advance Is Match-End, Not Window-End
 

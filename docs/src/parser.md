@@ -360,7 +360,7 @@ parse_type_and_operator("regex/cs256")
 
 - Multi-line regex mode is always enabled (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries and `.` does not match `\n`. This behavior is independent of the `/l` flag; `/l` controls the scan window (line-based vs byte-based), not the regex compilation mode.
 - The scan window is always capped at 8192 bytes regardless of the `count` value.
-- Zero-width matches (`^`, `a*`, lookaheads) are preserved as `Value::String("")` and distinguished from genuine misses.
+- Zero-width matches (for example `^`, `a*`, or `.{0}`) are preserved as `Value::String("")` and distinguished from genuine misses. The Rust `regex` crate does not support look-around assertions (lookaheads or lookbehinds) -- those are deliberately excluded to preserve its linear-time matching guarantees.
 - Regex rules only support `Operator::Equal` and `Operator::NotEqual`; other comparison operators are rejected at evaluation time.
 
 **Features:**

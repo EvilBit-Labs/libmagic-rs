@@ -592,7 +592,8 @@ assert_eq!(matches_j[0].message, "JPEG-style pstring with self-inclusive length"
 - [x] Comprehensive test coverage (150+ tests)
 - [x] Indirect offset support (pointer dereferencing, issue #37)
 - [x] Relative offset support (GNU `file` anchor semantics, issue #38)
-- [ ] Regex type support
+- [x] Regex type support (binary-safe `regex::bytes::Regex` with `/c`, `/s`, `/l` flags and 8192-byte cap; unconditional `REG_NEWLINE`)
+- [x] Search type support (bounded literal pattern scan via `memchr::memmem::find` with mandatory `NonZeroUsize` range)
 - [ ] Performance optimizations (rule ordering, caching)
 
 ## Performance Considerations

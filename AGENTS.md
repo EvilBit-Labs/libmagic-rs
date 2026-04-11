@@ -212,11 +212,7 @@ cargo test --doc   # Test documentation examples
 - **Regex type**: Binary-safe regex matching via `regex::bytes::Regex`. Full flag support: `/c` (case-insensitive), `/s` (anchor advances to match-start instead of match-end), `/l` (scan window is measured in lines instead of bytes). Flags combine in any order (`regex/cs`, `regex/csl`, `regex/lc`). Numeric counts are honored: `regex/100` scans at most 100 bytes; `regex/1l` scans at most 1 line. Multi-line regex matching is always on (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries regardless of `/l`. Every scan window is capped at 8192 bytes (`FILE_REGEX_MAX`) regardless of the user's count.
 - **Search type**: Bounded literal pattern scan via `memchr::memmem::find`; `search/N` caps the scan window to `N` bytes from the offset. The range is **mandatory** and stored as `NonZeroUsize`, so bare `search` and `search/0` are parse errors (matching GNU `file` magic(5)). Anchor advance follows GNU `file` semantics (match-end, not window-end) so relative-offset children resolve to the byte immediately after the matched pattern.
 
-### Planned Features (v1.0+)
-
-- Aho-Corasick multi-pattern search optimization for `search/` rules.
-- `!:mime`/`!:ext`/`!:apple` directive evaluation (currently only `!:strength` is parsed).
-- `use`/`name` named test directives for rule reuse.
+See **Development Phases** below for the planned roadmap of features not yet implemented (Aho-Corasick multi-pattern optimization, compiled-regex caching, `!:mime`/`!:ext`/`!:apple` directive evaluation, and `use`/`name` named test directives).
 
 ## Current Limitations (v0.1.0)
 
