@@ -495,3 +495,158 @@ fn test_evaluate_float_rule_no_match() {
         "Float equal rule should not match when value differs"
     );
 }
+
+// ============================================================
+// Third-Party Corpus: regex-eol
+// ============================================================
+
+/// Integration test for the `regex-eol.magic` corpus test from the upstream
+/// `file` project. The magic file itself uses two syntaxes that the text
+/// parser does not yet accept -- a bare unquoted `$ANSIBLE_VAULT` string
+/// value (see GOTCHAS S3.6) and `>&1` / `>>&1` relative-offset anchors (the
+/// `&+N`/`&-N` parsing TODO in AGENTS.md) -- so this test temporarily
+/// bypasses `MagicDatabase::load_from_file` and constructs the equivalent
+/// rule tree programmatically. The testfile fixture at
+/// `third_party/tests/regex-eol.testfile` is still read verbatim, so the
+/// runtime evaluation path (string match, `regex/1l` line-anchored matching,
+/// and `OffsetSpec::Relative` anchor advancement through
+/// `EvaluationContext::last_match_end`) is exercised end-to-end.
+///
+/// Once the parser learns unquoted string values and `&+N` relative offsets,
+/// this test should be rewritten to call `MagicDatabase::load_from_file`
+/// against the unmodified `regex-eol.magic` corpus file.
+#[test]
+fn test_regex_eol_corpus() {
+    let buffer = std::fs::read("third_party/tests/regex-eol.testfile")
+        .expect("failed to read regex-eol.testfile");
+
+    // Mirror of:
+    //   0     string    $ANSIBLE_VAULT     Ansible Vault text
+    //   >&1   regex/1l  [0-9]+(\.[0-9]+)+  \b, version %s
+    //   >>&1  regex/1l  [^;]+$             \b, using %s encryption
+    //
+    // Messages hardcode the captured tokens that libmagic's `%s` formatter
+    // would substitute (libmagic-rs does not yet implement format
+    // substitution), so the final description contains the literal
+    // `version`, `1.1`, and `AES256` strings. The match-value assertions
+    // below separately verify the regex engine actually captured those
+    // tokens from the buffer, so the test still fails if the regex
+    // behavior regresses.
+    //
+    // `max_length: Some(14)` caps read_string at the 14-byte target so the
+    // comparison succeeds on a buffer with no NUL terminator. `Relative(1)`
+    // on each child matches the `&+1` anchor offset (previous match end + 1,
+    // skipping the `;` separator).
+    let inner_regex = MagicRule {
+        offset: OffsetSpec::Relative(1),
+        typ: TypeKind::Regex {
+            case_insensitive: false,
+            start_of_line: true,
+        },
+        op: Operator::Equal,
+        value: Value::String("[^;]+$".to_string()),
+        message: "\u{0008}, using AES256 encryption".to_string(),
+        children: vec![],
+        level: 2,
+        strength_modifier: None,
+    };
+
+    let version_regex = MagicRule {
+        offset: OffsetSpec::Relative(1),
+        typ: TypeKind::Regex {
+            case_insensitive: false,
+            start_of_line: true,
+        },
+        op: Operator::Equal,
+        value: Value::String("[0-9]+(\\.[0-9]+)+".to_string()),
+        message: "\u{0008}, version 1.1".to_string(),
+        children: vec![inner_regex],
+        level: 1,
+        strength_modifier: None,
+    };
+
+    let ansible_vault = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::String {
+            max_length: Some("$ANSIBLE_VAULT".len()),
+        },
+        op: Operator::Equal,
+        value: Value::String("$ANSIBLE_VAULT".to_string()),
+        message: "Ansible Vault text".to_string(),
+        children: vec![version_regex],
+        level: 0,
+        strength_modifier: None,
+    };
+
+    let config = EvaluationConfig::default();
+    let mut context = EvaluationContext::new(config);
+    let matches =
+        evaluate_rules(&[ansible_vault], &buffer, &mut context).expect("evaluation failed");
+
+    // All three rules must fire in order: the top-level string, the version
+    // regex, and the encryption regex.
+    assert_eq!(
+        matches.len(),
+        3,
+        "expected 3 matches (string + 2 regex), got {}: {matches:#?}",
+        matches.len()
+    );
+
+    // Verify the regex engine captured the expected tokens from the buffer.
+    // These assertions fail if regex evaluation or the relative-offset
+    // anchor advances incorrectly.
+    assert_eq!(
+        matches[0].value,
+        Value::String("$ANSIBLE_VAULT".to_string()),
+        "top-level string match should capture $ANSIBLE_VAULT"
+    );
+    if let Value::String(s) = &matches[1].value {
+        assert!(
+            s.contains("1.1"),
+            "version regex should capture '1.1', got {s:?}"
+        );
+    } else {
+        panic!(
+            "expected Value::String for version regex, got {:?}",
+            matches[1].value
+        );
+    }
+    if let Value::String(s) = &matches[2].value {
+        assert!(
+            s.contains("AES256"),
+            "encryption regex should capture 'AES256', got {s:?}"
+        );
+    } else {
+        panic!(
+            "expected Value::String for encryption regex, got {:?}",
+            matches[2].value
+        );
+    }
+
+    // Mirror `MagicDatabase::build_result` message concatenation: rules whose
+    // message starts with a backspace (`\b`) suppress the leading space.
+    let mut description = String::new();
+    for m in &matches {
+        if let Some(rest) = m.message.strip_prefix('\u{0008}') {
+            description.push_str(rest);
+        } else if description.is_empty() {
+            description.push_str(&m.message);
+        } else {
+            description.push(' ');
+            description.push_str(&m.message);
+        }
+    }
+
+    assert!(
+        description.contains("Ansible Vault"),
+        "expected 'Ansible Vault' in description, got: {description:?}"
+    );
+    assert!(
+        description.contains("version"),
+        "expected 'version' in description, got: {description:?}"
+    );
+    assert!(
+        description.contains("AES256"),
+        "expected 'AES256' in description, got: {description:?}"
+    );
+}
