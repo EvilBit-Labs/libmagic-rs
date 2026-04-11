@@ -191,6 +191,17 @@ pub enum TypeKind {
         length_width: PStringLengthWidth,
         length_includes_itself: bool,
     },
+
+    /// Regular expression pattern matching
+    Regex {
+        flags: RegexFlags,
+        count: Option<NonZeroU32>,
+    },
+
+    /// Bounded literal byte sequence search
+    Search {
+        range: NonZeroUsize,
+    },
 }
 ```
 
@@ -325,6 +336,140 @@ let limited_pstring = TypeKind::PString {
     max_length: Some(64),
     length_width: PStringLengthWidth::OneByte,
     length_includes_itself: false,
+};
+```
+
+### Regex (Regular Expression Pattern Matching)
+
+The `Regex` variant matches POSIX-extended regular expression patterns against file buffers. Patterns are binary-safe and always compiled with multi-line mode enabled (matching `^` and `$` at line boundaries). The scan window is capped at 8192 bytes regardless of the count parameter.
+
+**Structure:**
+
+```rust
+Regex {
+    flags: RegexFlags,
+    count: Option<NonZeroU32>,
+}
+```
+
+**Fields:**
+
+- `flags`: Modifier flags from the `/[csl]` suffix (case-insensitive, start-offset, line-based)
+- `count`: Optional numeric scan limit, interpreted as bytes or lines depending on `flags.line_based`
+
+**Example:**
+
+```text
+0    regex    [0-9]+       Numeric content
+0    regex/1l  ^#!/        Shebang on first line
+0    regex/cs  json        Case-insensitive "json" anywhere
+```
+
+**Behavior:**
+
+- Returns `Value::String` containing the matched text
+- Scan window capped at 8192 bytes (GNU `file` `FILE_REGEX_MAX`)
+- Multi-line mode unconditional (`^`/`$` match line boundaries, `.` does not match newlines)
+- Zero-width matches (e.g., `^`, `a*`) return `Value::String("")` and are distinguished from no-match
+- Only supports `Equal` and `NotEqual` operators; other comparison operators return `TypeReadError::UnsupportedType`
+
+### RegexFlags Struct
+
+The `RegexFlags` struct specifies regex behavior modifiers. All flags default to `false` via `RegexFlags::default`.
+
+```rust
+pub struct RegexFlags {
+    /// `/c` - case-insensitive matching
+    pub case_insensitive: bool,
+    /// `/s` - advance anchor to match-start instead of match-end
+    pub start_offset: bool,
+    /// `/l` - measure scan window in lines instead of bytes
+    pub line_based: bool,
+}
+```
+
+**Flag combinations:**
+
+- `/c` - case-insensitive matching
+- `/s` - anchor advances to match-start (for chaining child rules)
+- `/l` - count parameter measured in lines (80 bytes per line, capped at 8192 total)
+- `/cs`, `/cl`, `/sl`, `/csl` - any combination of flags
+
+**Examples:**
+
+```rust
+use libmagic_rs::parser::ast::{TypeKind, RegexFlags};
+use std::num::NonZeroU32;
+
+// Plain regex with 8192-byte default scan window
+let plain_regex = TypeKind::Regex {
+    flags: RegexFlags::default(),
+    count: None,
+};
+
+// First line only (1 line, capped at 8192 bytes)
+let first_line = TypeKind::Regex {
+    flags: RegexFlags {
+        line_based: true,
+        ..RegexFlags::default()
+    },
+    count: NonZeroU32::new(1),
+};
+
+// Case-insensitive with anchor at match-start
+let case_start = TypeKind::Regex {
+    flags: RegexFlags {
+        case_insensitive: true,
+        start_offset: true,
+        line_based: false,
+    },
+    count: None,
+};
+```
+
+### Search (Bounded Literal Byte Sequence Search)
+
+The `Search` variant scans for a literal byte pattern within a bounded range. Unlike `String`, which matches only at the exact offset, `Search` scans forward up to `range` bytes for the first occurrence.
+
+**Structure:**
+
+```rust
+Search {
+    range: NonZeroUsize,
+}
+```
+
+**Fields:**
+
+- `range`: Mandatory scan window width in bytes (must be non-zero per GNU `file` magic(5) specification)
+
+**Example:**
+
+```text
+0    search/256    PK\003\004    ZIP archive within first 256 bytes
+```
+
+**Behavior:**
+
+- Returns `Value::String` containing the matched bytes if found within range
+- Anchor advances by the entire search window regardless of where the match was found
+- Only supports `Equal` and `NotEqual` operators
+- Range is mandatory; `search/0` or bare `search` are parse errors
+
+**Examples:**
+
+```rust
+use libmagic_rs::parser::ast::TypeKind;
+use std::num::NonZeroUsize;
+
+// Scan up to 256 bytes for the pattern
+let bounded_search = TypeKind::Search {
+    range: NonZeroUsize::new(256).unwrap(),
+};
+
+// Scan up to 1024 bytes
+let wide_search = TypeKind::Search {
+    range: NonZeroUsize::new(1024).unwrap(),
 };
 ```
 
@@ -520,9 +665,11 @@ let script_rule = MagicRule {
 
 1. **Use `Byte { signed }`** for single-byte values and flags, specifying signedness
 2. **Use `Short/Long/Quad`** with explicit endianness and signedness for multi-byte integers
-3. **Use `String`** with length limits for text patterns
+3. **Use `String`** with length limits for text patterns at exact offsets
 4. **Use `PString`** for Pascal-style length-prefixed strings
-5. **Use `Bytes`** for exact binary sequences
+5. **Use `Regex`** for pattern matching (complex patterns, line-based checks, case-insensitive matching)
+6. **Use `Search`** for simple substring matching within a bounded range (faster than regex for literal patterns)
+7. **Use `Bytes`** for exact binary sequences
 
 ### Performance Considerations
 

@@ -285,6 +285,139 @@ The parser supports date and timestamp types for parsing Unix timestamps (signed
 
 The parser creates `TypeKind::Date` or `TypeKind::QDate` variants with appropriate endianness and UTC flags. During evaluation, timestamps are formatted as strings in the format "Www Mmm DD HH:MM:SS YYYY" to match GNU file output.
 
+### Regex Type
+
+The parser supports regular expression matching through the `regex` keyword, enabling POSIX-extended regex patterns against file contents:
+
+**Type Keyword:**
+
+- `regex` - Regular expression match → `TypeKind::Regex { flags, count }`
+
+**Flag Support:**
+
+Regex rules accept three modifier flags via the `/[csl]` suffix:
+
+- `/c` - Case-insensitive matching → `RegexFlags::case_insensitive = true`
+- `/s` - Advance anchor to match-start instead of match-end → `RegexFlags::start_offset = true`
+- `/l` - Line-based counting (interpret count as line count) → `RegexFlags::line_based = true`
+
+Flags can be combined in any order (`/cl`, `/lc`, `/csl` are all equivalent). The parser also accepts interleaved flag-and-count syntax matching GNU `file` semantics: `regex/1l` and `regex/l1` both parse identically.
+
+**Optional Count Parameter:**
+
+An optional decimal count controls the scan window:
+
+- No count: scan 8192 bytes (default)
+- `/N` (no `/l`): scan at most `N` bytes, capped at 8192
+- `/Nl` (with `/l`): scan at most `N` lines, effective byte cap is `min(N * 80, 8192)`
+
+The 8192-byte hard cap matches GNU `file`'s `FILE_REGEX_MAX` constant and prevents runaway regex scans against large buffers.
+
+**Parsing Examples:**
+
+```rust
+// Plain regex (no flags, 8192-byte default scan window)
+parse_type_and_operator("regex")
+// → TypeKind::Regex { flags: RegexFlags::default(), count: None }
+
+// Case-insensitive flag
+parse_type_and_operator("regex/c")
+// → TypeKind::Regex { flags: RegexFlags { case_insensitive: true, .. }, count: None }
+
+// Line-based with explicit count
+parse_type_and_operator("regex/1l")
+// → TypeKind::Regex { flags: RegexFlags { line_based: true, .. }, count: Some(1) }
+
+// Combined flags and count (interleaved order accepted)
+parse_type_and_operator("regex/c256s")
+// → TypeKind::Regex { flags: RegexFlags { case_insensitive: true, start_offset: true, .. }, count: Some(256) }
+```
+
+**Usage in Magic Rules:**
+
+```rust
+// Match lines starting with a digit
+0 regex "^[0-9]" numeric prefix
+
+// Case-insensitive JSON detection
+0 regex/c "\\{.*\"[^\"]+\"" possible JSON
+
+// Scan first line only for version string
+>1 regex/1l "version [0-9]+" version line
+```
+
+**Regex Semantics:**
+
+- Patterns are compiled with multi-line mode always enabled (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries and `.` does not match `\n`.
+- The scan window is always capped at 8192 bytes regardless of the `count` value.
+- Zero-width matches (`^`, `a*`, lookaheads) are preserved as `Value::String("")` and distinguished from genuine misses.
+- Regex rules only support `Operator::Equal` and `Operator::NotEqual`; other comparison operators are rejected at evaluation time.
+
+**Features:**
+
+- ✅ `regex` keyword recognition with suffix parsing
+- ✅ Three modifier flags (`/c`, `/s`, `/l`) with arbitrary combination order
+- ✅ Optional numeric count parameter (interleaved with flags per GNU `file` semantics)
+- ✅ 8192-byte scan window cap matching `FILE_REGEX_MAX`
+- ✅ Bare `regex/` with no valid modifier is a parse error
+- ✅ `regex/0` is rejected (zero count has no valid semantics)
+- ✅ `RegexFlags` struct representation for clean flag management
+
+### Search Type
+
+The parser supports bounded literal byte sequence searching through the `search` keyword:
+
+**Type Keyword:**
+
+- `search` - Multi-byte pattern search within bounded range → `TypeKind::Search { range }`
+
+**Mandatory Range Parameter:**
+
+Search rules require a decimal range suffix specifying the scan window width in bytes:
+
+- `/N` - Scan up to `N` bytes for the literal pattern, stored as `NonZeroUsize`
+
+Per GNU `file` magic(5) specification, the range is **mandatory**. Bare `search` (no `/N` suffix) and `search/0` are both rejected at parse time.
+
+**Parsing Examples:**
+
+```rust
+// 256-byte search window
+parse_type_and_operator("search/256")
+// → TypeKind::Search { range: NonZeroUsize(256) }
+
+// Bare search is a parse error (range is mandatory)
+parse_type_and_operator("search")
+// → Err(...)
+
+// Zero-range search is rejected
+parse_type_and_operator("search/0")
+// → Err(...)
+```
+
+**Usage in Magic Rules:**
+
+```rust
+// Scan up to 256 bytes for DOS MZ header
+0 search/256 "MZ" DOS executable
+
+// Look for ZIP signature within first 1024 bytes
+0 search/1024 "PK\x03\x04" ZIP archive
+```
+
+**Search Semantics:**
+
+- Unlike `TypeKind::String`, which only matches at the exact offset, `search` scans forward up to `range` bytes for the first occurrence of the literal pattern.
+- The anchor advances to the end of the matched pattern (matching libmagic's `FILE_SEARCH` behavior in `softmagic.c::moffset()`).
+- Search rules only support `Operator::Equal` and `Operator::NotEqual`; other comparison operators are rejected at evaluation time.
+
+**Features:**
+
+- ✅ `search` keyword recognition with mandatory `/N` suffix
+- ✅ `NonZeroUsize` range representation (zero-width scan unrepresentable)
+- ✅ Bare `search` and `search/0` rejected at parse time
+- ✅ Binary-safe literal matching via `memchr::memmem::find`
+
 ## Parser Design Principles
 
 ### Error Handling
@@ -395,7 +528,6 @@ match detect_format(path)? {
 ### Not Yet Implemented
 
 - **Indirect Offsets**: Pointer dereferencing patterns (e.g., `(0x3c.l)`)
-- **Regex Support**: Regular expression matching in rules
 - **Binary .mgc Format**: Compiled magic database format
 - **Strength Modifiers**: `!:strength` parsing for rule priority
 

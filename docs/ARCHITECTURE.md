@@ -94,7 +94,14 @@ libmagic-rs/
 │   │   ├── mod.rs          # Public API surface with re-exports, EvaluationContext, RuleMatch
 │   │   ├── engine.rs       # Core evaluation logic (evaluate_single_rule, evaluate_rules, evaluate_rules_with_config)
 │   │   ├── offset.rs       # Offset resolution
-│   │   ├── types.rs        # Type reading with bounds checking
+│   │   ├── types/          # Type reading subsystem
+│   │   │   ├── mod.rs      # Type dispatch and pattern matching
+│   │   │   ├── numeric.rs  # Byte, Short, Long, Quad
+│   │   │   ├── float.rs    # Float, Double
+│   │   │   ├── date.rs     # Date, QDate
+│   │   │   ├── string.rs   # String, PString
+│   │   │   ├── regex.rs    # Regex pattern matching
+│   │   │   └── search.rs   # Search literal scanning
 │   │   ├── operators.rs    # Comparison operations
 │   │   └── strength.rs     # Strength calculation and sorting
 │   │
@@ -288,6 +295,8 @@ pub struct MagicRule {
 - `Long { endian: Endianness, signed: bool }` - 32-bit integer
 - `Quad { endian: Endianness, signed: bool }` - 64-bit integer
 - `String { max_length: Option<usize> }` - Null-terminated string
+- `Regex { flags: RegexFlags, count: Option<NonZeroU32> }` - Regular expression matching
+- `Search { range: NonZeroUsize }` - Bounded literal pattern search
 
 **Hierarchical Structure:**
 
@@ -465,6 +474,8 @@ Vetted dependencies with minimal unsafe:
 - `memmap2` - Memory mapping (audited)
 - `nom` - Parsing (no unsafe)
 - `thiserror` - Error handling (no unsafe)
+- `regex` - Pattern matching (production dependency)
+- `memchr` - Fast byte searching (production dependency)
 
 ---
 
@@ -499,7 +510,7 @@ The evaluation hot path is optimized for:
 
 1. Add variant to `TypeKind` enum (`ast.rs`)
 2. Add parsing logic (`grammar/mod.rs`)
-3. Add reading logic (`types.rs`)
+3. Add reading logic in `evaluator/types/` (as a submodule for complex types or in `types/mod.rs` for simple ones)
 4. Add serialization support (`build_helpers.rs`)
 5. Add tests
 6. Update documentation
