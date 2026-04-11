@@ -60,17 +60,22 @@ pub(super) fn parse_pstring_suffix(
     Ok((rest, width, includes_j))
 }
 
-/// Parse a `regex` suffix `/[csl]*[0-9]*` in any interleaved order.
+/// Parse a `regex` suffix made up of `/c`, `/s`, `/l` flag letters and
+/// an optional decimal count, interleaved in any order.
 ///
 /// Accepts the modifier sequence that follows the `/` on a `regex/...`
 /// rule. Flag letters and a decimal count can appear in any order with
 /// these rules:
 ///
-/// - `c` / `s` / `l` set their respective flag bits (or toggle
-///   `line_based` for `l`).
+/// - `c` sets [`RegexFlags::case_insensitive`], `s` sets
+///   [`RegexFlags::start_offset`], `l` marks the scan window as
+///   line-based (this is collapsed into the [`RegexCount::Lines`]
+///   variant at the bottom of this function, not stored as a flag
+///   field).
 /// - A digit sequence is parsed as a `NonZeroU32` count. A second
-///   digit sequence is a hard parse error (libmagic accepts it with a
-///   `"multiple ranges"` warning, but we prefer failing fast).
+///   digit sequence is a hard parse error (libmagic accepts duplicates
+///   with a `"multiple ranges"` stderr warning; we prefer failing fast
+///   so magic-file bugs surface at parse time).
 /// - Scanning stops at whitespace or at an operator boundary character
 ///   (`=`, `!`, `<`, `>`, `&`, `^`, `~`, `x`) so forms like `regex/c=`
 ///   leave the operator for `parse_operator` to handle.

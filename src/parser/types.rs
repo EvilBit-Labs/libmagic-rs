@@ -138,10 +138,21 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
 /// assert_eq!(type_keyword_to_kind("search"), None);
 /// ```
 ///
+/// # Returns
+///
+/// * `Some(TypeKind)` for fully-specified keywords (byte, short, long,
+///   quad, float, double, date, qdate, string, pstring and all their
+///   variants).
+/// * `None` for suffix-required keywords (`regex`, `search`) which
+///   cannot be converted from the keyword alone -- the grammar layer
+///   builds their `TypeKind` directly after parsing the suffix.
+///
 /// # Panics
 ///
-/// Panics if `type_name` is not a recognized type keyword. This function should
-/// only be called with values returned by [`parse_type_keyword`].
+/// Panics (via `unreachable!`) if `type_name` is not a value previously
+/// returned by [`parse_type_keyword`]. This is a precondition check,
+/// not a runtime error: the function is strictly coupled to
+/// `parse_type_keyword` and should only be called with its outputs.
 #[must_use]
 #[allow(clippy::too_many_lines)]
 pub fn type_keyword_to_kind(type_name: &str) -> Option<TypeKind> {

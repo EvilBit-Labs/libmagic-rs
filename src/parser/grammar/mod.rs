@@ -371,7 +371,7 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
 
     // Handle regex suffixes via the extracted helper. See
     // `grammar/type_suffix.rs::parse_regex_suffix` for the full
-    // "any order, last count wins but duplicate counts rejected"
+    // "any-order flag/count interleaving, duplicate counts rejected"
     // semantics and the `RegexCount` collapse logic.
     let mut regex_flags = RegexFlags::default();
     let mut regex_count = RegexCount::Default;
@@ -421,15 +421,22 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
             TypeKind::Search { range }
         }
         _ => {
-            // `type_keyword_to_kind` returns `None` only for `regex` and
-            // `search`, which are handled in the match arms above. For
-            // every other keyword the function is total, so `expect` is
-            // unreachable under normal flow -- but the message
-            // documents the invariant for any future caller that breaks
-            // it by adding a new suffix-required type without wiring
-            // the grammar arm first.
-            let mut kind = crate::parser::types::type_keyword_to_kind(type_name)
-                .expect("grammar handles regex/search directly; other keywords produce Some");
+            // `type_keyword_to_kind` returns `None` only for suffix-
+            // required types (`regex`, `search`), which are handled by
+            // the match arms above. For every other recognized keyword
+            // the function is total, so this path is unreachable under
+            // normal flow. If a future contributor adds a new suffix-
+            // required type to `type_keyword_to_kind` without wiring the
+            // grammar arm first, the panic message names the offending
+            // keyword so the missing arm is easy to find.
+            let mut kind =
+                crate::parser::types::type_keyword_to_kind(type_name).unwrap_or_else(|| {
+                    panic!(
+                        "type_keyword_to_kind returned None for {type_name:?}; \
+                         parse_type_and_operator must handle this keyword in a \
+                         dedicated match arm before reaching the fallback"
+                    )
+                });
             if let TypeKind::PString { max_length, .. } = kind {
                 kind = TypeKind::PString {
                     max_length,

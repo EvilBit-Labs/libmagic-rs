@@ -26,13 +26,21 @@
 //!   larger than 8192 is clamped. An implicit count (no user-supplied
 //!   value) uses the 8192 default directly.
 //!
-//! * **Line-based window** (`/l` flag): when `flags.line_based` is set,
-//!   `count` is a line count. The scan window extends from `offset`
-//!   through the end of the Nth line terminator, capped at 8192 bytes.
-//!   Following GNU `file`'s `softmagic.c` line-counting loop, three
-//!   terminator sequences each count as a single line: LF (`\n`),
-//!   CRLF (`\r\n`, consumed as one terminator), and bare CR (`\r`,
-//!   handling classic Mac line endings).
+//! * **Line-based window** ([`RegexCount::Lines`]): when `count` is
+//!   [`RegexCount::Lines(Some(n))`], the scan window extends from
+//!   `offset` through the end of the Nth line terminator, capped at
+//!   8192 bytes. [`RegexCount::Lines(None)`] (the `regex/l` shorthand)
+//!   walks terminators to the end of the capped window and is
+//!   behaviorally equivalent to [`RegexCount::Default`]. Following GNU
+//!   `file`'s `softmagic.c` line-counting loop, three terminator
+//!   sequences each count as a single line: LF (`\n`), CRLF (`\r\n`,
+//!   consumed as one terminator), and bare CR (`\r`, for classic Mac
+//!   line endings).
+//!
+//! [`RegexCount::Lines`]: crate::parser::ast::RegexCount::Lines
+//! [`RegexCount::Lines(Some(n))`]: crate::parser::ast::RegexCount::Lines
+//! [`RegexCount::Lines(None)`]: crate::parser::ast::RegexCount::Lines
+//! [`RegexCount::Default`]: crate::parser::ast::RegexCount::Default
 //!
 //! * **`/s` flag** (`start_offset`): affects only the anchor advance
 //!   computed by [`regex_bytes_consumed`]. When set, the anchor moves by
@@ -42,7 +50,6 @@
 use super::TypeReadError;
 use crate::parser::ast::{RegexFlags, Value};
 use regex::bytes::{Regex, RegexBuilder};
-use std::num::NonZeroU32;
 
 /// The hard upper bound on regex scan window size, matching GNU `file`'s
 /// `FILE_REGEX_MAX` constant in `src/file.h`. Any regex rule -- including
@@ -60,8 +67,9 @@ pub(crate) const REGEX_MAX_BYTES: usize = 8192;
 /// Multi-line mode is always enabled (unconditional in libmagic via
 /// `REG_NEWLINE`) and `.` does not match newlines. The `case_insensitive`
 /// flag is the only compile-time flag the magic-rule interface controls;
-/// `line_based` and `start_offset` affect window computation and anchor
-/// advance respectively, not regex compilation.
+/// the `RegexCount` variant (passed elsewhere) and the `start_offset`
+/// flag affect window computation and anchor advance respectively, not
+/// regex compilation.
 fn build_regex(pattern: &str, case_insensitive: bool) -> Result<Regex, regex::Error> {
     RegexBuilder::new(pattern)
         .case_insensitive(case_insensitive)
@@ -106,18 +114,26 @@ fn compute_window(buffer: &[u8], offset: usize, count: crate::parser::ast::Regex
     let capped = &remaining[..byte_cap];
 
     match count {
-        RegexCount::Default => capped,
+        // `Default` and `Lines(None)` both produce the full byte-capped
+        // window. For `Lines(None)` the line walk would complete without
+        // ever hitting its break condition (the walk can only see at
+        // most 8192 terminators, far fewer than the `u32::MAX` implicit
+        // target), so skip the walk entirely.
+        RegexCount::Default | RegexCount::Lines(None) => capped,
         RegexCount::Bytes(n) => {
             let count_bytes = (n.get() as usize).min(REGEX_MAX_BYTES);
             &capped[..count_bytes.min(capped.len())]
         }
-        RegexCount::Lines(line_count) => {
-            // Walk the byte-capped slice counting `\n`, `\r`, and `\r\n`
-            // pairs as single terminators. Stop after the Nth terminator.
-            let target_lines = line_count.map_or(u32::MAX, NonZeroU32::get);
+        RegexCount::Lines(Some(target)) => {
+            // Walk the byte-capped slice counting LF, CR, and CRLF
+            // pairs as single terminators. Stop after the Nth
+            // terminator. The combined loop condition ensures we also
+            // stop at the window end when the buffer has fewer
+            // terminators than requested.
+            let target_lines = target.get();
             let mut lines_seen: u32 = 0;
             let mut idx = 0usize;
-            while idx < capped.len() {
+            while idx < capped.len() && lines_seen < target_lines {
                 match capped[idx] {
                     b'\r' => {
                         // Treat CR and CRLF as a single terminator.
@@ -127,16 +143,13 @@ fn compute_window(buffer: &[u8], offset: usize, count: crate::parser::ast::Regex
                             1
                         };
                         idx += advance;
-                        lines_seen = lines_seen.saturating_add(1);
+                        lines_seen += 1;
                     }
                     b'\n' => {
                         idx += 1;
-                        lines_seen = lines_seen.saturating_add(1);
+                        lines_seen += 1;
                     }
                     _ => idx += 1,
-                }
-                if lines_seen >= target_lines {
-                    break;
                 }
             }
             &capped[..idx]
@@ -257,6 +270,7 @@ pub(super) fn regex_bytes_consumed(
 mod tests {
     use super::*;
     use crate::parser::ast::RegexCount;
+    use std::num::NonZeroU32;
 
     fn no_flags() -> RegexFlags {
         RegexFlags::default()
@@ -529,6 +543,38 @@ mod tests {
         buffer.extend_from_slice(b"needle\n");
         let result = read_regex(&buffer, 0, "needle", no_flags(), lines_unbounded()).unwrap();
         assert_eq!(result, None, "line-mode scan must still cap at 8192 bytes");
+    }
+
+    #[test]
+    fn test_read_regex_lines_none_is_equivalent_to_default_on_buffer_with_terminators() {
+        // Regression guard: `RegexCount::Lines(None)` (the `regex/l`
+        // shorthand) and `RegexCount::Default` are semantically
+        // equivalent -- both produce the full 8192-byte capped window.
+        // This test pins that equivalence on a buffer that actually has
+        // line terminators, which would exercise the line-walk loop in
+        // a pre-simplification implementation. If a future refactor
+        // diverges them (e.g., by making `Lines(None)` truncate to the
+        // last terminator), this test fires.
+        let buffer = b"alpha\nbravo\ncharlie\ndelta";
+
+        // A pattern that matches a byte sequence straddling a `\n`
+        // boundary must succeed under BOTH variants because neither
+        // truncates the window short. Since multi-line mode is on,
+        // `.` does not match `\n`, so we use a class to span it.
+        let pattern = "bravo[\\s\\S]*charlie";
+
+        let default_match = read_regex(buffer, 0, pattern, no_flags(), default_count()).unwrap();
+        let lines_none_match =
+            read_regex(buffer, 0, pattern, no_flags(), lines_unbounded()).unwrap();
+
+        assert!(
+            default_match.is_some(),
+            "Default window should match the full buffer"
+        );
+        assert_eq!(
+            default_match, lines_none_match,
+            "RegexCount::Default and RegexCount::Lines(None) must produce identical matches"
+        );
     }
 
     // ------- bare-CR line terminator (classic Mac) -------
