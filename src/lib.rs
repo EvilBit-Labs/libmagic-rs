@@ -167,6 +167,25 @@ impl MagicDatabase {
     /// for common file types including executables (ELF, PE/DOS), archives (ZIP, TAR,
     /// GZIP), images (JPEG, PNG, GIF, BMP), and documents (PDF).
     ///
+    /// # Security
+    ///
+    /// This constructor uses [`EvaluationConfig::default()`], which leaves
+    /// `timeout_ms` unset (unbounded). When processing untrusted input
+    /// (adversarial file buffers, large uploads, etc.), prefer
+    /// [`MagicDatabase::with_builtin_rules_and_config`] with
+    /// [`EvaluationConfig::performance()`] (which sets a 1-second timeout)
+    /// or construct a config explicitly with a non-`None` timeout sized
+    /// for your workload. The `Default` impl intentionally targets CLI
+    /// one-shot usage rather than long-running services.
+    ///
+    /// # Thread safety
+    ///
+    /// `MagicDatabase` is `Send + Sync` and holds no interior mutability,
+    /// so an `Arc<MagicDatabase>` can be shared across threads for
+    /// parallel file scanning. A fresh evaluation context is constructed
+    /// per `evaluate_buffer` / `evaluate_file` call, so concurrent calls
+    /// do not interfere.
+    ///
     /// # Errors
     ///
     /// Currently always returns `Ok`. In future implementations, this may return
@@ -191,6 +210,14 @@ impl MagicDatabase {
     /// Loads built-in magic rules compiled at build time and applies the specified
     /// evaluation configuration (e.g., custom timeout settings).
     ///
+    /// # Security
+    ///
+    /// For untrusted input (adversarial file buffers, web uploads, mail
+    /// scanning), pass a config with an explicit timeout such as
+    /// [`EvaluationConfig::performance()`]. The default config has
+    /// `timeout_ms = None` which leaves evaluation unbounded; see the
+    /// rationale on [`EvaluationConfig::default`].
+    ///
     /// # Arguments
     ///
     /// * `config` - Custom evaluation configuration to use with the built-in rules
@@ -204,7 +231,9 @@ impl MagicDatabase {
     /// ```rust,no_run
     /// use libmagic_rs::{MagicDatabase, EvaluationConfig};
     ///
-    /// let config = EvaluationConfig::default().with_timeout_ms(Some(5000));
+    /// // Prefer the performance() preset over default() when processing
+    /// // untrusted input. default() has no timeout by design.
+    /// let config = EvaluationConfig::performance();
     /// let db = MagicDatabase::with_builtin_rules_and_config(config)?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -221,6 +250,14 @@ impl MagicDatabase {
     }
 
     /// Load magic rules from a file
+    ///
+    /// # Security
+    ///
+    /// This constructor uses [`EvaluationConfig::default()`], which
+    /// leaves `timeout_ms` unset. See the security note on
+    /// [`Self::with_builtin_rules`] for the implications and prefer
+    /// [`Self::load_from_file_with_config`] with an explicit timeout
+    /// when processing untrusted input.
     ///
     /// # Arguments
     ///
@@ -243,7 +280,13 @@ impl MagicDatabase {
         Self::load_from_file_with_config(path, EvaluationConfig::default())
     }
 
-    /// Load from file with custom config (e.g., timeout)
+    /// Load from file with custom config (e.g., timeout).
+    ///
+    /// # Security
+    ///
+    /// For untrusted input, pass [`EvaluationConfig::performance()`] or
+    /// a config with an explicit non-`None` `timeout_ms`. See
+    /// [`Self::with_builtin_rules`] for the full rationale.
     ///
     /// # Errors
     ///

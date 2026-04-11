@@ -202,7 +202,7 @@ cargo test --doc   # Test documentation examples
 
 ## Magic File Compatibility
 
-### Currently Implemented (v0.1.0)
+### Currently Implemented (v0.5.0)
 
 - **Offsets**: Absolute, from-end, indirect, and relative specifications (relative offsets `&+N`/`&-N` are evaluated using GNU `file` semantics -- the previous-match anchor)
 - **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`; `pstring` is a Pascal string (length-prefixed) with support for 1/2/4-byte length prefixes via `/B`, `/H` (2-byte BE), `/h` (2-byte LE), `/L` (4-byte BE), `/l` (4-byte LE) suffixes, and the `/J` flag (stored length includes prefix width, JPEG convention) which is combinable with width suffixes (e.g., `pstring/HJ`); date values formatted as "Www Mmm DD HH:MM:SS YYYY" matching GNU `file` output; types are signed by default (libmagic-compatible)
@@ -214,7 +214,7 @@ cargo test --doc   # Test documentation examples
 
 See **Development Phases** below for the planned roadmap of features not yet implemented (Aho-Corasick multi-pattern optimization, compiled-regex caching, `!:mime`/`!:ext`/`!:apple` directive evaluation, and `use`/`name` named test directives).
 
-## Current Limitations (v0.1.0)
+## Current Limitations (v0.5.0)
 
 ### Type System
 
@@ -453,11 +453,13 @@ CI must pass before merge. Mergify merge protections enforce these checks. Bot P
 
 ### Development Phases
 
-1. **MVP (v0.1.0)** - CURRENT: Basic parsing and evaluation with byte/short/long/quad/string types, equality and bitwise AND operators, built-in rules for 10 common formats
-2. **Enhanced Features (v0.2)**: Comparison operators (`>`, `<`), indirect offset improvements, strength-based rule ordering
-3. **Advanced Types (v0.3)**: Aho-Corasick multi-pattern optimization for search rules, compiled-regex caching, `!:mime`/`!:ext` directive evaluation
-4. **Full Compatibility (v0.4)**: Complete libmagic syntax support, all special directives, named tests (`use`/`name`)
-5. **Production Ready (v1.0)**: Stable API, complete documentation, 95%+ compatibility with GNU file
+1. **MVP (v0.1.0)** - shipped: Basic parsing and evaluation with byte/short/long/quad/string types, equality and bitwise AND operators, built-in rules for 10 common formats
+2. **Enhanced Features (v0.2.0)** - shipped: Comparison operators (`>`, `<`, `<=`, `>=`), bitwise XOR/NOT, indirect and relative offset evaluation, strength-based rule ordering
+3. **Advanced Types (v0.3.0)** - shipped: float/double/date/qdate/pstring types, regex, search, evaluator submodule split
+4. **v0.4.0** - shipped: parse warnings, JSON metadata, improved errors, cargo-dist release pipeline
+5. **v0.5.x (current)** - in flight: TOCTOU/search-path hardening, regex compile cache, `EvaluationConfig` non_exhaustive, `MagicRule::new` validator, thread-local regex cache
+6. **v0.6.0**: `Value` pattern refactor (eliminate pattern-as-literal overloading), `MagicDatabase::builder()`, `Directive` extension point for `!:mime`/`!:ext`/`!:apple`
+7. **v1.0.0**: Stable API, complete documentation, 95%+ compatibility with GNU file, Aho-Corasick multi-pattern optimization, cargo-fuzz harness, complete `#[non_exhaustive]` coverage
 
 ## Best Practices
 

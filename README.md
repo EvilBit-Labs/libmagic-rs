@@ -23,6 +23,9 @@ A pure-Rust implementation of libmagic, the library that powers the `file` comma
 
 **v0.5.0** -- The core file identification pipeline is functional. Common file types can be identified using text magic files today.
 
+> [!WARNING]
+> **Pre-1.0 API.** libmagic-rs is a pre-1.0 crate and the public API may change between minor versions until v1.0.0 is cut. Pin an exact version in `Cargo.toml` if you need reproducible builds, and read `CHANGELOG.md` before upgrading. See issue #52 for the v1.0 stability roadmap.
+
 - 1,200+ tests with >94% line coverage
 - Zero unsafe code (`unsafe_code = "forbid"` enforced project-wide)
 - Zero warnings with strict clippy linting
@@ -41,12 +44,14 @@ A pure-Rust implementation of libmagic, the library that powers the `file` comma
 
 ### Supported Magic File Syntax
 
-| Category       | Supported                                                                                                                                                                                                                                                                                                                                                                            |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Types**      | `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` (with big/little-endian variants), unsigned variants (`ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`), 32-bit dates (`date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`), and 64-bit dates (`qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`) |
-| **Operators**  | `=`, `!=`, `<`, `>`, `<=`, `>=`, `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)                                                                                                                                                                                                                                                         |
-| **Offsets**    | Absolute, from-end, indirect, and relative (all fully evaluated; magic-file `&+N`/`&-N` parsing for relative is pending)                                                                                                                                                                                                                                                             |
-| **Directives** | `!:strength` (parsed; `!:mime`, `!:ext`, `!:apple` planned)                                                                                                                                                                                                                                                                                                                          |
+| Category       | Supported                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Types**      | `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` (with big/little-endian variants), unsigned variants (`ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`), 32-bit dates (`date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`), 64-bit dates (`qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`), `regex`, and `search/N` |
+| **Regex**      | Binary-safe via `regex::bytes::Regex`. Flags: `/c` (case-insensitive), `/s` (match-start anchor advance), `/l` (line-based scan window). Counts: `regex/N` (N bytes), `regex/Nl` (N lines). All variants capped at 8192 bytes (`FILE_REGEX_MAX`). Compile size is clamped to 1 MiB (`size_limit` + `dfa_size_limit`) to bound compile-time DoS exposure from adversarial patterns.                        |
+| **Search**     | Bounded literal scan via `memchr::memmem::find`. `search/N` scans the first `N` bytes from the offset; the range is mandatory (`NonZeroUsize`). Match-end anchor advance for relative-offset children (matches GNU `file` semantics).                                                                                                                                                                     |
+| **Operators**  | `=`, `!=`, `<`, `>`, `<=`, `>=`, `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)                                                                                                                                                                                                                                                                              |
+| **Offsets**    | Absolute, from-end, indirect, and relative (all fully evaluated; magic-file `&+N`/`&-N` parsing for relative is pending)                                                                                                                                                                                                                                                                                  |
+| **Directives** | `!:strength` (parsed; `!:mime`, `!:ext`, `!:apple` planned)                                                                                                                                                                                                                                                                                                                                               |
 
 ## Quick Start
 
@@ -133,10 +138,19 @@ pub struct MagicRule {
 }
 
 pub enum TypeKind {
-    Byte,
+    Byte { signed: bool },
     Short { endian: Endianness, signed: bool },
     Long { endian: Endianness, signed: bool },
+    Quad { endian: Endianness, signed: bool },
+    Float { endian: Endianness },
+    Double { endian: Endianness },
+    Date { endian: Endianness, utc: bool },
+    QDate { endian: Endianness, utc: bool },
     String { max_length: Option<usize> },
+    PString { max_length: Option<usize>, length_width: PStringLengthWidth, length_includes_itself: bool },
+    Regex { flags: RegexFlags, count: RegexCount },
+    Search { range: NonZeroUsize },
+    // See src/parser/ast.rs for the authoritative definition.
 }
 
 pub enum OffsetSpec {
@@ -174,13 +188,14 @@ See the [release verification guide](https://evilbit-labs.github.io/libmagic-rs/
 
 See [ROADMAP.md](ROADMAP.md) for the full roadmap, or [GitHub Milestones](https://github.com/EvilBit-Labs/libmagic-rs/milestones) for issue tracking.
 
-| Milestone            | Focus                                                                             |
-| -------------------- | --------------------------------------------------------------------------------- |
-| **v0.5.x** (current) | MVP: parser, evaluator, CLI, built-in rules, 94%+ test coverage                   |
-| **v0.2.0**           | Comparison operators, bitwise XOR/NOT, indirect/relative offsets, 64-bit integers |
-| **v0.3.0**           | Regex, float/double, date/timestamp, pascal strings, meta-types                   |
-| **v0.4.0**           | Builder API, JSON metadata, parse warnings, improved errors                       |
-| **v1.0.0**           | 95%+ GNU `file` compatibility, stable API                                         |
+| Milestone            | Status    | Focus                                                                             |
+| -------------------- | --------- | --------------------------------------------------------------------------------- |
+| **v0.2.0**           | shipped   | Comparison operators, bitwise XOR/NOT, indirect/relative offsets, 64-bit integers |
+| **v0.3.0**           | shipped   | Regex, float/double, date/timestamp, pascal strings, meta-types                   |
+| **v0.4.0**           | shipped   | Evaluator submodule split, JSON metadata, parse warnings, improved errors         |
+| **v0.5.x** (current) | in flight | TOCTOU/search-path hardening, regex compile cache, validated constructors         |
+| **v0.6.0**           | planned   | `Value` pattern refactor, `MagicDatabase` builder, `Directive` extension point    |
+| **v1.0.0**           | planned   | 95%+ GNU `file` compatibility, stable API, fuzzing harness, full non_exhaustive   |
 
 ## Contributing
 
