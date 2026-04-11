@@ -168,7 +168,7 @@ All release artifacts are signed via [Sigstore](https://www.sigstore.dev/) using
 gh attestation verify <artifact> --repo EvilBit-Labs/libmagic-rs
 ```
 
-See the [release verification guide](https://evilbitlabs.io/libmagic-rs/release-verification.html) for details.
+See the [release verification guide](https://evilbit-labs.github.io/libmagic-rs/release-verification.html) for details.
 
 ## Roadmap
 
@@ -192,7 +192,7 @@ Licensed under the Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
 ## Support
 
-- [Documentation](https://evilbitlabs.io/libmagic-rs/)
+- [Documentation](https://evilbit-labs.github.io/libmagic-rs/)
 - [GitHub Issues](https://github.com/EvilBit-Labs/libmagic-rs/issues)
 - [GitHub Discussions](https://github.com/EvilBit-Labs/libmagic-rs/discussions)
 
