@@ -5,7 +5,7 @@
 //!
 //! This submodule holds the suffix parsers extracted from
 //! `parse_type_and_operator` so the top-level grammar module stays
-//! under the 800-line size cap documented in AGENTS.md.
+//! under the 500-600 line size target documented in repository coding guidelines.
 //!
 //! Each parser takes the "rest of line after the `/`" and returns the
 //! parsed data plus any remaining input. The top-level

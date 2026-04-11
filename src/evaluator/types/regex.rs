@@ -129,17 +129,22 @@ fn compute_window(buffer: &[u8], offset: usize, count: crate::parser::ast::Regex
         RegexCount::Lines(Some(target)) => {
             // Walk the byte-capped slice counting LF, CR, and CRLF
             // pairs as single terminators. Stop after the Nth
-            // terminator. The combined loop condition ensures we also
-            // stop at the window end when the buffer has fewer
-            // terminators than requested.
+            // terminator. Uses `.get()` bounds-checked access per
+            // the project's memory-safety rule (AGENTS.md "Memory
+            // Safety First"), even though the loop condition
+            // `idx < capped.len()` already guarantees `capped[idx]`
+            // would be in-bounds -- `.get()` makes the CRLF look-
+            // ahead (`idx + 1`) cleanly `None` at the window edge
+            // without needing a separate `idx + 1 < capped.len()`
+            // guard.
             let target_lines = target.get();
             let mut lines_seen: u32 = 0;
             let mut idx = 0usize;
-            while idx < capped.len() && lines_seen < target_lines {
-                match capped[idx] {
-                    b'\r' => {
+            while lines_seen < target_lines {
+                match capped.get(idx) {
+                    Some(b'\r') => {
                         // Treat CR and CRLF as a single terminator.
-                        let advance = if idx + 1 < capped.len() && capped[idx + 1] == b'\n' {
+                        let advance = if matches!(capped.get(idx + 1), Some(b'\n')) {
                             2
                         } else {
                             1
@@ -147,11 +152,12 @@ fn compute_window(buffer: &[u8], offset: usize, count: crate::parser::ast::Regex
                         idx += advance;
                         lines_seen += 1;
                     }
-                    b'\n' => {
+                    Some(b'\n') => {
                         idx += 1;
                         lines_seen += 1;
                     }
-                    _ => idx += 1,
+                    Some(_) => idx += 1,
+                    None => break,
                 }
             }
             &capped[..idx]
