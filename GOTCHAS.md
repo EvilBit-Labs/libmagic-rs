@@ -26,7 +26,7 @@ Serialization functions live in `src/parser/codegen.rs`, shared by both `build.r
 
 ### 2.1 `TypeKind` Exhaustive Matches
 
-Adding a variant to `TypeKind` requires updating exhaustive matches in 10+ files: `ast`, `grammar`, `types`, `codegen`, `strength`, `property_tests`, `evaluator/types/mod.rs` (`read_typed_value`, `coerce_value_to_type`, **`bytes_consumed`** -- variable-width variants must be matched explicitly or relative-offset anchors will silently corrupt), `output/mod.rs` (2 length matches), `output/json.rs` (`format_value_as_hex`), and `grammar/tests.rs` (stale assertions). Note: `coerce_value_to_type`, output matches, and `bytes_consumed` use catch-all `_ =>` so they compile without changes but may need semantic updates -- `bytes_consumed` will fire a `debug_assert` in test/dev builds for unhandled variable-width variants.
+Adding a variant to `TypeKind` requires updating exhaustive matches in 10+ files: `ast`, `grammar`, `types`, `codegen` (`serialize_type_kind` -- easy to forget; build.rs is a separate compilation unit so the error surfaces there first), `strength`, `property_tests`, `evaluator/types/mod.rs` (`read_typed_value`, `coerce_value_to_type`, **`bytes_consumed`** -- variable-width variants must be matched explicitly or relative-offset anchors will silently corrupt), `output/mod.rs` (2 length matches), `output/json.rs` (`format_value_as_hex`), and `grammar/tests.rs` (stale assertions). Note: `coerce_value_to_type`, output matches, and `bytes_consumed` use catch-all `_ =>` so they compile without changes but may need semantic updates -- `bytes_consumed` will fire a `debug_assert` in test/dev builds for unhandled variable-width variants.
 
 ### 2.2 `Operator` Exhaustive Matches
 
@@ -37,6 +37,18 @@ Adding a variant to `Operator` requires updating: `ast`, `grammar`, `codegen`, `
 Adding a variant to `Value` requires updating: `ast`, `codegen`, `strength`, `property_tests`, `output/mod.rs` (2 length matches), `output/json.rs` (`format_value_as_hex`), `evaluator/operators/comparison.rs` (`compare_values`). Bitwise/equality operators use catch-all `_ =>` so they are safe.
 
 - **Note:** `Value` no longer derives `Eq` (removed when `Value::Float(f64)` was added) -- no production code depends on `Value: Eq`.
+
+### 2.4 Pattern-Bearing Types Bypass `apply_operator` in the Engine
+
+`TypeKind::Regex` and `TypeKind::Search` are evaluated by **logical match** in `evaluate_single_rule_with_anchor` (`src/evaluator/engine/mod.rs`), not by string equality against `rule.value`. The engine calls `types::read_pattern_match`, which returns `Result<Option<Value>, _>`: `Some(v)` means the pattern matched (possibly zero-width) and `None` means it did not. The engine translates that `Option` directly into `Equal`/`NotEqual`. Comparing matched text to the pattern literal via `apply_operator` would fail for any regex with metacharacters (e.g., matched `"123"` vs pattern `"[0-9]+"`). **Non-equality operators on pattern-bearing types are rejected as `TypeReadError::UnsupportedType`** — an earlier revision fell through to `apply_operator` and silently produced lexicographic ordering comparisons against the pattern source text. If you add a new pattern-bearing `TypeKind` variant, add its arm to both `read_pattern_match` and `bytes_consumed_with_pattern`; the engine's special-case match is keyed on the `Regex | Search` pair so you must add new variants there too.
+
+### 2.5 Zero-Width Regex Matches vs Misses
+
+`read_regex` returns `Ok(Some(Value::String("")))` for a legitimate zero-width match (`^`, `a*`, lookaheads, `.{0}`) and `Ok(None)` for a genuine miss. An earlier revision collapsed both cases to `Value::String(String::new())` and distinguished them by `is_empty()`, which broke every pattern that legitimately matches zero bytes. The structured `Option` is the invariant — do not re-flatten it. `read_typed_value_with_pattern` does collapse `None` to `Value::String(String::new())` for back-compat with its single-`Value` return shape, but the engine does not go through that function for pattern types; it calls `read_pattern_match` directly.
+
+### 2.6 Search Anchor Advance Is Match-End, Not Window-End
+
+`search_bytes_consumed` returns `match_idx + pattern.len()` — the byte just past the matched pattern — not `range` (the window size). This matches GNU `file` semantics: `src/softmagic.c` `FILE_SEARCH` in `moffset()` computes `o = ms->search.offset + vlen - offset` where `ms->search.offset` has already been advanced by `idx` (the match index inside the window) in `magiccheck`, and `vlen = m->vallen` (the pattern length). An earlier revision returned the full window size, which silently corrupted relative-offset children of every successful `search` rule (e.g., `search/256 "MAGIC"` at index 4 advanced the anchor by 256 instead of by 9). The fix threaded the pattern through `bytes_consumed_with_pattern` for `TypeKind::Search` so the scan can be re-run at anchor-advance time. If/when `regex/s`-style start-offset flags land, the match-end can become match-start — do not assume the current behavior is the final design.
 
 ## 3. Parser Architecture
 
@@ -76,6 +88,10 @@ Lowercase pointer specifiers (`.s`, `.l`, `.q`) map to **little-endian**, not na
 `OffsetSpec::Relative(N)` resolves against `EvaluationContext::last_match_end()`, which is updated after every successful match in `evaluate_rules` and is **never saved/restored across child recursion**. This is intentional and matches GNU `file`: a sibling rule sees the anchor wherever the deepest descendant of the previous sibling left it. The anchor is global/shared rather than stack-scoped, but its numeric value is not guaranteed to be non-decreasing -- a successful `Relative(-N)` rule (or any later rule that matches at a lower absolute position) can move it earlier. Do not wrap recursion in a save/restore pair "for safety" -- it would silently break sibling-after-nested chains. The recursion-depth pattern in the same loop *is* save/restore, and the asymmetry is correct.
 
 The load-bearing invariant is that the anchor is updated *before recursing into children* (so children and their followers see the new anchor). The current code also happens to set the anchor before `matches.push(...)`, but the push-ordering relative to `set_last_match_end` is incidental for anchor correctness -- only the ordering before the `evaluate_rules` recursion call matters. (Future code that reads the anchor while iterating `matches` would make this ordering load-bearing, so do not "optimize" the order without checking call sites first.) `bytes_consumed()` (in `evaluator/types/mod.rs`) is the source of truth for advance distance; for variable-width types it re-derives consumption from the buffer rather than trusting `Value::String.len()` (which can drift from the original byte length via `from_utf8_lossy`). Pascal-string consumption is also clamped against the remaining buffer to prevent attacker-controlled length prefixes from poisoning the anchor to `usize::MAX`.
+
+### 3.9 `parse_text_magic_file` is Fail-Fast, Not Skip-on-Error
+
+`build_rule_hierarchy` propagates any `parse_magic_rule_line` error immediately, so a single unparseable rule (e.g., a child using unsupported `&+N` relative-offset syntax or an unquoted `$VAR` string value -- see S3.6) causes the **entire file load** to fail with `ParseError::InvalidSyntax`. There is no skip-and-continue mode. When writing corpus tests against third_party `.magic` files that mix supported and unsupported syntax, bypass the parser and build the equivalent `MagicRule` tree programmatically via the AST; the runtime evaluator can still be exercised end-to-end against the real testfile buffer. See `tests/evaluator_tests.rs::test_regex_eol_corpus` for a worked example.
 
 ## 4. Module Visibility & Re-exports
 
@@ -129,6 +145,10 @@ Middle-endian date keywords are NOT supported. They were removed until real midd
 ### 6.3 Signed-by-Default Types
 
 libmagic types are signed by default (`byte`, `short`, `long`, `quad`). Unsigned variants use `u` prefix (`ubyte`, `ushort`, `ulong`, `uquad`, etc.).
+
+### 6.4 `TypeKind::String { max_length: None }` Against Buffers Without NUL
+
+`read_string` with `max_length: None` reads until the first NUL or end of buffer. On NUL-free buffers (raw ASCII text, JSON, log lines, etc.) it reads the *entire remaining buffer*, and equality comparison against a short target value then fails. Programmatic rules built against such buffers must set `max_length: Some(target_len)` explicitly. Text magic rules (`string "MZ"`) typically work anyway because real executable headers contain NULs within the first few bytes.
 
 ## 7. Testing
 
@@ -224,3 +244,13 @@ All tags and commits MUST be signed -- use `git tag -s` and `git commit -s -S`. 
 - **Rule:** Library consumers embedding libmagic-rs in services or untrusted-input pipelines should **not** use `EvaluationConfig::default()`. Use `EvaluationConfig::performance()` (which sets `timeout_ms: Some(1000)`) as the safe preset, or construct a config explicitly with a non-`None` timeout sized for your workload.
 - **Validation:** `timeout_ms` is clamped to `MAX_SAFE_TIMEOUT_MS` (5 minutes) by config validation and must be `> 0` if specified -- see the validation logic in `src/config.rs`.
 - **Note:** `Default` cannot be changed to set a timeout without breaking API expectations of callers who deliberately want no timeout (e.g., CLI one-shot invocations). The gotcha is that the unsafe default is the ergonomic choice; document the tradeoff prominently in any new consumer-facing docs.
+
+## 14. Output Formatting
+
+### 14.1 `\b` (Backspace) Prefix in Rule Messages Suppresses Leading Space
+
+`MagicDatabase::build_result` concatenates rule messages with a space separator, **except** when a message starts with `\u{0008}` (backspace / `\b`), in which case the backspace is stripped and no leading space is inserted. This mirrors GNU `file`'s description formatting (used by rules like `>&1 regex/1l ... \b, version %s` to produce `Ansible Vault text, version 1.1` instead of `Ansible Vault text , version 1.1`). Tests that manually simulate the concatenation path (e.g., corpus tests that bypass `load_from_file` -- see S3.9) must honor this convention or their assertions will diverge from the real evaluator output.
+
+### 14.2 `%s` (and Other printf-Style Format Specifiers) Are Not Substituted
+
+Magic rule messages like `\b, version %s` are passed through verbatim to the final concatenated description -- the evaluator does not implement printf-style format substitution. Captured values from regex/search/pattern matches live on `RuleMatch.value`, not embedded in `RuleMatch.message`. Tests or output checks that expect substituted text (e.g., "version 1.1") must either hardcode the expected token in the rule's message or assert against `RuleMatch.value` directly.
