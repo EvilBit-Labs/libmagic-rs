@@ -14,7 +14,6 @@ use libmagic_rs::parser::{MagicFileFormat, detect_format};
 use libmagic_rs::{LibmagicError, MagicDatabase};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::process;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -94,6 +93,7 @@ pub struct Args {
 
 impl Args {
     /// Determine the output format based on flags
+    #[must_use]
     pub fn output_format(&self) -> OutputFormat {
         if self.json {
             OutputFormat::Json
@@ -103,18 +103,18 @@ impl Args {
     }
 
     /// Get the magic file path to use, with platform-appropriate defaults
+    #[must_use]
     pub fn get_magic_file_path(&self) -> PathBuf {
-        if let Some(ref custom_path) = self.magic_file {
-            custom_path.clone()
-        } else {
-            Self::default_magic_file_path()
-        }
+        self.magic_file
+            .clone()
+            .unwrap_or_else(Self::default_magic_file_path)
     }
 
     /// Create an EvaluationConfig from command-line arguments
     ///
     /// Uses the timeout value from --timeout-ms if provided, with validation
     /// performed during config creation. Other config values use defaults.
+    #[must_use]
     pub fn to_evaluation_config(&self) -> libmagic_rs::EvaluationConfig {
         libmagic_rs::EvaluationConfig::default().with_timeout_ms(self.timeout_ms)
     }
@@ -231,7 +231,7 @@ pub enum OutputFormat {
     Json,
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
     env_logger::init();
 
     let args = Args::parse();
@@ -240,21 +240,23 @@ fn main() {
     if let Some(shell) = args.generate_completion {
         let mut cmd = Args::command();
         clap_complete::generate(shell, &mut cmd, "rmagic", &mut std::io::stdout());
-        return;
+        return std::process::ExitCode::SUCCESS;
     }
 
-    // Set up signal handler for graceful Ctrl+C handling
+    // Set up signal handler for graceful Ctrl+C handling. `Ordering::Relaxed`
+    // is correct for a single-bit flag with no ordering dependencies on
+    // other memory; `SeqCst` would issue an unnecessary full barrier.
     let interrupted = Arc::new(AtomicBool::new(false));
     let interrupted_clone = Arc::clone(&interrupted);
     if let Err(e) = ctrlc::set_handler(move || {
-        interrupted_clone.store(true, Ordering::SeqCst);
+        interrupted_clone.store(true, Ordering::Relaxed);
     }) {
         eprintln!("Warning: failed to set signal handler: {e}");
     }
 
-    let exit_code = match run_analysis(&args, &interrupted) {
+    let exit_code: i32 = match run_analysis(&args, &interrupted) {
         Ok(()) => {
-            if interrupted.load(Ordering::SeqCst) {
+            if interrupted.load(Ordering::Relaxed) {
                 eprintln!("Interrupted");
                 130
             } else {
@@ -264,7 +266,10 @@ fn main() {
         Err(e) => handle_error(e),
     };
 
-    process::exit(exit_code);
+    // Return ExitCode instead of process::exit so destructors run
+    // (important for BufWriter::flush, Mmap drop, and the signal
+    // handler's Arc). Clamp out-of-range exit codes to 1.
+    std::process::ExitCode::from(u8::try_from(exit_code).unwrap_or(1))
 }
 
 /// Handle different types of errors and return appropriate exit codes
@@ -547,7 +552,7 @@ fn run_analysis(args: &Args, interrupted: &AtomicBool) -> Result<(), LibmagicErr
     // Process each file sequentially
     for file_or_stdin in &args.files {
         // Check for Ctrl+C between files
-        if interrupted.load(Ordering::SeqCst) {
+        if interrupted.load(Ordering::Relaxed) {
             break;
         }
 

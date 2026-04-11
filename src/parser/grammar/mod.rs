@@ -11,10 +11,10 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_while},
     character::complete::{char, multispace0, one_of},
-    combinator::{map, opt},
+    combinator::opt,
     error::Error as NomError,
     multi::many0,
-    sequence::pair,
+    sequence::preceded,
 };
 
 use crate::parser::ast::{
@@ -600,30 +600,27 @@ pub fn parse_strength_directive(input: &str) -> IResult<&str, StrengthModifier> 
     let (input, _) = tag("!:strength")(input)?;
     let (input, _) = multispace0(input)?;
 
-    // Parse the operator: +, -, *, /, = or bare number (implies =)
+    // Parse the operator: +, -, *, /, = or bare number (implies =).
+    // Use `preceded` + `Parser::map` (nom 8 idiom) rather than
+    // `map(pair(..), |(_, n)| ..)` so the throwaway `_` goes away and
+    // the composition matches the rest of this file's `.parse(input)?`
+    // style.
     let (input, modifier) = alt((
         // +N -> Add
-        map(pair(char('+'), parse_number), |(_, n)| {
-            StrengthModifier::Add(clamp_to_i32(n))
-        }),
-        // -N -> Subtract (note: parse_number handles negative, so we need special handling)
-        map(pair(char('-'), parse_decimal_number), |(_, n)| {
-            StrengthModifier::Subtract(clamp_to_i32(n))
-        }),
+        preceded(char('+'), parse_number).map(|n| StrengthModifier::Add(clamp_to_i32(n))),
+        // -N -> Subtract (parse_number handles negative directly; we
+        // need parse_decimal_number after the explicit `-` consumer
+        // so the sign is applied exactly once).
+        preceded(char('-'), parse_decimal_number)
+            .map(|n| StrengthModifier::Subtract(clamp_to_i32(n))),
         // *N -> Multiply
-        map(pair(char('*'), parse_number), |(_, n)| {
-            StrengthModifier::Multiply(clamp_to_i32(n))
-        }),
+        preceded(char('*'), parse_number).map(|n| StrengthModifier::Multiply(clamp_to_i32(n))),
         // /N -> Divide
-        map(pair(char('/'), parse_number), |(_, n)| {
-            StrengthModifier::Divide(clamp_to_i32(n))
-        }),
+        preceded(char('/'), parse_number).map(|n| StrengthModifier::Divide(clamp_to_i32(n))),
         // =N -> Set
-        map(pair(char('='), parse_number), |(_, n)| {
-            StrengthModifier::Set(clamp_to_i32(n))
-        }),
+        preceded(char('='), parse_number).map(|n| StrengthModifier::Set(clamp_to_i32(n))),
         // Bare number -> Set
-        map(parse_number, |n| StrengthModifier::Set(clamp_to_i32(n))),
+        parse_number.map(|n| StrengthModifier::Set(clamp_to_i32(n))),
     ))
     .parse(input)?;
 

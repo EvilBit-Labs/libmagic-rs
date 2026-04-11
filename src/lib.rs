@@ -530,6 +530,7 @@ pub struct EvaluationMetadata {
     /// Number of top-level rules that were evaluated
     pub rules_evaluated: usize,
     /// Path to the magic file used, or None for built-in rules
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub magic_file: Option<PathBuf>,
     /// Whether evaluation was stopped due to timeout
     pub timed_out: bool,
@@ -600,6 +601,10 @@ pub struct EvaluationResult {
     /// Optional MIME type for the detected file type
     ///
     /// Only populated when `enable_mime_types` is set in the configuration.
+    /// Omitted from the serialized form when unset (rather than emitted
+    /// as `"mime_type": null`) so downstream JSON consumers can treat
+    /// presence as the "MIME type is known" indicator.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub mime_type: Option<String>,
     /// Confidence score (0.0 to 1.0)
     ///
