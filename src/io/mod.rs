@@ -229,23 +229,19 @@ impl FileBuffer {
         })
     }
 
-    /// Validates file metadata and ensures file is suitable for memory mapping
-    fn validate_file_metadata(_file: &File, path_buf: &Path) -> Result<(), IoError> {
-        // Resolve symlinks to get the actual target file
-        let canonical_path =
-            std::fs::canonicalize(path_buf).map_err(|source| IoError::MetadataError {
-                path: path_buf.to_path_buf(),
-                source,
-            })?;
+    /// Validates file metadata on the already-open file descriptor.
+    ///
+    /// Uses `File::metadata()` (fstat) rather than re-resolving the path to
+    /// close the TOCTOU window between `open_file` and validation. An attacker
+    /// cannot swap the path for a symlink, directory, or device after open
+    /// because fstat operates on the kernel file-table entry.
+    fn validate_file_metadata(file: &File, path_buf: &Path) -> Result<(), IoError> {
+        let metadata = file.metadata().map_err(|source| IoError::MetadataError {
+            path: path_buf.to_path_buf(),
+            source,
+        })?;
 
-        // Get metadata for the canonical path to ensure we're checking the actual file
-        let metadata =
-            std::fs::metadata(&canonical_path).map_err(|source| IoError::MetadataError {
-                path: canonical_path.clone(),
-                source,
-            })?;
-
-        Self::check_metadata(&metadata, &canonical_path)
+        Self::check_metadata(&metadata, path_buf)
     }
 
     /// Apply the regular-file/size structural checks to an already-read
@@ -698,9 +694,10 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             IoError::EmptyFile { path } => {
-                // The path should be canonicalized, so we need to canonicalize the temp_path for comparison
-                let canonical_temp_path = std::fs::canonicalize(&temp_path).unwrap();
-                assert_eq!(path, canonical_temp_path);
+                // `validate_file_metadata` now uses `file.metadata()` on the
+                // open descriptor rather than re-canonicalizing the path,
+                // so the reported path is the caller-supplied path as-is.
+                assert_eq!(path, temp_path);
             }
             other => panic!("Expected EmptyFile error, got {other:?}"),
         }
@@ -1062,9 +1059,9 @@ mod tests {
         match result.unwrap_err() {
             IoError::InvalidFileType { path, file_type } => {
                 assert_eq!(file_type, "directory");
-                // The path should be canonicalized
-                let canonical_temp_dir = std::fs::canonicalize(&temp_dir).unwrap();
-                assert_eq!(path, canonical_temp_dir);
+                // `validate_file_metadata` now uses the open descriptor,
+                // so the reported path is the caller-supplied path.
+                assert_eq!(path, temp_dir);
             }
             IoError::FileOpenError { .. } => {
                 // On Windows, we can't open directories as files, so we get a FileOpenError
@@ -1099,9 +1096,9 @@ mod tests {
                 match result.unwrap_err() {
                     IoError::InvalidFileType { path, file_type } => {
                         assert_eq!(file_type, "directory");
-                        // The path should be canonicalized to the target directory
-                        let canonical_temp_dir = std::fs::canonicalize(&temp_dir).unwrap();
-                        assert_eq!(path, canonical_temp_dir);
+                        // Post-TOCTOU fix: reported path is the caller-supplied
+                        // symlink path, not the canonicalized target.
+                        assert_eq!(path, symlink_path);
                     }
                     IoError::FileOpenError { .. } => {
                         // On Windows, we can't open directories as files, so we get a FileOpenError
@@ -1223,8 +1220,8 @@ mod tests {
         match result.unwrap_err() {
             IoError::InvalidFileType { path, file_type } => {
                 assert_eq!(file_type, "directory");
-                let canonical_temp_dir = std::fs::canonicalize(&temp_dir).unwrap();
-                assert_eq!(path, canonical_temp_dir);
+                // Caller-supplied path (post-TOCTOU fix).
+                assert_eq!(path, temp_dir);
             }
             IoError::FileOpenError { .. } => {
                 // On Windows, we can't open directories as files
@@ -1261,8 +1258,8 @@ mod tests {
                     match result.unwrap_err() {
                         IoError::InvalidFileType { path, file_type } => {
                             assert_eq!(file_type, "FIFO/pipe");
-                            let canonical_fifo_path = std::fs::canonicalize(&fifo_path).unwrap();
-                            assert_eq!(path, canonical_fifo_path);
+                            // Post-TOCTOU fix: reported path is the caller-supplied path.
+                            assert_eq!(path, fifo_path);
                         }
                         other => panic!("Expected InvalidFileType error, got {other:?}"),
                     }

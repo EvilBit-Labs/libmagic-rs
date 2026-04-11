@@ -347,12 +347,9 @@ impl MagicDatabase {
         let file_buffer = FileBuffer::from_path_and_metadata(path, &file_metadata)?;
         let buffer = file_buffer.as_slice();
 
-        // Evaluate rules against the file buffer (build_result handles empty rules/matches)
-        let matches = if self.rules.is_empty() {
-            vec![]
-        } else {
-            evaluate_rules_with_config(&self.rules, buffer, &self.config)?
-        };
+        // Evaluate rules against the file buffer. `evaluate_rules_with_config`
+        // returns `Ok(vec![])` for an empty rule list, so no guard is needed.
+        let matches = evaluate_rules_with_config(&self.rules, buffer, &self.config)?;
 
         Ok(self.build_result(matches, file_size, start_time))
     }
@@ -396,11 +393,9 @@ impl MagicDatabase {
 
         let file_size = buffer.len() as u64;
 
-        let matches = if self.rules.is_empty() {
-            vec![]
-        } else {
-            evaluate_rules_with_config(&self.rules, buffer, &self.config)?
-        };
+        // `evaluate_rules_with_config` returns `Ok(vec![])` for an empty
+        // rule list, so no `is_empty()` guard is needed here.
+        let matches = evaluate_rules_with_config(&self.rules, buffer, &self.config)?;
 
         Ok(self.build_result(matches, file_size, start_time))
     }

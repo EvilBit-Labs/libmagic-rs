@@ -197,24 +197,12 @@ impl Args {
                 return binary_path;
             }
 
-            // Fallback to repo-provided text magic file if present
-            let repo_magic = PathBuf::from("missing.magic");
-            if repo_magic.exists() {
-                return repo_magic;
-            }
-
-            // Fallback to third_party binary magic file for compatibility hints
-            let dev_magic = PathBuf::from("third_party/magic.mgc");
-            if dev_magic.exists() {
-                return dev_magic;
-            }
-
-            // CI/CD fallback
-            if std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok() {
-                return PathBuf::from("third_party/magic.mgc");
-            }
-
-            // Default fallback
+            // Final absolute-path default. Relative-path fallbacks were removed
+            // deliberately: resolving `./missing.magic` or `./third_party/magic.mgc`
+            // against the process cwd is an untrusted-search-path surface
+            // (CWE-426) — an attacker can plant a crafted magic file in any
+            // directory a victim is likely to `cd` into. Users running from a
+            // dev checkout must pass `--magic <path>` explicitly.
             PathBuf::from("/usr/share/file/magic.mgc")
         }
         #[cfg(windows)]
@@ -227,12 +215,12 @@ impl Args {
                 }
             }
 
-            // Fallback to third_party (common in CI/CD)
-            PathBuf::from("third_party/magic.mgc")
+            // No relative-path fallback (see CWE-426 rationale in the unix arm).
+            PathBuf::from(r"C:\ProgramData\libmagic-rs\magic.mgc")
         }
         #[cfg(not(any(unix, windows)))]
         {
-            PathBuf::from("third_party/magic.mgc")
+            PathBuf::from("/usr/share/file/magic.mgc")
         }
     }
 }
@@ -292,6 +280,13 @@ fn main() {
 /// - 4: Magic file not found or invalid
 /// - 5: Evaluation timeout or resource limits exceeded
 fn handle_error(error: LibmagicError) -> i32 {
+    // Note: `LibmagicError` is `#[non_exhaustive]` so a wildcard arm is
+    // mandatory here (bin crates are separate compilation units from the
+    // library crate, even inside the same cargo package). The wildcard
+    // explicitly documents "unknown variant" rather than silently
+    // collapsing to exit code 1 with a generic message; if you find it
+    // firing in the wild, a new variant was added to `LibmagicError`
+    // without a corresponding handler in this function.
     match error {
         LibmagicError::IoError(ref io_err) => handle_io_error(io_err),
         LibmagicError::ParseError(ref parse_err) => handle_parse_error_new(parse_err),
@@ -306,7 +301,7 @@ fn handle_error(error: LibmagicError) -> i32 {
             3
         }
         _ => {
-            eprintln!("Error: {error}");
+            eprintln!("Error: unhandled libmagic-rs error variant (update handle_error): {error}");
             1
         }
     }

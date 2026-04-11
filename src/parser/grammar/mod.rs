@@ -588,11 +588,12 @@ pub fn parse_message(input: &str) -> IResult<&str, String> {
 pub fn parse_strength_directive(input: &str) -> IResult<&str, StrengthModifier> {
     // Helper to safely convert i64 to i32 with clamping to valid strength range.
     // This prevents silent truncation to 0 on overflow while keeping values in bounds.
+    // Clamping to `[i32::MIN, i32::MAX]` is lossless via `as i32`, so no
+    // `unwrap()`/`expect()` is needed (AGENTS.md bans panic markers in
+    // library code regardless of whether the unwrap is provably safe).
+    #[allow(clippy::cast_possible_truncation)]
     fn clamp_to_i32(n: i64) -> i32 {
-        // Use i64::from for lossless conversion, then clamp and convert back
-        let clamped = n.clamp(i64::from(i32::MIN), i64::from(i32::MAX));
-        // Safe to unwrap: clamped value is guaranteed to be in i32 range
-        i32::try_from(clamped).unwrap()
+        n.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
     }
 
     let (input, _) = multispace0(input)?;

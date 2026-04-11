@@ -64,6 +64,16 @@ use regex::bytes::{Regex, RegexBuilder};
 /// (see GOTCHAS S1.1 — `ast.rs` is shared with `build.rs`).
 pub(crate) const REGEX_MAX_BYTES: usize = 8192;
 
+/// Hard upper bound on the compiled-regex NFA/DFA state table, in bytes.
+///
+/// Rust's `regex` crate defaults `size_limit` to 10 MiB; we clamp to 1 MiB
+/// so that pathological patterns (e.g., `[a-z]{1000000}`, `a{1000000}`) are
+/// rejected at compile time rather than consuming hundreds of MB of RAM.
+/// Combined with the 8192-byte [`REGEX_MAX_BYTES`] scan cap, this bounds
+/// the worst-case regex evaluation cost for attacker-controlled patterns
+/// loaded from magic files (CWE-1333 / compile-time `DoS`).
+pub(crate) const REGEX_COMPILE_SIZE_LIMIT: usize = 1 << 20;
+
 /// Compile `pattern` with the magic-rule regex flags applied.
 ///
 /// Multi-line mode is always enabled (unconditional in libmagic via
@@ -72,11 +82,17 @@ pub(crate) const REGEX_MAX_BYTES: usize = 8192;
 /// the `RegexCount` variant (passed elsewhere) and the `start_offset`
 /// flag affect window computation and anchor advance respectively, not
 /// regex compilation.
+///
+/// The compile-time `size_limit` and `dfa_size_limit` are both bounded by
+/// [`REGEX_COMPILE_SIZE_LIMIT`] (1 MiB) to bound the worst-case memory
+/// footprint of attacker-controlled patterns loaded from magic files.
 fn build_regex(pattern: &str, case_insensitive: bool) -> Result<Regex, regex::Error> {
     RegexBuilder::new(pattern)
         .case_insensitive(case_insensitive)
         .multi_line(true)
         .dot_matches_new_line(false)
+        .size_limit(REGEX_COMPILE_SIZE_LIMIT)
+        .dfa_size_limit(REGEX_COMPILE_SIZE_LIMIT)
         .build()
 }
 
