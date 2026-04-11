@@ -342,29 +342,27 @@ pub enum TypeKind {
     /// file buffer. Patterns are compiled with multi-line mode always enabled
     /// (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match
     /// at line boundaries and `.` does not match `\n`. The `flags` control
-    /// case sensitivity, anchor advance semantics, and whether `count` is
-    /// measured in bytes or lines. The scan window is always capped at
-    /// [`REGEX_MAX_BYTES`] (8192) regardless of `count`.
+    /// case sensitivity and anchor advance semantics; the `count` field
+    /// controls the scan window (byte or line bounds). The scan window is
+    /// always capped at 8192 bytes (matching GNU `file`'s `FILE_REGEX_MAX`;
+    /// enforced in the evaluator).
     ///
     /// # Examples
     ///
     /// ```
-    /// use libmagic_rs::parser::ast::{TypeKind, RegexFlags};
+    /// use libmagic_rs::parser::ast::{RegexCount, RegexFlags, TypeKind};
     /// use std::num::NonZeroU32;
     ///
     /// // Plain `regex` -- no flags, default 8192-byte scan window.
     /// let plain = TypeKind::Regex {
     ///     flags: RegexFlags::default(),
-    ///     count: None,
+    ///     count: RegexCount::Default,
     /// };
     ///
-    /// // `regex/1l` -- scan the first line only (1 line, capped at 8192 bytes).
+    /// // `regex/1l` -- scan the first line only.
     /// let first_line = TypeKind::Regex {
-    ///     flags: RegexFlags {
-    ///         line_based: true,
-    ///         ..RegexFlags::default()
-    ///     },
-    ///     count: NonZeroU32::new(1),
+    ///     flags: RegexFlags::default(),
+    ///     count: RegexCount::Lines(NonZeroU32::new(1)),
     /// };
     ///
     /// // `regex/cs` -- case-insensitive, anchor advances to match-start.
@@ -372,26 +370,19 @@ pub enum TypeKind {
     ///     flags: RegexFlags {
     ///         case_insensitive: true,
     ///         start_offset: true,
-    ///         line_based: false,
     ///     },
-    ///     count: None,
+    ///     count: RegexCount::Default,
     /// };
     /// ```
     Regex {
-        /// Modifier flags from the `/[csl]` suffix.
+        /// Modifier flags from the `/[cs]` suffix (`/c` case-insensitive,
+        /// `/s` start-offset anchor). Line-mode is encoded by the
+        /// [`RegexCount::Lines`] variant of `count`, not a flag.
         flags: RegexFlags,
-        /// Optional numeric count from `regex/N[flags]`. Interpretation
-        /// depends on `flags.line_based`:
-        ///
-        /// * `None`: use the 8192-byte default scan window.
-        /// * `Some(n)` with `flags.line_based == false`: scan at most `n`
-        ///   bytes, capped at 8192.
-        /// * `Some(n)` with `flags.line_based == true`: scan at most `n`
-        ///   lines, with an effective byte cap of `min(n * 80, 8192)`.
-        ///
-        /// The 8192-byte hard cap matches GNU `file`'s `FILE_REGEX_MAX` and
-        /// prevents runaway regex scans against large buffers.
-        count: Option<NonZeroU32>,
+        /// Scan window specifier: default 8192 bytes, explicit byte
+        /// count, or explicit line count. See [`RegexCount`] for the
+        /// three cases.
+        count: RegexCount,
     },
     /// Multi-byte pattern search within a bounded range
     ///
@@ -419,11 +410,20 @@ pub enum TypeKind {
     },
 }
 
-/// Regex modifier flags parsed from the `/[csl]` suffix on a `regex` rule.
+/// Regex modifier flags parsed from the `/[cs]` suffix on a `regex` rule.
 ///
-/// All flags default to `false` via [`RegexFlags::default`]. The `Default`
-/// impl is equivalent to a plain `regex` type with no suffix, which scans
-/// 8192 bytes in byte mode and advances the anchor to match-end.
+/// The `/l` "line-based window" modifier is **not** represented here; it
+/// lives on [`RegexCount::Lines`] so that the type-level encoding makes
+/// "line count" and "byte count" mutually exclusive. An earlier design
+/// used two separate fields (`line_based: bool` + `count: Option<u32>`)
+/// which admitted the cross-field state `line_based: true, count: None`;
+/// under the current encoding that case is expressed explicitly as
+/// [`RegexCount::Lines(None)`](RegexCount::Lines) -- the `regex/l`
+/// shorthand -- and is behaviorally equivalent to [`RegexCount::Default`]
+/// (both walk the full 8192-byte capped window).
+///
+/// All flags default to `false` via [`RegexFlags::default`], equivalent
+/// to a plain `regex` with no `/c` or `/s` suffix.
 ///
 /// # Examples
 ///
@@ -433,15 +433,12 @@ pub enum TypeKind {
 /// let plain = RegexFlags::default();
 /// assert!(!plain.case_insensitive);
 /// assert!(!plain.start_offset);
-/// assert!(!plain.line_based);
 ///
-/// let case_and_line = RegexFlags {
-///     case_insensitive: true,
-///     start_offset: false,
-///     line_based: true,
-/// };
-/// assert!(case_and_line.case_insensitive);
-/// assert!(case_and_line.line_based);
+/// let case_and_start = RegexFlags::default()
+///     .with_case_insensitive(true)
+///     .with_start_offset(true);
+/// assert!(case_and_start.case_insensitive);
+/// assert!(case_and_start.start_offset);
 /// ```
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RegexFlags {
@@ -454,22 +451,82 @@ pub struct RegexFlags {
     /// `moffset()` for `FILE_REGEX`. Useful for chaining child rules that
     /// need to re-match from the position where the parent regex began.
     pub start_offset: bool,
-    /// `/l` -- measure the scan window in lines instead of bytes. When
-    /// `true`, `count` is interpreted as a line count rather than a byte
-    /// count. The effective byte window is still capped at 8192 bytes
-    /// regardless (see [`TypeKind::Regex::count`] for the details).
-    ///
-    /// Note: this flag does **not** control multi-line regex matching;
-    /// libmagic always compiles patterns with `REG_NEWLINE`, so `^`/`$`
-    /// match at line boundaries regardless of `/l`.
-    pub line_based: bool,
 }
 
-/// The hard upper bound on regex scan window size, matching GNU `file`'s
-/// `FILE_REGEX_MAX` constant in `src/file.h`. Any regex rule -- including
-/// ones with explicit counts larger than this -- is capped at this many
-/// bytes to prevent runaway scans against large buffers.
-pub const REGEX_MAX_BYTES: usize = 8192;
+impl RegexFlags {
+    /// Builder-style setter for [`RegexFlags::case_insensitive`] (`/c`).
+    ///
+    /// Chain after [`RegexFlags::default()`] to construct `RegexFlags`
+    /// values without exhaustive struct literals. If a new flag is
+    /// added to `RegexFlags` in the future, callers using the builder
+    /// form keep compiling; callers using struct literals would need
+    /// an update.
+    #[must_use]
+    pub const fn with_case_insensitive(mut self, value: bool) -> Self {
+        self.case_insensitive = value;
+        self
+    }
+
+    /// Builder-style setter for [`RegexFlags::start_offset`] (`/s`).
+    ///
+    /// Chain after [`RegexFlags::default()`] to construct `RegexFlags`
+    /// values without exhaustive struct literals.
+    #[must_use]
+    pub const fn with_start_offset(mut self, value: bool) -> Self {
+        self.start_offset = value;
+        self
+    }
+}
+
+/// Scan window specifier for a [`TypeKind::Regex`] rule.
+///
+/// Encodes the three mutually-exclusive scan modes in a single enum so
+/// that the "byte count" and "line count" cases cannot be confused. The
+/// `regex/l` shorthand (line mode with no explicit count) is represented
+/// explicitly as [`RegexCount::Lines(None)`](RegexCount::Lines), which
+/// is behaviorally equivalent to [`RegexCount::Default`] -- both walk
+/// the full 8192-byte capped window -- but preserves the magic-file
+/// surface syntax of the original rule. The 8192-byte hard cap
+/// (matching GNU `file`'s `FILE_REGEX_MAX`) is applied by the evaluator
+/// on every variant.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::RegexCount;
+/// use std::num::NonZeroU32;
+///
+/// // Plain `regex` (no suffix): default 8192-byte window.
+/// assert_eq!(RegexCount::default(), RegexCount::Default);
+///
+/// // `regex/100`: scan at most 100 bytes.
+/// let hundred_bytes = RegexCount::Bytes(NonZeroU32::new(100).unwrap());
+///
+/// // `regex/1l`: scan the first line.
+/// let one_line = RegexCount::Lines(NonZeroU32::new(1));
+///
+/// // `regex/l`: line-mode with no explicit count (walks terminators
+/// // to the end of the 8192-byte capped window).
+/// let unbounded_lines = RegexCount::Lines(None);
+/// ```
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum RegexCount {
+    /// No scan bound (plain `regex` with no suffix). Scans the default
+    /// 8192-byte window from the rule's offset.
+    #[default]
+    Default,
+    /// Byte-bounded scan (`regex/N` with no `/l` flag). The window is
+    /// `min(n, 8192, remaining_buffer)` bytes long. `NonZeroU32` makes
+    /// a zero-byte scan unrepresentable.
+    Bytes(NonZeroU32),
+    /// Line-bounded scan (`regex/Nl` or `regex/l`). The window walks
+    /// LF / CRLF / bare CR line terminators from the offset. With
+    /// `Some(n)`, the walk stops after the Nth terminator (inclusive).
+    /// With `None` (the `regex/l` shorthand), the walk continues to
+    /// the end of the 8192-byte capped window. Either way the
+    /// effective byte window is capped at 8192.
+    Lines(Option<NonZeroU32>),
+}
 
 impl TypeKind {
     /// Returns the bit width of integer types, or `None` for non-integer types (e.g., String).
@@ -779,17 +836,292 @@ pub struct MagicRule {
     pub strength_modifier: Option<StrengthModifier>,
 }
 
-// TODO: Add validation methods for MagicRule:
-// - validate() method to check rule consistency
-// - Ensure message is not empty and contains valid characters
-// - Validate that value type matches the TypeKind
-// - Check that child rule levels are properly nested
-// - Validate offset specifications are reasonable
-// - Add bounds checking for level depth to prevent stack overflow
+/// Validation errors returned by [`MagicRule::validate`].
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MagicRuleValidationError {
+    /// Rule message is empty. Messages are user-facing and required
+    /// for meaningful output.
+    #[error("rule message must not be empty")]
+    EmptyMessage,
+
+    /// The child rule at `child_index` has `level <= self.level`,
+    /// violating the "children must nest deeper than the parent"
+    /// invariant of the hierarchical indentation-based DSL.
+    #[error(
+        "child rule at index {child_index} has level {child_level}, \
+         must be greater than parent level {parent_level}"
+    )]
+    InvalidChildLevel {
+        /// Index of the offending child in `self.children`.
+        child_index: usize,
+        /// Level of the child rule.
+        child_level: u32,
+        /// Level of the parent rule.
+        parent_level: u32,
+    },
+
+    /// Rule `level` exceeds the maximum supported depth. The limit is a
+    /// hardening mechanism against stack overflow during deep recursion;
+    /// libmagic files in the wild rarely go beyond 10 levels.
+    #[error("rule level {level} exceeds maximum supported depth {max}")]
+    LevelTooDeep {
+        /// The invalid level value.
+        level: u32,
+        /// The maximum allowed depth.
+        max: u32,
+    },
+}
+
+impl MagicRule {
+    /// Hard structural ceiling on rule `level`.
+    ///
+    /// This is a conservative upper bound enforced by
+    /// [`MagicRule::validate`] to keep the AST shape sane: real
+    /// magic files in the wild rarely exceed ~10 levels of nesting,
+    /// so rejecting rules with `level > 1000` catches obviously
+    /// pathological input at construction time without constraining
+    /// any legitimate rule.
+    ///
+    /// This ceiling is **independent of** the evaluator's
+    /// `EvaluationConfig::max_recursion_depth` (default 20), which
+    /// is the *runtime* recursion guard applied during rule
+    /// evaluation. The evaluator limit is the first one that fires
+    /// in practice -- a rule tree with 50 levels passes this
+    /// structural check but is aborted by the evaluator long before
+    /// reaching `MAX_LEVEL`. The two limits serve different purposes:
+    /// `MAX_LEVEL` is an AST-shape sanity check, and
+    /// `max_recursion_depth` is a per-evaluation resource bound.
+    pub const MAX_LEVEL: u32 = 1000;
+
+    /// Construct a top-level rule with no children and no strength
+    /// modifier.
+    ///
+    /// This is the most common constructor for programmatically building
+    /// rules outside the parser. To add children, mutate
+    /// [`MagicRule::children`] directly, or use [`MagicRule::with_children`].
+    /// To set a strength modifier, use
+    /// [`MagicRule::with_strength_modifier`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use libmagic_rs::{MagicRule, OffsetSpec, Operator, TypeKind, Value};
+    ///
+    /// let rule = MagicRule::new(
+    ///     OffsetSpec::Absolute(0),
+    ///     TypeKind::Byte { signed: false },
+    ///     Operator::Equal,
+    ///     Value::Uint(0x7f),
+    ///     "ELF magic byte".to_string(),
+    /// );
+    /// assert_eq!(rule.level, 0);
+    /// assert!(rule.children.is_empty());
+    /// assert!(rule.validate().is_ok());
+    /// ```
+    #[must_use]
+    pub fn new(
+        offset: OffsetSpec,
+        typ: TypeKind,
+        op: Operator,
+        value: Value,
+        message: String,
+    ) -> Self {
+        Self {
+            offset,
+            typ,
+            op,
+            value,
+            message,
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        }
+    }
+
+    /// Replace `self.children` with the given children and return the
+    /// modified rule. Builder-style for chaining.
+    #[must_use]
+    pub fn with_children(mut self, children: Vec<MagicRule>) -> Self {
+        self.children = children;
+        self
+    }
+
+    /// Set `self.strength_modifier` to the given value and return the
+    /// modified rule. Builder-style for chaining.
+    #[must_use]
+    pub const fn with_strength_modifier(mut self, modifier: StrengthModifier) -> Self {
+        self.strength_modifier = Some(modifier);
+        self
+    }
+
+    /// Set `self.level` to the given value and return the modified rule.
+    /// Builder-style for chaining; typically used only when constructing
+    /// child rules programmatically.
+    #[must_use]
+    pub const fn with_level(mut self, level: u32) -> Self {
+        self.level = level;
+        self
+    }
+
+    /// Validate structural invariants of the rule.
+    ///
+    /// This checks invariants that the parser enforces automatically but
+    /// that programmatic constructors (especially via serde deserialize)
+    /// can violate:
+    ///
+    /// * Message must not be empty.
+    /// * `level` must not exceed [`Self::MAX_LEVEL`].
+    /// * Every child's `level` must be strictly greater than
+    ///   `self.level`, and each child must recursively validate.
+    ///
+    /// This does *not* validate that `value` is shape-compatible with
+    /// `typ` (e.g., a `Value::Uint` against a `TypeKind::String`); such
+    /// mismatches are coerced or rejected by the evaluator at match time.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MagicRuleValidationError`] describing the first
+    /// invariant violation encountered.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use libmagic_rs::{MagicRule, OffsetSpec, Operator, TypeKind, Value};
+    ///
+    /// let rule = MagicRule::new(
+    ///     OffsetSpec::Absolute(0),
+    ///     TypeKind::Byte { signed: false },
+    ///     Operator::Equal,
+    ///     Value::Uint(0),
+    ///     "zero byte".to_string(),
+    /// );
+    /// assert!(rule.validate().is_ok());
+    /// ```
+    pub fn validate(&self) -> Result<(), MagicRuleValidationError> {
+        if self.message.is_empty() {
+            return Err(MagicRuleValidationError::EmptyMessage);
+        }
+        if self.level > Self::MAX_LEVEL {
+            return Err(MagicRuleValidationError::LevelTooDeep {
+                level: self.level,
+                max: Self::MAX_LEVEL,
+            });
+        }
+        for (child_index, child) in self.children.iter().enumerate() {
+            if child.level <= self.level {
+                return Err(MagicRuleValidationError::InvalidChildLevel {
+                    child_index,
+                    child_level: child.level,
+                    parent_level: self.level,
+                });
+            }
+            child.validate()?;
+        }
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_magic_rule_new_defaults() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(0x7f),
+            "ELF".to_string(),
+        );
+        assert_eq!(rule.level, 0);
+        assert!(rule.children.is_empty());
+        assert!(rule.strength_modifier.is_none());
+        assert!(rule.validate().is_ok());
+    }
+
+    #[test]
+    fn test_magic_rule_builder_chain() {
+        let child = MagicRule::new(
+            OffsetSpec::Absolute(4),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(2),
+            "64-bit".to_string(),
+        )
+        .with_level(1);
+        let parent = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(0x7f),
+            "ELF".to_string(),
+        )
+        .with_children(vec![child])
+        .with_strength_modifier(StrengthModifier::Add(10));
+        assert_eq!(parent.children.len(), 1);
+        assert_eq!(parent.strength_modifier, Some(StrengthModifier::Add(10)));
+        assert!(parent.validate().is_ok());
+    }
+
+    #[test]
+    fn test_magic_rule_validate_empty_message_rejected() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(0),
+            String::new(),
+        );
+        assert_eq!(rule.validate(), Err(MagicRuleValidationError::EmptyMessage));
+    }
+
+    #[test]
+    fn test_magic_rule_validate_child_level_must_be_deeper() {
+        let child_same_level = MagicRule::new(
+            OffsetSpec::Absolute(4),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(2),
+            "child".to_string(),
+        ); // level = 0, same as parent
+        let parent = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(0x7f),
+            "parent".to_string(),
+        )
+        .with_children(vec![child_same_level]);
+        assert_eq!(
+            parent.validate(),
+            Err(MagicRuleValidationError::InvalidChildLevel {
+                child_index: 0,
+                child_level: 0,
+                parent_level: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn test_magic_rule_validate_level_too_deep() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(0),
+            "deep".to_string(),
+        )
+        .with_level(MagicRule::MAX_LEVEL + 1);
+        assert_eq!(
+            rule.validate(),
+            Err(MagicRuleValidationError::LevelTooDeep {
+                level: MagicRule::MAX_LEVEL + 1,
+                max: MagicRule::MAX_LEVEL,
+            })
+        );
+    }
 
     #[test]
     fn test_offset_spec_absolute() {

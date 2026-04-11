@@ -202,7 +202,7 @@ cargo test --doc   # Test documentation examples
 
 ## Magic File Compatibility
 
-### Currently Implemented (v0.1.0)
+### Currently Implemented (v0.5.0)
 
 - **Offsets**: Absolute, from-end, indirect, and relative specifications (relative offsets `&+N`/`&-N` are evaluated using GNU `file` semantics -- the previous-match anchor)
 - **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`; `pstring` is a Pascal string (length-prefixed) with support for 1/2/4-byte length prefixes via `/B`, `/H` (2-byte BE), `/h` (2-byte LE), `/L` (4-byte BE), `/l` (4-byte LE) suffixes, and the `/J` flag (stored length includes prefix width, JPEG convention) which is combinable with width suffixes (e.g., `pstring/HJ`); date values formatted as "Www Mmm DD HH:MM:SS YYYY" matching GNU `file` output; types are signed by default (libmagic-compatible)
@@ -212,13 +212,9 @@ cargo test --doc   # Test documentation examples
 - **Regex type**: Binary-safe regex matching via `regex::bytes::Regex`. Full flag support: `/c` (case-insensitive), `/s` (anchor advances to match-start instead of match-end), `/l` (scan window is measured in lines instead of bytes). Flags combine in any order (`regex/cs`, `regex/csl`, `regex/lc`). Numeric counts are honored: `regex/100` scans at most 100 bytes; `regex/1l` scans at most 1 line. Multi-line regex matching is always on (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries regardless of `/l`. Every scan window is capped at 8192 bytes (`FILE_REGEX_MAX`) regardless of the user's count.
 - **Search type**: Bounded literal pattern scan via `memchr::memmem::find`; `search/N` caps the scan window to `N` bytes from the offset. The range is **mandatory** and stored as `NonZeroUsize`, so bare `search` and `search/0` are parse errors (matching GNU `file` magic(5)). Anchor advance follows GNU `file` semantics (match-end, not window-end) so relative-offset children resolve to the byte immediately after the matched pattern.
 
-### Planned Features (v1.0+)
+See **Development Phases** below for the planned roadmap of features not yet implemented (Aho-Corasick multi-pattern optimization, compiled-regex caching, `!:mime`/`!:ext`/`!:apple` directive evaluation, and `use`/`name` named test directives).
 
-- Aho-Corasick multi-pattern search optimization for `search/` rules.
-- `!:mime`/`!:ext`/`!:apple` directive evaluation (currently only `!:strength` is parsed).
-- `use`/`name` named test directives for rule reuse.
-
-## Current Limitations (v0.1.0)
+## Current Limitations (v0.5.0)
 
 ### Type System
 
@@ -457,11 +453,13 @@ CI must pass before merge. Mergify merge protections enforce these checks. Bot P
 
 ### Development Phases
 
-1. **MVP (v0.1.0)** - CURRENT: Basic parsing and evaluation with byte/short/long/quad/string types, equality and bitwise AND operators, built-in rules for 10 common formats
-2. **Enhanced Features (v0.2)**: Comparison operators (`>`, `<`), indirect offset improvements, strength-based rule ordering
-3. **Advanced Types (v0.3)**: Regex flag completeness (`/s`, proper `/l` line-count semantics, `regex/Nl`), search range enforcement, 8192-byte default regex range
-4. **Full Compatibility (v0.4)**: Complete libmagic syntax support, all special directives, named tests
-5. **Production Ready (v1.0)**: Stable API, complete documentation, 95%+ compatibility with GNU file
+1. **MVP (v0.1.0)** - shipped: Basic parsing and evaluation with byte/short/long/quad/string types, equality and bitwise AND operators, built-in rules for 10 common formats
+2. **Enhanced Features (v0.2.0)** - shipped: Comparison operators (`>`, `<`, `<=`, `>=`), bitwise XOR/NOT, indirect and relative offset evaluation, strength-based rule ordering
+3. **Advanced Types (v0.3.0)** - shipped: float/double/date/qdate/pstring types, regex, search, evaluator submodule split
+4. **v0.4.0** - shipped: parse warnings, JSON metadata, improved errors, cargo-dist release pipeline
+5. **v0.5.x (current)** - in flight: TOCTOU/search-path hardening, regex compile cache, `EvaluationConfig` non_exhaustive, `MagicRule::new` validator, thread-local regex cache
+6. **v0.6.0**: `Value` pattern refactor (eliminate pattern-as-literal overloading), `MagicDatabase::builder()`, `Directive` extension point for `!:mime`/`!:ext`/`!:apple`
+7. **v1.0.0**: Stable API, complete documentation, 95%+ compatibility with GNU file, Aho-Corasick multi-pattern optimization, cargo-fuzz harness, complete `#[non_exhaustive]` coverage
 
 ## Best Practices
 

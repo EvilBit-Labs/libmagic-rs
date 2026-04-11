@@ -18,7 +18,8 @@
 //! This pattern is documented in GOTCHAS 3.9.
 
 use libmagic_rs::evaluator::evaluate_rules;
-use libmagic_rs::parser::ast::RegexFlags;
+use libmagic_rs::parser::ast::{RegexCount, RegexFlags};
+use libmagic_rs::parser::parse_text_magic_file;
 use libmagic_rs::{
     EvaluationConfig, EvaluationContext, MagicRule, OffsetSpec, Operator, TypeKind, Value,
 };
@@ -43,17 +44,14 @@ fn regex_rule(
     offset: OffsetSpec,
     pattern: &str,
     flags: RegexFlags,
-    count: Option<u32>,
+    count: RegexCount,
     message: &str,
     children: Vec<MagicRule>,
     level: u32,
 ) -> MagicRule {
     MagicRule {
         offset,
-        typ: TypeKind::Regex {
-            flags,
-            count: count.and_then(std::num::NonZeroU32::new),
-        },
+        typ: TypeKind::Regex { flags, count },
         op: Operator::Equal,
         value: Value::String(pattern.to_string()),
         message: message.to_string(),
@@ -219,7 +217,7 @@ fn test_json1_corpus_detected_by_regex() {
         OffsetSpec::Absolute(0),
         r"^\s*[\{\[]",
         RegexFlags::default(),
-        None,
+        RegexCount::Default,
         "JSON text data",
         vec![],
         0,
@@ -228,6 +226,157 @@ fn test_json1_corpus_detected_by_regex() {
     let matches = run_rules(&[json_rule], &buffer);
     assert_eq!(matches.len(), 1, "json1 should match: {matches:#?}");
     assert_eq!(matches[0].message, "JSON text data");
+}
+
+/// End-to-end parser → evaluator round-trip for regex rules.
+///
+/// This test parses a regex rule from **magic-file text** via
+/// `parse_text_magic_file` and evaluates it against the `json1.testfile`
+/// corpus fixture. Unlike `test_json1_corpus_detected_by_regex` above,
+/// which constructs the rule programmatically, this test exercises the
+/// full `grammar/mod.rs::parse_type_and_operator` path including
+/// `RegexFlags` construction, the absence of a suffix (default flags,
+/// default count), and the value-string parsing. Closes the parser
+/// round-trip coverage gap flagged in PR review.
+#[test]
+fn test_json1_corpus_parser_roundtrip() {
+    let buffer = load_corpus_file("json1.testfile");
+
+    // The outer `r#"..."#` lets us embed a double-quoted regex literal
+    // without escaping each quote. The inner `\\s`/`\\{`/`\\[` pattern
+    // escapes are interpreted by the regex compiler, not by the magic
+    // parser, so the double-backslashes are correct.
+    let magic = r#"0 regex "^\\s*[\\{\\[]" JSON text data"#;
+    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    assert_eq!(rules.len(), 1);
+
+    let matches = run_rules(&rules, &buffer);
+    assert_eq!(
+        matches.len(),
+        1,
+        "parser round-trip should match json1: {matches:#?}"
+    );
+    assert_eq!(matches[0].message, "JSON text data");
+}
+
+/// Parser round-trip for a regex rule with the `/c` case-insensitive
+/// flag. Verifies that `parse_type_and_operator` correctly threads the
+/// `RegexFlags { case_insensitive: true, .. }` construction through to
+/// the evaluator.
+#[test]
+fn test_regex_flag_parser_roundtrip_case_insensitive() {
+    // JSON is all-ASCII lowercase so case-insensitive doesn't affect
+    // the match result for `json1.testfile`, but the rule still parses
+    // and evaluates, confirming the flag is wired through.
+    let buffer = load_corpus_file("json1.testfile");
+    let magic = r#"0 regex/c "^\\s*[\\{\\[]" JSON text data"#;
+    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    assert_eq!(rules.len(), 1);
+
+    let matches = run_rules(&rules, &buffer);
+    assert_eq!(matches.len(), 1);
+}
+
+/// Parser round-trip for a `search/N` rule. Verifies that bare-`search`
+/// rejection and the mandatory `NonZeroUsize` range also hold when the
+/// rule is loaded from text (not just when constructed programmatically).
+#[test]
+fn test_search_parser_roundtrip_with_range() {
+    let buffer = load_corpus_file("searchbug.testfile");
+    let magic = r#"0 search/32 "ABC" found ABC"#;
+    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    assert_eq!(rules.len(), 1);
+
+    let matches = run_rules(&rules, &buffer);
+    assert_eq!(matches.len(), 1, "searchbug should find ABC: {matches:#?}");
+    assert_eq!(matches[0].message, "found ABC");
+}
+
+/// Parser rejects bare `search` without range even from magic-file
+/// text -- the `NonZeroUsize` constraint is enforced at parse time.
+#[test]
+fn test_search_parser_rejects_bare_search() {
+    let magic = r#"0 search "ABC" bogus"#;
+    let result = parse_text_magic_file(magic);
+    assert!(
+        result.is_err(),
+        "bare `search` (no /N) should be a parse error"
+    );
+}
+
+/// Parser round-trip for `regex/N` (byte-count variant). Exercises the
+/// full grammar -> evaluator pipeline for `RegexCount::Bytes(_)`, which
+/// is only covered by direct-reader tests otherwise.
+#[test]
+fn test_regex_bytes_count_parser_roundtrip() {
+    // Match the first JSON opener byte within a 64-byte window.
+    let buffer = load_corpus_file("json1.testfile");
+    let magic = r#"0 regex/64 "^\\s*[\\{\\[]" JSON in first 64 bytes"#;
+    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    assert_eq!(rules.len(), 1);
+
+    let matches = run_rules(&rules, &buffer);
+    assert_eq!(
+        matches.len(),
+        1,
+        "Bytes(64) window should match json1 opener"
+    );
+    assert_eq!(matches[0].message, "JSON in first 64 bytes");
+}
+
+/// Parser round-trip for `regex/Nl` (line-count variant). Exercises
+/// `RegexCount::Lines(Some(_))` end-to-end against a real corpus file.
+#[test]
+fn test_regex_lines_count_parser_roundtrip() {
+    let buffer = load_corpus_file("gedcom.testfile");
+    let magic = r#"0 regex/1l "^0 HEAD" GEDCOM head on first line"#;
+    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    assert_eq!(rules.len(), 1);
+
+    let matches = run_rules(&rules, &buffer);
+    assert_eq!(
+        matches.len(),
+        1,
+        "Lines(Some(1)) window should match the GEDCOM head record"
+    );
+    assert_eq!(matches[0].message, "GEDCOM head on first line");
+}
+
+/// Parser round-trip for `regex/l` (line-count variant with None).
+/// Exercises `RegexCount::Lines(None)` through the grammar. Since
+/// `Lines(None)` is behaviorally equivalent to `Default`, the match
+/// result should be identical to a plain `regex` rule with the same
+/// pattern.
+#[test]
+fn test_regex_lines_none_parser_roundtrip() {
+    let buffer = load_corpus_file("json1.testfile");
+    let magic = r#"0 regex/l "^\\s*[\\{\\[]" JSON text data"#;
+    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    assert_eq!(rules.len(), 1);
+
+    let matches = run_rules(&rules, &buffer);
+    assert_eq!(matches.len(), 1, "regex/l should match json1 opener");
+}
+
+/// Parser round-trip for `regex/ls` (line-count + start-offset flag
+/// combination) exercising both `RegexCount::Lines` and the `/s` flag
+/// through the full pipeline. Primarily verifies that the grammar
+/// correctly produces `RegexFlags { start_offset: true }` together
+/// with `RegexCount::Lines(None)` rather than losing one of them in
+/// the collapse logic.
+#[test]
+fn test_regex_start_offset_and_line_flag_parser_roundtrip() {
+    let buffer = load_corpus_file("json1.testfile");
+    let magic = r#"0 regex/ls "^\\s*[\\{\\[]" JSON opener with /s anchor"#;
+    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    assert_eq!(rules.len(), 1);
+
+    let matches = run_rules(&rules, &buffer);
+    assert_eq!(
+        matches.len(),
+        1,
+        "regex/ls should still match json1 (flag combination works)"
+    );
 }
 
 #[test]
@@ -240,7 +389,7 @@ fn test_jsonlines1_corpus_detected_by_regex() {
         OffsetSpec::Absolute(0),
         r"^\s*[\{\[]",
         RegexFlags::default(),
-        None,
+        RegexCount::Default,
         "JSON Lines text",
         vec![],
         0,
@@ -265,7 +414,7 @@ fn test_cmd1_corpus_detected_by_regex() {
         OffsetSpec::Absolute(0),
         r"^#![ \t]*/\S+",
         RegexFlags::default(),
-        None,
+        RegexCount::Default,
         "a shell script",
         vec![],
         0,
@@ -288,16 +437,11 @@ fn test_gedcom_corpus_detected_by_line_based_regex() {
     let buffer = load_corpus_file("gedcom.testfile");
 
     // `regex/1l "^0 HEAD"` — scan only the first line for the header.
-    let head_line_flags = RegexFlags {
-        line_based: true,
-        ..RegexFlags::default()
-    };
-
     let gedcom_rule = regex_rule(
         OffsetSpec::Absolute(0),
         r"^0 HEAD",
-        head_line_flags,
-        Some(1),
+        RegexFlags::default(),
+        RegexCount::Lines(std::num::NonZeroU32::new(1)),
         "GEDCOM genealogy data",
         vec![],
         0,
@@ -324,11 +468,8 @@ fn test_regex_eol_version_extraction() {
     let version_rule = regex_rule(
         OffsetSpec::Absolute(0),
         r"[0-9]+(\.[0-9]+)+",
-        RegexFlags {
-            line_based: true,
-            ..RegexFlags::default()
-        },
-        Some(1),
+        RegexFlags::default(),
+        RegexCount::Lines(std::num::NonZeroU32::new(1)),
         "version found",
         vec![],
         0,

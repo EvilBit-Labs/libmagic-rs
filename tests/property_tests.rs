@@ -65,22 +65,34 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
                 length_width: width,
                 length_includes_itself: includes_self,
             }),
-        (
-            any::<bool>(),
-            any::<bool>(),
-            any::<bool>(),
-            prop::option::of(1u32..=4096u32),
-        )
-            .prop_map(|(case_insensitive, start_offset, line_based, count)| {
-                TypeKind::Regex {
+        {
+            // Fair-weighted generator for `RegexCount`: each of the
+            // four sub-states (Default, Bytes, Lines(Some), Lines(None))
+            // gets roughly equal sampling via `prop_oneof!`. The old
+            // uniform `0..4` dispatch gave Lines 2x weight and further
+            // collapsed Bytes into Default on a None raw_count, leaving
+            // Bytes at ~12.5% effective sample rate. Under the new
+            // weighting each variant fires on ~25% of samples.
+            let count_strategy = prop_oneof![
+                Just(libmagic_rs::parser::ast::RegexCount::Default),
+                (1u32..=4096u32).prop_map(|n| libmagic_rs::parser::ast::RegexCount::Bytes(
+                    ::std::num::NonZeroU32::new(n).expect("range excludes 0")
+                )),
+                (1u32..=4096u32).prop_map(|n| libmagic_rs::parser::ast::RegexCount::Lines(
+                    ::std::num::NonZeroU32::new(n)
+                )),
+                Just(libmagic_rs::parser::ast::RegexCount::Lines(None)),
+            ];
+            (any::<bool>(), any::<bool>(), count_strategy).prop_map(
+                |(case_insensitive, start_offset, count)| TypeKind::Regex {
                     flags: libmagic_rs::parser::ast::RegexFlags {
                         case_insensitive,
                         start_offset,
-                        line_based,
                     },
-                    count: count.and_then(::std::num::NonZeroU32::new),
-                }
-            }),
+                    count,
+                },
+            )
+        },
         (1usize..=4096usize).prop_map(|range| TypeKind::Search {
             range: ::std::num::NonZeroUsize::new(range).unwrap(),
         }),
@@ -173,13 +185,12 @@ proptest! {
         string_length in 1usize..10000usize,
         timeout in 1u64..100000u64
     ) {
-        let config = EvaluationConfig {
-            max_recursion_depth: recursion_depth,
-            max_string_length: string_length,
-            stop_at_first_match: true,
-            enable_mime_types: false,
-            timeout_ms: Some(timeout),
-        };
+        let config = EvaluationConfig::default()
+            .with_max_recursion_depth(recursion_depth)
+            .with_max_string_length(string_length)
+            .with_stop_at_first_match(true)
+            .with_mime_types(false)
+            .with_timeout_ms(Some(timeout));
 
         prop_assert!(config.validate().is_ok());
     }
@@ -227,12 +238,118 @@ proptest! {
         buffer in prop::collection::vec(any::<u8>(), 0..1024)
     ) {
         use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
-        let config = EvaluationConfig {
-            timeout_ms: Some(1000),
-            ..EvaluationConfig::default()
-        };
+        let config = EvaluationConfig::default().with_timeout_ms(Some(1000));
         let mut context = EvaluationContext::new(config);
         let _ = evaluate_rules(&[rule], &buffer, &mut context);
+    }
+
+    /// Property: indirect offset resolution never panics on arbitrary
+    /// (buffer, base, width, adjustment) combinations. Indirect
+    /// offsets chase a pointer read from `buffer[base..base+width]`
+    /// and apply `adjustment`, both of which must be bounds-checked
+    /// and overflow-checked. Regression coverage for review finding
+    /// T-H2 (narrow property-test strategy).
+    #[test]
+    fn prop_indirect_offset_never_panics(
+        buffer in prop::collection::vec(any::<u8>(), 0..4096),
+        base in 0i64..8192,
+        width in prop_oneof![Just(1u8), Just(2), Just(4), Just(8)],
+        adjust in -1024i64..1024,
+    ) {
+        use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
+        let (pointer_type, endian) = match width {
+            1 => (TypeKind::Byte { signed: false }, Endianness::Little),
+            2 => (TypeKind::Short { endian: Endianness::Little, signed: false }, Endianness::Little),
+            4 => (TypeKind::Long { endian: Endianness::Little, signed: false }, Endianness::Little),
+            _ => (TypeKind::Quad { endian: Endianness::Little, signed: false }, Endianness::Little),
+        };
+        let rule = MagicRule {
+            offset: OffsetSpec::Indirect {
+                base_offset: base,
+                pointer_type,
+                adjustment: adjust,
+                endian,
+            },
+            typ: TypeKind::Byte { signed: false },
+            op: Operator::Equal,
+            value: Value::Uint(0),
+            message: "probe".to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        };
+        let config = EvaluationConfig::default().with_timeout_ms(Some(500));
+        let mut context = EvaluationContext::new(config);
+        // Must never panic, regardless of whether the offset resolves.
+        let _ = evaluate_rules(&[rule], &buffer, &mut context);
+    }
+
+    /// Property: `TypeKind::PString` reads must not panic or OOM on
+    /// arbitrary length-prefix values, including the adversarial case
+    /// where the prefix encodes a length larger than the remaining
+    /// buffer (which should clamp, not panic or allocate unboundedly).
+    /// Regression coverage for review finding T-H2.
+    #[test]
+    fn prop_pstring_length_prefix_bounded(
+        prefix in 0u32..u32::MAX,
+        payload in prop::collection::vec(any::<u8>(), 0..256),
+    ) {
+        use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
+        use libmagic_rs::parser::ast::PStringLengthWidth;
+        let mut buf = prefix.to_le_bytes().to_vec();
+        buf.extend_from_slice(&payload);
+        let rule = MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::PString {
+                max_length: None,
+                length_width: PStringLengthWidth::FourByteLE,
+                length_includes_itself: false,
+            },
+            op: Operator::Equal,
+            value: Value::String(String::new()),
+            message: "probe".to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        };
+        let config = EvaluationConfig::default().with_timeout_ms(Some(500));
+        let mut context = EvaluationContext::new(config);
+        let _ = evaluate_rules(&[rule], &buf, &mut context);
+    }
+
+    /// Property: regex evaluation stays bounded for adversarial
+    /// patterns with large bounded repetitions. Combined with
+    /// `build_regex`'s `size_limit` + `dfa_size_limit` (S-M2 fix),
+    /// the worst case should be a rejected compile rather than an
+    /// unbounded hang. Regression coverage for review finding T-H2.
+    #[test]
+    fn prop_adversarial_regex_patterns_bounded(
+        pat in "[a-z]{0,20}\\{[0-9]{1,6}\\}",
+        buffer in prop::collection::vec(any::<u8>(), 0..4096),
+    ) {
+        use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
+        use libmagic_rs::parser::ast::{RegexCount, RegexFlags};
+        let rule = MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Regex {
+                flags: RegexFlags::default(),
+                count: RegexCount::Default,
+            },
+            op: Operator::Equal,
+            value: Value::String(pat),
+            message: "probe".to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        };
+        let config = EvaluationConfig::default().with_timeout_ms(Some(500));
+        let mut context = EvaluationContext::new(config);
+        let start = std::time::Instant::now();
+        let _ = evaluate_rules(&[rule], &buffer, &mut context);
+        prop_assert!(
+            start.elapsed().as_millis() < 1000,
+            "adversarial regex evaluation exceeded 1s budget"
+        );
     }
 }
 
@@ -276,10 +393,7 @@ fn test_empty_buffer_handled() {
 
 #[test]
 fn test_zero_recursion_fails_validation() {
-    let config = EvaluationConfig {
-        max_recursion_depth: 0,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_max_recursion_depth(0);
 
     assert!(config.validate().is_err());
 }

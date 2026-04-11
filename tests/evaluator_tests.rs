@@ -149,10 +149,7 @@ fn test_evaluate_with_comprehensive_config() {
 
 #[test]
 fn test_evaluate_with_mime_types_enabled() {
-    let config = EvaluationConfig {
-        enable_mime_types: true,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_mime_types(true);
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db.evaluate_buffer(b"\x7fELF\x02\x01\x01\x00").unwrap();
     assert!(
@@ -163,10 +160,7 @@ fn test_evaluate_with_mime_types_enabled() {
 
 #[test]
 fn test_evaluate_without_mime_types() {
-    let config = EvaluationConfig {
-        enable_mime_types: false,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_mime_types(false);
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db.evaluate_buffer(b"\x7fELF\x02\x01\x01\x00").unwrap();
     assert!(
@@ -177,10 +171,7 @@ fn test_evaluate_without_mime_types() {
 
 #[test]
 fn test_invalid_config_rejected() {
-    let config = EvaluationConfig {
-        max_recursion_depth: 0,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_max_recursion_depth(0);
     let result = MagicDatabase::with_builtin_rules_and_config(config);
     assert!(result.is_err(), "Zero recursion depth should be rejected");
 }
@@ -537,20 +528,18 @@ fn test_regex_eol_corpus() {
     // comparison succeeds on a buffer with no NUL terminator. `Relative(1)`
     // on each child matches the `&+1` anchor offset (previous match end + 1,
     // skipping the `;` separator).
-    // `regex/1l` == 1-line scan window, line_based = true, count = 1.
-    // Multi-line mode is always on so `^`/`$` match at line boundaries
-    // regardless; the `/l` flag controls only the scan window extent.
-    let one_line_regex = libmagic_rs::parser::ast::RegexFlags {
-        line_based: true,
-        ..libmagic_rs::parser::ast::RegexFlags::default()
-    };
-    let one = ::std::num::NonZeroU32::new(1);
+    // `regex/1l` == 1-line scan window. In the new RegexCount design
+    // this is `RegexCount::Lines(Some(NonZeroU32::new(1)))`. Multi-line
+    // regex matching is always on (matching libmagic's unconditional
+    // REG_NEWLINE) so `^`/`$` match at line boundaries regardless.
+    let one_line_count =
+        libmagic_rs::parser::ast::RegexCount::Lines(::std::num::NonZeroU32::new(1));
 
     let inner_regex = MagicRule {
         offset: OffsetSpec::Relative(1),
         typ: TypeKind::Regex {
-            flags: one_line_regex,
-            count: one,
+            flags: libmagic_rs::parser::ast::RegexFlags::default(),
+            count: one_line_count,
         },
         op: Operator::Equal,
         value: Value::String("[^;]+$".to_string()),
@@ -563,8 +552,8 @@ fn test_regex_eol_corpus() {
     let version_regex = MagicRule {
         offset: OffsetSpec::Relative(1),
         typ: TypeKind::Regex {
-            flags: one_line_regex,
-            count: one,
+            flags: libmagic_rs::parser::ast::RegexFlags::default(),
+            count: one_line_count,
         },
         op: Operator::Equal,
         value: Value::String("[0-9]+(\\.[0-9]+)+".to_string()),

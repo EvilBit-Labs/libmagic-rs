@@ -14,7 +14,6 @@ use libmagic_rs::parser::{MagicFileFormat, detect_format};
 use libmagic_rs::{LibmagicError, MagicDatabase};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::process;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -94,6 +93,7 @@ pub struct Args {
 
 impl Args {
     /// Determine the output format based on flags
+    #[must_use]
     pub fn output_format(&self) -> OutputFormat {
         if self.json {
             OutputFormat::Json
@@ -103,23 +103,20 @@ impl Args {
     }
 
     /// Get the magic file path to use, with platform-appropriate defaults
+    #[must_use]
     pub fn get_magic_file_path(&self) -> PathBuf {
-        if let Some(ref custom_path) = self.magic_file {
-            custom_path.clone()
-        } else {
-            Self::default_magic_file_path()
-        }
+        self.magic_file
+            .clone()
+            .unwrap_or_else(Self::default_magic_file_path)
     }
 
     /// Create an EvaluationConfig from command-line arguments
     ///
     /// Uses the timeout value from --timeout-ms if provided, with validation
     /// performed during config creation. Other config values use defaults.
+    #[must_use]
     pub fn to_evaluation_config(&self) -> libmagic_rs::EvaluationConfig {
-        libmagic_rs::EvaluationConfig {
-            timeout_ms: self.timeout_ms,
-            ..Default::default()
-        }
+        libmagic_rs::EvaluationConfig::default().with_timeout_ms(self.timeout_ms)
     }
 
     /// Magic file search candidates in priority order.
@@ -197,24 +194,12 @@ impl Args {
                 return binary_path;
             }
 
-            // Fallback to repo-provided text magic file if present
-            let repo_magic = PathBuf::from("missing.magic");
-            if repo_magic.exists() {
-                return repo_magic;
-            }
-
-            // Fallback to third_party binary magic file for compatibility hints
-            let dev_magic = PathBuf::from("third_party/magic.mgc");
-            if dev_magic.exists() {
-                return dev_magic;
-            }
-
-            // CI/CD fallback
-            if std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok() {
-                return PathBuf::from("third_party/magic.mgc");
-            }
-
-            // Default fallback
+            // Final absolute-path default. Relative-path fallbacks were removed
+            // deliberately: resolving `./missing.magic` or `./third_party/magic.mgc`
+            // against the process cwd is an untrusted-search-path surface
+            // (CWE-426) — an attacker can plant a crafted magic file in any
+            // directory a victim is likely to `cd` into. Users running from a
+            // dev checkout must pass `--magic <path>` explicitly.
             PathBuf::from("/usr/share/file/magic.mgc")
         }
         #[cfg(windows)]
@@ -227,12 +212,12 @@ impl Args {
                 }
             }
 
-            // Fallback to third_party (common in CI/CD)
-            PathBuf::from("third_party/magic.mgc")
+            // No relative-path fallback (see CWE-426 rationale in the unix arm).
+            PathBuf::from(r"C:\ProgramData\libmagic-rs\magic.mgc")
         }
         #[cfg(not(any(unix, windows)))]
         {
-            PathBuf::from("third_party/magic.mgc")
+            PathBuf::from("/usr/share/file/magic.mgc")
         }
     }
 }
@@ -246,7 +231,7 @@ pub enum OutputFormat {
     Json,
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
     env_logger::init();
 
     let args = Args::parse();
@@ -255,21 +240,23 @@ fn main() {
     if let Some(shell) = args.generate_completion {
         let mut cmd = Args::command();
         clap_complete::generate(shell, &mut cmd, "rmagic", &mut std::io::stdout());
-        return;
+        return std::process::ExitCode::SUCCESS;
     }
 
-    // Set up signal handler for graceful Ctrl+C handling
+    // Set up signal handler for graceful Ctrl+C handling. `Ordering::Relaxed`
+    // is correct for a single-bit flag with no ordering dependencies on
+    // other memory; `SeqCst` would issue an unnecessary full barrier.
     let interrupted = Arc::new(AtomicBool::new(false));
     let interrupted_clone = Arc::clone(&interrupted);
     if let Err(e) = ctrlc::set_handler(move || {
-        interrupted_clone.store(true, Ordering::SeqCst);
+        interrupted_clone.store(true, Ordering::Relaxed);
     }) {
         eprintln!("Warning: failed to set signal handler: {e}");
     }
 
-    let exit_code = match run_analysis(&args, &interrupted) {
+    let exit_code: i32 = match run_analysis(&args, &interrupted) {
         Ok(()) => {
-            if interrupted.load(Ordering::SeqCst) {
+            if interrupted.load(Ordering::Relaxed) {
                 eprintln!("Interrupted");
                 130
             } else {
@@ -279,7 +266,10 @@ fn main() {
         Err(e) => handle_error(e),
     };
 
-    process::exit(exit_code);
+    // Return ExitCode instead of process::exit so destructors run
+    // (important for BufWriter::flush, Mmap drop, and the signal
+    // handler's Arc). Clamp out-of-range exit codes to 1.
+    std::process::ExitCode::from(u8::try_from(exit_code).unwrap_or(1))
 }
 
 /// Handle different types of errors and return appropriate exit codes
@@ -292,6 +282,13 @@ fn main() {
 /// - 4: Magic file not found or invalid
 /// - 5: Evaluation timeout or resource limits exceeded
 fn handle_error(error: LibmagicError) -> i32 {
+    // Note: `LibmagicError` is `#[non_exhaustive]` so a wildcard arm is
+    // mandatory here (bin crates are separate compilation units from the
+    // library crate, even inside the same cargo package). The wildcard
+    // explicitly documents "unknown variant" rather than silently
+    // collapsing to exit code 1 with a generic message; if you find it
+    // firing in the wild, a new variant was added to `LibmagicError`
+    // without a corresponding handler in this function.
     match error {
         LibmagicError::IoError(ref io_err) => handle_io_error(io_err),
         LibmagicError::ParseError(ref parse_err) => handle_parse_error_new(parse_err),
@@ -306,7 +303,7 @@ fn handle_error(error: LibmagicError) -> i32 {
             3
         }
         _ => {
-            eprintln!("Error: {error}");
+            eprintln!("Error: unhandled libmagic-rs error variant (update handle_error): {error}");
             1
         }
     }
@@ -555,7 +552,7 @@ fn run_analysis(args: &Args, interrupted: &AtomicBool) -> Result<(), LibmagicErr
     // Process each file sequentially
     for file_or_stdin in &args.files {
         // Check for Ctrl+C between files
-        if interrupted.load(Ordering::SeqCst) {
+        if interrupted.load(Ordering::Relaxed) {
             break;
         }
 
@@ -788,19 +785,23 @@ mod tests {
         let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
         let default_path = args.get_magic_file_path();
 
-        // Test that we get a platform-appropriate default
-        // The actual path depends on what magic files exist on the system
+        // Test that we get a platform-appropriate default.
+        // After the S-H1 fix the fallback is a single absolute-path
+        // default per platform -- relative-path fallbacks
+        // (`missing.magic`, `third_party/magic.mgc`) were removed
+        // because they resolved against the process cwd (CWE-426).
+        // The actual path depends on which system-wide magic file is
+        // present at test time.
         #[cfg(unix)]
         {
             // Get the actual candidates from the exposed constant
             let candidates = Args::magic_file_candidates();
 
-            // Build list of valid paths (candidates + fallbacks)
+            // Build list of valid paths (system candidates + single
+            // absolute default).
             let mut valid_paths: Vec<&str> = candidates.to_vec();
-            valid_paths.push("missing.magic");
-            valid_paths.push("third_party/magic.mgc");
+            valid_paths.push("/usr/share/file/magic.mgc");
 
-            // Should be one of the standard Unix magic file locations or fallback
             assert!(
                 valid_paths.contains(&default_path.to_str().unwrap()),
                 "Got unexpected path: {:?}",
@@ -809,29 +810,28 @@ mod tests {
         }
 
         #[cfg(windows)]
-        assert_eq!(default_path, PathBuf::from("third_party/magic.mgc"));
+        assert_eq!(
+            default_path,
+            PathBuf::from(r"C:\ProgramData\libmagic-rs\magic.mgc")
+        );
 
         #[cfg(not(any(unix, windows)))]
-        assert_eq!(default_path, PathBuf::from("third_party/magic.mgc"));
+        assert_eq!(default_path, PathBuf::from("/usr/share/file/magic.mgc"));
     }
 
     #[test]
     fn test_default_magic_file_path() {
         let default_path = Args::default_magic_file_path();
 
-        // Test that we get a platform-appropriate default
-        // The actual path depends on what magic files exist on the system
+        // Test that we get a platform-appropriate default. See the
+        // matching comment on test_get_magic_file_path_default.
         #[cfg(unix)]
         {
-            // Get the actual candidates from the exposed constant
             let candidates = Args::magic_file_candidates();
 
-            // Build list of valid paths (candidates + fallbacks)
             let mut valid_paths: Vec<&str> = candidates.to_vec();
-            valid_paths.push("missing.magic");
-            valid_paths.push("third_party/magic.mgc");
+            valid_paths.push("/usr/share/file/magic.mgc");
 
-            // Should be one of the standard Unix magic file locations or fallback
             assert!(
                 valid_paths.contains(&default_path.to_str().unwrap()),
                 "Got unexpected path: {:?}",
@@ -840,10 +840,13 @@ mod tests {
         }
 
         #[cfg(windows)]
-        assert_eq!(default_path, PathBuf::from("third_party/magic.mgc"));
+        assert_eq!(
+            default_path,
+            PathBuf::from(r"C:\ProgramData\libmagic-rs\magic.mgc")
+        );
 
         #[cfg(not(any(unix, windows)))]
-        assert_eq!(default_path, PathBuf::from("third_party/magic.mgc"));
+        assert_eq!(default_path, PathBuf::from("/usr/share/file/magic.mgc"));
     }
 
     // Error handling tests

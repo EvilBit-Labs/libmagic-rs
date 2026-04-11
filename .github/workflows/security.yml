@@ -37,8 +37,14 @@ jobs:
             - name: Run cargo deny check
               run: cargo deny check
 
-            - name: Run cargo outdated
-              run: cargo outdated --depth=1 --exit-code=1
+            - name: Run cargo outdated (informational only)
+              # Dropping --exit-code=1: a plain upstream dep release is
+              # not a security finding, and failing CI on every bump
+              # eroded trust in the security dashboard. cargo audit and
+              # cargo deny above are the authoritative gates. (Review
+              # finding D-M2.)
+              run: cargo outdated --depth=1
+              continue-on-error: true
 
             - name: Run dist plan
               run: dist plan

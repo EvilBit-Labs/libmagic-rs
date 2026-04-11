@@ -2278,17 +2278,16 @@ fn test_parse_type_and_operator_pstring_suffixes() {
 
 #[test]
 fn test_parse_type_and_operator_regex_and_search_suffixes() {
-    use crate::parser::ast::{RegexFlags, TypeKind};
+    use crate::parser::ast::{RegexCount, RegexFlags, TypeKind};
     use std::num::{NonZeroU32, NonZeroUsize};
 
-    fn rx(case: bool, start: bool, line: bool, count: Option<u32>) -> TypeKind {
+    fn rx(case: bool, start: bool, count: RegexCount) -> TypeKind {
         TypeKind::Regex {
             flags: RegexFlags {
                 case_insensitive: case,
                 start_offset: start,
-                line_based: line,
             },
-            count: count.and_then(NonZeroU32::new),
+            count,
         }
     }
     fn sr(n: usize) -> TypeKind {
@@ -2296,21 +2295,36 @@ fn test_parse_type_and_operator_regex_and_search_suffixes() {
             range: NonZeroUsize::new(n).unwrap(),
         }
     }
+    fn nz(n: u32) -> NonZeroU32 {
+        NonZeroU32::new(n).unwrap()
+    }
 
     let cases: &[(&str, TypeKind, &str)] = &[
-        ("regex", rx(false, false, false, None), ""),
-        ("regex/c", rx(true, false, false, None), ""),
-        ("regex/l", rx(false, false, true, None), ""),
-        ("regex/s", rx(false, true, false, None), ""),
-        ("regex/cl", rx(true, false, true, None), ""),
-        ("regex/lc", rx(true, false, true, None), ""),
-        ("regex/cs", rx(true, true, false, None), ""),
-        ("regex/csl", rx(true, true, true, None), ""),
-        ("regex/1l", rx(false, false, true, Some(1)), ""),
-        ("regex/l1", rx(false, false, true, Some(1)), ""),
-        ("regex/1c", rx(true, false, false, Some(1)), ""),
-        ("regex/256", rx(false, false, false, Some(256)), ""),
-        ("regex/c =", rx(true, false, false, None), "="),
+        ("regex", rx(false, false, RegexCount::Default), ""),
+        ("regex/c", rx(true, false, RegexCount::Default), ""),
+        ("regex/l", rx(false, false, RegexCount::Lines(None)), ""),
+        ("regex/s", rx(false, true, RegexCount::Default), ""),
+        ("regex/cl", rx(true, false, RegexCount::Lines(None)), ""),
+        ("regex/lc", rx(true, false, RegexCount::Lines(None)), ""),
+        ("regex/cs", rx(true, true, RegexCount::Default), ""),
+        ("regex/csl", rx(true, true, RegexCount::Lines(None)), ""),
+        (
+            "regex/1l",
+            rx(false, false, RegexCount::Lines(Some(nz(1)))),
+            "",
+        ),
+        (
+            "regex/l1",
+            rx(false, false, RegexCount::Lines(Some(nz(1)))),
+            "",
+        ),
+        ("regex/1c", rx(true, false, RegexCount::Bytes(nz(1))), ""),
+        (
+            "regex/256",
+            rx(false, false, RegexCount::Bytes(nz(256))),
+            "",
+        ),
+        ("regex/c =", rx(true, false, RegexCount::Default), "="),
         ("search/256", sr(256), ""),
         ("search/1", sr(1), ""),
         ("search/256 =", sr(256), "="),
@@ -2343,11 +2357,35 @@ fn test_parse_type_and_operator_regex_invalid_suffix() {
     // regex/0 is rejected because a zero count has no valid semantics
     // (our parser uses NonZeroU32 to express "user specified a count").
     assert!(parse_type_and_operator("regex/0").is_err());
+    // regex/l0 -- zero count with line flag, same rejection path.
+    assert!(parse_type_and_operator("regex/l0").is_err());
+}
+
+#[test]
+fn test_parse_type_and_operator_regex_rejects_duplicate_count() {
+    // Libmagic accepts these with a "multiple ranges" stderr warning;
+    // we prefer a hard parse error so magic-file bugs surface at parse
+    // time rather than silently using the last-seen count.
+    assert!(
+        parse_type_and_operator("regex/1l2l").is_err(),
+        "regex/1l2l should reject the second count"
+    );
+    assert!(
+        parse_type_and_operator("regex/1c2l").is_err(),
+        "regex/1c2l should reject the second count"
+    );
+    assert!(
+        parse_type_and_operator("regex/l1l2").is_err(),
+        "regex/l1l2 should reject the second count"
+    );
+    // Valid single-count forms must still parse.
+    assert!(parse_type_and_operator("regex/1l").is_ok());
+    assert!(parse_type_and_operator("regex/l1").is_ok());
 }
 
 #[test]
 fn test_parse_type_and_operator_regex_operator_adjacent() {
-    use crate::parser::ast::{Operator, RegexFlags, TypeKind};
+    use crate::parser::ast::{Operator, RegexCount, RegexFlags, TypeKind};
 
     // `regex/c=` should leave `=` for parse_operator, matching the `regex/c =`
     // (space-separated) behavior and mirroring `search/256=`.
@@ -2361,7 +2399,7 @@ fn test_parse_type_and_operator_regex_operator_adjacent() {
                 case_insensitive: true,
                 ..RegexFlags::default()
             },
-            count: None,
+            count: RegexCount::Default,
         }
     );
 
@@ -2372,11 +2410,8 @@ fn test_parse_type_and_operator_regex_operator_adjacent() {
     assert_eq!(
         kind,
         TypeKind::Regex {
-            flags: RegexFlags {
-                line_based: true,
-                ..RegexFlags::default()
-            },
-            count: None,
+            flags: RegexFlags::default(),
+            count: RegexCount::Lines(None),
         }
     );
 
@@ -2390,7 +2425,7 @@ fn test_parse_type_and_operator_regex_operator_adjacent() {
 
 #[test]
 fn test_parse_magic_rule_regex_and_search() {
-    use crate::parser::ast::RegexFlags;
+    use crate::parser::ast::{RegexCount, RegexFlags};
     use std::num::{NonZeroU32, NonZeroUsize};
 
     // regex/c: case-insensitive flag
@@ -2405,7 +2440,7 @@ fn test_parse_magic_rule_regex_and_search() {
                 case_insensitive: true,
                 ..RegexFlags::default()
             },
-            count: None,
+            count: RegexCount::Default,
         }
     );
     assert_eq!(rule.op, Operator::Equal);
@@ -2435,11 +2470,8 @@ fn test_parse_magic_rule_regex_and_search() {
     assert_eq!(
         rule.typ,
         TypeKind::Regex {
-            flags: RegexFlags {
-                line_based: true,
-                ..RegexFlags::default()
-            },
-            count: NonZeroU32::new(1),
+            flags: RegexFlags::default(),
+            count: RegexCount::Lines(NonZeroU32::new(1)),
         }
     );
     assert_eq!(rule.message, "version line");

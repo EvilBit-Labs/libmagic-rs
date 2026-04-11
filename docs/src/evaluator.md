@@ -132,8 +132,8 @@ Interprets bytes according to type specifications. The types module is organized
 - **QDate**: 64-bit Unix timestamps (signed seconds since epoch) with configurable endianness and UTC/local time formatting
 - **String**: Byte sequences with length limits
 - **PString**: Pascal-style length-prefixed strings with 1-byte (`/B`), 2-byte (`/H` or `/h`), or 4-byte (`/L` or `/l`) length prefixes, supporting big-endian and little-endian byte order
-- **Regex**: Binary-safe regex matching via `regex::bytes::Regex`; the `/c` flag enables case-insensitive matching and `/l` enables multi-line start-of-line anchoring
-- **Search**: Bounded literal pattern scan via `memchr::memmem::find`; `search/N` caps the scan window to `N` bytes from the offset
+- **Regex**: Binary-safe regex matching via `regex::bytes::Regex`. `/c` enables case-insensitive matching, `/s` advances the relative-offset anchor to match-start instead of match-end, and `/l` measures the scan window in lines instead of bytes (with an 8192-byte hard cap). Multi-line regex matching is always on via unconditional `REG_NEWLINE`, so `^`/`$` match at line boundaries regardless of `/l`.
+- **Search**: Bounded literal pattern scan via `memchr::memmem::find`; `search/N` caps the scan window to `N` bytes from the offset. Range is mandatory and non-zero (`NonZeroUsize`), so bare `search` and `search/0` are parse errors.
 - **Bounds checking**: Prevents buffer overruns
 
 ```rust
@@ -592,7 +592,8 @@ assert_eq!(matches_j[0].message, "JPEG-style pstring with self-inclusive length"
 - [x] Comprehensive test coverage (150+ tests)
 - [x] Indirect offset support (pointer dereferencing, issue #37)
 - [x] Relative offset support (GNU `file` anchor semantics, issue #38)
-- [ ] Regex type support
+- [x] Regex type support (binary-safe `regex::bytes::Regex` with `/c`, `/s`, `/l` flags and 8192-byte cap; unconditional `REG_NEWLINE`)
+- [x] Search type support (bounded literal pattern scan via `memchr::memmem::find` with mandatory `NonZeroUsize` range)
 - [ ] Performance optimizations (rule ordering, caching)
 
 ## Performance Considerations

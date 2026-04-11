@@ -124,20 +124,15 @@ fn extract_raw_unsigned(value: &Value) -> Result<u64, LibmagicError> {
 
 /// Apply an `i64` adjustment to a `u64` pointer value with checked arithmetic.
 fn apply_adjustment(pointer: u64, adjustment: i64) -> Result<usize, LibmagicError> {
+    // `i64::unsigned_abs` handles `i64::MIN` without overflow (it returns
+    // `2^63` as `u64`), so no special case is needed.
     let adjusted = if adjustment >= 0 {
-        #[allow(clippy::cast_sign_loss)]
         pointer
-            .checked_add(adjustment as u64)
+            .checked_add(adjustment.unsigned_abs())
             .ok_or_else(|| overflow_error(pointer, adjustment))?
     } else {
-        // Negative adjustment
-        if adjustment == i64::MIN {
-            return Err(overflow_error(pointer, adjustment));
-        }
-        #[allow(clippy::cast_sign_loss)]
-        let abs_adj = (-adjustment) as u64;
         pointer
-            .checked_sub(abs_adj)
+            .checked_sub(adjustment.unsigned_abs())
             .ok_or_else(|| overflow_error(pointer, adjustment))?
     };
 

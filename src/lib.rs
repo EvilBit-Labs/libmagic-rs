@@ -167,6 +167,25 @@ impl MagicDatabase {
     /// for common file types including executables (ELF, PE/DOS), archives (ZIP, TAR,
     /// GZIP), images (JPEG, PNG, GIF, BMP), and documents (PDF).
     ///
+    /// # Security
+    ///
+    /// This constructor uses [`EvaluationConfig::default()`], which leaves
+    /// `timeout_ms` unset (unbounded). When processing untrusted input
+    /// (adversarial file buffers, large uploads, etc.), prefer
+    /// [`MagicDatabase::with_builtin_rules_and_config`] with
+    /// [`EvaluationConfig::performance()`] (which sets a 1-second timeout)
+    /// or construct a config explicitly with a non-`None` timeout sized
+    /// for your workload. The `Default` impl intentionally targets CLI
+    /// one-shot usage rather than long-running services.
+    ///
+    /// # Thread safety
+    ///
+    /// `MagicDatabase` is `Send + Sync` and holds no interior mutability,
+    /// so an `Arc<MagicDatabase>` can be shared across threads for
+    /// parallel file scanning. A fresh evaluation context is constructed
+    /// per `evaluate_buffer` / `evaluate_file` call, so concurrent calls
+    /// do not interfere.
+    ///
     /// # Errors
     ///
     /// Currently always returns `Ok`. In future implementations, this may return
@@ -191,6 +210,14 @@ impl MagicDatabase {
     /// Loads built-in magic rules compiled at build time and applies the specified
     /// evaluation configuration (e.g., custom timeout settings).
     ///
+    /// # Security
+    ///
+    /// For untrusted input (adversarial file buffers, web uploads, mail
+    /// scanning), pass a config with an explicit timeout such as
+    /// [`EvaluationConfig::performance()`]. The default config has
+    /// `timeout_ms = None` which leaves evaluation unbounded; see the
+    /// rationale on [`EvaluationConfig::default`].
+    ///
     /// # Arguments
     ///
     /// * `config` - Custom evaluation configuration to use with the built-in rules
@@ -204,10 +231,9 @@ impl MagicDatabase {
     /// ```rust,no_run
     /// use libmagic_rs::{MagicDatabase, EvaluationConfig};
     ///
-    /// let config = EvaluationConfig {
-    ///     timeout_ms: Some(5000), // 5 second timeout
-    ///     ..EvaluationConfig::default()
-    /// };
+    /// // Prefer the performance() preset over default() when processing
+    /// // untrusted input. default() has no timeout by design.
+    /// let config = EvaluationConfig::performance();
     /// let db = MagicDatabase::with_builtin_rules_and_config(config)?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -224,6 +250,14 @@ impl MagicDatabase {
     }
 
     /// Load magic rules from a file
+    ///
+    /// # Security
+    ///
+    /// This constructor uses [`EvaluationConfig::default()`], which
+    /// leaves `timeout_ms` unset. See the security note on
+    /// [`Self::with_builtin_rules`] for the implications and prefer
+    /// [`Self::load_from_file_with_config`] with an explicit timeout
+    /// when processing untrusted input.
     ///
     /// # Arguments
     ///
@@ -246,7 +280,13 @@ impl MagicDatabase {
         Self::load_from_file_with_config(path, EvaluationConfig::default())
     }
 
-    /// Load from file with custom config (e.g., timeout)
+    /// Load from file with custom config (e.g., timeout).
+    ///
+    /// # Security
+    ///
+    /// For untrusted input, pass [`EvaluationConfig::performance()`] or
+    /// a config with an explicit non-`None` `timeout_ms`. See
+    /// [`Self::with_builtin_rules`] for the full rationale.
     ///
     /// # Errors
     ///
@@ -347,12 +387,9 @@ impl MagicDatabase {
         let file_buffer = FileBuffer::from_path_and_metadata(path, &file_metadata)?;
         let buffer = file_buffer.as_slice();
 
-        // Evaluate rules against the file buffer (build_result handles empty rules/matches)
-        let matches = if self.rules.is_empty() {
-            vec![]
-        } else {
-            evaluate_rules_with_config(&self.rules, buffer, &self.config)?
-        };
+        // Evaluate rules against the file buffer. `evaluate_rules_with_config`
+        // returns `Ok(vec![])` for an empty rule list, so no guard is needed.
+        let matches = evaluate_rules_with_config(&self.rules, buffer, &self.config)?;
 
         Ok(self.build_result(matches, file_size, start_time))
     }
@@ -396,11 +433,9 @@ impl MagicDatabase {
 
         let file_size = buffer.len() as u64;
 
-        let matches = if self.rules.is_empty() {
-            vec![]
-        } else {
-            evaluate_rules_with_config(&self.rules, buffer, &self.config)?
-        };
+        // `evaluate_rules_with_config` returns `Ok(vec![])` for an empty
+        // rule list, so no `is_empty()` guard is needed here.
+        let matches = evaluate_rules_with_config(&self.rules, buffer, &self.config)?;
 
         Ok(self.build_result(matches, file_size, start_time))
     }
@@ -538,6 +573,7 @@ pub struct EvaluationMetadata {
     /// Number of top-level rules that were evaluated
     pub rules_evaluated: usize,
     /// Path to the magic file used, or None for built-in rules
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub magic_file: Option<PathBuf>,
     /// Whether evaluation was stopped due to timeout
     pub timed_out: bool,
@@ -608,6 +644,10 @@ pub struct EvaluationResult {
     /// Optional MIME type for the detected file type
     ///
     /// Only populated when `enable_mime_types` is set in the configuration.
+    /// Omitted from the serialized form when unset (rather than emitted
+    /// as `"mime_type": null`) so downstream JSON consumers can treat
+    /// presence as the "MIME type is known" indicator.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub mime_type: Option<String>,
     /// Confidence score (0.0 to 1.0)
     ///

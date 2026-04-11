@@ -1,0 +1,43 @@
+[package]
+name = "libmagic-rs-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Keep this crate out of the workspace so `cargo check --workspace`
+# and `cargo nextest run` don't try to build libfuzzer-sys, which
+# requires a nightly-compatible toolchain. Fuzz targets are built
+# with `cargo +nightly fuzz run <target>` from the fuzz/ directory.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+libmagic-rs = { path = ".." }
+
+[[bin]]
+name = "parse_text_magic_file"
+path = "fuzz_targets/parse_text_magic_file.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "evaluate_rules_buffer"
+path = "fuzz_targets/evaluate_rules_buffer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "regex_pattern_compile"
+path = "fuzz_targets/regex_pattern_compile.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1

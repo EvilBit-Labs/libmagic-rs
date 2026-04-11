@@ -9,7 +9,7 @@
 mod date;
 mod float;
 mod numeric;
-mod regex;
+pub(crate) mod regex;
 mod search;
 mod string;
 
@@ -63,11 +63,14 @@ pub enum TypeReadError {
         /// The actual length of the buffer.
         buffer_len: usize,
     },
-    /// Unsupported type variant (reserved for future types not yet evaluatable,
-    /// e.g., regex, date, timestamp).
+    /// Type-level capability failure: regex pattern compile error, missing
+    /// pattern operand on a pattern-bearing type, non-equality operator on
+    /// a pattern-bearing type, or a future capability gap. The `type_name`
+    /// field carries a free-form description of the offending type or
+    /// condition; callers should treat this as an opaque diagnostic string.
     #[error("Unsupported type: {type_name}")]
     UnsupportedType {
-        /// The name of the unsupported type.
+        /// Free-form description of the offending type or failure condition.
         type_name: String,
     },
     /// Invalid pstring length prefix value (e.g., `/J` flag with stored length
@@ -160,12 +163,12 @@ pub fn read_typed_value(
 ///
 /// ```
 /// use libmagic_rs::evaluator::types::read_typed_value_with_pattern;
-/// use libmagic_rs::parser::ast::{RegexFlags, TypeKind, Value};
+/// use libmagic_rs::parser::ast::{RegexCount, RegexFlags, TypeKind, Value};
 ///
 /// let haystack = b"abc123def";
 /// let regex_type = TypeKind::Regex {
 ///     flags: RegexFlags::default(),
-///     count: None,
+///     count: RegexCount::Default,
 /// };
 /// let pattern = Value::String("[0-9]+".to_string());
 /// let regex_result =
@@ -244,7 +247,7 @@ pub fn read_typed_value_with_pattern(
 ///
 /// Returns `Ok(None)` on a genuine "no match" outcome and `Ok(Some(value))`
 /// on a successful match -- including zero-width matches (e.g., regex `^`,
-/// `a*`, lookaheads). This is the contract the evaluator needs to
+/// `a*`, or `.{0}`). This is the contract the evaluator needs to
 /// distinguish a real miss from a zero-width hit; [`read_typed_value_with_pattern`]
 /// collapses both cases to `Value::String(String::new())` for back-compat.
 ///
@@ -372,15 +375,19 @@ pub fn coerce_value_to_type<'a>(value: &'a Value, type_kind: &TypeKind) -> Cow<'
 /// it after a successful read, so the defensive paths are belt-and-braces
 /// for any future caller that breaks that invariant.
 ///
-/// For `TypeKind::Regex`, the pattern is required to re-run the match and
-/// compute the consumed bytes. When the pattern is unavailable (or not a
-/// string), the function returns `0` -- the anchor will then stay put and
-/// the next relative offset resolves against the previous anchor position,
-/// which is the same graceful-degradation behavior used by the other
-/// defensive paths in this module. For `TypeKind::Search`, the pattern is
-/// not needed because the consumed distance is the entire search window
-/// regardless of where the match was found. Non-pattern types should pass
-/// `pattern: None`.
+/// For `TypeKind::Regex` and `TypeKind::Search`, the pattern is required
+/// at anchor-advance time to re-run the match and compute `m.end()` (or
+/// `match_idx + pattern.len()` for search), matching GNU `file`'s
+/// `softmagic.c` `FILE_REGEX` / `FILE_SEARCH` / `moffset()` semantics:
+/// the anchor advances past the **matched bytes**, not past the entire
+/// scan window. For regex, `flags.start_offset` (the `/s` flag) further
+/// changes the advance to `m.start()` (match-start) instead of match-end.
+/// When the pattern is unavailable or has the wrong `Value` variant, the
+/// function returns `0` and fires a `debug_assert!` in dev/test builds
+/// -- the engine invariant is that `bytes_consumed_with_pattern` is
+/// called only after a successful `read_pattern_match`, which requires
+/// a `Value::String`/`Value::Bytes` pattern. Non-pattern types should
+/// pass `pattern: None`.
 ///
 /// # Semantics
 ///
@@ -471,22 +478,27 @@ pub(crate) fn bytes_consumed_with_pattern(
                 0
             }
         },
-        // A new variable-width TypeKind variant was added without updating
-        // this match. Returning 0 here would silently corrupt the GNU `file`
-        // anchor for any rule using relative offsets after a match of the
-        // new type. The debug_assert! panics in test/dev builds so the gap
-        // is caught loudly during testing; release builds compile it out
-        // and keep the 0 fallback (graceful skip rather than panic), so
-        // this case is only surfaced by the assertion in non-release
-        // builds.
-        //
-        // GOTCHAS S2.1 lists this match in the new-TypeKind-variant
-        // checklist -- see that section if you are reading this comment
-        // because the assertion just fired.
-        _ => {
+        // Fixed-width variants are handled by the `bit_width()` fast
+        // path above. Listing them here explicitly (rather than using
+        // a `_ =>` wildcard) turns any future addition of a
+        // variable-width `TypeKind` variant into a compile error
+        // instead of a silent anchor corruption (review finding
+        // S-M3/L5). `TypeKind` is `#[non_exhaustive]`, so this match
+        // is only exhaustive inside this crate -- external callers
+        // cannot add variants. When adding a new `TypeKind` variant,
+        // either add it to the fixed-width `bit_width()` path or add
+        // it to this match; GOTCHAS S2.1 catalogs the full checklist.
+        TypeKind::Byte { .. }
+        | TypeKind::Short { .. }
+        | TypeKind::Long { .. }
+        | TypeKind::Quad { .. }
+        | TypeKind::Float { .. }
+        | TypeKind::Double { .. }
+        | TypeKind::Date { .. }
+        | TypeKind::QDate { .. } => {
             debug_assert!(
                 false,
-                "bytes_consumed: unhandled variable-width TypeKind variant {type_kind:?} -- update bytes_consumed and GOTCHAS S2.1"
+                "bytes_consumed_with_pattern: fixed-width TypeKind variant {type_kind:?} should have been handled by the bit_width() fast path"
             );
             0
         }

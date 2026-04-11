@@ -10,7 +10,8 @@ libmagic-rs is a **pure-Rust implementation of libmagic** for file type identifi
 - ✅ **Evaluator**: Fully implemented with offset resolution, type interpretation, operator application, and strength calculation
 - ✅ **Output**: Text and JSON formatters with comprehensive metadata
 - ✅ **CLI**: Full-featured `rmagic` binary with multiple file support, stdin, built-in rules, and custom magic files
-- 🔄 **Currently implementing**: Enhanced type support (regex, search patterns) and indirect/relative offset evaluation
+- ✅ **Offsets**: Absolute, from-end, indirect, and relative offset resolution all implemented
+- ✅ **Advanced types**: Regex (`regex::bytes`) with `/c`, `/s`, `/l` flags and `RegexCount` variants, and bounded literal `search` with mandatory `NonZeroUsize` range
 
 ## Architecture Patterns
 
@@ -33,9 +34,9 @@ Target File → Memory Mapper → File Buffer
   - `codegen.rs`: Serialization for build-time rule compilation
 - **`src/evaluator/`**: Rule evaluation engine
   - `engine/`: Core evaluation logic and rule matching
-  - `offset/`: Offset resolution (absolute, from-end; indirect/relative stubs)
+  - `offset/`: Offset resolution (absolute, from-end, indirect, relative) -- all fully implemented
   - `operators/`: Operator application (equality, comparison, bitwise)
-  - `types/`: Type interpretation with endianness handling
+  - `types/`: Type interpretation with endianness handling (includes `regex` and `search` submodules)
   - `strength.rs`: Confidence scoring and strength modifiers
 - **`src/io/`**: Memory-mapped FileBuffer with SafeBufferAccess trait for bounds checking
 - **`src/output/`**: Result formatting (text.rs, json.rs) with metadata support
@@ -156,28 +157,25 @@ pub enum LibmagicError {
 
 ### Supported Syntax (Currently Implemented in v0.5.0)
 
-- **Offsets**: Absolute, from-end (indirect and relative are parsed but not yet evaluated)
-- **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`
+- **Offsets**: Absolute, from-end, indirect, and relative (all fully evaluated; relative offsets use GNU `file` previous-match anchor semantics)
+- **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring`, `regex`, `search` with endianness and flag support. Unsigned variants, signed variants, date/timestamp variants as documented in AGENTS.md.
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
 - **Nesting**: Hierarchical rules with proper indentation handling
-- **String Matching**: Exact string matching with null-termination
+- **String Matching**: Exact string matching with null-termination and Pascal string (length-prefixed) support
+- **Regex**: Binary-safe matching via `regex::bytes::Regex`. `/c` and `/s` live on `RegexFlags`; `/l` is encoded by the `RegexCount::Lines` variant of `TypeKind::Regex::count`. Scan window dispatches on `RegexCount::Default` (plain `regex`, 8192-byte cap), `RegexCount::Bytes(NonZeroU32)` (`regex/N`), or `RegexCount::Lines(Option<NonZeroU32>)` (`regex/Nl` or `regex/l`). All variants capped at `evaluator::types::regex::REGEX_MAX_BYTES` (8192).
+- **Search**: Bounded literal scan via `memchr::memmem::find`; mandatory `NonZeroUsize` range; match-end anchor advance
 - **Directives**: `!:strength` modifier (parsed and applied)
 
 ### Planned Features (v1.0+)
 
-- Regex type: Pattern matching with binary-safe regex support
-- Search type: Multi-pattern string searching
 - Additional directives: `!:mime`, `!:ext`, `!:apple`
+- Named tests (`use`/`name` directives)
+- Aho-Corasick multi-pattern optimization for search rules
+- Compiled-regex caching
 
 ### Binary-Safe Regex
 
-> **Note:** The regex type is planned for future releases and is not yet implemented (#39).
-
-```rust
-// Use regex crate with bytes feature for binary-safe matching
-use regex::bytes::Regex;
-// Handle null bytes and non-UTF8 data properly
-```
+Regex matching is implemented via `regex::bytes::Regex` (see `src/evaluator/types/regex.rs`). `regex::bytes` handles null bytes and non-UTF8 data natively; matched bytes are converted to `Value::String` via `String::from_utf8_lossy` so binary matches surface U+FFFD replacement characters in the display.
 
 ## Current Implementation Status
 
@@ -185,19 +183,26 @@ use regex::bytes::Regex;
 
 - ✅ **AST structures** (`src/parser/ast.rs`) - fully tested with serde
 - ✅ **Parser components** (`src/parser/grammar/`) - complete magic file syntax parsing
-- ✅ **Type system** (`src/parser/types.rs`) - byte, short, long, quad, float, double, string, pstring, date types
+- ✅ **Type system** (`src/parser/types.rs`) - byte, short, long, quad, float, double, string, pstring, regex, search, date types
 - ✅ **File I/O** (`src/io/mod.rs`) - memory-mapped FileBuffer with bounds checking
 - ✅ **CLI framework** (`src/main.rs`) - clap-based argument parsing with JSON output
 - ✅ **Evaluator engine** (`src/evaluator/`) - complete rule evaluation with strength calculation
 - ✅ **Output formatters** (`src/output/`) - text and JSON formatters with metadata
 
+### Recently Completed
+
+- ✅ **Indirect offsets** (`src/evaluator/offset/indirect.rs`) - fully implemented (#37)
+- ✅ **Relative offsets** (`src/evaluator/offset/relative.rs`) - fully implemented with previous-match anchor (#38)
+- ✅ **Regex type** (`src/evaluator/types/regex.rs`) - binary-safe via `regex::bytes` with `/c`, `/s`, `/l` flags (#39)
+- ✅ **Search type** (`src/evaluator/types/search.rs`) - bounded literal scan via `memchr::memmem::find` with mandatory `NonZeroUsize` range (#39)
+- ✅ **Pascal strings** - implemented (#43)
+
 ### Active Development (Contribute Here)
 
-- 🔄 **Indirect offsets** (`src/evaluator/offset/indirect.rs`) - stub exists, needs implementation (#37)
-- 🔄 **Relative offsets** (`src/evaluator/offset/relative.rs`) - stub exists, needs implementation (#38)
-- 📋 **Regex type** - planned for future release (#39)
-- 📋 **Search type** - planned for future release (#39)
-- ✅ **Pascal strings** - implemented (#43)
+- 📋 **Additional directives**: `!:mime`, `!:ext`, `!:apple`
+- 📋 **Named tests**: `use`/`name` directives
+- 📋 **Aho-Corasick optimization** for multi-pattern search
+- 📋 **Compiled-regex caching** for repeated evaluation
 
 ## Code Quality Enforcement
 
@@ -239,7 +244,7 @@ pedantic = { level = "warn", priority = -1 }
 
 ### Adding New Type Support
 
-> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Quad`, `Float`, `Double`, `String`, `PString`, and date/timestamp variants. Regex and other advanced types are planned for future releases.
+> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Quad`, `Float`, `Double`, `String`, `PString`, `Regex`, `Search`, and date/timestamp variants.
 
 1. Extend `TypeKind` enum in `src/parser/ast.rs`
 2. Add keyword parsing in `src/parser/types.rs` (`parse_type_keyword` and `type_keyword_to_kind`)

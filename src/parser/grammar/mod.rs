@@ -11,10 +11,10 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_while},
     character::complete::{char, multispace0, one_of},
-    combinator::{map, opt},
+    combinator::opt,
     error::Error as NomError,
     multi::many0,
-    sequence::pair,
+    sequence::preceded,
 };
 
 use crate::parser::ast::{
@@ -22,14 +22,18 @@ use crate::parser::ast::{
 };
 
 mod numbers;
+mod type_suffix;
 mod value;
 
 pub use numbers::parse_number;
 pub use value::parse_value;
 
+use numbers::parse_decimal_number;
 #[cfg(test)]
 use numbers::parse_hex_number;
-use numbers::{parse_decimal_number, parse_unsigned_number};
+use type_suffix::{
+    parse_attached_operator, parse_pstring_suffix, parse_regex_suffix, parse_search_suffix,
+};
 #[cfg(test)]
 use value::{parse_escape_sequence, parse_hex_bytes, parse_numeric_value, parse_quoted_string};
 
@@ -323,51 +327,6 @@ pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
     Ok((remaining, op))
 }
 
-/// Parse pstring suffix flags after the `/` character.
-///
-/// Recognizes width characters (`B`, `H`, `h`, `L`, `l`) and the optional `J`
-/// modifier that indicates the stored length includes the length field itself.
-///
-/// Returns `Ok((remaining_input, width, length_includes_itself))` on success,
-/// or `Err` if an unrecognized suffix character is found.
-fn parse_pstring_suffix(
-    input: &str,
-) -> Result<(&str, crate::parser::ast::PStringLengthWidth, bool), nom::Err<nom::error::Error<&str>>>
-{
-    use crate::parser::ast::PStringLengthWidth;
-
-    // Parse width character
-    let (rest, width) = if let Some(rest) = input.strip_prefix('B') {
-        (rest, PStringLengthWidth::OneByte)
-    } else if let Some(rest) = input.strip_prefix('H') {
-        (rest, PStringLengthWidth::TwoByteBE)
-    } else if let Some(rest) = input.strip_prefix('h') {
-        (rest, PStringLengthWidth::TwoByteLE)
-    } else if let Some(rest) = input.strip_prefix('L') {
-        (rest, PStringLengthWidth::FourByteBE)
-    } else if let Some(rest) = input.strip_prefix('l') {
-        (rest, PStringLengthWidth::FourByteLE)
-    } else if let Some(rest) = input.strip_prefix('J') {
-        // Bare /J with no width = default OneByte + self-inclusive
-        return Ok((rest, PStringLengthWidth::OneByte, true));
-    } else {
-        // Unrecognized suffix character after '/'
-        return Err(nom::Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::OneOf,
-        )));
-    };
-
-    // Parse optional J flag after width character
-    let (rest, includes_j) = if let Some(rest) = rest.strip_prefix('J') {
-        (rest, true)
-    } else {
-        (rest, false)
-    };
-
-    Ok((rest, width, includes_j))
-}
-
 /// Parse a type specification with an optional attached bitwise-AND mask operator
 /// (e.g., `lelong&0xf0000000`).
 ///
@@ -391,9 +350,8 @@ fn parse_pstring_suffix(
 ///
 /// # Errors
 /// Returns a nom parsing error if the input doesn't match the expected format
-#[allow(clippy::too_many_lines)]
 pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<Operator>)> {
-    use crate::parser::ast::PStringLengthWidth;
+    use crate::parser::ast::{PStringLengthWidth, RegexCount, RegexFlags};
 
     let (input, _) = multispace0(input)?;
 
@@ -411,77 +369,18 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
         pstring_length_includes_itself = includes_j;
     }
 
-    // Handle regex suffixes: flag letters (`c`, `s`, `l`) and an optional
-    // decimal count. GNU `file`'s `parse_string_modifier` accepts flag
-    // letters and digits in any interleaved order with "last range wins"
-    // semantics; we implement the same: scan the suffix character by
-    // character, setting flag bits on letters and parsing a new numeric
-    // count on digit sequences (which overwrites any previously-seen
-    // count). This accepts both `regex/1l` and `regex/l1` as equivalent.
-    let mut regex_flags = crate::parser::ast::RegexFlags::default();
-    let mut regex_count: Option<u32> = None;
+    // Handle regex suffixes via the extracted helper. See
+    // `grammar/type_suffix.rs::parse_regex_suffix` for the full
+    // "any-order flag/count interleaving, duplicate counts rejected"
+    // semantics and the `RegexCount` collapse logic.
+    let mut regex_flags = RegexFlags::default();
+    let mut regex_count = RegexCount::Default;
     if type_name == "regex"
         && let Some(suffix_rest) = input.strip_prefix('/')
     {
-        let mut rest = suffix_rest;
-        let mut any_modifier = false;
-
-        // Scan modifier sequence. Stop at whitespace or at operator
-        // boundary characters (`=`, `!`, `<`, `>`, `&`, `^`, `~`, `x`) so
-        // forms like `regex/c=...` or `regex/l!=...` leave the operator
-        // for `parse_operator` to handle.
-        loop {
-            if let Some(next) = rest.strip_prefix('c') {
-                regex_flags.case_insensitive = true;
-                rest = next;
-                any_modifier = true;
-            } else if let Some(next) = rest.strip_prefix('s') {
-                regex_flags.start_offset = true;
-                rest = next;
-                any_modifier = true;
-            } else if let Some(next) = rest.strip_prefix('l') {
-                regex_flags.line_based = true;
-                rest = next;
-                any_modifier = true;
-            } else if rest.starts_with(|c: char| c.is_ascii_digit()) {
-                let (after_number, n) = parse_decimal_number(rest).map_err(|_| {
-                    nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
-                })?;
-                // `0` is a valid sentinel in libmagic (means "unset"), but
-                // with a dedicated 8192-byte default we don't need a
-                // sentinel. Reject 0 explicitly so callers get a clear
-                // parse error instead of a silently-dropped count.
-                let count_value = u32::try_from(n)
-                    .ok()
-                    .and_then(::std::num::NonZeroU32::new)
-                    .ok_or_else(|| {
-                        nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
-                    })?;
-                regex_count = Some(count_value.get());
-                rest = after_number;
-                any_modifier = true;
-            } else {
-                match rest.chars().next() {
-                    Some(c) if c.is_whitespace() => break,
-                    None | Some('=' | '!' | '<' | '>' | '&' | '^' | '~' | 'x') => break,
-                    Some(_) => {
-                        return Err(nom::Err::Error(nom::error::Error::new(
-                            input,
-                            nom::error::ErrorKind::Tag,
-                        )));
-                    }
-                }
-            }
-        }
-
-        // A bare `regex/` with no valid modifier is a parse error.
-        if !any_modifier {
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
-        }
-
+        let (rest, (flags, count)) = parse_regex_suffix(input, suffix_rest)?;
+        regex_flags = flags;
+        regex_count = count;
         input = rest;
     }
 
@@ -492,43 +391,15 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
     if type_name == "search"
         && let Some(suffix_rest) = input.strip_prefix('/')
     {
-        let (rest, n) = parse_decimal_number(suffix_rest).map_err(|_| {
-            nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
-        })?;
-        let range_value = usize::try_from(n)
-            .ok()
-            .and_then(::std::num::NonZeroUsize::new)
-            .ok_or_else(|| {
-                nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
-            })?;
-        search_range = Some(range_value);
+        let (rest, range) = parse_search_suffix(input, suffix_rest)?;
+        search_range = Some(range);
         input = rest;
     }
 
-    // Check for attached operator with mask (like &0xf0000000)
-    // Uses unsigned parsing so full u64 masks (e.g. 0xffffffffffffffff) are supported.
-    // If '&' is followed by digits/0x but the mask parse fails (overflow, etc.),
-    // we return a hard error instead of silently falling back to standalone '&'.
-    let (input, attached_op) = if let Some(after_amp) = input.strip_prefix('&') {
-        if after_amp.starts_with("0x") || after_amp.starts_with(|c: char| c.is_ascii_digit()) {
-            // '&' followed by what looks like a number -- must parse as mask
-            let (rest, mask) = parse_unsigned_number(after_amp).map_err(|_| {
-                nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::MapRes))
-            })?;
-            (rest, Some(Operator::BitwiseAndMask(mask)))
-        } else if after_amp.starts_with('&') {
-            // Reject '&&' -- not valid operator syntax
-            return Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Tag,
-            )));
-        } else {
-            // Standalone '&' (no digits following)
-            (after_amp, Some(Operator::BitwiseAnd))
-        }
-    } else {
-        (input, None)
-    };
+    // Check for an attached bitwise operator with optional mask (e.g.,
+    // `&0xf0000000` or bare `&`). See `type_suffix::parse_attached_operator`
+    // for the recognized forms and their error behavior.
+    let (input, attached_op) = parse_attached_operator(input)?;
 
     let (input, _) = multispace0(input)?;
 
@@ -540,7 +411,7 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
     let type_kind = match type_name {
         "regex" => TypeKind::Regex {
             flags: regex_flags,
-            count: regex_count.and_then(::std::num::NonZeroU32::new),
+            count: regex_count,
         },
         "search" => {
             // Mandatory range: reject bare `search` at parse time.
@@ -550,7 +421,28 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
             TypeKind::Search { range }
         }
         _ => {
-            let mut kind = crate::parser::types::type_keyword_to_kind(type_name);
+            // `type_keyword_to_kind` returns:
+            //  * `Ok(Some(kind))` for every fully-specified keyword
+            //    (byte, short, long, quad, float/double, dates,
+            //    string, pstring and variants).
+            //  * `Ok(None)` for suffix-required keywords (`regex`,
+            //    `search`), which are handled by the match arms above
+            //    and should never reach this branch.
+            //  * `Err(UnknownTypeKeyword)` for a keyword that was never
+            //    produced by `parse_type_keyword`. Under the grammar's
+            //    normal flow this is unreachable because `type_name`
+            //    was just returned by `parse_type_keyword`, but the
+            //    function is `pub` and we do not rely on panics to
+            //    enforce the invariant -- we convert both "shouldn't
+            //    happen" cases into a nom parse error anchored at the
+            //    current input position so the parser can backtrack or
+            //    report a clean failure without aborting the process.
+            let Ok(Some(mut kind)) = crate::parser::types::type_keyword_to_kind(type_name) else {
+                return Err(nom::Err::Error(nom::error::Error::new(
+                    input,
+                    nom::error::ErrorKind::Tag,
+                )));
+            };
             if let TypeKind::PString { max_length, .. } = kind {
                 kind = TypeKind::PString {
                     max_length,
@@ -696,41 +588,39 @@ pub fn parse_message(input: &str) -> IResult<&str, String> {
 pub fn parse_strength_directive(input: &str) -> IResult<&str, StrengthModifier> {
     // Helper to safely convert i64 to i32 with clamping to valid strength range.
     // This prevents silent truncation to 0 on overflow while keeping values in bounds.
+    // Clamping to `[i32::MIN, i32::MAX]` is lossless via `as i32`, so no
+    // `unwrap()`/`expect()` is needed (AGENTS.md bans panic markers in
+    // library code regardless of whether the unwrap is provably safe).
+    #[allow(clippy::cast_possible_truncation)]
     fn clamp_to_i32(n: i64) -> i32 {
-        // Use i64::from for lossless conversion, then clamp and convert back
-        let clamped = n.clamp(i64::from(i32::MIN), i64::from(i32::MAX));
-        // Safe to unwrap: clamped value is guaranteed to be in i32 range
-        i32::try_from(clamped).unwrap()
+        n.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
     }
 
     let (input, _) = multispace0(input)?;
     let (input, _) = tag("!:strength")(input)?;
     let (input, _) = multispace0(input)?;
 
-    // Parse the operator: +, -, *, /, = or bare number (implies =)
+    // Parse the operator: +, -, *, /, = or bare number (implies =).
+    // Use `preceded` + `Parser::map` (nom 8 idiom) rather than
+    // `map(pair(..), |(_, n)| ..)` so the throwaway `_` goes away and
+    // the composition matches the rest of this file's `.parse(input)?`
+    // style.
     let (input, modifier) = alt((
         // +N -> Add
-        map(pair(char('+'), parse_number), |(_, n)| {
-            StrengthModifier::Add(clamp_to_i32(n))
-        }),
-        // -N -> Subtract (note: parse_number handles negative, so we need special handling)
-        map(pair(char('-'), parse_decimal_number), |(_, n)| {
-            StrengthModifier::Subtract(clamp_to_i32(n))
-        }),
+        preceded(char('+'), parse_number).map(|n| StrengthModifier::Add(clamp_to_i32(n))),
+        // -N -> Subtract (parse_number handles negative directly; we
+        // need parse_decimal_number after the explicit `-` consumer
+        // so the sign is applied exactly once).
+        preceded(char('-'), parse_decimal_number)
+            .map(|n| StrengthModifier::Subtract(clamp_to_i32(n))),
         // *N -> Multiply
-        map(pair(char('*'), parse_number), |(_, n)| {
-            StrengthModifier::Multiply(clamp_to_i32(n))
-        }),
+        preceded(char('*'), parse_number).map(|n| StrengthModifier::Multiply(clamp_to_i32(n))),
         // /N -> Divide
-        map(pair(char('/'), parse_number), |(_, n)| {
-            StrengthModifier::Divide(clamp_to_i32(n))
-        }),
+        preceded(char('/'), parse_number).map(|n| StrengthModifier::Divide(clamp_to_i32(n))),
         // =N -> Set
-        map(pair(char('='), parse_number), |(_, n)| {
-            StrengthModifier::Set(clamp_to_i32(n))
-        }),
+        preceded(char('='), parse_number).map(|n| StrengthModifier::Set(clamp_to_i32(n))),
         // Bare number -> Set
-        map(parse_number, |n| StrengthModifier::Set(clamp_to_i32(n))),
+        parse_number.map(|n| StrengthModifier::Set(clamp_to_i32(n))),
     ))
     .parse(input)?;
 

@@ -113,10 +113,7 @@ fn test_load_from_file_with_config() {
     let mut f = fs::File::create(&magic_path).unwrap();
     writeln!(f, "0 string \"HELLO\" Hello file").unwrap();
 
-    let config = EvaluationConfig {
-        enable_mime_types: true,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_mime_types(true);
     let db = MagicDatabase::load_from_file_with_config(&magic_path, config).unwrap();
     let result = db.evaluate_buffer(b"HELLO\x00world").unwrap();
     assert!(result.description.contains("Hello file"));
@@ -390,11 +387,9 @@ fn test_load_directory_of_magic_files() {
 
 #[test]
 fn test_config_accessor() {
-    let config = EvaluationConfig {
-        max_recursion_depth: 15,
-        timeout_ms: Some(5000),
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default()
+        .with_max_recursion_depth(15)
+        .with_timeout_ms(Some(5000));
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     assert_eq!(db.config().max_recursion_depth, 15);
     assert_eq!(db.config().timeout_ms, Some(5000));

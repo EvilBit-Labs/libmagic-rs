@@ -80,7 +80,10 @@ pub struct MatchResult {
     /// Optional MIME type associated with this match
     ///
     /// When available, provides the standard MIME type corresponding
-    /// to the detected file format.
+    /// to the detected file format. Omitted from the serialized form
+    /// when unset (rather than emitted as `"mime_type": null`) so that
+    /// downstream JSON consumers can rely on presence-means-available.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub mime_type: Option<String>,
 }
 
@@ -160,6 +163,9 @@ pub struct EvaluationResult {
     ///
     /// When present, indicates that evaluation was incomplete or failed.
     /// Partial results may still be available in the matches vector.
+    /// Omitted from the serialized form when unset so downstream JSON
+    /// consumers can treat presence as the error indicator.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub error: Option<String>,
 }
 

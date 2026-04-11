@@ -299,38 +299,48 @@ Regex rules accept three modifier flags via the `/[csl]` suffix:
 
 - `/c` - Case-insensitive matching → `RegexFlags::case_insensitive = true`
 - `/s` - Advance anchor to match-start instead of match-end → `RegexFlags::start_offset = true`
-- `/l` - Line-based counting (interpret count as line count) → `RegexFlags::line_based = true`
+- `/l` - Line-based scan window → collapsed into `RegexCount::Lines(count)` by the grammar layer (it is NOT a flag field)
 
-Flags can be combined in any order (`/cl`, `/lc`, `/csl` are all equivalent). The parser also accepts interleaved flag-and-count syntax matching GNU `file` semantics: `regex/1l` and `regex/l1` both parse identically.
+Flags can be combined in any order (`/cl`, `/lc`, `/csl` are all equivalent). The parser also accepts interleaved flag-and-count syntax matching GNU `file` semantics: `regex/1l` and `regex/l1` both parse identically. Duplicate counts (`regex/1l2l`, `regex/1c2l`, `regex/l1l2`) are parse errors.
 
-**Optional Count Parameter:**
+**Count and Scan Window:**
 
-An optional decimal count controls the scan window:
+The count (if any) and the `/l` flag collapse into a single `RegexCount` enum variant:
 
-- No count: scan 8192 bytes (default)
-- `/N` (no `/l`): scan at most `N` bytes, capped at 8192
-- `/Nl` (with `/l`): scan at most `N` lines, effective byte cap is `min(N * 80, 8192)`
+- `regex` → `RegexCount::Default` — scan 8192 bytes (default) or until buffer ends
+- `regex/N` → `RegexCount::Bytes(N)` — scan at most `N` bytes, clamped at 8192
+- `regex/Nl` → `RegexCount::Lines(Some(N))` — scan from offset through the end of the Nth line terminator (LF, CRLF, or bare CR), capped at 8192 bytes
+- `regex/l` → `RegexCount::Lines(None)` — behaviorally equivalent to `Default` (walks the full 8192-byte capped window)
 
 The 8192-byte hard cap matches GNU `file`'s `FILE_REGEX_MAX` constant and prevents runaway regex scans against large buffers.
 
 **Parsing Examples:**
 
 ```rust
-// Plain regex (no flags, 8192-byte default scan window)
+// Plain regex (no flags, default 8192-byte scan window)
 parse_type_and_operator("regex")
-// → TypeKind::Regex { flags: RegexFlags::default(), count: None }
+// → TypeKind::Regex { flags: RegexFlags::default(), count: RegexCount::Default }
 
 // Case-insensitive flag
 parse_type_and_operator("regex/c")
-// → TypeKind::Regex { flags: RegexFlags { case_insensitive: true, .. }, count: None }
+// → TypeKind::Regex {
+//       flags: RegexFlags { case_insensitive: true, start_offset: false },
+//       count: RegexCount::Default,
+//   }
 
 // Line-based with explicit count
 parse_type_and_operator("regex/1l")
-// → TypeKind::Regex { flags: RegexFlags { line_based: true, .. }, count: Some(1) }
+// → TypeKind::Regex {
+//       flags: RegexFlags::default(),
+//       count: RegexCount::Lines(NonZeroU32::new(1)),
+//   }
 
-// Combined flags and count (interleaved order accepted)
-parse_type_and_operator("regex/c256s")
-// → TypeKind::Regex { flags: RegexFlags { case_insensitive: true, start_offset: true, .. }, count: Some(256) }
+// Byte count with case-insensitive + start-offset flags
+parse_type_and_operator("regex/cs256")
+// → TypeKind::Regex {
+//       flags: RegexFlags { case_insensitive: true, start_offset: true },
+//       count: RegexCount::Bytes(NonZeroU32::new(256).unwrap()),
+//   }
 ```
 
 **Usage in Magic Rules:**
@@ -348,9 +358,9 @@ parse_type_and_operator("regex/c256s")
 
 **Regex Semantics:**
 
-- Patterns are compiled with multi-line mode always enabled (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries and `.` does not match `\n`.
+- Multi-line regex mode is always enabled (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries and `.` does not match `\n`. This behavior is independent of the `/l` flag; `/l` controls the scan window (line-based vs byte-based), not the regex compilation mode.
 - The scan window is always capped at 8192 bytes regardless of the `count` value.
-- Zero-width matches (`^`, `a*`, lookaheads) are preserved as `Value::String("")` and distinguished from genuine misses.
+- Zero-width matches (for example `^`, `a*`, or `.{0}`) are preserved as `Value::String("")` and distinguished from genuine misses. The Rust `regex` crate does not support look-around assertions (lookaheads or lookbehinds) -- those are deliberately excluded to preserve its linear-time matching guarantees.
 - Regex rules only support `Operator::Equal` and `Operator::NotEqual`; other comparison operators are rejected at evaluation time.
 
 **Features:**
@@ -358,6 +368,7 @@ parse_type_and_operator("regex/c256s")
 - ✅ `regex` keyword recognition with suffix parsing
 - ✅ Three modifier flags (`/c`, `/s`, `/l`) with arbitrary combination order
 - ✅ Optional numeric count parameter (interleaved with flags per GNU `file` semantics)
+- ✅ Duplicate regex counts rejected with clear parse errors
 - ✅ 8192-byte scan window cap matching `FILE_REGEX_MAX`
 - ✅ Bare `regex/` with no valid modifier is a parse error
 - ✅ `regex/0` is rejected (zero count has no valid semantics)

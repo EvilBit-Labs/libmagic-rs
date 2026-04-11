@@ -16,24 +16,29 @@ use crate::error::LibmagicError;
 /// This struct controls various aspects of magic rule evaluation behavior,
 /// including performance limits, output options, and matching strategies.
 ///
-/// # Examples
+/// # Forward compatibility
+///
+/// This struct is marked `#[non_exhaustive]`: new configuration fields may
+/// be added in any release without it being a breaking change. Construct
+/// instances via one of the factory constructors
+/// ([`EvaluationConfig::default()`], [`EvaluationConfig::new()`],
+/// [`EvaluationConfig::performance()`],
+/// [`EvaluationConfig::comprehensive()`]) and then chain `with_*`
+/// builder-style setters:
 ///
 /// ```rust
 /// use libmagic_rs::EvaluationConfig;
 ///
-/// // Use default configuration
-/// let config = EvaluationConfig::default();
-///
-/// // Create custom configuration
-/// let custom_config = EvaluationConfig {
-///     max_recursion_depth: 10,
-///     max_string_length: 4096,
-///     stop_at_first_match: false, // Get all matches
-///     enable_mime_types: true,
-///     timeout_ms: Some(5000), // 5 second timeout
-/// };
+/// let custom_config = EvaluationConfig::default()
+///     .with_max_recursion_depth(10)
+///     .with_timeout_ms(Some(5_000));
 /// ```
+///
+/// Direct struct-literal construction (`EvaluationConfig { .. }`) is
+/// rejected by the compiler from outside this crate because of
+/// `#[non_exhaustive]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EvaluationConfig {
     /// Maximum recursion depth for nested rules
     ///
@@ -181,6 +186,47 @@ impl EvaluationConfig {
         }
     }
 
+    /// Sets the maximum recursion depth for nested rule evaluation.
+    ///
+    /// Builder-style setter for consumers outside this crate. Direct
+    /// struct-literal construction is blocked by `#[non_exhaustive]`, so
+    /// chain `with_*` calls after one of the factory constructors
+    /// (`default`, `performance`, `comprehensive`, `new`).
+    #[must_use]
+    pub const fn with_max_recursion_depth(mut self, depth: u32) -> Self {
+        self.max_recursion_depth = depth;
+        self
+    }
+
+    /// Sets the maximum string length (in bytes) read for string types.
+    #[must_use]
+    pub const fn with_max_string_length(mut self, length: usize) -> Self {
+        self.max_string_length = length;
+        self
+    }
+
+    /// Sets whether evaluation stops after the first top-level match.
+    #[must_use]
+    pub const fn with_stop_at_first_match(mut self, stop: bool) -> Self {
+        self.stop_at_first_match = stop;
+        self
+    }
+
+    /// Enables or disables MIME type mapping in results.
+    #[must_use]
+    pub const fn with_mime_types(mut self, enable: bool) -> Self {
+        self.enable_mime_types = enable;
+        self
+    }
+
+    /// Sets the evaluation timeout in milliseconds. Pass `None` for
+    /// unbounded evaluation (not recommended on untrusted input).
+    #[must_use]
+    pub const fn with_timeout_ms(mut self, timeout_ms: Option<u64>) -> Self {
+        self.timeout_ms = timeout_ms;
+        self
+    }
+
     /// Validate the configuration settings
     ///
     /// Performs comprehensive security validation of all configuration values
@@ -208,10 +254,7 @@ impl EvaluationConfig {
     /// let config = EvaluationConfig::default();
     /// assert!(config.validate().is_ok());
     ///
-    /// let invalid_config = EvaluationConfig {
-    ///     max_recursion_depth: 0, // Invalid: must be > 0
-    ///     ..Default::default()
-    /// };
+    /// let invalid_config = EvaluationConfig::default().with_max_recursion_depth(0);
     /// assert!(invalid_config.validate().is_err());
     /// ```
     pub fn validate(&self) -> Result<()> {

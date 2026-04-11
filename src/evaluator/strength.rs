@@ -78,13 +78,20 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
             if max_length.is_some() { base + 5 } else { base }
         }
         // Regex matches a pattern -- treat similarly to an unbounded string.
-        // A rule with an explicit `count` is more constrained (narrower scan
-        // window) and therefore more specific.
+        // A rule with an EXPLICIT count (byte count, or line count with a
+        // specific N) is more constrained than a plain `regex` default, so
+        // it gets the same bonus as a length-limited string. Note that
+        // `RegexCount::Lines(None)` (the `regex/l` shorthand) has the same
+        // effective scan window as `RegexCount::Default` -- both walk the
+        // full 8192-byte capped window -- so they get the same strength
+        // score. Giving `Lines(None)` the "constrained" bonus would reward
+        // users for typing `/l` instead of nothing even though the scan
+        // window is identical.
         TypeKind::Regex { count, .. } => {
-            if count.is_some() {
-                25
-            } else {
-                20
+            use crate::parser::ast::RegexCount;
+            match count {
+                RegexCount::Default | RegexCount::Lines(None) => 20,
+                RegexCount::Bytes(_) | RegexCount::Lines(Some(_)) => 25,
             }
         }
         // Search is always a bounded scan (the range is mandatory), so it

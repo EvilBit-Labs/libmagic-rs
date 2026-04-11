@@ -18,10 +18,7 @@ use libmagic_rs::parser::ast::PStringLengthWidth;
 use libmagic_rs::{Endianness, EvaluationConfig, MagicRule, OffsetSpec, Operator, TypeKind, Value};
 
 fn cfg() -> EvaluationConfig {
-    EvaluationConfig {
-        stop_at_first_match: false,
-        ..Default::default()
-    }
+    EvaluationConfig::default().with_stop_at_first_match(false)
 }
 
 fn child_rule(offset: OffsetSpec, typ: TypeKind, value: Value, message: &str) -> MagicRule {
