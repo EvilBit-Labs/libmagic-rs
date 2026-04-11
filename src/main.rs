@@ -116,10 +116,7 @@ impl Args {
     /// Uses the timeout value from --timeout-ms if provided, with validation
     /// performed during config creation. Other config values use defaults.
     pub fn to_evaluation_config(&self) -> libmagic_rs::EvaluationConfig {
-        libmagic_rs::EvaluationConfig {
-            timeout_ms: self.timeout_ms,
-            ..Default::default()
-        }
+        libmagic_rs::EvaluationConfig::default().with_timeout_ms(self.timeout_ms)
     }
 
     /// Magic file search candidates in priority order.

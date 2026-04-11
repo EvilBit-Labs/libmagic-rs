@@ -204,10 +204,7 @@ impl MagicDatabase {
     /// ```rust,no_run
     /// use libmagic_rs::{MagicDatabase, EvaluationConfig};
     ///
-    /// let config = EvaluationConfig {
-    ///     timeout_ms: Some(5000), // 5 second timeout
-    ///     ..EvaluationConfig::default()
-    /// };
+    /// let config = EvaluationConfig::default().with_timeout_ms(Some(5000));
     /// let db = MagicDatabase::with_builtin_rules_and_config(config)?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```

@@ -15,10 +15,7 @@ use libmagic_rs::{EvaluationConfig, MagicDatabase};
 
 #[test]
 fn test_mime_enabled_returns_type_for_elf() {
-    let config = EvaluationConfig {
-        enable_mime_types: true,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_mime_types(true);
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db.evaluate_buffer(b"\x7fELF\x02\x01\x01\x00").unwrap();
     assert_eq!(
@@ -29,10 +26,7 @@ fn test_mime_enabled_returns_type_for_elf() {
 
 #[test]
 fn test_mime_enabled_returns_type_for_pdf() {
-    let config = EvaluationConfig {
-        enable_mime_types: true,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_mime_types(true);
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db.evaluate_buffer(b"%PDF-\x00\x00\x00").unwrap();
     assert_eq!(result.mime_type.as_deref(), Some("application/pdf"));
@@ -40,10 +34,7 @@ fn test_mime_enabled_returns_type_for_pdf() {
 
 #[test]
 fn test_mime_enabled_returns_type_for_png() {
-    let config = EvaluationConfig {
-        enable_mime_types: true,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_mime_types(true);
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db
         .evaluate_buffer(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
@@ -53,10 +44,7 @@ fn test_mime_enabled_returns_type_for_png() {
 
 #[test]
 fn test_mime_enabled_returns_type_for_jpeg() {
-    let config = EvaluationConfig {
-        enable_mime_types: true,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_mime_types(true);
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db
         .evaluate_buffer(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00")
@@ -66,10 +54,7 @@ fn test_mime_enabled_returns_type_for_jpeg() {
 
 #[test]
 fn test_mime_enabled_returns_type_for_zip() {
-    let config = EvaluationConfig {
-        enable_mime_types: true,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_mime_types(true);
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db.evaluate_buffer(b"PK\x03\x04rest of zip").unwrap();
     assert_eq!(result.mime_type.as_deref(), Some("application/zip"));
@@ -77,10 +62,7 @@ fn test_mime_enabled_returns_type_for_zip() {
 
 #[test]
 fn test_mime_disabled_returns_none() {
-    let config = EvaluationConfig {
-        enable_mime_types: false,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_mime_types(false);
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db.evaluate_buffer(b"\x7fELF\x02\x01\x01\x00").unwrap();
     assert_eq!(result.mime_type, None);
@@ -88,10 +70,7 @@ fn test_mime_disabled_returns_none() {
 
 #[test]
 fn test_mime_unknown_data_returns_none() {
-    let config = EvaluationConfig {
-        enable_mime_types: true,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_mime_types(true);
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db.evaluate_buffer(b"random unknown content").unwrap();
     assert_eq!(result.mime_type, None);

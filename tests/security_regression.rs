@@ -138,10 +138,7 @@ fn test_regex_compile_bounded_for_pathological_patterns() {
         (".{1000000}", "huge any-char repetition"),
     ];
     let buf = vec![b'a'; 128];
-    let config = EvaluationConfig {
-        timeout_ms: Some(1000),
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_timeout_ms(Some(1000));
 
     for (pat, label) in cases {
         let rule = MagicRule {

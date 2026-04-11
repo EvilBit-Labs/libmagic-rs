@@ -185,13 +185,12 @@ proptest! {
         string_length in 1usize..10000usize,
         timeout in 1u64..100000u64
     ) {
-        let config = EvaluationConfig {
-            max_recursion_depth: recursion_depth,
-            max_string_length: string_length,
-            stop_at_first_match: true,
-            enable_mime_types: false,
-            timeout_ms: Some(timeout),
-        };
+        let config = EvaluationConfig::default()
+            .with_max_recursion_depth(recursion_depth)
+            .with_max_string_length(string_length)
+            .with_stop_at_first_match(true)
+            .with_mime_types(false)
+            .with_timeout_ms(Some(timeout));
 
         prop_assert!(config.validate().is_ok());
     }
@@ -239,10 +238,7 @@ proptest! {
         buffer in prop::collection::vec(any::<u8>(), 0..1024)
     ) {
         use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
-        let config = EvaluationConfig {
-            timeout_ms: Some(1000),
-            ..EvaluationConfig::default()
-        };
+        let config = EvaluationConfig::default().with_timeout_ms(Some(1000));
         let mut context = EvaluationContext::new(config);
         let _ = evaluate_rules(&[rule], &buffer, &mut context);
     }
@@ -288,10 +284,7 @@ fn test_empty_buffer_handled() {
 
 #[test]
 fn test_zero_recursion_fails_validation() {
-    let config = EvaluationConfig {
-        max_recursion_depth: 0,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_max_recursion_depth(0);
 
     assert!(config.validate().is_err());
 }

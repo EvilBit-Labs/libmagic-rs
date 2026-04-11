@@ -812,17 +812,279 @@ pub struct MagicRule {
     pub strength_modifier: Option<StrengthModifier>,
 }
 
-// TODO: Add validation methods for MagicRule:
-// - validate() method to check rule consistency
-// - Ensure message is not empty and contains valid characters
-// - Validate that value type matches the TypeKind
-// - Check that child rule levels are properly nested
-// - Validate offset specifications are reasonable
-// - Add bounds checking for level depth to prevent stack overflow
+/// Validation errors returned by [`MagicRule::validate`].
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MagicRuleValidationError {
+    /// Rule message is empty. Messages are user-facing and required
+    /// for meaningful output.
+    #[error("rule message must not be empty")]
+    EmptyMessage,
+
+    /// The child rule at `child_index` has `level <= self.level`,
+    /// violating the "children must nest deeper than the parent"
+    /// invariant of the hierarchical indentation-based DSL.
+    #[error(
+        "child rule at index {child_index} has level {child_level}, \
+         must be greater than parent level {parent_level}"
+    )]
+    InvalidChildLevel {
+        /// Index of the offending child in `self.children`.
+        child_index: usize,
+        /// Level of the child rule.
+        child_level: u32,
+        /// Level of the parent rule.
+        parent_level: u32,
+    },
+
+    /// Rule `level` exceeds the maximum supported depth. The limit is a
+    /// hardening mechanism against stack overflow during deep recursion;
+    /// libmagic files in the wild rarely go beyond 10 levels.
+    #[error("rule level {level} exceeds maximum supported depth {max}")]
+    LevelTooDeep {
+        /// The invalid level value.
+        level: u32,
+        /// The maximum allowed depth.
+        max: u32,
+    },
+}
+
+impl MagicRule {
+    /// Maximum supported nesting depth for `level`.
+    ///
+    /// This matches the default `max_recursion_depth` in `EvaluationConfig`
+    /// and bounds the worst-case stack cost of validating or evaluating
+    /// a rule tree.
+    pub const MAX_LEVEL: u32 = 1000;
+
+    /// Construct a top-level rule with no children and no strength
+    /// modifier.
+    ///
+    /// This is the most common constructor for programmatically building
+    /// rules outside the parser. To add children, mutate
+    /// [`MagicRule::children`] directly, or use [`MagicRule::with_children`].
+    /// To set a strength modifier, use
+    /// [`MagicRule::with_strength_modifier`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use libmagic_rs::{MagicRule, OffsetSpec, Operator, TypeKind, Value};
+    ///
+    /// let rule = MagicRule::new(
+    ///     OffsetSpec::Absolute(0),
+    ///     TypeKind::Byte { signed: false },
+    ///     Operator::Equal,
+    ///     Value::Uint(0x7f),
+    ///     "ELF magic byte".to_string(),
+    /// );
+    /// assert_eq!(rule.level, 0);
+    /// assert!(rule.children.is_empty());
+    /// assert!(rule.validate().is_ok());
+    /// ```
+    #[must_use]
+    pub fn new(
+        offset: OffsetSpec,
+        typ: TypeKind,
+        op: Operator,
+        value: Value,
+        message: String,
+    ) -> Self {
+        Self {
+            offset,
+            typ,
+            op,
+            value,
+            message,
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        }
+    }
+
+    /// Replace `self.children` with the given children and return the
+    /// modified rule. Builder-style for chaining.
+    #[must_use]
+    pub fn with_children(mut self, children: Vec<MagicRule>) -> Self {
+        self.children = children;
+        self
+    }
+
+    /// Set `self.strength_modifier` to the given value and return the
+    /// modified rule. Builder-style for chaining.
+    #[must_use]
+    pub const fn with_strength_modifier(mut self, modifier: StrengthModifier) -> Self {
+        self.strength_modifier = Some(modifier);
+        self
+    }
+
+    /// Set `self.level` to the given value and return the modified rule.
+    /// Builder-style for chaining; typically used only when constructing
+    /// child rules programmatically.
+    #[must_use]
+    pub const fn with_level(mut self, level: u32) -> Self {
+        self.level = level;
+        self
+    }
+
+    /// Validate structural invariants of the rule.
+    ///
+    /// This checks invariants that the parser enforces automatically but
+    /// that programmatic constructors (especially via serde deserialize)
+    /// can violate:
+    ///
+    /// * Message must not be empty.
+    /// * `level` must not exceed [`Self::MAX_LEVEL`].
+    /// * Every child's `level` must be strictly greater than
+    ///   `self.level`, and each child must recursively validate.
+    ///
+    /// This does *not* validate that `value` is shape-compatible with
+    /// `typ` (e.g., a `Value::Uint` against a `TypeKind::String`); such
+    /// mismatches are coerced or rejected by the evaluator at match time.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MagicRuleValidationError`] describing the first
+    /// invariant violation encountered.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use libmagic_rs::{MagicRule, OffsetSpec, Operator, TypeKind, Value};
+    ///
+    /// let rule = MagicRule::new(
+    ///     OffsetSpec::Absolute(0),
+    ///     TypeKind::Byte { signed: false },
+    ///     Operator::Equal,
+    ///     Value::Uint(0),
+    ///     "zero byte".to_string(),
+    /// );
+    /// assert!(rule.validate().is_ok());
+    /// ```
+    pub fn validate(&self) -> Result<(), MagicRuleValidationError> {
+        if self.message.is_empty() {
+            return Err(MagicRuleValidationError::EmptyMessage);
+        }
+        if self.level > Self::MAX_LEVEL {
+            return Err(MagicRuleValidationError::LevelTooDeep {
+                level: self.level,
+                max: Self::MAX_LEVEL,
+            });
+        }
+        for (child_index, child) in self.children.iter().enumerate() {
+            if child.level <= self.level {
+                return Err(MagicRuleValidationError::InvalidChildLevel {
+                    child_index,
+                    child_level: child.level,
+                    parent_level: self.level,
+                });
+            }
+            child.validate()?;
+        }
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_magic_rule_new_defaults() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(0x7f),
+            "ELF".to_string(),
+        );
+        assert_eq!(rule.level, 0);
+        assert!(rule.children.is_empty());
+        assert!(rule.strength_modifier.is_none());
+        assert!(rule.validate().is_ok());
+    }
+
+    #[test]
+    fn test_magic_rule_builder_chain() {
+        let child = MagicRule::new(
+            OffsetSpec::Absolute(4),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(2),
+            "64-bit".to_string(),
+        )
+        .with_level(1);
+        let parent = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(0x7f),
+            "ELF".to_string(),
+        )
+        .with_children(vec![child])
+        .with_strength_modifier(StrengthModifier::Add(10));
+        assert_eq!(parent.children.len(), 1);
+        assert_eq!(parent.strength_modifier, Some(StrengthModifier::Add(10)));
+        assert!(parent.validate().is_ok());
+    }
+
+    #[test]
+    fn test_magic_rule_validate_empty_message_rejected() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(0),
+            String::new(),
+        );
+        assert_eq!(rule.validate(), Err(MagicRuleValidationError::EmptyMessage));
+    }
+
+    #[test]
+    fn test_magic_rule_validate_child_level_must_be_deeper() {
+        let child_same_level = MagicRule::new(
+            OffsetSpec::Absolute(4),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(2),
+            "child".to_string(),
+        ); // level = 0, same as parent
+        let parent = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(0x7f),
+            "parent".to_string(),
+        )
+        .with_children(vec![child_same_level]);
+        assert_eq!(
+            parent.validate(),
+            Err(MagicRuleValidationError::InvalidChildLevel {
+                child_index: 0,
+                child_level: 0,
+                parent_level: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn test_magic_rule_validate_level_too_deep() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Byte { signed: false },
+            Operator::Equal,
+            Value::Uint(0),
+            "deep".to_string(),
+        )
+        .with_level(MagicRule::MAX_LEVEL + 1);
+        assert_eq!(
+            rule.validate(),
+            Err(MagicRuleValidationError::LevelTooDeep {
+                level: MagicRule::MAX_LEVEL + 1,
+                max: MagicRule::MAX_LEVEL,
+            })
+        );
+    }
 
     #[test]
     fn test_offset_spec_absolute() {

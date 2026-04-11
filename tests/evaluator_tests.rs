@@ -149,10 +149,7 @@ fn test_evaluate_with_comprehensive_config() {
 
 #[test]
 fn test_evaluate_with_mime_types_enabled() {
-    let config = EvaluationConfig {
-        enable_mime_types: true,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_mime_types(true);
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db.evaluate_buffer(b"\x7fELF\x02\x01\x01\x00").unwrap();
     assert!(
@@ -163,10 +160,7 @@ fn test_evaluate_with_mime_types_enabled() {
 
 #[test]
 fn test_evaluate_without_mime_types() {
-    let config = EvaluationConfig {
-        enable_mime_types: false,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_mime_types(false);
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
     let result = db.evaluate_buffer(b"\x7fELF\x02\x01\x01\x00").unwrap();
     assert!(
@@ -177,10 +171,7 @@ fn test_evaluate_without_mime_types() {
 
 #[test]
 fn test_invalid_config_rejected() {
-    let config = EvaluationConfig {
-        max_recursion_depth: 0,
-        ..EvaluationConfig::default()
-    };
+    let config = EvaluationConfig::default().with_max_recursion_depth(0);
     let result = MagicDatabase::with_builtin_rules_and_config(config);
     assert!(result.is_err(), "Zero recursion depth should be rejected");
 }
