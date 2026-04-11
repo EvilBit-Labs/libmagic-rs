@@ -48,7 +48,25 @@ Adding a variant to `Value` requires updating: `ast`, `codegen`, `strength`, `pr
 
 ### 2.6 Search Anchor Advance Is Match-End, Not Window-End
 
-`search_bytes_consumed` returns `match_idx + pattern.len()` — the byte just past the matched pattern — not `range` (the window size). This matches GNU `file` semantics: `src/softmagic.c` `FILE_SEARCH` in `moffset()` computes `o = ms->search.offset + vlen - offset` where `ms->search.offset` has already been advanced by `idx` (the match index inside the window) in `magiccheck`, and `vlen = m->vallen` (the pattern length). An earlier revision returned the full window size, which silently corrupted relative-offset children of every successful `search` rule (e.g., `search/256 "MAGIC"` at index 4 advanced the anchor by 256 instead of by 9). The fix threaded the pattern through `bytes_consumed_with_pattern` for `TypeKind::Search` so the scan can be re-run at anchor-advance time. If/when `regex/s`-style start-offset flags land, the match-end can become match-start — do not assume the current behavior is the final design.
+`search_bytes_consumed` returns `match_idx + pattern.len()` — the byte just past the matched pattern — not `range` (the window size). This matches GNU `file` semantics: `src/softmagic.c` `FILE_SEARCH` in `moffset()` computes `o = ms->search.offset + vlen - offset` where `ms->search.offset` has already been advanced by `idx` (the match index inside the window) in `magiccheck`, and `vlen = m->vallen` (the pattern length). An earlier revision returned the full window size, which silently corrupted relative-offset children of every successful `search` rule (e.g., `search/256 "MAGIC"` at index 4 advanced the anchor by 256 instead of by 9). The fix threaded the pattern through `bytes_consumed_with_pattern` for `TypeKind::Search` so the scan can be re-run at anchor-advance time. Search does not currently support a `/s`-style start-offset flag; if one is added, match-end can become match-start.
+
+### 2.7 Regex `/l` Is Scan Window Bounds, Not Multi-Line Toggle
+
+`RegexFlags::line_based` (the `/l` suffix) controls *only* the scan window extent: when set, `count` is interpreted as a line count and `compute_window` walks line terminators (both `\n` and `\r\n`, each counting as one terminator) to bound the scan. It does **not** toggle regex multi-line matching — libmagic always compiles with `REG_NEWLINE` (unconditional at `src/softmagic.c::alloc_regex` line 2123), so `^` and `$` match at line boundaries for every regex rule regardless of `/l`. An earlier revision of this crate wrapped line-based patterns in `^(?:...)` and only set `multi_line(true)` when `/l` was set; that was wrong on both counts and has been removed. `build_regex` now unconditionally sets `multi_line(true)` and `dot_matches_new_line(false)` for all patterns.
+
+### 2.8 Regex Scan Window Is Always Capped at 8192 Bytes
+
+Every regex rule is subject to the `REGEX_MAX_BYTES` (8192) hard cap, matching GNU `file`'s `FILE_REGEX_MAX` (`src/file.h:522`). This applies:
+
+- When `count` is `None` (default scan).
+- When `count` is `Some(n)` with `n > 8192` (explicit counts are clamped).
+- When `flags.line_based` is set (the line-based walk stops after 8192 bytes even if the Nth terminator has not been reached yet).
+
+The cap is a DoS mitigation: without it, a malicious regex against a multi-GB buffer combined with `EvaluationConfig::default()` (no timeout — see S13.1) can hang the evaluator. It is enforced inside `compute_window` in `src/evaluator/types/regex.rs`. Do not add a path that bypasses the cap, even for "trusted" rules — the cap is also what makes the regex evaluator's worst-case runtime bounded.
+
+### 2.9 Regex `/s` Flag Affects Anchor Advance Only, Not Match Result
+
+`RegexFlags::start_offset` (the `/s` suffix) controls *only* `regex_bytes_consumed`: when set, the anchor advance is `m.start()` (match-start) instead of `m.end()` (match-end). The match *result* (whether a pattern matches, and what matched text is returned) is unchanged. This matches libmagic's `REGEX_OFFSET_START` flag, which zeros the `rm_len` contribution in `moffset()` but does not alter the regex scan itself. Tests for `/s` must exercise `regex_bytes_consumed` directly or check the resolved offset of a `Relative(N)` child rule; checking `read_regex` alone won't detect a broken `/s` implementation.
 
 ## 3. Parser Architecture
 

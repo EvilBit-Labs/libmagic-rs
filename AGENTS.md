@@ -209,22 +209,19 @@ cargo test --doc   # Test documentation examples
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
 - **String Matching**: Exact string matching with null-termination and Pascal string (length-prefixed) support
-- **Regex type**: Binary-safe regex matching via `regex::bytes::Regex`; flags `/c` (case-insensitive) and `/l` (currently implemented as a multi-line `^` anchor) and their combinations (`regex/cl`, `regex/lc`). An optional numeric prefix like `regex/1l` is accepted by the parser but the numeric count is **not yet enforced** — see "Current Limitations" below.
-- **Search type**: Bounded literal pattern scan via `memchr::memmem::find`; `search/N` caps the scan window to `N` bytes from the offset. Anchor advance follows GNU `file` semantics (match-end, not window-end) so relative-offset children resolve to the byte immediately after the matched pattern.
+- **Regex type**: Binary-safe regex matching via `regex::bytes::Regex`. Full flag support: `/c` (case-insensitive), `/s` (anchor advances to match-start instead of match-end), `/l` (scan window is measured in lines instead of bytes). Flags combine in any order (`regex/cs`, `regex/csl`, `regex/lc`). Numeric counts are honored: `regex/100` scans at most 100 bytes; `regex/1l` scans at most 1 line. Multi-line regex matching is always on (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries regardless of `/l`. Every scan window is capped at 8192 bytes (`FILE_REGEX_MAX`) regardless of the user's count.
+- **Search type**: Bounded literal pattern scan via `memchr::memmem::find`; `search/N` caps the scan window to `N` bytes from the offset. The range is **mandatory** and stored as `NonZeroUsize`, so bare `search` and `search/0` are parse errors (matching GNU `file` magic(5)). Anchor advance follows GNU `file` semantics (match-end, not window-end) so relative-offset children resolve to the byte immediately after the matched pattern.
 
 ### Planned Features (v1.0+)
 
-- `regex/s` (start-offset) flag: advance the anchor to match-start instead of match-end.
-- `regex/Nl` line-count semantics: scope the scan to `N` lines rather than using `/l` as a multi-line start anchor. The `/l`-as-anchor behavior is a placeholder; the final implementation will match libmagic's "range in lines" semantics.
 - Aho-Corasick multi-pattern search optimization for `search/` rules.
+- `!:mime`/`!:ext`/`!:apple` directive evaluation (currently only `!:strength` is parsed).
+- `use`/`name` named test directives for rule reuse.
 
 ## Current Limitations (v0.1.0)
 
 ### Type System
 
-- **Regex `/l` flag** is currently implemented as a multi-line `^` anchor (wrapping the pattern in `^(?:...)` with `multi_line(true)`), not as a line-count limit. The numeric prefix on `regex/Nl` is parsed for forward compatibility but discarded. Corpus rules that rely on `regex/1l` semantics (scan one line) will either match too much or match patterns that happen to line-anchor correctly by coincidence. Tracked for v0.3 alongside the `regex/s` flag.
-- **`search` range is optional** (`Option<usize>`). Per GNU `file` the range is mandatory; the current implementation treats `None` as "scan to end of buffer" and will be tightened to reject `search` without an explicit range before v1.0.
-- **No default 8192-byte regex range**. GNU `file` caps an un-ranged regex scan at 8192 bytes; the current implementation scans the entire buffer tail, which is a DoS vector when combined with `EvaluationConfig::default()` (no timeout — see GOTCHAS S13.1). Consumers embedding libmagic-rs on untrusted input should construct the evaluator config with an explicit timeout.
 - 64-bit integer types: `quad`/`uquad`, `bequad`/`ubequad`, `lequad`/`ulequad` are implemented; `qquad` (128-bit) is not yet supported
 - String evaluation reads until first NUL or end-of-buffer by default; `pstring` reads a length-prefixed Pascal string; `max_length: Some(_)` is supported internally but no dedicated fixed-length string parser syntax exists yet
 - `pstring` supports 1-byte (`/B`), 2-byte big-endian (`/H`), 2-byte little-endian (`/h`), 4-byte big-endian (`/L`), and 4-byte little-endian (`/l`) length prefixes, plus the `/J` flag (stored length includes prefix width). All flags are combinable (e.g., `pstring/HJ`) and fully implemented.
