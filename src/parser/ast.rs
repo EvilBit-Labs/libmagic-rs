@@ -383,14 +383,16 @@ pub enum TypeKind {
         /// Optional numeric count from `regex/N[flags]`. Interpretation
         /// depends on `flags.line_based`:
         ///
-        /// * `None`: use the 8192-byte default scan window.
+        /// * `None`: use the default scan window (8192 bytes, or until
+        ///   the buffer ends).
         /// * `Some(n)` with `flags.line_based == false`: scan at most `n`
-        ///   bytes, capped at 8192.
-        /// * `Some(n)` with `flags.line_based == true`: scan at most `n`
-        ///   lines, with an effective byte cap of `min(n * 80, 8192)`.
+        ///   bytes, clamped to 8192.
+        /// * `Some(n)` with `flags.line_based == true`: scan up to the
+        ///   end of the Nth line terminator (LF, CRLF, or bare CR),
+        ///   always capped at 8192 bytes regardless of `n`.
         ///
-        /// The 8192-byte hard cap matches GNU `file`'s `FILE_REGEX_MAX` and
-        /// prevents runaway regex scans against large buffers.
+        /// The 8192-byte hard cap matches GNU `file`'s `FILE_REGEX_MAX`
+        /// and prevents runaway regex scans against large buffers.
         count: Option<NonZeroU32>,
     },
     /// Multi-byte pattern search within a bounded range

@@ -63,11 +63,14 @@ pub enum TypeReadError {
         /// The actual length of the buffer.
         buffer_len: usize,
     },
-    /// Unsupported type variant (reserved for future types not yet evaluatable,
-    /// e.g., regex, date, timestamp).
+    /// Type-level capability failure: regex pattern compile error, missing
+    /// pattern operand on a pattern-bearing type, non-equality operator on
+    /// a pattern-bearing type, or a future capability gap. The `type_name`
+    /// field carries a free-form description of the offending type or
+    /// condition; callers should treat this as an opaque diagnostic string.
     #[error("Unsupported type: {type_name}")]
     UnsupportedType {
-        /// The name of the unsupported type.
+        /// Free-form description of the offending type or failure condition.
         type_name: String,
     },
     /// Invalid pstring length prefix value (e.g., `/J` flag with stored length
@@ -372,15 +375,19 @@ pub fn coerce_value_to_type<'a>(value: &'a Value, type_kind: &TypeKind) -> Cow<'
 /// it after a successful read, so the defensive paths are belt-and-braces
 /// for any future caller that breaks that invariant.
 ///
-/// For `TypeKind::Regex`, the pattern is required to re-run the match and
-/// compute the consumed bytes. When the pattern is unavailable (or not a
-/// string), the function returns `0` -- the anchor will then stay put and
-/// the next relative offset resolves against the previous anchor position,
-/// which is the same graceful-degradation behavior used by the other
-/// defensive paths in this module. For `TypeKind::Search`, the pattern is
-/// not needed because the consumed distance is the entire search window
-/// regardless of where the match was found. Non-pattern types should pass
-/// `pattern: None`.
+/// For `TypeKind::Regex` and `TypeKind::Search`, the pattern is required
+/// at anchor-advance time to re-run the match and compute `m.end()` (or
+/// `match_idx + pattern.len()` for search), matching GNU `file`'s
+/// `softmagic.c` `FILE_REGEX` / `FILE_SEARCH` / `moffset()` semantics:
+/// the anchor advances past the **matched bytes**, not past the entire
+/// scan window. For regex, `flags.start_offset` (the `/s` flag) further
+/// changes the advance to `m.start()` (match-start) instead of match-end.
+/// When the pattern is unavailable or has the wrong `Value` variant, the
+/// function returns `0` and fires a `debug_assert!` in dev/test builds
+/// -- the engine invariant is that `bytes_consumed_with_pattern` is
+/// called only after a successful `read_pattern_match`, which requires
+/// a `Value::String`/`Value::Bytes` pattern. Non-pattern types should
+/// pass `pattern: None`.
 ///
 /// # Semantics
 ///
