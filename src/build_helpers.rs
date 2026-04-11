@@ -583,4 +583,57 @@ mod tests {
         let formatted = format_parse_error(&error);
         assert!(formatted.contains("builtin_rules.magic"));
     }
+
+    /// Regression test for PR #215 Copilot review comment: the codegen
+    /// for `TypeKind::Regex` and `TypeKind::Search` must NOT emit
+    /// `.expect("nonzero")` (a panic marker banned by AGENTS.md for
+    /// library code, which is what the generated `builtin_rules.rs`
+    /// becomes). Instead it must emit
+    /// `.unwrap_or(NonZero::<..>::MIN)`, which preserves the invariant
+    /// expression without introducing a panic path.
+    #[test]
+    fn test_serialize_regex_codegen_has_no_expect_panic_marker() {
+        use crate::parser::ast::{RegexCount, RegexFlags};
+        use std::num::NonZeroU32;
+
+        let cases = [
+            TypeKind::Regex {
+                flags: RegexFlags::default(),
+                count: RegexCount::Bytes(NonZeroU32::new(256).unwrap()),
+            },
+            TypeKind::Regex {
+                flags: RegexFlags::default(),
+                count: RegexCount::Lines(Some(NonZeroU32::new(3).unwrap())),
+            },
+        ];
+        for typ in &cases {
+            let generated = serialize_type_kind(typ);
+            assert!(
+                !generated.contains(".expect("),
+                "serialize_type_kind must not emit .expect() (AGENTS.md panic-marker ban); got:\n{generated}"
+            );
+            assert!(
+                generated.contains(".unwrap_or(::std::num::NonZeroU32::MIN)"),
+                "serialize_type_kind must emit .unwrap_or(NonZeroU32::MIN); got:\n{generated}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_serialize_search_codegen_has_no_expect_panic_marker() {
+        use std::num::NonZeroUsize;
+
+        let typ = TypeKind::Search {
+            range: NonZeroUsize::new(512).unwrap(),
+        };
+        let generated = serialize_type_kind(&typ);
+        assert!(
+            !generated.contains(".expect("),
+            "serialize_type_kind must not emit .expect() (AGENTS.md panic-marker ban); got:\n{generated}"
+        );
+        assert!(
+            generated.contains(".unwrap_or(::std::num::NonZeroUsize::MIN)"),
+            "serialize_type_kind must emit .unwrap_or(NonZeroUsize::MIN); got:\n{generated}"
+        );
+    }
 }

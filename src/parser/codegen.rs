@@ -233,19 +233,30 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
             ),
         },
         TypeKind::Regex { flags, count } => {
+            // We emit `NonZero::new(N).unwrap_or(NonZero::<...>::MIN)`
+            // rather than `.expect("nonzero")` for two reasons:
+            // (1) AGENTS.md forbids `unwrap()`/`expect()` in library
+            //     code, and this serializer's output IS library code
+            //     (compiled into `builtin_rules.rs`);
+            // (2) `N` here comes from a `NonZeroU32`/`NonZeroUsize`
+            //     value we just called `.get()` on, so it is
+            //     provably nonzero and the `unwrap_or` fallback is
+            //     unreachable at runtime. Using `unwrap_or` keeps the
+            //     invariant expression explicit without introducing a
+            //     panic marker into generated code.
             let count_expr = match count {
                 crate::parser::ast::RegexCount::Default => {
                     "crate::parser::ast::RegexCount::Default".to_string()
                 }
                 crate::parser::ast::RegexCount::Bytes(n) => format!(
-                    "crate::parser::ast::RegexCount::Bytes(::std::num::NonZeroU32::new({}).expect(\"nonzero\"))",
+                    "crate::parser::ast::RegexCount::Bytes(::std::num::NonZeroU32::new({}).unwrap_or(::std::num::NonZeroU32::MIN))",
                     n.get()
                 ),
                 crate::parser::ast::RegexCount::Lines(None) => {
                     "crate::parser::ast::RegexCount::Lines(None)".to_string()
                 }
                 crate::parser::ast::RegexCount::Lines(Some(n)) => format!(
-                    "crate::parser::ast::RegexCount::Lines(Some(::std::num::NonZeroU32::new({}).expect(\"nonzero\")))",
+                    "crate::parser::ast::RegexCount::Lines(Some(::std::num::NonZeroU32::new({}).unwrap_or(::std::num::NonZeroU32::MIN)))",
                     n.get()
                 ),
             };
@@ -255,7 +266,7 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
             )
         }
         TypeKind::Search { range } => format!(
-            "TypeKind::Search {{ range: ::std::num::NonZeroUsize::new({}).expect(\"nonzero\") }}",
+            "TypeKind::Search {{ range: ::std::num::NonZeroUsize::new({}).unwrap_or(::std::num::NonZeroUsize::MIN) }}",
             range.get()
         ),
     }

@@ -785,19 +785,23 @@ mod tests {
         let args = Args::try_parse_from(["rmagic", "test.bin"]).unwrap();
         let default_path = args.get_magic_file_path();
 
-        // Test that we get a platform-appropriate default
-        // The actual path depends on what magic files exist on the system
+        // Test that we get a platform-appropriate default.
+        // After the S-H1 fix the fallback is a single absolute-path
+        // default per platform -- relative-path fallbacks
+        // (`missing.magic`, `third_party/magic.mgc`) were removed
+        // because they resolved against the process cwd (CWE-426).
+        // The actual path depends on which system-wide magic file is
+        // present at test time.
         #[cfg(unix)]
         {
             // Get the actual candidates from the exposed constant
             let candidates = Args::magic_file_candidates();
 
-            // Build list of valid paths (candidates + fallbacks)
+            // Build list of valid paths (system candidates + single
+            // absolute default).
             let mut valid_paths: Vec<&str> = candidates.to_vec();
-            valid_paths.push("missing.magic");
-            valid_paths.push("third_party/magic.mgc");
+            valid_paths.push("/usr/share/file/magic.mgc");
 
-            // Should be one of the standard Unix magic file locations or fallback
             assert!(
                 valid_paths.contains(&default_path.to_str().unwrap()),
                 "Got unexpected path: {:?}",
@@ -806,29 +810,28 @@ mod tests {
         }
 
         #[cfg(windows)]
-        assert_eq!(default_path, PathBuf::from("third_party/magic.mgc"));
+        assert_eq!(
+            default_path,
+            PathBuf::from(r"C:\ProgramData\libmagic-rs\magic.mgc")
+        );
 
         #[cfg(not(any(unix, windows)))]
-        assert_eq!(default_path, PathBuf::from("third_party/magic.mgc"));
+        assert_eq!(default_path, PathBuf::from("/usr/share/file/magic.mgc"));
     }
 
     #[test]
     fn test_default_magic_file_path() {
         let default_path = Args::default_magic_file_path();
 
-        // Test that we get a platform-appropriate default
-        // The actual path depends on what magic files exist on the system
+        // Test that we get a platform-appropriate default. See the
+        // matching comment on test_get_magic_file_path_default.
         #[cfg(unix)]
         {
-            // Get the actual candidates from the exposed constant
             let candidates = Args::magic_file_candidates();
 
-            // Build list of valid paths (candidates + fallbacks)
             let mut valid_paths: Vec<&str> = candidates.to_vec();
-            valid_paths.push("missing.magic");
-            valid_paths.push("third_party/magic.mgc");
+            valid_paths.push("/usr/share/file/magic.mgc");
 
-            // Should be one of the standard Unix magic file locations or fallback
             assert!(
                 valid_paths.contains(&default_path.to_str().unwrap()),
                 "Got unexpected path: {:?}",
@@ -837,10 +840,13 @@ mod tests {
         }
 
         #[cfg(windows)]
-        assert_eq!(default_path, PathBuf::from("third_party/magic.mgc"));
+        assert_eq!(
+            default_path,
+            PathBuf::from(r"C:\ProgramData\libmagic-rs\magic.mgc")
+        );
 
         #[cfg(not(any(unix, windows)))]
-        assert_eq!(default_path, PathBuf::from("third_party/magic.mgc"));
+        assert_eq!(default_path, PathBuf::from("/usr/share/file/magic.mgc"));
     }
 
     // Error handling tests

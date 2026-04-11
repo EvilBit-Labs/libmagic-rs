@@ -874,11 +874,24 @@ pub enum MagicRuleValidationError {
 }
 
 impl MagicRule {
-    /// Maximum supported nesting depth for `level`.
+    /// Hard structural ceiling on rule `level`.
     ///
-    /// This matches the default `max_recursion_depth` in `EvaluationConfig`
-    /// and bounds the worst-case stack cost of validating or evaluating
-    /// a rule tree.
+    /// This is a conservative upper bound enforced by
+    /// [`MagicRule::validate`] to keep the AST shape sane: real
+    /// magic files in the wild rarely exceed ~10 levels of nesting,
+    /// so rejecting rules with `level > 1000` catches obviously
+    /// pathological input at construction time without constraining
+    /// any legitimate rule.
+    ///
+    /// This ceiling is **independent of** the evaluator's
+    /// `EvaluationConfig::max_recursion_depth` (default 20), which
+    /// is the *runtime* recursion guard applied during rule
+    /// evaluation. The evaluator limit is the first one that fires
+    /// in practice -- a rule tree with 50 levels passes this
+    /// structural check but is aborted by the evaluator long before
+    /// reaching `MAX_LEVEL`. The two limits serve different purposes:
+    /// `MAX_LEVEL` is an AST-shape sanity check, and
+    /// `max_recursion_depth` is a per-evaluation resource bound.
     pub const MAX_LEVEL: u32 = 1000;
 
     /// Construct a top-level rule with no children and no strength
