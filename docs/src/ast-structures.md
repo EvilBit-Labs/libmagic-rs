@@ -195,7 +195,7 @@ pub enum TypeKind {
     /// Regular expression pattern matching
     Regex {
         flags: RegexFlags,
-        count: Option<NonZeroU32>,
+        count: RegexCount,
     },
 
     /// Bounded literal byte sequence search
@@ -341,28 +341,28 @@ let limited_pstring = TypeKind::PString {
 
 ### Regex (Regular Expression Pattern Matching)
 
-The `Regex` variant matches POSIX-extended regular expression patterns against file buffers. Patterns are binary-safe and always compiled with multi-line mode enabled (matching `^` and `$` at line boundaries). The scan window is capped at 8192 bytes regardless of the count parameter.
+The `Regex` variant matches POSIX-extended regular expression patterns against file buffers. Patterns are binary-safe and always compiled with multi-line mode enabled (matching `^` and `$` at line boundaries). The scan window is capped at 8192 bytes (`FILE_REGEX_MAX`) regardless of the `count` variant.
 
 **Structure:**
 
 ```rust
 Regex {
     flags: RegexFlags,
-    count: Option<NonZeroU32>,
+    count: RegexCount,
 }
 ```
 
 **Fields:**
 
-- `flags`: Modifier flags from the `/[csl]` suffix (case-insensitive, start-offset, line-based)
-- `count`: Optional numeric scan limit, interpreted as bytes or lines depending on `flags.line_based`
+- `flags`: Modifier flags from the `/c` and `/s` suffixes (case-insensitive, start-offset). The `/l` suffix is NOT a flag — it selects the `RegexCount::Lines` variant below.
+- `count`: Scan window specifier, one of three variants (see `RegexCount` below).
 
 **Example:**
 
 ```text
-0    regex    [0-9]+       Numeric content
+0    regex     [0-9]+      Numeric content
 0    regex/1l  ^#!/        Shebang on first line
-0    regex/cs  json        Case-insensitive "json" anywhere
+0    regex/cs  json        Case-insensitive "json", anchor at match-start
 ```
 
 **Behavior:**
@@ -383,37 +383,50 @@ pub struct RegexFlags {
     pub case_insensitive: bool,
     /// `/s` - advance anchor to match-start instead of match-end
     pub start_offset: bool,
-    /// `/l` - measure scan window in lines instead of bytes
-    pub line_based: bool,
 }
 ```
 
-**Flag combinations:**
+The `/l` modifier is encoded by the `RegexCount::Lines` variant rather than a flag field, so "line count" and "byte count" are mutually exclusive at the type level.
 
-- `/c` - case-insensitive matching
-- `/s` - anchor advances to match-start (for chaining child rules)
-- `/l` - count parameter measured in lines (80 bytes per line, capped at 8192 total)
-- `/cs`, `/cl`, `/sl`, `/csl` - any combination of flags
+### RegexCount Enum
+
+The `RegexCount` enum specifies the scan window for a regex rule:
+
+```rust
+pub enum RegexCount {
+    /// Plain `regex` with no suffix: full 8192-byte default window.
+    Default,
+    /// `regex/N`: scan at most `N` bytes, capped at 8192.
+    Bytes(NonZeroU32),
+    /// `regex/Nl` or `regex/l`: scan N line terminators (or the full
+    /// capped window if `None`), capped at 8192 bytes.
+    Lines(Option<NonZeroU32>),
+}
+```
+
+**Variant mapping:**
+
+- `regex` → `RegexCount::Default`
+- `regex/N` → `RegexCount::Bytes(N)`
+- `regex/Nl` → `RegexCount::Lines(Some(N))`
+- `regex/l` → `RegexCount::Lines(None)` (behaviorally equivalent to `Default`: both walk the full 8192-byte capped window)
 
 **Examples:**
 
 ```rust
-use libmagic_rs::parser::ast::{TypeKind, RegexFlags};
+use libmagic_rs::parser::ast::{RegexCount, RegexFlags, TypeKind};
 use std::num::NonZeroU32;
 
 // Plain regex with 8192-byte default scan window
 let plain_regex = TypeKind::Regex {
     flags: RegexFlags::default(),
-    count: None,
+    count: RegexCount::Default,
 };
 
 // First line only (1 line, capped at 8192 bytes)
 let first_line = TypeKind::Regex {
-    flags: RegexFlags {
-        line_based: true,
-        ..RegexFlags::default()
-    },
-    count: NonZeroU32::new(1),
+    flags: RegexFlags::default(),
+    count: RegexCount::Lines(NonZeroU32::new(1)),
 };
 
 // Case-insensitive with anchor at match-start
@@ -421,9 +434,8 @@ let case_start = TypeKind::Regex {
     flags: RegexFlags {
         case_insensitive: true,
         start_offset: true,
-        line_based: false,
     },
-    count: None,
+    count: RegexCount::Default,
 };
 ```
 

@@ -161,7 +161,7 @@ pub enum LibmagicError {
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
 - **Nesting**: Hierarchical rules with proper indentation handling
 - **String Matching**: Exact string matching with null-termination and Pascal string (length-prefixed) support
-- **Regex**: Binary-safe matching via `regex::bytes::Regex`; `/c`/`/s`/`/l` flags; optional numeric count; 8192-byte hard cap
+- **Regex**: Binary-safe matching via `regex::bytes::Regex`. `/c` and `/s` live on `RegexFlags`; `/l` is encoded by the `RegexCount::Lines` variant of `TypeKind::Regex::count`. Scan window dispatches on `RegexCount::Default` (plain `regex`, 8192-byte cap), `RegexCount::Bytes(NonZeroU32)` (`regex/N`), or `RegexCount::Lines(Option<NonZeroU32>)` (`regex/Nl` or `regex/l`). All variants capped at `evaluator::types::regex::REGEX_MAX_BYTES` (8192).
 - **Search**: Bounded literal scan via `memchr::memmem::find`; mandatory `NonZeroUsize` range; match-end anchor advance
 - **Directives**: `!:strength` modifier (parsed and applied)
 

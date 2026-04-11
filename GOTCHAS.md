@@ -50,23 +50,28 @@ Adding a variant to `Value` requires updating: `ast`, `codegen`, `strength`, `pr
 
 `search_bytes_consumed` returns `match_idx + pattern.len()` — the byte just past the matched pattern — not `range` (the window size). This matches GNU `file` semantics: `src/softmagic.c` `FILE_SEARCH` in `moffset()` computes `o = ms->search.offset + vlen - offset` where `ms->search.offset` has already been advanced by `idx` (the match index inside the window) in `magiccheck`, and `vlen = m->vallen` (the pattern length). An earlier revision returned the full window size, which silently corrupted relative-offset children of every successful `search` rule (e.g., `search/256 "MAGIC"` at index 4 advanced the anchor by 256 instead of by 9). The fix threaded the pattern through `bytes_consumed_with_pattern` for `TypeKind::Search` so the scan can be re-run at anchor-advance time. Search does not currently support a `/s`-style start-offset flag; if one is added, match-end can become match-start.
 
-### 2.7 Regex `/l` Is Scan Window Bounds, Not Multi-Line Toggle
+### 2.7 Regex `/l` Is Encoded by `RegexCount::Lines`, Not a Flag
 
-`RegexFlags::line_based` (the `/l` suffix) controls *only* the scan window extent: when set, `count` is interpreted as a line count and `compute_window` walks line terminators (both `\n` and `\r\n`, each counting as one terminator) to bound the scan. It does **not** toggle regex multi-line matching — libmagic always compiles with `REG_NEWLINE` (unconditional at `src/softmagic.c::alloc_regex` line 2123), so `^` and `$` match at line boundaries for every regex rule regardless of `/l`. An earlier revision of this crate wrapped line-based patterns in `^(?:...)` and only set `multi_line(true)` when `/l` was set; that was wrong on both counts and has been removed. `build_regex` now unconditionally sets `multi_line(true)` and `dot_matches_new_line(false)` for all patterns.
+The `/l` suffix is **not** a `RegexFlags` field — it lives on the `RegexCount::Lines` variant of `TypeKind::Regex::count`, alongside `RegexCount::Default` and `RegexCount::Bytes(n)`. This collapses the previously-possible "line-mode without count" degenerate state into the type-enforced `RegexCount::Lines(None)` (the `regex/l` shorthand) and makes "byte-count scan" and "line-count scan" mutually exclusive at the type level. `compute_window` in `src/evaluator/types/regex.rs` dispatches on the `RegexCount` variant: `Lines(Some(n))` walks line terminators (LF, CRLF, or bare CR — each counting as one terminator) until the Nth is found, and `Lines(None)` / `Default` both return the full byte-capped window. The `/l` encoding does **not** toggle regex multi-line matching — libmagic always compiles with `REG_NEWLINE` (unconditional at `src/softmagic.c::alloc_regex` line 2123), so `^` and `$` match at line boundaries for every regex rule regardless of which `RegexCount` variant is chosen. An earlier revision of this crate wrapped line-based patterns in `^(?:...)` and only set `multi_line(true)` when `/l` was set; that was wrong on both counts and has been removed. `build_regex` now unconditionally sets `multi_line(true)` and `dot_matches_new_line(false)` for all patterns.
 
 ### 2.8 Regex Scan Window Is Always Capped at 8192 Bytes
 
-Every regex rule is subject to the `REGEX_MAX_BYTES` (8192) hard cap, matching GNU `file`'s `FILE_REGEX_MAX` (`src/file.h:522`). This applies:
+Every regex rule is subject to the `REGEX_MAX_BYTES` (8192) hard cap, matching GNU `file`'s `FILE_REGEX_MAX` (`src/file.h:522`). This applies to every `RegexCount` variant:
 
-- When `count` is `None` (default scan).
-- When `count` is `Some(n)` with `n > 8192` (explicit counts are clamped).
-- When `flags.line_based` is set (the line-based walk stops after 8192 bytes even if the Nth terminator has not been reached yet).
+- `RegexCount::Default` (plain `regex`) → scan the full 8192-byte window (or less if the buffer is shorter).
+- `RegexCount::Bytes(n)` → `min(n, 8192, remaining)` — explicit counts larger than 8192 are clamped.
+- `RegexCount::Lines(Some(n))` → walks line terminators to the Nth, but the walk is bounded by the byte-capped slice, so a buffer with fewer than N terminators in the first 8192 bytes stops at the 8192-byte boundary regardless of `n`.
+- `RegexCount::Lines(None)` → same as `Default`: full 8192-byte capped window.
 
-The cap is a DoS mitigation: without it, a malicious regex against a multi-GB buffer combined with `EvaluationConfig::default()` (no timeout — see S13.1) can hang the evaluator. It is enforced inside `compute_window` in `src/evaluator/types/regex.rs`. Do not add a path that bypasses the cap, even for "trusted" rules — the cap is also what makes the regex evaluator's worst-case runtime bounded.
+The cap is a DoS mitigation: without it, a malicious regex against a multi-GB buffer combined with `EvaluationConfig::default()` (no timeout — see S13.1) can hang the evaluator. `REGEX_MAX_BYTES` itself lives in `src/evaluator/types/regex.rs` (not in `parser::ast`) because it is runtime evaluation policy rather than AST shape — putting it in `ast.rs` would couple the build-script compilation unit to an evaluator-only concern per S1.1. Do not add a path that bypasses the cap, even for "trusted" rules — the cap is also what makes the regex evaluator's worst-case runtime bounded.
 
 ### 2.9 Regex `/s` Flag Affects Anchor Advance Only, Not Match Result
 
 `RegexFlags::start_offset` (the `/s` suffix) controls *only* `regex_bytes_consumed`: when set, the anchor advance is `m.start()` (match-start) instead of `m.end()` (match-end). The match *result* (whether a pattern matches, and what matched text is returned) is unchanged. This matches libmagic's `REGEX_OFFSET_START` flag, which zeros the `rm_len` contribution in `moffset()` but does not alter the regex scan itself. Tests for `/s` must exercise `regex_bytes_consumed` directly or check the resolved offset of a `Relative(N)` child rule; checking `read_regex` alone won't detect a broken `/s` implementation.
+
+### 2.10 `RegexCount::Lines(None)` Is Behaviorally Equivalent to `RegexCount::Default`
+
+Both `RegexCount::Default` (plain `regex`) and `RegexCount::Lines(None)` (the `regex/l` shorthand with no explicit count) produce the full 8192-byte capped window. `compute_window` handles them with a shared match arm, and `calculate_default_strength` gives them the same strength score (20, no "constrained scan" bonus). The two variants are kept distinct at the AST level because the magic-file surface syntax distinguishes them — `regex` and `regex/l` parse to different `RegexCount` variants and round-trip through codegen as different Rust expressions — but no runtime path treats them differently. If you write a test that passes `Lines(None)` expecting different behavior from `Default`, the test is wrong, not the implementation. See `test_read_regex_lines_none_is_equivalent_to_default_on_buffer_with_terminators` in `src/evaluator/types/regex.rs` for the regression guard that pins this equivalence.
 
 ## 3. Parser Architecture
 

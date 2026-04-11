@@ -295,7 +295,7 @@ pub struct MagicRule {
 - `Long { endian: Endianness, signed: bool }` - 32-bit integer
 - `Quad { endian: Endianness, signed: bool }` - 64-bit integer
 - `String { max_length: Option<usize> }` - Null-terminated string
-- `Regex { flags: RegexFlags, count: Option<NonZeroU32> }` - Regular expression matching
+- `Regex { flags: RegexFlags, count: RegexCount }` - Regular expression matching (see `RegexCount` for the `Default` / `Bytes(n)` / `Lines(Option<n>)` variants)
 - `Search { range: NonZeroUsize }` - Bounded literal pattern search
 
 **Hierarchical Structure:**
