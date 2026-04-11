@@ -19,6 +19,7 @@
 
 use libmagic_rs::evaluator::evaluate_rules;
 use libmagic_rs::parser::ast::RegexFlags;
+use libmagic_rs::parser::parse_text_magic_file;
 use libmagic_rs::{
     EvaluationConfig, EvaluationContext, MagicRule, OffsetSpec, Operator, TypeKind, Value,
 };
@@ -228,6 +229,82 @@ fn test_json1_corpus_detected_by_regex() {
     let matches = run_rules(&[json_rule], &buffer);
     assert_eq!(matches.len(), 1, "json1 should match: {matches:#?}");
     assert_eq!(matches[0].message, "JSON text data");
+}
+
+/// End-to-end parser → evaluator round-trip for regex rules.
+///
+/// This test parses a regex rule from **magic-file text** via
+/// `parse_text_magic_file` and evaluates it against the `json1.testfile`
+/// corpus fixture. Unlike `test_json1_corpus_detected_by_regex` above,
+/// which constructs the rule programmatically, this test exercises the
+/// full `grammar/mod.rs::parse_type_and_operator` path including
+/// `RegexFlags` construction, the absence of a suffix (default flags,
+/// default count), and the value-string parsing. Closes the parser
+/// round-trip coverage gap flagged in PR review.
+#[test]
+fn test_json1_corpus_parser_roundtrip() {
+    let buffer = load_corpus_file("json1.testfile");
+
+    // The outer `r#"..."#` lets us embed a double-quoted regex literal
+    // without escaping each quote. The inner `\\s`/`\\{`/`\\[` pattern
+    // escapes are interpreted by the regex compiler, not by the magic
+    // parser, so the double-backslashes are correct.
+    let magic = r#"0 regex "^\\s*[\\{\\[]" JSON text data"#;
+    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    assert_eq!(rules.len(), 1);
+
+    let matches = run_rules(&rules, &buffer);
+    assert_eq!(
+        matches.len(),
+        1,
+        "parser round-trip should match json1: {matches:#?}"
+    );
+    assert_eq!(matches[0].message, "JSON text data");
+}
+
+/// Parser round-trip for a regex rule with the `/c` case-insensitive
+/// flag. Verifies that `parse_type_and_operator` correctly threads the
+/// `RegexFlags { case_insensitive: true, .. }` construction through to
+/// the evaluator.
+#[test]
+fn test_regex_flag_parser_roundtrip_case_insensitive() {
+    // JSON is all-ASCII lowercase so case-insensitive doesn't affect
+    // the match result for `json1.testfile`, but the rule still parses
+    // and evaluates, confirming the flag is wired through.
+    let buffer = load_corpus_file("json1.testfile");
+    let magic = r#"0 regex/c "^\\s*[\\{\\[]" JSON text data"#;
+    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    assert_eq!(rules.len(), 1);
+
+    let matches = run_rules(&rules, &buffer);
+    assert_eq!(matches.len(), 1);
+}
+
+/// Parser round-trip for a `search/N` rule. Verifies that bare-`search`
+/// rejection and the mandatory `NonZeroUsize` range also hold when the
+/// rule is loaded from text (not just when constructed programmatically).
+#[test]
+fn test_search_parser_roundtrip_with_range() {
+    let buffer = load_corpus_file("searchbug.testfile");
+    let magic = r#"0 search/32 "ABC" found ABC"#;
+    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    assert_eq!(rules.len(), 1);
+
+    let matches = run_rules(&rules, &buffer);
+    assert_eq!(matches.len(), 1, "searchbug should find ABC: {matches:#?}");
+    assert_eq!(matches[0].message, "found ABC");
+}
+
+/// Parser rejects bare `search` without range even from magic-file
+/// text -- the `NonZeroUsize` constraint is enforced at parse time.
+#[test]
+fn test_search_parser_rejects_bare_search() {
+    let magic = r#"0 search "ABC" bogus"#;
+    let result = parse_text_magic_file(magic);
+    assert!(
+        result.is_err(),
+        "bare `search` (no /N) should be a parse error"
+    );
 }
 
 #[test]
