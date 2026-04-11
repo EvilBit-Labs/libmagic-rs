@@ -212,6 +212,14 @@ pub(super) fn parse_attached_operator(input: &str) -> IResult<&str, Option<Opera
 /// Per GNU `file` magic(5), the range is mandatory; bare `search` and
 /// `search/0` are parse errors, enforced here via `NonZeroUsize`.
 ///
+/// Trailing non-operator characters after the digits are rejected as
+/// a hard parse error so that `search/256foo` fails at parse time
+/// instead of being silently re-interpreted as `search/256` followed
+/// by a value string `foo`. This mirrors the same check in
+/// [`parse_regex_suffix`] and matches the GNU `file` convention that
+/// the character after the count must be whitespace or an operator
+/// boundary.
+///
 /// # Arguments
 ///
 /// * `input` - The full parser input *before* the `/`; used for error
@@ -222,13 +230,23 @@ pub(super) fn parse_attached_operator(input: &str) -> IResult<&str, Option<Opera
 /// # Errors
 ///
 /// Returns a nom parse error if the count is missing, non-numeric,
-/// zero, or overflows `usize`.
+/// zero, overflows `usize`, or is followed by a non-operator character.
 pub(super) fn parse_search_suffix<'a>(
     input: &'a str,
     suffix_rest: &'a str,
 ) -> IResult<&'a str, NonZeroUsize> {
     let (rest, n) = parse_decimal_number(suffix_rest)
         .map_err(|_| NomErr::Error(Error::new(input, ErrorKind::Digit)))?;
+    // Reject trailing junk so `search/256foo` fails hard instead of
+    // silently becoming `search/256` + value string `foo`. Same
+    // operator-boundary set as parse_regex_suffix.
+    match rest.chars().next() {
+        Some(c) if c.is_whitespace() => {}
+        None | Some('=' | '!' | '<' | '>' | '&' | '^' | '~' | 'x') => {}
+        Some(_) => {
+            return Err(NomErr::Error(Error::new(input, ErrorKind::Tag)));
+        }
+    }
     let range = usize::try_from(n)
         .ok()
         .and_then(NonZeroUsize::new)
@@ -391,6 +409,37 @@ mod tests {
         let (rest, range) = parse_search_suffix("search/256 rest", "256 rest").expect("256 rest");
         assert_eq!(rest, " rest");
         assert_eq!(range.get(), 256);
+    }
+
+    /// Regression test for PR #215 review finding (CodeRabbit): trailing
+    /// junk after a `search/N` range must be a hard parse error rather
+    /// than silently re-interpreted as `search/N` followed by a value
+    /// string. Without the trailing-junk check, `search/256foo` parses
+    /// as `search/256` with remainder `foo`, which is then handed to
+    /// the value parser and produces a valid-but-wrong rule.
+    #[test]
+    fn test_parse_search_suffix_trailing_junk_rejected() {
+        let result = parse_search_suffix("search/256foo", "256foo");
+        assert!(
+            result.is_err(),
+            "search/256foo must be rejected (trailing non-operator junk after the range)"
+        );
+    }
+
+    /// Confirm that the operator-boundary characters are still accepted
+    /// after the range so forms like `search/256=value` continue to
+    /// work. `=` here is consumed by `parse_operator` in the grammar
+    /// layer, not by `parse_search_suffix`.
+    #[test]
+    fn test_parse_search_suffix_operator_boundary_allowed() {
+        for boundary in ['=', '!', '<', '>', '&', '^', '~', 'x'] {
+            let suffix = format!("256{boundary}value");
+            let input = format!("search/{suffix}");
+            let (rest, range) = parse_search_suffix(&input, &suffix)
+                .unwrap_or_else(|_| panic!("boundary char '{boundary}' should be allowed"));
+            assert_eq!(rest, format!("{boundary}value"));
+            assert_eq!(range.get(), 256);
+        }
     }
 
     // ---------- parse_pstring_suffix ----------
