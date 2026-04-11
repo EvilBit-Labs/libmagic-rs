@@ -235,22 +235,22 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
         TypeKind::Regex { flags, count } => {
             let count_expr = match count {
                 crate::parser::ast::RegexCount::Default => {
-                    "libmagic_rs::parser::ast::RegexCount::Default".to_string()
+                    "crate::parser::ast::RegexCount::Default".to_string()
                 }
                 crate::parser::ast::RegexCount::Bytes(n) => format!(
-                    "libmagic_rs::parser::ast::RegexCount::Bytes(::std::num::NonZeroU32::new({}).expect(\"nonzero\"))",
+                    "crate::parser::ast::RegexCount::Bytes(::std::num::NonZeroU32::new({}).expect(\"nonzero\"))",
                     n.get()
                 ),
                 crate::parser::ast::RegexCount::Lines(None) => {
-                    "libmagic_rs::parser::ast::RegexCount::Lines(None)".to_string()
+                    "crate::parser::ast::RegexCount::Lines(None)".to_string()
                 }
                 crate::parser::ast::RegexCount::Lines(Some(n)) => format!(
-                    "libmagic_rs::parser::ast::RegexCount::Lines(Some(::std::num::NonZeroU32::new({}).expect(\"nonzero\")))",
+                    "crate::parser::ast::RegexCount::Lines(Some(::std::num::NonZeroU32::new({}).expect(\"nonzero\")))",
                     n.get()
                 ),
             };
             format!(
-                "TypeKind::Regex {{ flags: libmagic_rs::parser::ast::RegexFlags {{ case_insensitive: {}, start_offset: {} }}, count: {count_expr} }}",
+                "TypeKind::Regex {{ flags: crate::parser::ast::RegexFlags {{ case_insensitive: {}, start_offset: {} }}, count: {count_expr} }}",
                 flags.case_insensitive, flags.start_offset
             )
         }

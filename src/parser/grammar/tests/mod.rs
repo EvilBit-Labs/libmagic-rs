@@ -2357,7 +2357,7 @@ fn test_parse_type_and_operator_regex_invalid_suffix() {
     // regex/0 is rejected because a zero count has no valid semantics
     // (our parser uses NonZeroU32 to express "user specified a count").
     assert!(parse_type_and_operator("regex/0").is_err());
-    // regex/l0 — zero count with line flag, same rejection path.
+    // regex/l0 -- zero count with line flag, same rejection path.
     assert!(parse_type_and_operator("regex/l0").is_err());
 }
 
