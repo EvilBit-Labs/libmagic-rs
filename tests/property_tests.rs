@@ -68,19 +68,30 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
         (
             any::<bool>(),
             any::<bool>(),
-            any::<bool>(),
+            0u8..4u8,
             prop::option::of(1u32..=4096u32),
         )
-            .prop_map(|(case_insensitive, start_offset, line_based, count)| {
-                TypeKind::Regex {
-                    flags: libmagic_rs::parser::ast::RegexFlags {
-                        case_insensitive,
-                        start_offset,
-                        line_based,
-                    },
-                    count: count.and_then(::std::num::NonZeroU32::new),
-                }
-            }),
+            .prop_map(
+                |(case_insensitive, start_offset, count_variant, raw_count)| {
+                    let count = match count_variant {
+                        0 => libmagic_rs::parser::ast::RegexCount::Default,
+                        1 => match raw_count.and_then(::std::num::NonZeroU32::new) {
+                            Some(n) => libmagic_rs::parser::ast::RegexCount::Bytes(n),
+                            None => libmagic_rs::parser::ast::RegexCount::Default,
+                        },
+                        _ => libmagic_rs::parser::ast::RegexCount::Lines(
+                            raw_count.and_then(::std::num::NonZeroU32::new),
+                        ),
+                    };
+                    TypeKind::Regex {
+                        flags: libmagic_rs::parser::ast::RegexFlags {
+                            case_insensitive,
+                            start_offset,
+                        },
+                        count,
+                    }
+                },
+            ),
         (1usize..=4096usize).prop_map(|range| TypeKind::Search {
             range: ::std::num::NonZeroUsize::new(range).unwrap(),
         }),

@@ -1010,7 +1010,7 @@ fn test_bytes_consumed_regex_with_string_pattern() {
     let buf = b"prefix_World_suffix";
     let typ = TypeKind::Regex {
         flags: crate::parser::ast::RegexFlags::default(),
-        count: None,
+        count: crate::parser::ast::RegexCount::Default,
     };
     let pattern = Value::String("World".to_string());
     // "World" starts at index 7 in the buffer, length 5, so a scan from
@@ -1026,7 +1026,7 @@ fn test_bytes_consumed_regex_no_match_returns_zero() {
     let buf = b"abcdef";
     let typ = TypeKind::Regex {
         flags: crate::parser::ast::RegexFlags::default(),
-        count: None,
+        count: crate::parser::ast::RegexCount::Default,
     };
     let pattern = Value::String("xyz".to_string());
     assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 0);
@@ -1039,7 +1039,7 @@ fn test_bytes_consumed_regex_zero_width_match_returns_zero() {
     let buf = b"hello";
     let typ = TypeKind::Regex {
         flags: crate::parser::ast::RegexFlags::default(),
-        count: None,
+        count: crate::parser::ast::RegexCount::Default,
     };
     let pattern = Value::String("^".to_string());
     assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 0);
@@ -1055,7 +1055,7 @@ fn test_bytes_consumed_regex_start_offset_flag_uses_match_start() {
             start_offset: true,
             ..crate::parser::ast::RegexFlags::default()
         },
-        count: None,
+        count: crate::parser::ast::RegexCount::Default,
     };
     let pattern = Value::String("World".to_string());
     // Match-start for "World" at index 7 is 7, not 12.

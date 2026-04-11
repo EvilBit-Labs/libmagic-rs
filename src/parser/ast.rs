@@ -342,29 +342,27 @@ pub enum TypeKind {
     /// file buffer. Patterns are compiled with multi-line mode always enabled
     /// (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match
     /// at line boundaries and `.` does not match `\n`. The `flags` control
-    /// case sensitivity, anchor advance semantics, and whether `count` is
-    /// measured in bytes or lines. The scan window is always capped at
-    /// [`REGEX_MAX_BYTES`] (8192) regardless of `count`.
+    /// case sensitivity and anchor advance semantics; the `count` field
+    /// controls the scan window (byte or line bounds). The scan window is
+    /// always capped at 8192 bytes (matching GNU `file`'s `FILE_REGEX_MAX`;
+    /// enforced in the evaluator).
     ///
     /// # Examples
     ///
     /// ```
-    /// use libmagic_rs::parser::ast::{TypeKind, RegexFlags};
+    /// use libmagic_rs::parser::ast::{RegexCount, RegexFlags, TypeKind};
     /// use std::num::NonZeroU32;
     ///
     /// // Plain `regex` -- no flags, default 8192-byte scan window.
     /// let plain = TypeKind::Regex {
     ///     flags: RegexFlags::default(),
-    ///     count: None,
+    ///     count: RegexCount::Default,
     /// };
     ///
-    /// // `regex/1l` -- scan the first line only (1 line, capped at 8192 bytes).
+    /// // `regex/1l` -- scan the first line only.
     /// let first_line = TypeKind::Regex {
-    ///     flags: RegexFlags {
-    ///         line_based: true,
-    ///         ..RegexFlags::default()
-    ///     },
-    ///     count: NonZeroU32::new(1),
+    ///     flags: RegexFlags::default(),
+    ///     count: RegexCount::Lines(NonZeroU32::new(1)),
     /// };
     ///
     /// // `regex/cs` -- case-insensitive, anchor advances to match-start.
@@ -372,28 +370,19 @@ pub enum TypeKind {
     ///     flags: RegexFlags {
     ///         case_insensitive: true,
     ///         start_offset: true,
-    ///         line_based: false,
     ///     },
-    ///     count: None,
+    ///     count: RegexCount::Default,
     /// };
     /// ```
     Regex {
-        /// Modifier flags from the `/[csl]` suffix.
+        /// Modifier flags from the `/[cs]` suffix (`/c` case-insensitive,
+        /// `/s` start-offset anchor). Line-mode is encoded by the
+        /// [`RegexCount::Lines`] variant of `count`, not a flag.
         flags: RegexFlags,
-        /// Optional numeric count from `regex/N[flags]`. Interpretation
-        /// depends on `flags.line_based`:
-        ///
-        /// * `None`: use the default scan window (8192 bytes, or until
-        ///   the buffer ends).
-        /// * `Some(n)` with `flags.line_based == false`: scan at most `n`
-        ///   bytes, clamped to 8192.
-        /// * `Some(n)` with `flags.line_based == true`: scan up to the
-        ///   end of the Nth line terminator (LF, CRLF, or bare CR),
-        ///   always capped at 8192 bytes regardless of `n`.
-        ///
-        /// The 8192-byte hard cap matches GNU `file`'s `FILE_REGEX_MAX`
-        /// and prevents runaway regex scans against large buffers.
-        count: Option<NonZeroU32>,
+        /// Scan window specifier: default 8192 bytes, explicit byte
+        /// count, or explicit line count. See [`RegexCount`] for the
+        /// three cases.
+        count: RegexCount,
     },
     /// Multi-byte pattern search within a bounded range
     ///
@@ -421,11 +410,16 @@ pub enum TypeKind {
     },
 }
 
-/// Regex modifier flags parsed from the `/[csl]` suffix on a `regex` rule.
+/// Regex modifier flags parsed from the `/[cs]` suffix on a `regex` rule.
 ///
-/// All flags default to `false` via [`RegexFlags::default`]. The `Default`
-/// impl is equivalent to a plain `regex` type with no suffix, which scans
-/// 8192 bytes in byte mode and advances the anchor to match-end.
+/// The `/l` "line-based window" modifier is **not** represented here; it
+/// lives on [`RegexCount::Lines`] so that the type-level encoding makes
+/// "line count" and "byte count" mutually exclusive. This eliminates the
+/// degenerate `line_based: true, count: None` state that an earlier
+/// design admitted.
+///
+/// All flags default to `false` via [`RegexFlags::default`], equivalent
+/// to a plain `regex` with no `/c` or `/s` suffix.
 ///
 /// # Examples
 ///
@@ -435,15 +429,13 @@ pub enum TypeKind {
 /// let plain = RegexFlags::default();
 /// assert!(!plain.case_insensitive);
 /// assert!(!plain.start_offset);
-/// assert!(!plain.line_based);
 ///
-/// let case_and_line = RegexFlags {
+/// let case_and_start = RegexFlags {
 ///     case_insensitive: true,
-///     start_offset: false,
-///     line_based: true,
+///     start_offset: true,
 /// };
-/// assert!(case_and_line.case_insensitive);
-/// assert!(case_and_line.line_based);
+/// assert!(case_and_start.case_insensitive);
+/// assert!(case_and_start.start_offset);
 /// ```
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RegexFlags {
@@ -456,22 +448,53 @@ pub struct RegexFlags {
     /// `moffset()` for `FILE_REGEX`. Useful for chaining child rules that
     /// need to re-match from the position where the parent regex began.
     pub start_offset: bool,
-    /// `/l` -- measure the scan window in lines instead of bytes. When
-    /// `true`, `count` is interpreted as a line count rather than a byte
-    /// count. The effective byte window is still capped at 8192 bytes
-    /// regardless (see [`TypeKind::Regex::count`] for the details).
-    ///
-    /// Note: this flag does **not** control multi-line regex matching;
-    /// libmagic always compiles patterns with `REG_NEWLINE`, so `^`/`$`
-    /// match at line boundaries regardless of `/l`.
-    pub line_based: bool,
 }
 
-/// The hard upper bound on regex scan window size, matching GNU `file`'s
-/// `FILE_REGEX_MAX` constant in `src/file.h`. Any regex rule -- including
-/// ones with explicit counts larger than this -- is capped at this many
-/// bytes to prevent runaway scans against large buffers.
-pub const REGEX_MAX_BYTES: usize = 8192;
+/// Scan window specifier for a [`TypeKind::Regex`] rule.
+///
+/// Encodes the three mutually-exclusive scan modes in a single enum so
+/// that the "byte count" and "line count" cases cannot be confused and
+/// the degenerate "line mode with no count" state is unrepresentable.
+/// The 8192-byte hard cap (matching GNU `file`'s `FILE_REGEX_MAX`) is
+/// applied by the evaluator on every variant.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::RegexCount;
+/// use std::num::NonZeroU32;
+///
+/// // Plain `regex` (no suffix): default 8192-byte window.
+/// assert_eq!(RegexCount::default(), RegexCount::Default);
+///
+/// // `regex/100`: scan at most 100 bytes.
+/// let hundred_bytes = RegexCount::Bytes(NonZeroU32::new(100).unwrap());
+///
+/// // `regex/1l`: scan the first line.
+/// let one_line = RegexCount::Lines(NonZeroU32::new(1));
+///
+/// // `regex/l`: line-mode with no explicit count (walks terminators
+/// // to the end of the 8192-byte capped window).
+/// let unbounded_lines = RegexCount::Lines(None);
+/// ```
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum RegexCount {
+    /// No scan bound (plain `regex` with no suffix). Scans the default
+    /// 8192-byte window from the rule's offset.
+    #[default]
+    Default,
+    /// Byte-bounded scan (`regex/N` with no `/l` flag). The window is
+    /// `min(n, 8192, remaining_buffer)` bytes long. `NonZeroU32` makes
+    /// a zero-byte scan unrepresentable.
+    Bytes(NonZeroU32),
+    /// Line-bounded scan (`regex/Nl` or `regex/l`). The window walks
+    /// LF / CRLF / bare CR line terminators from the offset. With
+    /// `Some(n)`, the walk stops after the Nth terminator (inclusive).
+    /// With `None` (the `regex/l` shorthand), the walk continues to
+    /// the end of the 8192-byte capped window. Either way the
+    /// effective byte window is capped at 8192.
+    Lines(Option<NonZeroU32>),
+}
 
 impl TypeKind {
     /// Returns the bit width of integer types, or `None` for non-integer types (e.g., String).

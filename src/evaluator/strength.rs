@@ -78,15 +78,15 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
             if max_length.is_some() { base + 5 } else { base }
         }
         // Regex matches a pattern -- treat similarly to an unbounded string.
-        // A rule with an explicit `count` is more constrained (narrower scan
-        // window) and therefore more specific.
-        TypeKind::Regex { count, .. } => {
-            if count.is_some() {
+        // A rule with an explicit count (byte or line) is more constrained
+        // than a plain `regex` default, so give it the same bonus as a
+        // length-limited string.
+        TypeKind::Regex { count, .. } => match count {
+            crate::parser::ast::RegexCount::Default => 20,
+            crate::parser::ast::RegexCount::Bytes(_) | crate::parser::ast::RegexCount::Lines(_) => {
                 25
-            } else {
-                20
             }
-        }
+        },
         // Search is always a bounded scan (the range is mandatory), so it
         // gets the "constrained match" bonus unconditionally. This matches
         // the max_length bonus used for String and PString.

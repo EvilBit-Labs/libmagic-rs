@@ -163,12 +163,12 @@ pub fn read_typed_value(
 ///
 /// ```
 /// use libmagic_rs::evaluator::types::read_typed_value_with_pattern;
-/// use libmagic_rs::parser::ast::{RegexFlags, TypeKind, Value};
+/// use libmagic_rs::parser::ast::{RegexCount, RegexFlags, TypeKind, Value};
 ///
 /// let haystack = b"abc123def";
 /// let regex_type = TypeKind::Regex {
 ///     flags: RegexFlags::default(),
-///     count: None,
+///     count: RegexCount::Default,
 /// };
 /// let pattern = Value::String("[0-9]+".to_string());
 /// let regex_result =

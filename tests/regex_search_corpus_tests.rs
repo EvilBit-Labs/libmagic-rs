@@ -18,7 +18,7 @@
 //! This pattern is documented in GOTCHAS 3.9.
 
 use libmagic_rs::evaluator::evaluate_rules;
-use libmagic_rs::parser::ast::RegexFlags;
+use libmagic_rs::parser::ast::{RegexCount, RegexFlags};
 use libmagic_rs::parser::parse_text_magic_file;
 use libmagic_rs::{
     EvaluationConfig, EvaluationContext, MagicRule, OffsetSpec, Operator, TypeKind, Value,
@@ -44,17 +44,14 @@ fn regex_rule(
     offset: OffsetSpec,
     pattern: &str,
     flags: RegexFlags,
-    count: Option<u32>,
+    count: RegexCount,
     message: &str,
     children: Vec<MagicRule>,
     level: u32,
 ) -> MagicRule {
     MagicRule {
         offset,
-        typ: TypeKind::Regex {
-            flags,
-            count: count.and_then(std::num::NonZeroU32::new),
-        },
+        typ: TypeKind::Regex { flags, count },
         op: Operator::Equal,
         value: Value::String(pattern.to_string()),
         message: message.to_string(),
@@ -220,7 +217,7 @@ fn test_json1_corpus_detected_by_regex() {
         OffsetSpec::Absolute(0),
         r"^\s*[\{\[]",
         RegexFlags::default(),
-        None,
+        RegexCount::Default,
         "JSON text data",
         vec![],
         0,
@@ -317,7 +314,7 @@ fn test_jsonlines1_corpus_detected_by_regex() {
         OffsetSpec::Absolute(0),
         r"^\s*[\{\[]",
         RegexFlags::default(),
-        None,
+        RegexCount::Default,
         "JSON Lines text",
         vec![],
         0,
@@ -342,7 +339,7 @@ fn test_cmd1_corpus_detected_by_regex() {
         OffsetSpec::Absolute(0),
         r"^#![ \t]*/\S+",
         RegexFlags::default(),
-        None,
+        RegexCount::Default,
         "a shell script",
         vec![],
         0,
@@ -365,16 +362,11 @@ fn test_gedcom_corpus_detected_by_line_based_regex() {
     let buffer = load_corpus_file("gedcom.testfile");
 
     // `regex/1l "^0 HEAD"` — scan only the first line for the header.
-    let head_line_flags = RegexFlags {
-        line_based: true,
-        ..RegexFlags::default()
-    };
-
     let gedcom_rule = regex_rule(
         OffsetSpec::Absolute(0),
         r"^0 HEAD",
-        head_line_flags,
-        Some(1),
+        RegexFlags::default(),
+        RegexCount::Lines(std::num::NonZeroU32::new(1)),
         "GEDCOM genealogy data",
         vec![],
         0,
@@ -401,11 +393,8 @@ fn test_regex_eol_version_extraction() {
     let version_rule = regex_rule(
         OffsetSpec::Absolute(0),
         r"[0-9]+(\.[0-9]+)+",
-        RegexFlags {
-            line_based: true,
-            ..RegexFlags::default()
-        },
-        Some(1),
+        RegexFlags::default(),
+        RegexCount::Lines(std::num::NonZeroU32::new(1)),
         "version found",
         vec![],
         0,

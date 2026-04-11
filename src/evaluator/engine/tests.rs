@@ -2395,7 +2395,7 @@ fn test_regex_rule_with_metacharacters_matches() {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Regex {
             flags: crate::parser::ast::RegexFlags::default(),
-            count: None,
+            count: crate::parser::ast::RegexCount::Default,
         },
         op: Operator::Equal,
         value: Value::String("[0-9]+".to_string()),
@@ -2419,7 +2419,7 @@ fn test_regex_rule_with_metacharacters_no_match() {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Regex {
             flags: crate::parser::ast::RegexFlags::default(),
-            count: None,
+            count: crate::parser::ast::RegexCount::Default,
         },
         op: Operator::Equal,
         value: Value::String("[0-9]+".to_string()),
@@ -2467,7 +2467,7 @@ fn test_regex_rule_with_ordering_operator_is_rejected() {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Regex {
             flags: crate::parser::ast::RegexFlags::default(),
-            count: None,
+            count: crate::parser::ast::RegexCount::Default,
         },
         op: Operator::GreaterThan,
         value: Value::String("[0-9]+".to_string()),
@@ -2533,7 +2533,7 @@ fn test_regex_parent_advances_anchor_for_relative_child() {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Regex {
             flags: crate::parser::ast::RegexFlags::default(),
-            count: None,
+            count: crate::parser::ast::RegexCount::Default,
         },
         op: Operator::Equal,
         value: Value::String("abc".to_string()),
