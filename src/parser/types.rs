@@ -95,8 +95,8 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
             tag("ledate"),
             tag("date"),
         )),
-        // String types
-        alt((tag("pstring"), tag("string"))),
+        // String types (and regex/search, which share the string-type family)
+        alt((tag("pstring"), tag("search"), tag("regex"), tag("string"))),
     ))
     .parse(input)
 }
@@ -299,6 +299,25 @@ pub fn type_keyword_to_kind(type_name: &str) -> TypeKind {
             max_length: None,
             length_width: PStringLengthWidth::OneByte,
             length_includes_itself: false,
+        },
+
+        // REGEX type -- suffix parsing (flags and count) handled in
+        // `parse_type_and_operator` in grammar/mod.rs, which constructs
+        // the final `TypeKind::Regex` directly. The value returned here
+        // is a bare-`regex` placeholder used only by the round-trip
+        // keyword test; grammar never observes it.
+        "regex" => TypeKind::Regex {
+            flags: crate::parser::ast::RegexFlags::default(),
+            count: None,
+        },
+
+        // SEARCH type -- range parsing handled in grammar/mod.rs, which
+        // constructs the final `TypeKind::Search` directly from the
+        // mandatory `/N` suffix. The value returned here is a placeholder
+        // with `range = 1` used only by the round-trip keyword test; a
+        // real search rule always has its range set by the grammar layer.
+        "search" => TypeKind::Search {
+            range: ::std::num::NonZeroUsize::new(1).expect("1 is nonzero"),
         },
 
         _ => unreachable!("type_keyword_to_kind called with unknown type: {type_name}"),
@@ -546,7 +565,8 @@ mod tests {
             "long", "ulong", "lelong", "ulelong", "belong", "ubelong", "quad", "uquad", "lequad",
             "ulequad", "bequad", "ubequad", "float", "befloat", "lefloat", "double", "bedouble",
             "ledouble", "date", "ldate", "bedate", "beldate", "ledate", "leldate", "qdate",
-            "qldate", "beqdate", "beqldate", "leqdate", "leqldate", "pstring", "string",
+            "qldate", "beqdate", "beqldate", "leqdate", "leqldate", "pstring", "string", "regex",
+            "search",
         ];
         for keyword in keywords {
             let (rest, parsed) = parse_type_keyword(keyword).unwrap();

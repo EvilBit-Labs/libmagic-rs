@@ -132,15 +132,29 @@ Interprets bytes according to type specifications. The types module is organized
 - **QDate**: 64-bit Unix timestamps (signed seconds since epoch) with configurable endianness and UTC/local time formatting
 - **String**: Byte sequences with length limits
 - **PString**: Pascal-style length-prefixed strings with 1-byte (`/B`), 2-byte (`/H` or `/h`), or 4-byte (`/L` or `/l`) length prefixes, supporting big-endian and little-endian byte order
+- **Regex**: Binary-safe regex matching via `regex::bytes::Regex`; the `/c` flag enables case-insensitive matching and `/l` enables multi-line start-of-line anchoring
+- **Search**: Bounded literal pattern scan via `memchr::memmem::find`; `search/N` caps the scan window to `N` bytes from the offset
 - **Bounds checking**: Prevents buffer overruns
 
 ```rust
+// Non-pattern types use the 3-arg convenience wrapper:
 pub fn read_typed_value(
     buffer: &[u8],
     offset: usize,
     type_kind: &TypeKind,
 ) -> Result<Value, TypeReadError>
+
+// Pattern-bearing types (Regex, Search) thread the rule's value operand
+// through as the match pattern:
+pub fn read_typed_value_with_pattern(
+    buffer: &[u8],
+    offset: usize,
+    type_kind: &TypeKind,
+    pattern: Option<&Value>,
+) -> Result<Value, TypeReadError>
 ```
+
+The engine uses `read_typed_value_with_pattern` uniformly and passes `Some(&rule.value)` for every rule; the convenience `read_typed_value` is a thin wrapper that forwards `pattern: None`. For pattern-bearing types a genuine "no match" is collapsed to `Value::String(String::new())` in the `read_typed_value_with_pattern` return so the back-compat `Value` shape is preserved; the engine instead calls `read_pattern_match` directly, which returns `Result<Option<Value>, _>` so zero-width matches (e.g. `^`, `a*`) can be distinguished from genuine misses.
 
 The `read_byte` function signature changed in v0.2.0 to accept three parameters (`buffer`, `offset`, and `signed`) instead of two, allowing explicit control over signed vs unsigned byte interpretation.
 

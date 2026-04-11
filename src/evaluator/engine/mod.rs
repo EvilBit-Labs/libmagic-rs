@@ -107,24 +107,87 @@ fn evaluate_single_rule_with_anchor(
     let absolute_offset =
         offset::resolve_offset_with_context(&rule.offset, buffer, last_match_end)?;
 
-    // Step 2: Read and interpret bytes at the resolved offset according to the rule's type
-    let read_value = types::read_typed_value(buffer, absolute_offset, &rule.typ)
-        .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
-
-    // Step 3: Coerce the rule's expected value to match the type's signedness/width.
-    // `coerce_value_to_type` returns `Cow::Borrowed` on the hot path so no
-    // allocation happens for pass-through values (e.g., string matches).
-    let expected_value = types::coerce_value_to_type(&rule.value, &rule.typ);
-    let expected_ref: &crate::parser::ast::Value = expected_value.as_ref();
-
-    // Step 4: Apply the operator to compare the read value with the expected value
-    // BitwiseNot needs type-aware bit-width masking so the complement is computed
-    // at the type's natural width (e.g., byte NOT of 0x00 = 0xFF, not u64::MAX).
-    let matched = match &rule.op {
-        crate::parser::ast::Operator::BitwiseNot => {
-            operators::apply_bitwise_not_with_width(&read_value, expected_ref, rule.typ.bit_width())
+    // Step 2 & 3: Read and interpret bytes at the resolved offset according
+    // to the rule's type, and compute the logical match state.
+    //
+    // Pattern-bearing types (Regex, Search) take a different path from
+    // fixed-width types because the rule's `value` operand is the *pattern*,
+    // not an expected matched value. Running those through `apply_operator`
+    // would compare matched text ("123") against the pattern literal
+    // ("[0-9]+") and produce false negatives on any regex with
+    // metacharacters. Instead, `read_pattern_match` returns `Some(v)` on a
+    // successful match (possibly zero-width) and `None` on a genuine miss;
+    // the engine translates that directly into Equal / NotEqual. Any other
+    // operator on a pattern-bearing type is a magic-file semantic bug and
+    // surfaces as a hard error -- the fallthrough to `apply_operator`
+    // previously masked this by producing nonsense ordering comparisons
+    // against the pattern source text.
+    let (matched, read_value) = match &rule.typ {
+        crate::parser::ast::TypeKind::Regex { .. }
+        | crate::parser::ast::TypeKind::Search { .. } => {
+            let match_outcome =
+                types::read_pattern_match(buffer, absolute_offset, &rule.typ, Some(&rule.value))
+                    .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
+            let pattern_found = match_outcome.is_some();
+            let matched = match &rule.op {
+                crate::parser::ast::Operator::Equal => pattern_found,
+                crate::parser::ast::Operator::NotEqual => !pattern_found,
+                other => {
+                    return Err(LibmagicError::EvaluationError(
+                        types::TypeReadError::UnsupportedType {
+                            type_name: format!(
+                                "operator {other:?} is not supported for pattern-bearing type {:?}; only Equal (=) and NotEqual (!=) are allowed",
+                                rule.typ
+                            ),
+                        }
+                        .into(),
+                    ));
+                }
+            };
+            // For anchor-advance and output, present the match as a
+            // `Value::String`. A genuine miss is represented as an empty
+            // string to keep the downstream `RuleMatch.value` contract
+            // uniform; the engine already decided `matched` above so the
+            // placeholder value only affects display and
+            // `bytes_consumed_with_pattern` (which re-derives the match
+            // position from the pattern, not this value).
+            let value =
+                match_outcome.unwrap_or_else(|| crate::parser::ast::Value::String(String::new()));
+            (matched, value)
         }
-        op => operators::apply_operator(op, &read_value, expected_ref),
+        _ => {
+            // Value-based types: read the typed value and apply the operator
+            // against the rule's expected value.
+            let read_value = types::read_typed_value_with_pattern(
+                buffer,
+                absolute_offset,
+                &rule.typ,
+                Some(&rule.value),
+            )
+            .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
+
+            // Coerce the rule's expected value to match the type's
+            // signedness/width. `coerce_value_to_type` returns
+            // `Cow::Borrowed` on the hot path so no allocation happens for
+            // pass-through values (e.g., string matches).
+            let expected_value = types::coerce_value_to_type(&rule.value, &rule.typ);
+            let expected_ref: &crate::parser::ast::Value = expected_value.as_ref();
+
+            // BitwiseNot needs type-aware bit-width masking so the
+            // complement is computed at the type's natural width (e.g.,
+            // byte NOT of 0x00 = 0xFF, not u64::MAX).
+            let matched = match &rule.op {
+                crate::parser::ast::Operator::BitwiseNot => {
+                    operators::apply_bitwise_not_with_width(
+                        &read_value,
+                        expected_ref,
+                        rule.typ.bit_width(),
+                    )
+                }
+                op => operators::apply_operator(op, &read_value, expected_ref),
+            };
+            (matched, read_value)
+        }
     };
     Ok(matched.then_some((absolute_offset, read_value)))
 }
@@ -280,7 +343,12 @@ pub fn evaluate_rules(
             // anchor. The anchor is updated unconditionally to the end of
             // this match -- it may move forward or backward depending on
             // where successive rules match (it is *not* a high-watermark).
-            let consumed = types::bytes_consumed(buffer, absolute_offset, &rule.typ);
+            let consumed = types::bytes_consumed_with_pattern(
+                buffer,
+                absolute_offset,
+                &rule.typ,
+                Some(&rule.value),
+            );
             let new_anchor = absolute_offset.saturating_add(consumed);
             context.set_last_match_end(new_anchor);
 

@@ -75,9 +75,9 @@ $ rmagic --json example.elf
 | Hierarchical rules | ✅       | ✅     | Complete | Parent-child relationships             |
 | Indirect offsets   | ✅       | ✅     | Complete | Pointer dereferencing                  |
 | Relative offsets   | ✅       | ✅     | Complete | Position-relative addressing (PR #211) |
-| Search patterns    | ✅       | 📋     | Planned  | Pattern searching in ranges            |
+| Search patterns    | ✅       | ✅     | Complete | Pattern searching in ranges (PR #214)  |
 | Bitwise operations | ✅       | ✅     | Complete | AND, XOR, NOT operations               |
-| String operations  | ✅       | 📋     | Planned  | Case-insensitive, regex                |
+| String operations  | ✅       | ✅     | Complete | Case-insensitive, regex (PR #214)      |
 | Date/time formats  | ✅       | ✅     | Complete | 32-bit and 64-bit timestamps           |
 | Floating point     | ✅       | ✅     | Complete | Float, double with endianness          |
 | Unicode support    | ✅       | 📋     | Planned  | UTF-8, UTF-16 strings                  |

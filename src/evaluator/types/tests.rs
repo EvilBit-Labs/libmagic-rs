@@ -801,7 +801,7 @@ fn test_bytes_consumed_fixed_width_types() {
     ];
 
     for (typ, expected) in cases {
-        let consumed = bytes_consumed(buf, 0, typ);
+        let consumed = bytes_consumed_with_pattern(buf, 0, typ, None);
         assert_eq!(
             consumed, *expected,
             "fixed-width width mismatch for {typ:?}"
@@ -814,7 +814,7 @@ fn test_bytes_consumed_string_with_nul() {
     // "MZ\0" -> matches "MZ" and consumes 3 bytes (2 + NUL).
     let buf = b"MZ\x00rest";
     let typ = TypeKind::String { max_length: None };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 3);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 3);
 }
 
 #[test]
@@ -822,7 +822,7 @@ fn test_bytes_consumed_string_at_offset() {
     // String starting mid-buffer.
     let buf = b"PREFIXabc\x00tail";
     let typ = TypeKind::String { max_length: None };
-    assert_eq!(bytes_consumed(buf, 6, &typ), 4); // "abc" + NUL
+    assert_eq!(bytes_consumed_with_pattern(buf, 6, &typ, None), 4); // "abc" + NUL
 }
 
 #[test]
@@ -830,7 +830,7 @@ fn test_bytes_consumed_string_no_nul_in_buffer() {
     // No NUL terminator -- consumes to end of buffer (no extra byte for NUL).
     let buf = b"NoNull";
     let typ = TypeKind::String { max_length: None };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 6);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 6);
 }
 
 #[test]
@@ -838,7 +838,7 @@ fn test_bytes_consumed_string_empty() {
     // Empty string at offset 0 -- just the NUL.
     let buf = b"\x00rest";
     let typ = TypeKind::String { max_length: None };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 1);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 1);
 }
 
 #[test]
@@ -848,7 +848,7 @@ fn test_bytes_consumed_string_max_length_caps() {
     let typ = TypeKind::String {
         max_length: Some(4),
     };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 4);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 4);
 }
 
 #[test]
@@ -858,7 +858,7 @@ fn test_bytes_consumed_string_max_length_finds_nul() {
     let typ = TypeKind::String {
         max_length: Some(10),
     };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 6);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 6);
 }
 
 #[test]
@@ -870,7 +870,7 @@ fn test_bytes_consumed_pstring_one_byte() {
         length_width: PStringLengthWidth::OneByte,
         length_includes_itself: false,
     };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 6);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 6);
 }
 
 #[test]
@@ -882,7 +882,7 @@ fn test_bytes_consumed_pstring_two_byte_be() {
         length_width: PStringLengthWidth::TwoByteBE,
         length_includes_itself: false,
     };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 7);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 7);
 }
 
 #[test]
@@ -893,7 +893,7 @@ fn test_bytes_consumed_pstring_two_byte_le() {
         length_width: PStringLengthWidth::TwoByteLE,
         length_includes_itself: false,
     };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 7);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 7);
 }
 
 #[test]
@@ -904,7 +904,7 @@ fn test_bytes_consumed_pstring_four_byte_be() {
         length_width: PStringLengthWidth::FourByteBE,
         length_includes_itself: false,
     };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 5);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 5);
 }
 
 #[test]
@@ -916,7 +916,7 @@ fn test_bytes_consumed_pstring_j_flag() {
         length_width: PStringLengthWidth::OneByte,
         length_includes_itself: true,
     };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 4);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 4);
 }
 
 #[test]
@@ -928,7 +928,7 @@ fn test_bytes_consumed_pstring_empty() {
         length_width: PStringLengthWidth::OneByte,
         length_includes_itself: false,
     };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 1);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 1);
 }
 
 #[test]
@@ -940,7 +940,7 @@ fn test_bytes_consumed_pstring_max_length_caps() {
         length_width: PStringLengthWidth::OneByte,
         length_includes_itself: false,
     };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 6);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 6);
 }
 
 #[test]
@@ -952,7 +952,7 @@ fn test_bytes_consumed_pstring_j_flag_underflow_multi_byte() {
         length_width: PStringLengthWidth::TwoByteBE,
         length_includes_itself: true,
     };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 0);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 0);
 
     // /J with FourByteLE: stored length 3, prefix width 4 -> underflow -> 0.
     let buf = b"\x03\x00\x00\x00xx";
@@ -961,7 +961,7 @@ fn test_bytes_consumed_pstring_j_flag_underflow_multi_byte() {
         length_width: PStringLengthWidth::FourByteLE,
         length_includes_itself: true,
     };
-    assert_eq!(bytes_consumed(buf, 0, &typ), 0);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 0);
 }
 
 #[test]
@@ -976,7 +976,7 @@ fn test_bytes_consumed_pstring_clamps_oversized_prefix_be() {
         length_includes_itself: false,
     };
     // 4 (prefix) + min(0xFFFFFFFF, 3) = 4 + 3 = 7
-    assert_eq!(bytes_consumed(buf, 0, &typ), 7);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 7);
 }
 
 #[test]
@@ -988,7 +988,7 @@ fn test_bytes_consumed_pstring_clamps_oversized_prefix_le() {
         length_includes_itself: false,
     };
     // 4 + min(0xFFFFFFFF, 5) = 9
-    assert_eq!(bytes_consumed(buf, 0, &typ), 9);
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 9);
 }
 
 #[test]
@@ -998,7 +998,110 @@ fn test_bytes_consumed_string_at_past_end_returns_zero() {
     // a successful read, but the path is exercised here for the contract.
     let buf = b"abc";
     let typ = TypeKind::String { max_length: None };
-    assert_eq!(bytes_consumed(buf, 10, &typ), 0);
+    assert_eq!(bytes_consumed_with_pattern(buf, 10, &typ, None), 0);
+}
+
+#[test]
+fn test_bytes_consumed_regex_with_string_pattern() {
+    // Regression guard for GOTCHAS 2.1: variable-width variants must be
+    // matched explicitly in `bytes_consumed_with_pattern` or relative
+    // offsets silently corrupt. This test exercises the dispatch path
+    // and verifies the match-end byte count matches the reader's view.
+    let buf = b"prefix_World_suffix";
+    let typ = TypeKind::Regex {
+        flags: crate::parser::ast::RegexFlags::default(),
+        count: None,
+    };
+    let pattern = Value::String("World".to_string());
+    // "World" starts at index 7 in the buffer, length 5, so a scan from
+    // offset 0 consumes 7+5=12 bytes.
+    assert_eq!(
+        bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)),
+        12
+    );
+}
+
+#[test]
+fn test_bytes_consumed_regex_no_match_returns_zero() {
+    let buf = b"abcdef";
+    let typ = TypeKind::Regex {
+        flags: crate::parser::ast::RegexFlags::default(),
+        count: None,
+    };
+    let pattern = Value::String("xyz".to_string());
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 0);
+}
+
+#[test]
+fn test_bytes_consumed_regex_zero_width_match_returns_zero() {
+    // Zero-width match at position 0 means match_end=0 so the anchor
+    // stays put. Cross-check with the direct reader in regex.rs.
+    let buf = b"hello";
+    let typ = TypeKind::Regex {
+        flags: crate::parser::ast::RegexFlags::default(),
+        count: None,
+    };
+    let pattern = Value::String("^".to_string());
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 0);
+}
+
+#[test]
+fn test_bytes_consumed_regex_start_offset_flag_uses_match_start() {
+    // /s flag changes the anchor advance to match-start instead of
+    // match-end. Regression guard for V2.
+    let buf = b"prefix_World_suffix";
+    let typ = TypeKind::Regex {
+        flags: crate::parser::ast::RegexFlags {
+            start_offset: true,
+            ..crate::parser::ast::RegexFlags::default()
+        },
+        count: None,
+    };
+    let pattern = Value::String("World".to_string());
+    // Match-start for "World" at index 7 is 7, not 12.
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 7);
+}
+
+#[test]
+fn test_bytes_consumed_search_with_pattern_is_match_end() {
+    // Regression guard for the pre-fix behavior that returned the
+    // entire window size instead of match-end. Per GNU `file` softmagic.c
+    // FILE_SEARCH, the anchor advances to `base + match_idx + pattern.len()`.
+    let buf = b"abcWorld_xyz";
+    let typ = TypeKind::Search {
+        range: ::std::num::NonZeroUsize::new(10).unwrap(),
+    };
+    let pattern = Value::String("World".to_string());
+    // "World" is at index 3, length 5, match-end = 8.
+    assert_eq!(
+        bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)),
+        8,
+        "expected match-end (8), not window-end (10)"
+    );
+}
+
+#[test]
+fn test_bytes_consumed_search_no_match_returns_zero() {
+    let buf = b"abcdefghij";
+    let typ = TypeKind::Search {
+        range: ::std::num::NonZeroUsize::new(10).unwrap(),
+    };
+    let pattern = Value::String("XYZ".to_string());
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 0);
+}
+
+#[test]
+fn test_bytes_consumed_search_bytes_pattern_works() {
+    // Value::Bytes is an alternative pattern shape for search -- verify
+    // the dispatch path accepts it and computes the same match-end as a
+    // Value::String pattern would.
+    let buf = &[0x00, 0xff, 0xde, 0xad, 0xbe, 0xef, 0x11];
+    let typ = TypeKind::Search {
+        range: ::std::num::NonZeroUsize::new(7).unwrap(),
+    };
+    let pattern = Value::Bytes(vec![0xde, 0xad, 0xbe, 0xef]);
+    // 0xde at index 2, length 4, match-end = 6.
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 6);
 }
 
 #[test]
@@ -1010,11 +1113,11 @@ fn test_bytes_consumed_fixed_width_returns_zero_past_end() {
     let buf = b"abc";
     let typ = TypeKind::Byte { signed: false };
     // offset == buf.len() leaves no room for a 1-byte read.
-    assert_eq!(bytes_consumed(buf, 3, &typ), 0);
+    assert_eq!(bytes_consumed_with_pattern(buf, 3, &typ, None), 0);
     // Way past end.
-    assert_eq!(bytes_consumed(buf, 100, &typ), 0);
+    assert_eq!(bytes_consumed_with_pattern(buf, 100, &typ, None), 0);
     // Last valid index: 1-byte read fits.
-    assert_eq!(bytes_consumed(buf, 2, &typ), 1);
+    assert_eq!(bytes_consumed_with_pattern(buf, 2, &typ, None), 1);
 
     // Multi-byte fixed-width type at the boundary.
     let typ_long = TypeKind::Long {
@@ -1023,9 +1126,12 @@ fn test_bytes_consumed_fixed_width_returns_zero_past_end() {
     };
     let buf4 = b"abcd";
     // offset 0 + width 4 == buf.len() -> fits
-    assert_eq!(bytes_consumed(buf4, 0, &typ_long), 4);
+    assert_eq!(bytes_consumed_with_pattern(buf4, 0, &typ_long, None), 4);
     // offset 1 + width 4 == 5 > buf.len() -> 0
-    assert_eq!(bytes_consumed(buf4, 1, &typ_long), 0);
+    assert_eq!(bytes_consumed_with_pattern(buf4, 1, &typ_long, None), 0);
     // overflow: offset = usize::MAX, width = 4 -> checked_add returns None -> 0
-    assert_eq!(bytes_consumed(buf4, usize::MAX, &typ_long), 0);
+    assert_eq!(
+        bytes_consumed_with_pattern(buf4, usize::MAX, &typ_long, None),
+        0
+    );
 }

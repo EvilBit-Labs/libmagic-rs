@@ -209,32 +209,19 @@ cargo test --doc   # Test documentation examples
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
 - **String Matching**: Exact string matching with null-termination and Pascal string (length-prefixed) support
+- **Regex type**: Binary-safe regex matching via `regex::bytes::Regex`. Full flag support: `/c` (case-insensitive), `/s` (anchor advances to match-start instead of match-end), `/l` (scan window is measured in lines instead of bytes). Flags combine in any order (`regex/cs`, `regex/csl`, `regex/lc`). Numeric counts are honored: `regex/100` scans at most 100 bytes; `regex/1l` scans at most 1 line. Multi-line regex matching is always on (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries regardless of `/l`. Every scan window is capped at 8192 bytes (`FILE_REGEX_MAX`) regardless of the user's count.
+- **Search type**: Bounded literal pattern scan via `memchr::memmem::find`; `search/N` caps the scan window to `N` bytes from the offset. The range is **mandatory** and stored as `NonZeroUsize`, so bare `search` and `search/0` are parse errors (matching GNU `file` magic(5)). Anchor advance follows GNU `file` semantics (match-end, not window-end) so relative-offset children resolve to the byte immediately after the matched pattern.
 
 ### Planned Features (v1.0+)
 
-- Regex type: Pattern matching with binary-safe regex support
-- Search type: Multi-pattern string searching
-
-### Future Enhancement: Binary-Safe Regex Handling
-
-> **Note:** The following is planned for future releases and is not yet implemented.
-
-```rust
-// Use regex crate with bytes feature for binary-safe matching
-pub trait BinaryRegex {
-    fn find_at(&self, haystack: &[u8], start: usize) -> Option<Match>;
-}
-
-impl BinaryRegex for regex::bytes::Regex {
-    /* ... */
-}
-```
+- Aho-Corasick multi-pattern search optimization for `search/` rules.
+- `!:mime`/`!:ext`/`!:apple` directive evaluation (currently only `!:strength` is parsed).
+- `use`/`name` named test directives for rule reuse.
 
 ## Current Limitations (v0.1.0)
 
 ### Type System
 
-- No regex/search pattern matching
 - 64-bit integer types: `quad`/`uquad`, `bequad`/`ubequad`, `lequad`/`ulequad` are implemented; `qquad` (128-bit) is not yet supported
 - String evaluation reads until first NUL or end-of-buffer by default; `pstring` reads a length-prefixed Pascal string; `max_length: Some(_)` is supported internally but no dedicated fixed-length string parser syntax exists yet
 - `pstring` supports 1-byte (`/B`), 2-byte big-endian (`/H`), 2-byte little-endian (`/h`), 4-byte big-endian (`/L`), and 4-byte little-endian (`/l`) length prefixes, plus the `/J` flag (stored length includes prefix width). All flags are combinable (e.g., `pstring/HJ`) and fully implemented.
@@ -317,7 +304,7 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 
 ### Adding New Type Support
 
-> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Quad`, `Float`, `Double`, `Date`, `QDate`, `String`, and `PString`. Regex and search types are planned for future releases.
+> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Quad`, `Float`, `Double`, `Date`, `QDate`, `String`, `PString`, `Regex`, and `Search`. See "Current Limitations" for the remaining gaps in regex/search flag coverage.
 
 1. Extend `TypeKind` enum in `src/parser/ast.rs`
 2. Add keyword parsing in `src/parser/types.rs` (`parse_type_keyword` and `type_keyword_to_kind`)
@@ -464,14 +451,15 @@ CI must pass before merge. Mergify merge protections enforce these checks. Bot P
 - `nom`: Parser combinators
 - `serde`: Serialization
 - `clap`: CLI argument parsing
-- `regex`: Pattern matching (used in tests; regex *type* for magic rules is planned)
+- `regex`: Binary-safe pattern matching via `regex::bytes::Regex` for `TypeKind::Regex` evaluation
+- `memchr`: SIMD-accelerated literal pattern search, used for `TypeKind::Search`
 - `aho-corasick`: Multi-pattern search (planned, not yet added)
 
 ### Development Phases
 
 1. **MVP (v0.1.0)** - CURRENT: Basic parsing and evaluation with byte/short/long/quad/string types, equality and bitwise AND operators, built-in rules for 10 common formats
 2. **Enhanced Features (v0.2)**: Comparison operators (`>`, `<`), indirect offset improvements, strength-based rule ordering
-3. **Advanced Types (v0.3)**: Regex type, search patterns
+3. **Advanced Types (v0.3)**: Regex flag completeness (`/s`, proper `/l` line-count semantics, `regex/Nl`), search range enforcement, 8192-byte default regex range
 4. **Full Compatibility (v0.4)**: Complete libmagic syntax support, all special directives, named tests
 5. **Production Ready (v1.0)**: Stable API, complete documentation, 95%+ compatibility with GNU file
 
