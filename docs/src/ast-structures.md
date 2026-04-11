@@ -452,7 +452,7 @@ Search {
 **Behavior:**
 
 - Returns `Value::String` containing the matched bytes if found within range
-- Anchor advances by the entire search window regardless of where the match was found
+- Anchor advances to `match_idx + pattern.len()` (the byte position just past the matched needle), matching GNU `file`'s `softmagic.c` `FILE_SEARCH` path where `ms->search.offset += idx` and then `moffset()` adds `vlen = m->vallen`. An earlier implementation incorrectly advanced by the full window size (`range`), but this caused relative-offset children to land far past the intended byte.
 - Only supports `Equal` and `NotEqual` operators
 - Range is mandatory; `search/0` or bare `search` are parse errors
 

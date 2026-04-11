@@ -301,15 +301,15 @@ Regex rules accept three modifier flags via the `/[csl]` suffix:
 - `/s` - Advance anchor to match-start instead of match-end → `RegexFlags::start_offset = true`
 - `/l` - Line-based counting (interpret count as line count) → `RegexFlags::line_based = true`
 
-Flags can be combined in any order (`/cl`, `/lc`, `/csl` are all equivalent). The parser also accepts interleaved flag-and-count syntax matching GNU `file` semantics: `regex/1l` and `regex/l1` both parse identically.
+Flags can be combined in any order (`/cl`, `/lc`, `/csl` are all equivalent). The parser also accepts interleaved flag-and-count syntax matching GNU `file` semantics: `regex/1l` and `regex/l1` both parse identically. Duplicate counts (`regex/1l2l`, `regex/1c2l`, `regex/l1l2`) are parse errors.
 
 **Optional Count Parameter:**
 
 An optional decimal count controls the scan window:
 
-- No count: scan 8192 bytes (default)
-- `/N` (no `/l`): scan at most `N` bytes, capped at 8192
-- `/Nl` (with `/l`): scan at most `N` lines, effective byte cap is `min(N * 80, 8192)`
+- No count: scan 8192 bytes (default, or until buffer ends)
+- `/N` (no `/l`): scan at most `N` bytes, clamped at 8192
+- `/Nl` (with `/l`): scan from the offset through the end of the Nth line terminator (where line terminators are LF, CRLF, or bare CR), always capped at 8192 bytes regardless of `N`
 
 The 8192-byte hard cap matches GNU `file`'s `FILE_REGEX_MAX` constant and prevents runaway regex scans against large buffers.
 
@@ -348,7 +348,7 @@ parse_type_and_operator("regex/c256s")
 
 **Regex Semantics:**
 
-- Patterns are compiled with multi-line mode always enabled (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries and `.` does not match `\n`.
+- Multi-line regex mode is always enabled (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries and `.` does not match `\n`. This behavior is independent of the `/l` flag; `/l` controls the scan window (line-based vs byte-based), not the regex compilation mode.
 - The scan window is always capped at 8192 bytes regardless of the `count` value.
 - Zero-width matches (`^`, `a*`, lookaheads) are preserved as `Value::String("")` and distinguished from genuine misses.
 - Regex rules only support `Operator::Equal` and `Operator::NotEqual`; other comparison operators are rejected at evaluation time.
@@ -358,6 +358,7 @@ parse_type_and_operator("regex/c256s")
 - ✅ `regex` keyword recognition with suffix parsing
 - ✅ Three modifier flags (`/c`, `/s`, `/l`) with arbitrary combination order
 - ✅ Optional numeric count parameter (interleaved with flags per GNU `file` semantics)
+- ✅ Duplicate regex counts rejected with clear parse errors
 - ✅ 8192-byte scan window cap matching `FILE_REGEX_MAX`
 - ✅ Bare `regex/` with no valid modifier is a parse error
 - ✅ `regex/0` is rejected (zero count has no valid semantics)
