@@ -478,22 +478,27 @@ pub(crate) fn bytes_consumed_with_pattern(
                 0
             }
         },
-        // A new variable-width TypeKind variant was added without updating
-        // this match. Returning 0 here would silently corrupt the GNU `file`
-        // anchor for any rule using relative offsets after a match of the
-        // new type. The debug_assert! panics in test/dev builds so the gap
-        // is caught loudly during testing; release builds compile it out
-        // and keep the 0 fallback (graceful skip rather than panic), so
-        // this case is only surfaced by the assertion in non-release
-        // builds.
-        //
-        // GOTCHAS S2.1 lists this match in the new-TypeKind-variant
-        // checklist -- see that section if you are reading this comment
-        // because the assertion just fired.
-        _ => {
+        // Fixed-width variants are handled by the `bit_width()` fast
+        // path above. Listing them here explicitly (rather than using
+        // a `_ =>` wildcard) turns any future addition of a
+        // variable-width `TypeKind` variant into a compile error
+        // instead of a silent anchor corruption (review finding
+        // S-M3/L5). `TypeKind` is `#[non_exhaustive]`, so this match
+        // is only exhaustive inside this crate -- external callers
+        // cannot add variants. When adding a new `TypeKind` variant,
+        // either add it to the fixed-width `bit_width()` path or add
+        // it to this match; GOTCHAS S2.1 catalogs the full checklist.
+        TypeKind::Byte { .. }
+        | TypeKind::Short { .. }
+        | TypeKind::Long { .. }
+        | TypeKind::Quad { .. }
+        | TypeKind::Float { .. }
+        | TypeKind::Double { .. }
+        | TypeKind::Date { .. }
+        | TypeKind::QDate { .. } => {
             debug_assert!(
                 false,
-                "bytes_consumed: unhandled variable-width TypeKind variant {type_kind:?} -- update bytes_consumed and GOTCHAS S2.1"
+                "bytes_consumed_with_pattern: fixed-width TypeKind variant {type_kind:?} should have been handled by the bit_width() fast path"
             );
             0
         }

@@ -187,191 +187,152 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
 /// input, and the structured error lets callers translate the failure
 /// into their own error type (e.g. a nom parse error or a richer
 /// `ParseError::InvalidType`).
-#[allow(clippy::too_many_lines)]
 pub fn type_keyword_to_kind(type_name: &str) -> Result<Option<TypeKind>, UnknownTypeKeyword> {
-    Ok(Some(match type_name {
-        // BYTE types (8-bit)
-        "byte" => TypeKind::Byte { signed: true },
-        "ubyte" => TypeKind::Byte { signed: false },
+    // `regex` and `search` cannot be constructed from the keyword alone.
+    // They require suffix parsing (flags/count for regex, mandatory
+    // `NonZeroUsize` range for search) which only happens in
+    // `parse_type_and_operator` in grammar/mod.rs. Returning `None`
+    // here makes the "keyword alone isn't enough" invariant
+    // type-enforced instead of relying on a placeholder that the
+    // grammar layer is expected to overwrite.
+    if matches!(type_name, "regex" | "search") {
+        return Ok(None);
+    }
 
-        // SHORT types (16-bit)
-        "short" => TypeKind::Short {
-            endian: Endianness::Native,
-            signed: true,
-        },
-        "ushort" => TypeKind::Short {
-            endian: Endianness::Native,
-            signed: false,
-        },
-        "leshort" => TypeKind::Short {
-            endian: Endianness::Little,
-            signed: true,
-        },
-        "uleshort" => TypeKind::Short {
-            endian: Endianness::Little,
-            signed: false,
-        },
-        "beshort" => TypeKind::Short {
-            endian: Endianness::Big,
-            signed: true,
-        },
-        "ubeshort" => TypeKind::Short {
-            endian: Endianness::Big,
-            signed: false,
-        },
+    if let Some(kind) = byte_family(type_name)
+        .or_else(|| short_family(type_name))
+        .or_else(|| long_family(type_name))
+        .or_else(|| quad_family(type_name))
+        .or_else(|| float_family(type_name))
+        .or_else(|| double_family(type_name))
+        .or_else(|| date_family(type_name))
+        .or_else(|| qdate_family(type_name))
+        .or_else(|| string_family(type_name))
+    {
+        return Ok(Some(kind));
+    }
 
-        // LONG types (32-bit)
-        "long" => TypeKind::Long {
-            endian: Endianness::Native,
-            signed: true,
-        },
-        "ulong" => TypeKind::Long {
-            endian: Endianness::Native,
-            signed: false,
-        },
-        "lelong" => TypeKind::Long {
-            endian: Endianness::Little,
-            signed: true,
-        },
-        "ulelong" => TypeKind::Long {
-            endian: Endianness::Little,
-            signed: false,
-        },
-        "belong" => TypeKind::Long {
-            endian: Endianness::Big,
-            signed: true,
-        },
-        "ubelong" => TypeKind::Long {
-            endian: Endianness::Big,
-            signed: false,
-        },
+    Err(UnknownTypeKeyword {
+        keyword: type_name.to_string(),
+    })
+}
 
-        // QUAD types (64-bit)
-        "quad" => TypeKind::Quad {
-            endian: Endianness::Native,
-            signed: true,
-        },
-        "uquad" => TypeKind::Quad {
-            endian: Endianness::Native,
-            signed: false,
-        },
-        "lequad" => TypeKind::Quad {
-            endian: Endianness::Little,
-            signed: true,
-        },
-        "ulequad" => TypeKind::Quad {
-            endian: Endianness::Little,
-            signed: false,
-        },
-        "bequad" => TypeKind::Quad {
-            endian: Endianness::Big,
-            signed: true,
-        },
-        "ubequad" => TypeKind::Quad {
-            endian: Endianness::Big,
-            signed: false,
-        },
+/// Map a byte-family keyword (`byte`, `ubyte`) to its `TypeKind`.
+fn byte_family(name: &str) -> Option<TypeKind> {
+    match name {
+        "byte" => Some(TypeKind::Byte { signed: true }),
+        "ubyte" => Some(TypeKind::Byte { signed: false }),
+        _ => None,
+    }
+}
 
-        // FLOAT types (32-bit)
-        "float" => TypeKind::Float {
-            endian: Endianness::Native,
-        },
-        "befloat" => TypeKind::Float {
-            endian: Endianness::Big,
-        },
-        "lefloat" => TypeKind::Float {
-            endian: Endianness::Little,
-        },
+/// Map a short-family keyword (`short`/`ushort`/`beshort`/...) to its `TypeKind`.
+fn short_family(name: &str) -> Option<TypeKind> {
+    let (endian, signed) = match name {
+        "short" => (Endianness::Native, true),
+        "ushort" => (Endianness::Native, false),
+        "leshort" => (Endianness::Little, true),
+        "uleshort" => (Endianness::Little, false),
+        "beshort" => (Endianness::Big, true),
+        "ubeshort" => (Endianness::Big, false),
+        _ => return None,
+    };
+    Some(TypeKind::Short { endian, signed })
+}
 
-        // DOUBLE types (64-bit)
-        "double" => TypeKind::Double {
-            endian: Endianness::Native,
-        },
-        "bedouble" => TypeKind::Double {
-            endian: Endianness::Big,
-        },
-        "ledouble" => TypeKind::Double {
-            endian: Endianness::Little,
-        },
+/// Map a long-family keyword (`long`/`ulong`/`belong`/...) to its `TypeKind`.
+fn long_family(name: &str) -> Option<TypeKind> {
+    let (endian, signed) = match name {
+        "long" => (Endianness::Native, true),
+        "ulong" => (Endianness::Native, false),
+        "lelong" => (Endianness::Little, true),
+        "ulelong" => (Endianness::Little, false),
+        "belong" => (Endianness::Big, true),
+        "ubelong" => (Endianness::Big, false),
+        _ => return None,
+    };
+    Some(TypeKind::Long { endian, signed })
+}
 
-        // DATE types (32-bit Unix timestamp)
-        "date" => TypeKind::Date {
-            endian: Endianness::Native,
-            utc: true,
-        },
-        "ldate" => TypeKind::Date {
-            endian: Endianness::Native,
-            utc: false,
-        },
-        "bedate" => TypeKind::Date {
-            endian: Endianness::Big,
-            utc: true,
-        },
-        "beldate" => TypeKind::Date {
-            endian: Endianness::Big,
-            utc: false,
-        },
-        "ledate" => TypeKind::Date {
-            endian: Endianness::Little,
-            utc: true,
-        },
-        "leldate" => TypeKind::Date {
-            endian: Endianness::Little,
-            utc: false,
-        },
+/// Map a quad-family keyword (`quad`/`uquad`/`bequad`/...) to its `TypeKind`.
+fn quad_family(name: &str) -> Option<TypeKind> {
+    let (endian, signed) = match name {
+        "quad" => (Endianness::Native, true),
+        "uquad" => (Endianness::Native, false),
+        "lequad" => (Endianness::Little, true),
+        "ulequad" => (Endianness::Little, false),
+        "bequad" => (Endianness::Big, true),
+        "ubequad" => (Endianness::Big, false),
+        _ => return None,
+    };
+    Some(TypeKind::Quad { endian, signed })
+}
 
-        // QDATE types (64-bit Unix timestamp)
-        "qdate" => TypeKind::QDate {
-            endian: Endianness::Native,
-            utc: true,
-        },
-        "qldate" => TypeKind::QDate {
-            endian: Endianness::Native,
-            utc: false,
-        },
-        "beqdate" => TypeKind::QDate {
-            endian: Endianness::Big,
-            utc: true,
-        },
-        "beqldate" => TypeKind::QDate {
-            endian: Endianness::Big,
-            utc: false,
-        },
-        "leqdate" => TypeKind::QDate {
-            endian: Endianness::Little,
-            utc: true,
-        },
-        "leqldate" => TypeKind::QDate {
-            endian: Endianness::Little,
-            utc: false,
-        },
+/// Map a float-family keyword (`float`/`befloat`/`lefloat`) to its `TypeKind`.
+fn float_family(name: &str) -> Option<TypeKind> {
+    let endian = match name {
+        "float" => Endianness::Native,
+        "befloat" => Endianness::Big,
+        "lefloat" => Endianness::Little,
+        _ => return None,
+    };
+    Some(TypeKind::Float { endian })
+}
 
-        // STRING types
-        "string" => TypeKind::String { max_length: None },
-        // Default to 1-byte prefix; suffix parsing handled in grammar/mod.rs
-        "pstring" => TypeKind::PString {
+/// Map a double-family keyword (`double`/`bedouble`/`ledouble`) to its `TypeKind`.
+fn double_family(name: &str) -> Option<TypeKind> {
+    let endian = match name {
+        "double" => Endianness::Native,
+        "bedouble" => Endianness::Big,
+        "ledouble" => Endianness::Little,
+        _ => return None,
+    };
+    Some(TypeKind::Double { endian })
+}
+
+/// Map a 32-bit date keyword (`date`/`ldate`/`bedate`/...) to its `TypeKind`.
+fn date_family(name: &str) -> Option<TypeKind> {
+    let (endian, utc) = match name {
+        "date" => (Endianness::Native, true),
+        "ldate" => (Endianness::Native, false),
+        "bedate" => (Endianness::Big, true),
+        "beldate" => (Endianness::Big, false),
+        "ledate" => (Endianness::Little, true),
+        "leldate" => (Endianness::Little, false),
+        _ => return None,
+    };
+    Some(TypeKind::Date { endian, utc })
+}
+
+/// Map a 64-bit date keyword (`qdate`/`qldate`/`beqdate`/...) to its `TypeKind`.
+fn qdate_family(name: &str) -> Option<TypeKind> {
+    let (endian, utc) = match name {
+        "qdate" => (Endianness::Native, true),
+        "qldate" => (Endianness::Native, false),
+        "beqdate" => (Endianness::Big, true),
+        "beqldate" => (Endianness::Big, false),
+        "leqdate" => (Endianness::Little, true),
+        "leqldate" => (Endianness::Little, false),
+        _ => return None,
+    };
+    Some(TypeKind::QDate { endian, utc })
+}
+
+/// Map a string-family keyword (`string`, `pstring`) to its `TypeKind`.
+///
+/// `pstring` defaults to a 1-byte length prefix; the grammar layer
+/// overwrites `length_width` / `length_includes_itself` from any
+/// trailing `/B`/`/H`/`/h`/`/L`/`/l`/`/J` suffix.
+fn string_family(name: &str) -> Option<TypeKind> {
+    match name {
+        "string" => Some(TypeKind::String { max_length: None }),
+        "pstring" => Some(TypeKind::PString {
             max_length: None,
             length_width: PStringLengthWidth::OneByte,
             length_includes_itself: false,
-        },
-
-        // REGEX and SEARCH cannot be constructed from the keyword alone.
-        // They require suffix parsing (flags/count for regex, mandatory
-        // NonZeroUsize range for search) which only happens in
-        // `parse_type_and_operator` in grammar/mod.rs. Callers that
-        // need a complete `TypeKind::Regex`/`Search` must build it
-        // directly in the grammar layer. Returning `None` here makes
-        // the "keyword alone isn't enough" invariant type-enforced
-        // instead of relying on a placeholder that the grammar layer
-        // is expected to overwrite.
-        "regex" | "search" => return Ok(None),
-
-        _ => {
-            return Err(UnknownTypeKeyword {
-                keyword: type_name.to_string(),
-            });
-        }
-    }))
+        }),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

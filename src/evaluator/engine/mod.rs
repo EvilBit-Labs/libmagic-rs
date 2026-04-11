@@ -103,93 +103,98 @@ fn evaluate_single_rule_with_anchor(
     buffer: &[u8],
     last_match_end: usize,
 ) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
-    // Step 1: Resolve the offset specification to an absolute position
+    use crate::parser::ast::TypeKind;
+
+    // Step 1: Resolve the offset specification to an absolute position.
     let absolute_offset =
         offset::resolve_offset_with_context(&rule.offset, buffer, last_match_end)?;
 
-    // Step 2 & 3: Read and interpret bytes at the resolved offset according
-    // to the rule's type, and compute the logical match state.
-    //
-    // Pattern-bearing types (Regex, Search) take a different path from
-    // fixed-width types because the rule's `value` operand is the *pattern*,
-    // not an expected matched value. Running those through `apply_operator`
+    // Step 2 & 3: Dispatch on type category. Pattern-bearing types
+    // (Regex, Search) take a different path from fixed-width types
+    // because the rule's `value` operand is the *pattern*, not an
+    // expected matched value. Running those through `apply_operator`
     // would compare matched text ("123") against the pattern literal
     // ("[0-9]+") and produce false negatives on any regex with
-    // metacharacters. Instead, `read_pattern_match` returns `Some(v)` on a
-    // successful match (possibly zero-width) and `None` on a genuine miss;
-    // the engine translates that directly into Equal / NotEqual. Any other
-    // operator on a pattern-bearing type is a magic-file semantic bug and
-    // surfaces as a hard error -- the fallthrough to `apply_operator`
-    // previously masked this by producing nonsense ordering comparisons
-    // against the pattern source text.
+    // metacharacters.
     let (matched, read_value) = match &rule.typ {
-        crate::parser::ast::TypeKind::Regex { .. }
-        | crate::parser::ast::TypeKind::Search { .. } => {
-            let match_outcome =
-                types::read_pattern_match(buffer, absolute_offset, &rule.typ, Some(&rule.value))
-                    .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
-            let pattern_found = match_outcome.is_some();
-            let matched = match &rule.op {
-                crate::parser::ast::Operator::Equal => pattern_found,
-                crate::parser::ast::Operator::NotEqual => !pattern_found,
-                other => {
-                    return Err(LibmagicError::EvaluationError(
-                        types::TypeReadError::UnsupportedType {
-                            type_name: format!(
-                                "operator {other:?} is not supported for pattern-bearing type {:?}; only Equal (=) and NotEqual (!=) are allowed",
-                                rule.typ
-                            ),
-                        }
-                        .into(),
-                    ));
-                }
-            };
-            // For anchor-advance and output, present the match as a
-            // `Value::String`. A genuine miss is represented as an empty
-            // string to keep the downstream `RuleMatch.value` contract
-            // uniform; the engine already decided `matched` above so the
-            // placeholder value only affects display and
-            // `bytes_consumed_with_pattern` (which re-derives the match
-            // position from the pattern, not this value).
-            let value =
-                match_outcome.unwrap_or_else(|| crate::parser::ast::Value::String(String::new()));
-            (matched, value)
+        TypeKind::Regex { .. } | TypeKind::Search { .. } => {
+            evaluate_pattern_rule(rule, buffer, absolute_offset)?
         }
-        _ => {
-            // Value-based types: read the typed value and apply the operator
-            // against the rule's expected value.
-            let read_value = types::read_typed_value_with_pattern(
-                buffer,
-                absolute_offset,
-                &rule.typ,
-                Some(&rule.value),
-            )
-            .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
-
-            // Coerce the rule's expected value to match the type's
-            // signedness/width. `coerce_value_to_type` returns
-            // `Cow::Borrowed` on the hot path so no allocation happens for
-            // pass-through values (e.g., string matches).
-            let expected_value = types::coerce_value_to_type(&rule.value, &rule.typ);
-            let expected_ref: &crate::parser::ast::Value = expected_value.as_ref();
-
-            // BitwiseNot needs type-aware bit-width masking so the
-            // complement is computed at the type's natural width (e.g.,
-            // byte NOT of 0x00 = 0xFF, not u64::MAX).
-            let matched = match &rule.op {
-                crate::parser::ast::Operator::BitwiseNot => {
-                    operators::apply_bitwise_not_with_width(
-                        &read_value,
-                        expected_ref,
-                        rule.typ.bit_width(),
-                    )
-                }
-                op => operators::apply_operator(op, &read_value, expected_ref),
-            };
-            (matched, read_value)
-        }
+        _ => evaluate_value_rule(rule, buffer, absolute_offset)?,
     };
     Ok(matched.then_some((absolute_offset, read_value)))
+}
+
+/// Evaluate a pattern-bearing rule (`TypeKind::Regex` / `TypeKind::Search`).
+///
+/// `read_pattern_match` returns `Some(value)` on a successful match
+/// (possibly zero-width, e.g., `a*`) and `None` on a genuine miss; the
+/// engine translates those directly into `Equal`/`NotEqual`. Any other
+/// operator on a pattern-bearing type is a magic-file semantic bug and
+/// surfaces as [`TypeReadError::UnsupportedType`] -- the earlier
+/// fallthrough to `apply_operator` masked this by producing nonsense
+/// ordering comparisons against the pattern source text.
+///
+/// On a miss we return `Value::String(String::new())` as a display
+/// placeholder; the engine has already decided `matched = false` by
+/// then, so the placeholder only affects display and
+/// `bytes_consumed_with_pattern` (which re-derives the match position
+/// from the pattern, not this value).
+fn evaluate_pattern_rule(
+    rule: &MagicRule,
+    buffer: &[u8],
+    absolute_offset: usize,
+) -> Result<(bool, crate::parser::ast::Value), LibmagicError> {
+    let match_outcome =
+        types::read_pattern_match(buffer, absolute_offset, &rule.typ, Some(&rule.value))
+            .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
+    let pattern_found = match_outcome.is_some();
+    let matched = match &rule.op {
+        crate::parser::ast::Operator::Equal => pattern_found,
+        crate::parser::ast::Operator::NotEqual => !pattern_found,
+        other => {
+            return Err(LibmagicError::EvaluationError(
+                types::TypeReadError::UnsupportedType {
+                    type_name: format!(
+                        "operator {other:?} is not supported for pattern-bearing type {:?}; only Equal (=) and NotEqual (!=) are allowed",
+                        rule.typ
+                    ),
+                }
+                .into(),
+            ));
+        }
+    };
+    let value = match_outcome.unwrap_or_else(|| crate::parser::ast::Value::String(String::new()));
+    Ok((matched, value))
+}
+
+/// Evaluate a value-based rule (all non-pattern-bearing `TypeKind` variants).
+///
+/// Reads the typed value at `absolute_offset`, coerces the rule's
+/// expected value to the target type's signedness/width (zero-copy via
+/// `Cow::Borrowed` on the hot path), and applies the operator.
+/// `BitwiseNot` needs type-aware width masking so the complement is
+/// computed at the type's natural width (e.g. byte `NOT 0x00 = 0xFF`,
+/// not `u64::MAX`).
+fn evaluate_value_rule(
+    rule: &MagicRule,
+    buffer: &[u8],
+    absolute_offset: usize,
+) -> Result<(bool, crate::parser::ast::Value), LibmagicError> {
+    let read_value =
+        types::read_typed_value_with_pattern(buffer, absolute_offset, &rule.typ, Some(&rule.value))
+            .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
+
+    let expected_value = types::coerce_value_to_type(&rule.value, &rule.typ);
+    let expected_ref: &crate::parser::ast::Value = expected_value.as_ref();
+
+    let matched = match &rule.op {
+        crate::parser::ast::Operator::BitwiseNot => {
+            operators::apply_bitwise_not_with_width(&read_value, expected_ref, rule.typ.bit_width())
+        }
+        op => operators::apply_operator(op, &read_value, expected_ref),
+    };
+    Ok((matched, read_value))
 }
 
 /// Evaluate a list of magic rules against a file buffer with hierarchical processing

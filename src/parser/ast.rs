@@ -434,10 +434,9 @@ pub enum TypeKind {
 /// assert!(!plain.case_insensitive);
 /// assert!(!plain.start_offset);
 ///
-/// let case_and_start = RegexFlags {
-///     case_insensitive: true,
-///     start_offset: true,
-/// };
+/// let case_and_start = RegexFlags::default()
+///     .with_case_insensitive(true)
+///     .with_start_offset(true);
 /// assert!(case_and_start.case_insensitive);
 /// assert!(case_and_start.start_offset);
 /// ```
@@ -452,6 +451,31 @@ pub struct RegexFlags {
     /// `moffset()` for `FILE_REGEX`. Useful for chaining child rules that
     /// need to re-match from the position where the parent regex began.
     pub start_offset: bool,
+}
+
+impl RegexFlags {
+    /// Builder-style setter for [`RegexFlags::case_insensitive`] (`/c`).
+    ///
+    /// Chain after [`RegexFlags::default()`] to construct `RegexFlags`
+    /// values without exhaustive struct literals. If a new flag is
+    /// added to `RegexFlags` in the future, callers using the builder
+    /// form keep compiling; callers using struct literals would need
+    /// an update.
+    #[must_use]
+    pub const fn with_case_insensitive(mut self, value: bool) -> Self {
+        self.case_insensitive = value;
+        self
+    }
+
+    /// Builder-style setter for [`RegexFlags::start_offset`] (`/s`).
+    ///
+    /// Chain after [`RegexFlags::default()`] to construct `RegexFlags`
+    /// values without exhaustive struct literals.
+    #[must_use]
+    pub const fn with_start_offset(mut self, value: bool) -> Self {
+        self.start_offset = value;
+        self
+    }
 }
 
 /// Scan window specifier for a [`TypeKind::Regex`] rule.
