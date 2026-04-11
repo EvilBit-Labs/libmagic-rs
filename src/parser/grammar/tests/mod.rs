@@ -2343,6 +2343,30 @@ fn test_parse_type_and_operator_regex_invalid_suffix() {
     // regex/0 is rejected because a zero count has no valid semantics
     // (our parser uses NonZeroU32 to express "user specified a count").
     assert!(parse_type_and_operator("regex/0").is_err());
+    // regex/l0 — zero count with line flag, same rejection path.
+    assert!(parse_type_and_operator("regex/l0").is_err());
+}
+
+#[test]
+fn test_parse_type_and_operator_regex_rejects_duplicate_count() {
+    // Libmagic accepts these with a "multiple ranges" stderr warning;
+    // we prefer a hard parse error so magic-file bugs surface at parse
+    // time rather than silently using the last-seen count.
+    assert!(
+        parse_type_and_operator("regex/1l2l").is_err(),
+        "regex/1l2l should reject the second count"
+    );
+    assert!(
+        parse_type_and_operator("regex/1c2l").is_err(),
+        "regex/1c2l should reject the second count"
+    );
+    assert!(
+        parse_type_and_operator("regex/l1l2").is_err(),
+        "regex/l1l2 should reject the second count"
+    );
+    // Valid single-count forms must still parse.
+    assert!(parse_type_and_operator("regex/1l").is_ok());
+    assert!(parse_type_and_operator("regex/l1").is_ok());
 }
 
 #[test]

@@ -29,9 +29,10 @@
 //! * **Line-based window** (`/l` flag): when `flags.line_based` is set,
 //!   `count` is a line count. The scan window extends from `offset`
 //!   through the end of the Nth line terminator, capped at 8192 bytes.
-//!   Libmagic recognizes both `\n` (LF) and `\r\n` (CR+LF) as terminators
-//!   and counts them as single lines; this implementation uses the same
-//!   semantics via `memchr::memchr2(b'\n', b'\r', ...)`.
+//!   Following GNU `file`'s `softmagic.c` line-counting loop, three
+//!   terminator sequences each count as a single line: LF (`\n`),
+//!   CRLF (`\r\n`, consumed as one terminator), and bare CR (`\r`,
+//!   handling classic Mac line endings).
 //!
 //! * **`/s` flag** (`start_offset`): affects only the anchor advance
 //!   computed by [`regex_bytes_consumed`]. When set, the anchor moves by
@@ -68,11 +69,13 @@ fn build_regex(pattern: &str, case_insensitive: bool) -> Result<Regex, regex::Er
 ///
 /// * **Line mode** (`flags.line_based == true`): window extends from
 ///   `offset` through the end of the Nth line terminator (inclusive),
-///   where N is `count.unwrap_or(u32::MAX)`. `\r\n` and `\n` both count as
-///   one line terminator. If the Nth terminator is not found within
-///   `REGEX_MAX_BYTES`, the window is truncated to 8192 bytes. If `count`
-///   is `None` and no terminator is found at all, the window is the whole
-///   buffer tail up to the 8192-byte cap.
+///   where N is `count.unwrap_or(u32::MAX)`. Three terminator sequences
+///   each count as a single line: LF (`\n`), CRLF (`\r\n`, consumed as
+///   one), and bare CR (`\r`, for classic Mac line endings). If the Nth
+///   terminator is not found within `REGEX_MAX_BYTES`, the window is
+///   truncated to 8192 bytes. If `count` is `None` and no terminator is
+///   found at all, the window is the whole buffer tail up to the
+///   8192-byte cap.
 fn compute_window(
     buffer: &[u8],
     offset: usize,
@@ -424,6 +427,101 @@ mod tests {
         let ten = NonZeroU32::new(10);
         let result = read_regex(buffer, 0, "needle", no_flags(), ten).unwrap();
         assert_eq!(result, None);
+    }
+
+    // ------- 8192-byte boundary regression guards -------
+
+    #[test]
+    fn test_read_regex_pattern_ending_exactly_at_byte_8192_matches() {
+        // Buffer: 8186 filler bytes + "needle" (6 bytes) at indices
+        // 8186..8192. The last byte of the match is at index 8191, which
+        // is the last byte the 8192-byte cap allows. Must match.
+        let mut buffer = vec![b'a'; 8186];
+        buffer.extend_from_slice(b"needle");
+        buffer.extend_from_slice(b"trailing");
+        let result = read_regex(&buffer, 0, "needle", no_flags(), None).unwrap();
+        assert_eq!(
+            result,
+            Some(Value::String("needle".to_string())),
+            "pattern ending at byte 8191 (last byte inside cap) must match"
+        );
+    }
+
+    #[test]
+    fn test_read_regex_pattern_starting_at_byte_8192_misses() {
+        // Buffer: 8192 filler + "needle" at index 8192 (first byte past
+        // the cap). Must miss.
+        let mut buffer = vec![b'a'; 8192];
+        buffer.extend_from_slice(b"needle");
+        let result = read_regex(&buffer, 0, "needle", no_flags(), None).unwrap();
+        assert_eq!(
+            result, None,
+            "pattern starting at byte 8192 is one byte past the cap"
+        );
+    }
+
+    #[test]
+    fn test_read_regex_pattern_straddling_8192_boundary_misses() {
+        // Buffer: 8190 filler + "needle" at indices 8190..8196. The
+        // pattern's last 4 bytes are past the cap, so it must miss even
+        // though the first 2 bytes are inside.
+        let mut buffer = vec![b'a'; 8190];
+        buffer.extend_from_slice(b"needle");
+        buffer.extend(std::iter::repeat_n(b'z', 100));
+        let result = read_regex(&buffer, 0, "needle", no_flags(), None).unwrap();
+        assert_eq!(
+            result, None,
+            "pattern straddling the 8192 boundary must not match"
+        );
+    }
+
+    #[test]
+    fn test_read_regex_line_based_respects_8192_cap() {
+        // Line mode must also respect the 8192-byte cap. A buffer with
+        // 9000 bytes of non-terminator content and "needle" past byte
+        // 9000 must miss even with line_based=true, count=None (which
+        // is the "no line limit" case).
+        let mut buffer = vec![b'a'; 9000];
+        buffer.extend_from_slice(b"needle\n");
+        let result = read_regex(&buffer, 0, "needle", flags(false, false, true), None).unwrap();
+        assert_eq!(result, None, "line-mode scan must still cap at 8192 bytes");
+    }
+
+    // ------- bare-CR line terminator (classic Mac) -------
+
+    #[test]
+    fn test_read_regex_line_based_bare_cr_terminator() {
+        // Classic Mac line endings: `\r` alone counts as a single line
+        // terminator. Matches GNU file's memchr2('\n', '\r') loop.
+        let buffer = b"line1\rline2\rline3\r";
+        let one = NonZeroU32::new(1);
+        // Line 1 is "line1\r" — "line1" must match.
+        let first = read_regex(buffer, 0, "line1", flags(false, false, true), one).unwrap();
+        assert_eq!(first, Some(Value::String("line1".to_string())));
+        // "line2" is on line 2 — must NOT match with count=1.
+        let second = read_regex(buffer, 0, "line2", flags(false, false, true), one).unwrap();
+        assert_eq!(
+            second, None,
+            "scan with count=1 must stop after the first bare CR"
+        );
+    }
+
+    #[test]
+    fn test_read_regex_line_based_mixed_terminators() {
+        // LF, CRLF, and CR in the same buffer each count as one line.
+        // Line 1: "alpha" terminated by LF at index 5.
+        // Line 2: "bravo" terminated by CRLF at indices 11..13.
+        // Line 3: "charlie" terminated by CR at index 21.
+        // Line 4: "delta".
+        let buffer = b"alpha\nbravo\r\ncharlie\rdelta";
+        let two = NonZeroU32::new(2);
+        // With count=2 the window ends after line 2's CRLF, so
+        // "charlie" must miss.
+        let charlie = read_regex(buffer, 0, "charlie", flags(false, false, true), two).unwrap();
+        assert_eq!(charlie, None, "scan with count=2 stops after bravo's CRLF");
+        // "bravo" is inside the 2-line window and must match.
+        let bravo = read_regex(buffer, 0, "bravo", flags(false, false, true), two).unwrap();
+        assert_eq!(bravo, Some(Value::String("bravo".to_string())));
     }
 
     // ------- regex_bytes_consumed -------

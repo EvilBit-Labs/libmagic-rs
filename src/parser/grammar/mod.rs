@@ -414,10 +414,11 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
     // Handle regex suffixes: flag letters (`c`, `s`, `l`) and an optional
     // decimal count. GNU `file`'s `parse_string_modifier` accepts flag
     // letters and digits in any interleaved order with "last range wins"
-    // semantics; we implement the same: scan the suffix character by
-    // character, setting flag bits on letters and parsing a new numeric
-    // count on digit sequences (which overwrites any previously-seen
-    // count). This accepts both `regex/1l` and `regex/l1` as equivalent.
+    // semantics plus a `"multiple ranges"` stderr warning; we instead
+    // hard-reject duplicate counts so callers get a clear parse error
+    // rather than a silent behavior divergence on ambiguous input. A
+    // single count is accepted in either position (`regex/1l` and
+    // `regex/l1` both parse).
     let mut regex_flags = crate::parser::ast::RegexFlags::default();
     let mut regex_count: Option<u32> = None;
     if type_name == "regex"
@@ -444,11 +445,20 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
                 rest = next;
                 any_modifier = true;
             } else if rest.starts_with(|c: char| c.is_ascii_digit()) {
+                // Reject a second numeric count: libmagic accepts it with
+                // a "multiple ranges" warning but we prefer a hard error
+                // so magic-file bugs surface at parse time.
+                if regex_count.is_some() {
+                    return Err(nom::Err::Error(nom::error::Error::new(
+                        input,
+                        nom::error::ErrorKind::Digit,
+                    )));
+                }
                 let (after_number, n) = parse_decimal_number(rest).map_err(|_| {
                     nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
                 })?;
-                // `0` is a valid sentinel in libmagic (means "unset"), but
-                // with a dedicated 8192-byte default we don't need a
+                // `0` is a valid sentinel in libmagic (means "unset"),
+                // but with a dedicated 8192-byte default we don't need a
                 // sentinel. Reject 0 explicitly so callers get a clear
                 // parse error instead of a silently-dropped count.
                 let count_value = u32::try_from(n)
