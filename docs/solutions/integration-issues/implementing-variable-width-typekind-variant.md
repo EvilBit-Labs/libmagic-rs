@@ -32,68 +32,59 @@ regex = "1.12.3"
 
 Additionally, expose a `read_pattern_match(buffer, offset, type_kind, pattern) -> Result<Option<Value>, TypeReadError>` helper for the engine's pattern-bearing code path. `Option<Value>` is the structured "no match" signal: a genuine miss returns `None`, while a legitimate zero-width regex match (e.g., `^`, `a*`, lookaheads) returns `Some(Value::String(String::new()))`. `read_typed_value_with_pattern` collapses `None` to `Value::String(String::new())` for back-compat with the single-`Value` return shape; the engine path uses `read_pattern_match` directly and drives its own `Equal`/`NotEqual` decision from the `Option` discriminant.
 
-**Regex reader** (`src/evaluator/types/regex.rs`) — uses a `build_regex` helper that wraps the pattern in `^(?:...)` when `/l` is set so bare, unanchored patterns cannot match mid-line:
+**AST shape:** A new `RegexFlags { case_insensitive, start_offset, line_based }` struct captures the `/c`, `/s`, and `/l` modifiers in a single field. `TypeKind::Regex { flags: RegexFlags, count: Option<NonZeroU32> }` pairs it with an optional numeric scan count. `TypeKind::Search { range: NonZeroUsize }` takes a mandatory non-zero range (bare `search` and `search/0` are parse errors). The struct-of-flags shape keeps future flag additions from cascading through the ~10 exhaustive-match sites called out in GOTCHAS S2.1.
+
+**Regex reader** (`src/evaluator/types/regex.rs`): `build_regex` unconditionally enables multi-line mode (matching libmagic's `REG_NEWLINE` in `softmagic.c::alloc_regex`) and disables `.`-matches-newline. The `/l` flag does *not* toggle regex compilation — it controls only the scan window. The `compute_window` helper applies the 8192-byte `FILE_REGEX_MAX` cap unconditionally, then either takes the first `n` bytes (byte mode) or walks LF/CRLF/CR line terminators until the Nth one (line mode):
 
 ```rust
-fn build_regex(
-    pattern: &str,
-    case_insensitive: bool,
-    start_of_line: bool,
-) -> Result<Regex, regex::Error> {
-    let owned;
-    let effective_pattern: &str = if start_of_line {
-        owned = format!("^(?:{pattern})");
-        &owned
-    } else {
-        pattern
-    };
-    RegexBuilder::new(effective_pattern)
+fn build_regex(pattern: &str, case_insensitive: bool) -> Result<Regex, regex::Error> {
+    RegexBuilder::new(pattern)
         .case_insensitive(case_insensitive)
-        .multi_line(start_of_line)
+        .multi_line(true)
+        .dot_matches_new_line(false)
         .build()
+}
+
+fn compute_window(
+    buffer: &[u8],
+    offset: usize,
+    flags: RegexFlags,
+    count: Option<NonZeroU32>,
+) -> &[u8] {
+    // window length = min(requested count, 8192, remaining buffer)
+    // Line mode walks LF / CRLF / bare CR terminators within that cap.
+    // ...
 }
 
 pub fn read_regex(
     buffer: &[u8],
     offset: usize,
     pattern: &str,
-    case_insensitive: bool,
-    start_of_line: bool,
+    flags: RegexFlags,
+    count: Option<NonZeroU32>,
 ) -> Result<Option<Value>, TypeReadError> {
-    if offset >= buffer.len() { return Err(BufferOverrun { .. }); }
-    let regex = build_regex(pattern, case_insensitive, start_of_line)
-        .map_err(|e| UnsupportedType {
-            type_name: format!("regex compile error: {e}"),
-        })?;
-    let remaining = &buffer[offset..];
-    Ok(regex.find(remaining).map(|m| {
-        Value::String(String::from_utf8_lossy(m.as_bytes()).into_owned())
-    }))
+    // BufferOverrun guard, compile, scan compute_window(...) for first match.
+    // Returns Some(Value::String(matched)) on hit, None on miss.
 }
 ```
 
-**Search reader** (`src/evaluator/types/search.rs`):
+**Search reader** (`src/evaluator/types/search.rs`): takes `NonZeroUsize` range and returns `Option<Value>`. `None` is the structured "no match" signal:
 
 ```rust
 pub fn read_search(
     buffer: &[u8],
     offset: usize,
     pattern: &[u8],
-    range: Option<usize>,
+    range: NonZeroUsize,
 ) -> Result<Option<Value>, TypeReadError> {
-    if offset >= buffer.len() { return Err(BufferOverrun { .. }); }
-    let remaining = &buffer[offset..];
-    let window_len = range.map_or(remaining.len(), |n| n.min(remaining.len()));
-    let window = &remaining[..window_len];
-    Ok(memchr::memmem::find(window, pattern).map(|_| {
-        Value::String(String::from_utf8_lossy(pattern).into_owned())
-    }))
+    // BufferOverrun guard, window = &remaining[..min(range, remaining.len())],
+    // memchr::memmem::find -> Ok(Some(pattern)) / Ok(None).
 }
 ```
 
-`None` is the structured "no match" signal, which lets the engine distinguish a zero-width regex match from a genuine miss without reusing `Value::String(String::new())` as a sentinel.
+The `Option` is load-bearing: it lets the engine distinguish a zero-width regex match (e.g., `^`, `a*`, lookaheads) from a genuine miss. Both would otherwise collapse to `Value::String(String::new())`.
 
-**Anchor advance:** In `bytes_consumed_with_pattern`, the `Regex` arm re-runs the regex via `regex_bytes_consumed(...)` and returns `m.end()`. The `Search` arm re-runs `memchr::memmem::find` against the window and returns `match_idx + pattern.len()` — the byte just past the matched needle, matching GNU `file`'s `softmagic.c` `FILE_SEARCH` path where `ms->search.offset += idx` and then `moffset()` adds `vlen = m->vallen`. An earlier revision of this PR advanced by the full window size (`range`); that was wrong and caused relative-offset children to land far past the intended byte.
+**Anchor advance:** In `bytes_consumed_with_pattern`, the `Regex` arm calls `regex_bytes_consumed(buffer, offset, pattern, flags, count)` which re-runs the compiled regex inside `compute_window` and returns `m.end()` by default, or `m.start()` when `flags.start_offset` is set (the `/s` flag, matching libmagic's `REGEX_OFFSET_START`). The `Search` arm re-runs `memchr::memmem::find` against the window and returns `match_idx + pattern.len()` — the byte just past the matched needle, matching GNU `file`'s `softmagic.c` `FILE_SEARCH` path where `ms->search.offset += idx` and then `moffset()` adds `vlen = m->vallen`. An earlier revision of this PR advanced by the full window size (`range`); that was wrong and caused relative-offset children to land far past the intended byte. Both `regex_bytes_consumed` and the `Regex`/`Search` arms in `bytes_consumed_with_pattern` fire `debug_assert!` on engine-invariant violations (missing pattern, invalid pattern variant) so dev/test builds catch caller bugs loudly.
 
 **Engine pattern-bearing code path:** In `evaluate_single_rule_with_anchor`, split the flow into two arms. For `TypeKind::Regex | Search`, call `read_pattern_match` and translate its `Option` result directly into `Equal` (`Some` → match) / `NotEqual` (`None` → match) — no `apply_operator` call. Any other operator on a pattern-bearing type is rejected as `TypeReadError::UnsupportedType` because it has no well-defined semantics (ordering a matched string against the pattern literal produces nonsense). For all other types, continue through `read_typed_value_with_pattern` + `coerce_value_to_type` + `apply_operator` as before.
 
@@ -114,11 +105,17 @@ pub fn read_search(
 
 ## Testing
 
-- **Unit tests for `read_regex` and `read_search`** (added this session): basic match, no-match, case-insensitive flag, start-of-line anchor, non-zero offset handling, bounded search range, invalid/unparseable pattern error path, and binary (non-UTF-8) buffer handling.
-- **Start-of-line anchoring negative test.** With `/l` enabled, a bare (unanchored) pattern like `"line"` that appears only mid-line must return the empty-string no-match. The `build_regex` helper's `^(?:...)` wrapper is what makes this correct — test it explicitly so a future refactor does not regress.
-- **Anchor-advance regression tests.** After a successful `Regex` or `Search` match at offset `O` consuming `N` bytes, assert `EvaluationContext::last_match_end() == O + N`. Add a parallel test for the no-match path (anchor must not advance).
+- **Unit tests for `read_regex` and `read_search`**: basic match, no-match, case-insensitive flag, non-zero offset handling, bounded search range, invalid/unparseable pattern error path, and binary (non-UTF-8) buffer handling.
+- **Line-based scan window tests**: single-line, multi-line, CRLF and bare-CR terminator handling, explicit count honored, count larger than available lines degrading to "scan to end of capped window".
+- **8192-byte boundary tests**: pattern ending exactly at byte 8191 (must match), pattern starting at byte 8192 (must miss), pattern straddling the cap (must miss), line-based scan also respecting the cap. These guard against off-by-one regressions in the `FILE_REGEX_MAX` enforcement, which is security-critical (the cap is part of the DoS mitigation when `EvaluationConfig::default()` has no timeout, per GOTCHAS S13.1).
+- **Zero-width match tests**: `read_regex` with pattern `^` must return `Some(Value::String(""))` on a non-empty buffer, not `None`. Pattern `a*` against `"xyz"` must match at position 0 with an empty match string.
+- **`/s` flag tests**: `regex_bytes_consumed` with `start_offset: true` returns `m.start()` instead of `m.end()`, verified against a fixed buffer where match-start and match-end are known constants.
+- **Non-equality operator rejection tests**: `regex < pattern`, `search & mask`, etc. must return `TypeReadError::UnsupportedType` rather than silently comparing matched bytes to the pattern literal.
+- **Anchor-advance regression tests**: a child rule with `OffsetSpec::Relative(0)` after a successful `Regex` or `Search` parent must resolve to match-end, not window-end. Used as the end-to-end regression guard against the "search advances by window size" bug.
+- **Parser last-wins rejection**: `regex/1l2l`, `regex/1c2l`, `regex/l1l2` must all be parse errors (we hard-reject duplicate counts rather than silently accepting the last one per libmagic's historical behavior).
 - **Sibling-after-regex integration test.** Construct a `MagicRule` tree where a `Regex` parent match is followed by a sibling with `OffsetSpec::Relative(+K)`; verify the sibling reads from `anchor + K`, not from absolute `K`. Repeat for `Search` and for `Relative(-K)` to cover both directions.
-- **Property test hook.** Add `Regex` and `Search` arms to `arb_type_kind` in `tests/property_tests.rs` so the codegen round-trip and strength-calculation invariants exercise the new variants automatically.
+- **Property test hook.** `arb_type_kind` in `tests/property_tests.rs` generates `RegexFlags { case_insensitive, start_offset, line_based }` and `count: Option<NonZeroU32>` for regex, and `NonZeroUsize` for search, so the codegen round-trip and strength-calculation invariants exercise the new variants automatically.
+- **Corpus integration tests** (`tests/regex_search_corpus_tests.rs`): searchbug, json1, jsonlines1, cmd1, gedcom, regex-eol. Models the blocked corpus files from issue #39 by constructing equivalent rule trees either programmatically or (preferred where the syntax permits) via `parse_text_magic_file`.
 
 ## Related Documentation
 

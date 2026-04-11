@@ -157,27 +157,24 @@ pub enum LibmagicError {
 ### Supported Syntax (Currently Implemented in v0.5.0)
 
 - **Offsets**: Absolute, from-end (indirect and relative are parsed but not yet evaluated)
-- **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`
+- **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring`, `regex`, `search` with endianness and flag support. Unsigned variants, signed variants, date/timestamp variants as documented in AGENTS.md.
 - **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
 - **Nesting**: Hierarchical rules with proper indentation handling
-- **String Matching**: Exact string matching with null-termination
+- **String Matching**: Exact string matching with null-termination and Pascal string (length-prefixed) support
+- **Regex**: Binary-safe matching via `regex::bytes::Regex`; `/c`/`/s`/`/l` flags; optional numeric count; 8192-byte hard cap
+- **Search**: Bounded literal scan via `memchr::memmem::find`; mandatory `NonZeroUsize` range; match-end anchor advance
 - **Directives**: `!:strength` modifier (parsed and applied)
 
 ### Planned Features (v1.0+)
 
-- Regex type: Pattern matching with binary-safe regex support
-- Search type: Multi-pattern string searching
 - Additional directives: `!:mime`, `!:ext`, `!:apple`
+- Named tests (`use`/`name` directives)
+- Aho-Corasick multi-pattern optimization for search rules
+- Compiled-regex caching
 
 ### Binary-Safe Regex
 
-> **Note:** The regex type is planned for future releases and is not yet implemented (#39).
-
-```rust
-// Use regex crate with bytes feature for binary-safe matching
-use regex::bytes::Regex;
-// Handle null bytes and non-UTF8 data properly
-```
+Regex matching is implemented via `regex::bytes::Regex` (see `src/evaluator/types/regex.rs`). `regex::bytes` handles null bytes and non-UTF8 data natively; matched bytes are converted to `Value::String` via `String::from_utf8_lossy` so binary matches surface U+FFFD replacement characters in the display.
 
 ## Current Implementation Status
 

@@ -459,8 +459,8 @@ CI must pass before merge. Mergify merge protections enforce these checks. Bot P
 
 1. **MVP (v0.1.0)** - CURRENT: Basic parsing and evaluation with byte/short/long/quad/string types, equality and bitwise AND operators, built-in rules for 10 common formats
 2. **Enhanced Features (v0.2)**: Comparison operators (`>`, `<`), indirect offset improvements, strength-based rule ordering
-3. **Advanced Types (v0.3)**: Regex flag completeness (`/s`, proper `/l` line-count semantics, `regex/Nl`), search range enforcement, 8192-byte default regex range
-4. **Full Compatibility (v0.4)**: Complete libmagic syntax support, all special directives, named tests
+3. **Advanced Types (v0.3)**: Aho-Corasick multi-pattern optimization for search rules, compiled-regex caching, `!:mime`/`!:ext` directive evaluation
+4. **Full Compatibility (v0.4)**: Complete libmagic syntax support, all special directives, named tests (`use`/`name`)
 5. **Production Ready (v1.0)**: Stable API, complete documentation, 95%+ compatibility with GNU file
 
 ## Best Practices
