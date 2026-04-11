@@ -13,6 +13,32 @@ use nom::{IResult, Parser, branch::alt, bytes::complete::tag};
 
 use crate::parser::ast::{Endianness, PStringLengthWidth, TypeKind};
 
+/// Error returned by [`type_keyword_to_kind`] when the supplied keyword is
+/// not a recognized magic type keyword.
+///
+/// This is a tight, structured error surfaced from a pure mapping function
+/// that has no access to line-number context. Callers that *do* have line
+/// context (e.g. the grammar layer wrapping a higher-level parse) can
+/// convert it into a richer [`crate::error::ParseError`] variant if needed.
+/// The struct is `#[non_exhaustive]` so future fields (e.g. suggested
+/// alternatives) can be added without a major version bump.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::types::{type_keyword_to_kind, UnknownTypeKeyword};
+///
+/// let err = type_keyword_to_kind("notarealtype").unwrap_err();
+/// assert_eq!(err.keyword, "notarealtype");
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+#[error("unknown type keyword: {keyword}")]
+pub struct UnknownTypeKeyword {
+    /// The keyword string that was not recognized.
+    pub keyword: String,
+}
+
 /// Parse a type keyword from magic file input
 ///
 /// Recognizes all supported type keywords and returns the matched keyword string.
@@ -114,7 +140,7 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
 /// - `le` prefix indicates little-endian: `leshort`, `lelong`, `lequad`
 /// - No endian prefix means native endianness
 ///
-/// Returns `None` for `regex` and `search`, which cannot be constructed
+/// Returns `Ok(None)` for `regex` and `search`, which cannot be constructed
 /// from the keyword alone -- they require suffix parsing (flags/count
 /// for regex, mandatory `NonZeroUsize` range for search) that only
 /// happens in `parser::grammar::parse_type_and_operator`. Callers that
@@ -127,36 +153,43 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
 /// use libmagic_rs::parser::types::type_keyword_to_kind;
 /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
 ///
-/// assert_eq!(type_keyword_to_kind("byte"), Some(TypeKind::Byte { signed: true }));
-/// assert_eq!(type_keyword_to_kind("ubyte"), Some(TypeKind::Byte { signed: false }));
+/// assert_eq!(type_keyword_to_kind("byte"), Ok(Some(TypeKind::Byte { signed: true })));
+/// assert_eq!(type_keyword_to_kind("ubyte"), Ok(Some(TypeKind::Byte { signed: false })));
 /// assert_eq!(
 ///     type_keyword_to_kind("beshort"),
-///     Some(TypeKind::Short { endian: Endianness::Big, signed: true })
+///     Ok(Some(TypeKind::Short { endian: Endianness::Big, signed: true }))
 /// );
-/// // regex/search require suffix parsing, so the keyword alone returns None.
-/// assert_eq!(type_keyword_to_kind("regex"), None);
-/// assert_eq!(type_keyword_to_kind("search"), None);
+/// // regex/search require suffix parsing, so the keyword alone returns Ok(None).
+/// assert_eq!(type_keyword_to_kind("regex"), Ok(None));
+/// assert_eq!(type_keyword_to_kind("search"), Ok(None));
+/// // Unknown keywords return a structured error.
+/// assert!(type_keyword_to_kind("bogus").is_err());
 /// ```
 ///
 /// # Returns
 ///
-/// * `Some(TypeKind)` for fully-specified keywords (byte, short, long,
+/// * `Ok(Some(TypeKind))` for fully-specified keywords (byte, short, long,
 ///   quad, float, double, date, qdate, string, pstring and all their
 ///   variants).
-/// * `None` for suffix-required keywords (`regex`, `search`) which
+/// * `Ok(None)` for suffix-required keywords (`regex`, `search`) which
 ///   cannot be converted from the keyword alone -- the grammar layer
 ///   builds their `TypeKind` directly after parsing the suffix.
+/// * `Err(UnknownTypeKeyword)` if `type_name` is not a recognized
+///   keyword. Under normal control flow this only happens when a caller
+///   bypasses [`parse_type_keyword`] (which is the only supported way
+///   to produce valid input for this function).
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics (via `unreachable!`) if `type_name` is not a value previously
-/// returned by [`parse_type_keyword`]. This is a precondition check,
-/// not a runtime error: the function is strictly coupled to
-/// `parse_type_keyword` and should only be called with its outputs.
-#[must_use]
+/// Returns [`UnknownTypeKeyword`] when `type_name` is not one of the
+/// keywords recognized by [`parse_type_keyword`]. This replaces a prior
+/// `unreachable!` panic; library code must never panic on untrusted
+/// input, and the structured error lets callers translate the failure
+/// into their own error type (e.g. a nom parse error or a richer
+/// `ParseError::InvalidType`).
 #[allow(clippy::too_many_lines)]
-pub fn type_keyword_to_kind(type_name: &str) -> Option<TypeKind> {
-    Some(match type_name {
+pub fn type_keyword_to_kind(type_name: &str) -> Result<Option<TypeKind>, UnknownTypeKeyword> {
+    Ok(Some(match type_name {
         // BYTE types (8-bit)
         "byte" => TypeKind::Byte { signed: true },
         "ubyte" => TypeKind::Byte { signed: false },
@@ -331,10 +364,14 @@ pub fn type_keyword_to_kind(type_name: &str) -> Option<TypeKind> {
         // the "keyword alone isn't enough" invariant type-enforced
         // instead of relying on a placeholder that the grammar layer
         // is expected to overwrite.
-        "regex" | "search" => return None,
+        "regex" | "search" => return Ok(None),
 
-        _ => unreachable!("type_keyword_to_kind called with unknown type: {type_name}"),
-    })
+        _ => {
+            return Err(UnknownTypeKeyword {
+                keyword: type_name.to_string(),
+            });
+        }
+    }))
 }
 
 #[cfg(test)]
@@ -415,11 +452,11 @@ mod tests {
     fn test_type_keyword_to_kind_byte() {
         assert_eq!(
             type_keyword_to_kind("byte"),
-            Some(TypeKind::Byte { signed: true })
+            Ok(Some(TypeKind::Byte { signed: true }))
         );
         assert_eq!(
             type_keyword_to_kind("ubyte"),
-            Some(TypeKind::Byte { signed: false })
+            Ok(Some(TypeKind::Byte { signed: false }))
         );
     }
 
@@ -427,24 +464,24 @@ mod tests {
     fn test_type_keyword_to_kind_short_endianness() {
         assert_eq!(
             type_keyword_to_kind("short"),
-            Some(TypeKind::Short {
+            Ok(Some(TypeKind::Short {
                 endian: Endianness::Native,
                 signed: true
-            })
+            }))
         );
         assert_eq!(
             type_keyword_to_kind("leshort"),
-            Some(TypeKind::Short {
+            Ok(Some(TypeKind::Short {
                 endian: Endianness::Little,
                 signed: true
-            })
+            }))
         );
         assert_eq!(
             type_keyword_to_kind("beshort"),
-            Some(TypeKind::Short {
+            Ok(Some(TypeKind::Short {
                 endian: Endianness::Big,
                 signed: true
-            })
+            }))
         );
     }
 
@@ -452,24 +489,24 @@ mod tests {
     fn test_type_keyword_to_kind_unsigned_variants() {
         assert_eq!(
             type_keyword_to_kind("ushort"),
-            Some(TypeKind::Short {
+            Ok(Some(TypeKind::Short {
                 endian: Endianness::Native,
                 signed: false
-            })
+            }))
         );
         assert_eq!(
             type_keyword_to_kind("ulong"),
-            Some(TypeKind::Long {
+            Ok(Some(TypeKind::Long {
                 endian: Endianness::Native,
                 signed: false
-            })
+            }))
         );
         assert_eq!(
             type_keyword_to_kind("uquad"),
-            Some(TypeKind::Quad {
+            Ok(Some(TypeKind::Quad {
                 endian: Endianness::Native,
                 signed: false
-            })
+            }))
         );
     }
 
@@ -478,17 +515,17 @@ mod tests {
         // libmagic types are signed by default
         assert_eq!(
             type_keyword_to_kind("long"),
-            Some(TypeKind::Long {
+            Ok(Some(TypeKind::Long {
                 endian: Endianness::Native,
                 signed: true
-            })
+            }))
         );
         assert_eq!(
             type_keyword_to_kind("quad"),
-            Some(TypeKind::Quad {
+            Ok(Some(TypeKind::Quad {
                 endian: Endianness::Native,
                 signed: true
-            })
+            }))
         );
     }
 
@@ -496,7 +533,7 @@ mod tests {
     fn test_type_keyword_to_kind_string() {
         assert_eq!(
             type_keyword_to_kind("string"),
-            Some(TypeKind::String { max_length: None })
+            Ok(Some(TypeKind::String { max_length: None }))
         );
     }
 
@@ -509,11 +546,11 @@ mod tests {
     fn test_type_keyword_to_kind_pstring() {
         assert_eq!(
             type_keyword_to_kind("pstring"),
-            Some(TypeKind::PString {
+            Ok(Some(TypeKind::PString {
                 max_length: None,
                 length_width: PStringLengthWidth::OneByte,
                 length_includes_itself: false
-            })
+            }))
         );
     }
 
@@ -521,17 +558,32 @@ mod tests {
     fn test_type_keyword_to_kind_regex_and_search_return_none() {
         // regex and search require suffix parsing (flags/count/range)
         // that only happens in grammar/mod.rs. The keyword-to-kind
-        // function deliberately returns None for them so callers are
-        // forced to use the grammar layer's direct construction.
-        assert_eq!(type_keyword_to_kind("regex"), None);
-        assert_eq!(type_keyword_to_kind("search"), None);
+        // function deliberately returns Ok(None) for them so callers
+        // are forced to use the grammar layer's direct construction.
+        assert_eq!(type_keyword_to_kind("regex"), Ok(None));
+        assert_eq!(type_keyword_to_kind("search"), Ok(None));
+    }
+
+    #[test]
+    fn test_type_keyword_to_kind_unknown_returns_err() {
+        // Unknown keywords produce a structured error instead of a
+        // panic. This path is not reachable through `parse_type_keyword`
+        // (which rejects unknown keywords before this function runs),
+        // but it is reachable if a caller constructs the input string
+        // directly, so the error must be representable.
+        let err = type_keyword_to_kind("nonexistent").expect_err("unknown keyword must return Err");
+        assert_eq!(err.keyword, "nonexistent");
+        // And the Display impl mentions the keyword for debuggability.
+        assert!(err.to_string().contains("nonexistent"));
     }
 
     #[test]
     fn test_pstring_keyword_defaults_to_one_byte_width() {
         // pstring keyword alone should produce OneByte length_width
         // (suffix parsing is handled by grammar/mod.rs, not types.rs)
-        let kind = type_keyword_to_kind("pstring").expect("pstring keyword maps to a TypeKind");
+        let kind = type_keyword_to_kind("pstring")
+            .expect("pstring is a known keyword")
+            .expect("pstring maps to Some(TypeKind)");
         match kind {
             TypeKind::PString {
                 max_length,
@@ -598,8 +650,8 @@ mod tests {
             let (rest, parsed) = parse_type_keyword(keyword).unwrap();
             assert_eq!(rest, "", "Keyword {keyword} should consume all input");
             assert!(
-                type_keyword_to_kind(parsed).is_some(),
-                "{keyword} should map to Some(TypeKind)"
+                type_keyword_to_kind(parsed).is_ok_and(|o| o.is_some()),
+                "{keyword} should map to Ok(Some(TypeKind))"
             );
         }
         // regex and search are recognized by parse_type_keyword but
@@ -610,8 +662,8 @@ mod tests {
             assert_eq!(rest, "", "Keyword {keyword} should consume all input");
             assert_eq!(
                 type_keyword_to_kind(parsed),
-                None,
-                "{keyword} should return None from keyword-to-kind"
+                Ok(None),
+                "{keyword} should return Ok(None) from keyword-to-kind"
             );
         }
     }

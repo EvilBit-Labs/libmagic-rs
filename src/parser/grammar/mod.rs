@@ -421,22 +421,28 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
             TypeKind::Search { range }
         }
         _ => {
-            // `type_keyword_to_kind` returns `None` only for suffix-
-            // required types (`regex`, `search`), which are handled by
-            // the match arms above. For every other recognized keyword
-            // the function is total, so this path is unreachable under
-            // normal flow. If a future contributor adds a new suffix-
-            // required type to `type_keyword_to_kind` without wiring the
-            // grammar arm first, the panic message names the offending
-            // keyword so the missing arm is easy to find.
-            let mut kind =
-                crate::parser::types::type_keyword_to_kind(type_name).unwrap_or_else(|| {
-                    panic!(
-                        "type_keyword_to_kind returned None for {type_name:?}; \
-                         parse_type_and_operator must handle this keyword in a \
-                         dedicated match arm before reaching the fallback"
-                    )
-                });
+            // `type_keyword_to_kind` returns:
+            //  * `Ok(Some(kind))` for every fully-specified keyword
+            //    (byte, short, long, quad, float/double, dates,
+            //    string, pstring and variants).
+            //  * `Ok(None)` for suffix-required keywords (`regex`,
+            //    `search`), which are handled by the match arms above
+            //    and should never reach this branch.
+            //  * `Err(UnknownTypeKeyword)` for a keyword that was never
+            //    produced by `parse_type_keyword`. Under the grammar's
+            //    normal flow this is unreachable because `type_name`
+            //    was just returned by `parse_type_keyword`, but the
+            //    function is `pub` and we do not rely on panics to
+            //    enforce the invariant -- we convert both "shouldn't
+            //    happen" cases into a nom parse error anchored at the
+            //    current input position so the parser can backtrack or
+            //    report a clean failure without aborting the process.
+            let Ok(Some(mut kind)) = crate::parser::types::type_keyword_to_kind(type_name) else {
+                return Err(nom::Err::Error(nom::error::Error::new(
+                    input,
+                    nom::error::ErrorKind::Tag,
+                )));
+            };
             if let TypeKind::PString { max_length, .. } = kind {
                 kind = TypeKind::PString {
                     max_length,
