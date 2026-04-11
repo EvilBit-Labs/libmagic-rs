@@ -414,9 +414,13 @@ pub enum TypeKind {
 ///
 /// The `/l` "line-based window" modifier is **not** represented here; it
 /// lives on [`RegexCount::Lines`] so that the type-level encoding makes
-/// "line count" and "byte count" mutually exclusive. This eliminates the
-/// degenerate `line_based: true, count: None` state that an earlier
-/// design admitted.
+/// "line count" and "byte count" mutually exclusive. An earlier design
+/// used two separate fields (`line_based: bool` + `count: Option<u32>`)
+/// which admitted the cross-field state `line_based: true, count: None`;
+/// under the current encoding that case is expressed explicitly as
+/// [`RegexCount::Lines(None)`](RegexCount::Lines) -- the `regex/l`
+/// shorthand -- and is behaviorally equivalent to [`RegexCount::Default`]
+/// (both walk the full 8192-byte capped window).
 ///
 /// All flags default to `false` via [`RegexFlags::default`], equivalent
 /// to a plain `regex` with no `/c` or `/s` suffix.
@@ -453,10 +457,14 @@ pub struct RegexFlags {
 /// Scan window specifier for a [`TypeKind::Regex`] rule.
 ///
 /// Encodes the three mutually-exclusive scan modes in a single enum so
-/// that the "byte count" and "line count" cases cannot be confused and
-/// the degenerate "line mode with no count" state is unrepresentable.
-/// The 8192-byte hard cap (matching GNU `file`'s `FILE_REGEX_MAX`) is
-/// applied by the evaluator on every variant.
+/// that the "byte count" and "line count" cases cannot be confused. The
+/// `regex/l` shorthand (line mode with no explicit count) is represented
+/// explicitly as [`RegexCount::Lines(None)`](RegexCount::Lines), which
+/// is behaviorally equivalent to [`RegexCount::Default`] -- both walk
+/// the full 8192-byte capped window -- but preserves the magic-file
+/// surface syntax of the original rule. The 8192-byte hard cap
+/// (matching GNU `file`'s `FILE_REGEX_MAX`) is applied by the evaluator
+/// on every variant.
 ///
 /// # Examples
 ///

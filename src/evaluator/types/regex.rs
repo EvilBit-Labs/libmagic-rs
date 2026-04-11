@@ -9,9 +9,11 @@
 //! `Ok(Some(Value::String(...)))` -- the matched bytes with invalid UTF-8
 //! replaced via `from_utf8_lossy`. A miss returns `Ok(None)`. The `Option`
 //! is the structured "no match" signal, which lets the engine distinguish
-//! a legitimate zero-width match (e.g., `^`, `a*`, lookaheads) from a
+//! a legitimate zero-width match (e.g., `^`, `a*`, or `.{0}`) from a
 //! genuine miss -- both of which would otherwise collapse to
-//! `Value::String(String::new())`.
+//! `Value::String(String::new())`. (Note: the Rust `regex` crate does
+//! not support look-around assertions; those are excluded for
+//! linear-time matching guarantees.)
 //!
 //! ## Semantics (matching GNU `file`)
 //!
@@ -173,7 +175,7 @@ fn compute_window(buffer: &[u8], offset: usize, count: crate::parser::ast::Regex
 /// * `Ok(Some(Value::String(matched_text)))` on a successful match --
 ///   invalid UTF-8 in the matched bytes is replaced with U+FFFD via
 ///   `from_utf8_lossy`. The matched text may legitimately be empty for
-///   zero-width matches (e.g., `^`, `a*`, or lookaheads).
+///   zero-width matches (e.g., `^`, `a*`, or `.{0}`).
 /// * `Ok(None)` when the pattern does not match anywhere in the scan
 ///   window.
 ///
@@ -629,6 +631,69 @@ mod tests {
         assert_eq!(
             regex_bytes_consumed(buffer, 0, "xyz", no_flags(), default_count()),
             0
+        );
+    }
+
+    #[test]
+    fn test_regex_bytes_consumed_bytes_variant_matches_match_end() {
+        // RegexCount::Bytes(N) anchor advance: the re-scan should still
+        // find the match inside the N-byte window and return match-end.
+        let buffer = b"prefix_World_suffix_more_stuff";
+        assert_eq!(
+            regex_bytes_consumed(buffer, 0, "World", no_flags(), bytes(20)),
+            12,
+            "Bytes(20) window reaches 'World' (ends at byte 12); advance = match-end"
+        );
+    }
+
+    #[test]
+    fn test_regex_bytes_consumed_bytes_variant_narrow_window_misses() {
+        // If the byte count stops before the pattern, no match and
+        // anchor stays put.
+        let buffer = b"prefix_World_suffix";
+        assert_eq!(
+            regex_bytes_consumed(buffer, 0, "World", no_flags(), bytes(5)),
+            0,
+            "Bytes(5) window is 'prefi' -- 'World' is outside, no anchor advance"
+        );
+    }
+
+    #[test]
+    fn test_regex_bytes_consumed_lines_variant_matches_inside_window() {
+        // RegexCount::Lines(Some(2)) anchor advance: pattern on the
+        // second line is inside the window; match-end is measured from
+        // the scan start (offset 0), so it's the absolute position of
+        // the last matched byte within the 2-line window.
+        let buffer = b"line1\nline2\nline3\nline4";
+        // Match "line2" (6 bytes) starts at byte 6, ends at byte 11.
+        assert_eq!(
+            regex_bytes_consumed(buffer, 0, "line2", no_flags(), lines(2)),
+            11,
+            "Lines(Some(2)) window includes line 2; advance = match-end at byte 11"
+        );
+    }
+
+    #[test]
+    fn test_regex_bytes_consumed_lines_variant_misses_past_window() {
+        // Pattern on line 3 is outside a 2-line window; no match.
+        let buffer = b"line1\nline2\nline3\nline4";
+        assert_eq!(
+            regex_bytes_consumed(buffer, 0, "line3", no_flags(), lines(2)),
+            0,
+            "Lines(Some(2)) window ends after line 2; line 3 is not scanned"
+        );
+    }
+
+    #[test]
+    fn test_regex_bytes_consumed_lines_none_matches_full_window() {
+        // RegexCount::Lines(None) behaves like Default -- scans the
+        // full 8192-byte capped window. A pattern anywhere in a small
+        // buffer matches and the advance is match-end.
+        let buffer = b"line1\nline2\nline3\nline4";
+        // "line4" starts at byte 18, ends at byte 23.
+        assert_eq!(
+            regex_bytes_consumed(buffer, 0, "line4", no_flags(), lines_unbounded()),
+            23
         );
     }
 

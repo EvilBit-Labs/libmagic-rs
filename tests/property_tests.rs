@@ -65,33 +65,34 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
                 length_width: width,
                 length_includes_itself: includes_self,
             }),
-        (
-            any::<bool>(),
-            any::<bool>(),
-            0u8..4u8,
-            prop::option::of(1u32..=4096u32),
-        )
-            .prop_map(
-                |(case_insensitive, start_offset, count_variant, raw_count)| {
-                    let count = match count_variant {
-                        0 => libmagic_rs::parser::ast::RegexCount::Default,
-                        1 => match raw_count.and_then(::std::num::NonZeroU32::new) {
-                            Some(n) => libmagic_rs::parser::ast::RegexCount::Bytes(n),
-                            None => libmagic_rs::parser::ast::RegexCount::Default,
-                        },
-                        _ => libmagic_rs::parser::ast::RegexCount::Lines(
-                            raw_count.and_then(::std::num::NonZeroU32::new),
-                        ),
-                    };
-                    TypeKind::Regex {
-                        flags: libmagic_rs::parser::ast::RegexFlags {
-                            case_insensitive,
-                            start_offset,
-                        },
-                        count,
-                    }
+        {
+            // Fair-weighted generator for `RegexCount`: each of the
+            // four sub-states (Default, Bytes, Lines(Some), Lines(None))
+            // gets roughly equal sampling via `prop_oneof!`. The old
+            // uniform `0..4` dispatch gave Lines 2x weight and further
+            // collapsed Bytes into Default on a None raw_count, leaving
+            // Bytes at ~12.5% effective sample rate. Under the new
+            // weighting each variant fires on ~25% of samples.
+            let count_strategy = prop_oneof![
+                Just(libmagic_rs::parser::ast::RegexCount::Default),
+                (1u32..=4096u32).prop_map(|n| libmagic_rs::parser::ast::RegexCount::Bytes(
+                    ::std::num::NonZeroU32::new(n).expect("range excludes 0")
+                )),
+                (1u32..=4096u32).prop_map(|n| libmagic_rs::parser::ast::RegexCount::Lines(
+                    ::std::num::NonZeroU32::new(n)
+                )),
+                Just(libmagic_rs::parser::ast::RegexCount::Lines(None)),
+            ];
+            (any::<bool>(), any::<bool>(), count_strategy).prop_map(
+                |(case_insensitive, start_offset, count)| TypeKind::Regex {
+                    flags: libmagic_rs::parser::ast::RegexFlags {
+                        case_insensitive,
+                        start_offset,
+                    },
+                    count,
                 },
-            ),
+            )
+        },
         (1usize..=4096usize).prop_map(|range| TypeKind::Search {
             range: ::std::num::NonZeroUsize::new(range).unwrap(),
         }),

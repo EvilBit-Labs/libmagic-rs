@@ -235,3 +235,211 @@ pub(super) fn parse_search_suffix<'a>(
         .ok_or_else(|| NomErr::Error(Error::new(input, ErrorKind::Digit)))?;
     Ok((rest, range))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::ast::{Operator, RegexCount, RegexFlags};
+
+    // ---------- parse_attached_operator ----------
+
+    #[test]
+    fn test_parse_attached_operator_no_ampersand_returns_none() {
+        // No `&` prefix: no operator, input passed through unchanged.
+        let (rest, op) = parse_attached_operator("=value").expect("should parse");
+        assert_eq!(rest, "=value");
+        assert_eq!(op, None);
+    }
+
+    #[test]
+    fn test_parse_attached_operator_bare_ampersand_returns_bitwise_and() {
+        // Bare `&` (not followed by a digit or another `&`): the
+        // standalone bitwise-AND operator. The caller typically
+        // pairs it with a separate numeric value.
+        let (rest, op) = parse_attached_operator("& ").expect("should parse");
+        assert_eq!(rest, " ");
+        assert_eq!(op, Some(Operator::BitwiseAnd));
+    }
+
+    #[test]
+    fn test_parse_attached_operator_decimal_mask_returns_mask() {
+        let (rest, op) = parse_attached_operator("&255 trailing").expect("should parse");
+        assert_eq!(rest, " trailing");
+        assert_eq!(op, Some(Operator::BitwiseAndMask(255)));
+    }
+
+    #[test]
+    fn test_parse_attached_operator_hex_mask_returns_mask() {
+        let (rest, op) = parse_attached_operator("&0xf0000000").expect("should parse");
+        assert_eq!(rest, "");
+        assert_eq!(op, Some(Operator::BitwiseAndMask(0xf000_0000)));
+    }
+
+    #[test]
+    fn test_parse_attached_operator_full_u64_mask() {
+        // Verify the unsigned-number parser handles a full 64-bit mask.
+        let (rest, op) = parse_attached_operator("&0xffffffffffffffff").expect("should parse");
+        assert_eq!(rest, "");
+        assert_eq!(op, Some(Operator::BitwiseAndMask(u64::MAX)));
+    }
+
+    #[test]
+    fn test_parse_attached_operator_double_ampersand_is_hard_error() {
+        // `&&` is not a valid operator -- hard parse error.
+        let result = parse_attached_operator("&&");
+        assert!(result.is_err(), "&& must be rejected at parse time");
+    }
+
+    // ---------- parse_regex_suffix ----------
+
+    #[test]
+    fn test_parse_regex_suffix_flags_only() {
+        // `c` alone -> case-insensitive flag, Default count.
+        let (rest, (flags, count)) = parse_regex_suffix("regex/c", "c").expect("c flag");
+        assert_eq!(rest, "");
+        assert!(flags.case_insensitive);
+        assert!(!flags.start_offset);
+        assert_eq!(count, RegexCount::Default);
+    }
+
+    #[test]
+    fn test_parse_regex_suffix_interleaved_flag_and_count() {
+        // `c1l` -> case_insensitive + Lines(Some(1)) (digit after
+        // flag letter, followed by another flag letter).
+        let (rest, (flags, count)) = parse_regex_suffix("regex/c1l", "c1l").expect("c1l");
+        assert_eq!(rest, "");
+        assert!(flags.case_insensitive);
+        assert_eq!(count, RegexCount::Lines(::std::num::NonZeroU32::new(1)));
+    }
+
+    #[test]
+    fn test_parse_regex_suffix_bytes_only() {
+        // `100` alone -> RegexCount::Bytes(100), no flags.
+        let (rest, (flags, count)) = parse_regex_suffix("regex/100", "100").expect("100");
+        assert_eq!(rest, "");
+        assert_eq!(flags, RegexFlags::default());
+        assert_eq!(
+            count,
+            RegexCount::Bytes(::std::num::NonZeroU32::new(100).unwrap())
+        );
+    }
+
+    #[test]
+    fn test_parse_regex_suffix_lines_none_shorthand() {
+        // Bare `l` alone -> Lines(None).
+        let (rest, (_flags, count)) = parse_regex_suffix("regex/l", "l").expect("l");
+        assert_eq!(rest, "");
+        assert_eq!(count, RegexCount::Lines(None));
+    }
+
+    #[test]
+    fn test_parse_regex_suffix_duplicate_count_rejected() {
+        // `1l2` -> second count triggers a hard parse error.
+        let result = parse_regex_suffix("regex/1l2", "1l2");
+        assert!(result.is_err(), "duplicate count must be rejected");
+    }
+
+    #[test]
+    fn test_parse_regex_suffix_zero_count_rejected() {
+        // `0` -> NonZeroU32::new(0) fails, hard parse error.
+        let result = parse_regex_suffix("regex/0", "0");
+        assert!(result.is_err(), "zero count must be rejected");
+    }
+
+    #[test]
+    fn test_parse_regex_suffix_bare_slash_rejected() {
+        // Empty suffix (no modifier at all) -> hard parse error.
+        let result = parse_regex_suffix("regex/", "");
+        assert!(
+            result.is_err(),
+            "bare regex/ with no modifier must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_parse_regex_suffix_stops_at_operator_boundary() {
+        // `c=` -> `c` is the flag, `=` is left for parse_operator.
+        let (rest, (flags, count)) = parse_regex_suffix("regex/c=foo", "c=foo").expect("c=");
+        assert_eq!(rest, "=foo", "should leave = for parse_operator");
+        assert!(flags.case_insensitive);
+        assert_eq!(count, RegexCount::Default);
+    }
+
+    // ---------- parse_search_suffix ----------
+
+    #[test]
+    fn test_parse_search_suffix_decimal_range() {
+        let (rest, range) = parse_search_suffix("search/256", "256").expect("256");
+        assert_eq!(rest, "");
+        assert_eq!(range, NonZeroUsize::new(256).unwrap());
+    }
+
+    #[test]
+    fn test_parse_search_suffix_zero_rejected() {
+        let result = parse_search_suffix("search/0", "0");
+        assert!(result.is_err(), "search/0 must be rejected");
+    }
+
+    #[test]
+    fn test_parse_search_suffix_empty_rejected() {
+        let result = parse_search_suffix("search/", "");
+        assert!(result.is_err(), "search/ with empty range must be rejected");
+    }
+
+    #[test]
+    fn test_parse_search_suffix_leaves_trailing_space() {
+        let (rest, range) = parse_search_suffix("search/256 rest", "256 rest").expect("256 rest");
+        assert_eq!(rest, " rest");
+        assert_eq!(range.get(), 256);
+    }
+
+    // ---------- parse_pstring_suffix ----------
+
+    #[test]
+    fn test_parse_pstring_suffix_width_letters() {
+        use crate::parser::ast::PStringLengthWidth;
+        assert_eq!(
+            parse_pstring_suffix("B").unwrap(),
+            ("", PStringLengthWidth::OneByte, false)
+        );
+        assert_eq!(
+            parse_pstring_suffix("H").unwrap(),
+            ("", PStringLengthWidth::TwoByteBE, false)
+        );
+        assert_eq!(
+            parse_pstring_suffix("h").unwrap(),
+            ("", PStringLengthWidth::TwoByteLE, false)
+        );
+        assert_eq!(
+            parse_pstring_suffix("L").unwrap(),
+            ("", PStringLengthWidth::FourByteBE, false)
+        );
+        assert_eq!(
+            parse_pstring_suffix("l").unwrap(),
+            ("", PStringLengthWidth::FourByteLE, false)
+        );
+    }
+
+    #[test]
+    fn test_parse_pstring_suffix_width_plus_j_flag() {
+        use crate::parser::ast::PStringLengthWidth;
+        assert_eq!(
+            parse_pstring_suffix("HJ").unwrap(),
+            ("", PStringLengthWidth::TwoByteBE, true)
+        );
+    }
+
+    #[test]
+    fn test_parse_pstring_suffix_bare_j_is_one_byte_includes_itself() {
+        use crate::parser::ast::PStringLengthWidth;
+        assert_eq!(
+            parse_pstring_suffix("J").unwrap(),
+            ("", PStringLengthWidth::OneByte, true)
+        );
+    }
+
+    #[test]
+    fn test_parse_pstring_suffix_unknown_letter_rejected() {
+        assert!(parse_pstring_suffix("Z").is_err());
+    }
+}

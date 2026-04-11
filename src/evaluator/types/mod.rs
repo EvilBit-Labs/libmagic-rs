@@ -247,7 +247,7 @@ pub fn read_typed_value_with_pattern(
 ///
 /// Returns `Ok(None)` on a genuine "no match" outcome and `Ok(Some(value))`
 /// on a successful match -- including zero-width matches (e.g., regex `^`,
-/// `a*`, lookaheads). This is the contract the evaluator needs to
+/// `a*`, or `.{0}`). This is the contract the evaluator needs to
 /// distinguish a real miss from a zero-width hit; [`read_typed_value_with_pattern`]
 /// collapses both cases to `Value::String(String::new())` for back-compat.
 ///
