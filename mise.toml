@@ -1,5 +1,12 @@
 
-# Several tools are pinned to "latest" to enable the idiomatic version file support. The version is managed by a version file.
+# Rust toolchain is declared "latest" here but the concrete version
+# lives in `mise.lock` (see `[[tools.rust]] version = ...`).
+# `mise.lock` is committed to the repo so every developer and CI run
+# resolves to the same Rust version regardless of when they install.
+# When bumping rustc: run `mise upgrade rust`, then commit the
+# updated `mise.lock`. Review finding D-M1 clarified that mise.lock
+# is the reproducibility source of truth, not mise.toml or
+# rust-toolchain.toml.
 [tools]
 rust                        = { version = "latest", components = "llvm-tools,cargo,rustfmt,clippy", profile = "default", targets = "aarch64-apple-darwin,aarch64-unknown-linux-gnu,aarch64-pc-windows-msvc,x86_64-apple-darwin,x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl,x86_64-pc-windows-msvc" }
 cargo-binstall              = "1.17.9"

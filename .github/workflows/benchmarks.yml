@@ -87,7 +87,9 @@ jobs:
                       ${{ runner.os }}-cargo-
 
             - name: Install critcmp
-              run: cargo install critcmp
+              # Pin version + --locked so benchmarks cannot drift
+              # across runs. Review finding D-L3.
+              run: cargo install --locked --version 0.1.8 critcmp
 
             - name: Run benchmarks on PR branch
               run: |
