@@ -52,6 +52,52 @@
 use super::TypeReadError;
 use crate::parser::ast::{RegexFlags, Value};
 use regex::bytes::{Regex, RegexBuilder};
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+thread_local! {
+    /// Thread-local regex compile cache. Keyed by `(pattern, case_insensitive)`
+    /// because those are the only compile-time inputs that affect the
+    /// produced `Regex`; multi-line mode, dot-matches-newline, and the
+    /// size-limit clamp are all constant (see [`build_regex`]).
+    ///
+    /// Reset at the start of each top-level `evaluate_rules_with_config`
+    /// invocation via [`reset_regex_cache`] to bound memory and prevent
+    /// unbounded growth across repeated calls on the same thread. Within
+    /// a single evaluation, this eliminates the double-compile paid by
+    /// every successful regex match (once in `read_regex`, once in
+    /// `regex_bytes_consumed` to compute the anchor advance).
+    static REGEX_CACHE: RefCell<HashMap<(String, bool), Regex>> = RefCell::new(HashMap::new());
+}
+
+/// Clear the thread-local regex cache.
+///
+/// Called at the start of every top-level `evaluate_rules_with_config`
+/// invocation so the cache is bounded to the lifetime of a single
+/// evaluation call. Without this, the cache would grow unboundedly
+/// across repeated invocations and retain compiled regexes even after
+/// the rule set changes.
+pub(crate) fn reset_regex_cache() {
+    REGEX_CACHE.with(|cache| cache.borrow_mut().clear());
+}
+
+/// Get a compiled `Regex` for `pattern`, using the thread-local cache.
+///
+/// On a cache hit this is a `HashMap::get` + `Regex::clone` (cheap
+/// because `Regex` wraps an `Arc` internally). On a cache miss this
+/// compiles the regex via [`build_regex`], inserts it, and returns the
+/// compiled form.
+fn get_or_compile_regex(pattern: &str, case_insensitive: bool) -> Result<Regex, regex::Error> {
+    REGEX_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(re) = cache.get(&(pattern.to_owned(), case_insensitive)) {
+            return Ok(re.clone());
+        }
+        let re = build_regex(pattern, case_insensitive)?;
+        cache.insert((pattern.to_owned(), case_insensitive), re.clone());
+        Ok(re)
+    })
+}
 
 /// The hard upper bound on regex scan window size, matching GNU `file`'s
 /// `FILE_REGEX_MAX` constant in `src/file.h`. Any regex rule -- including
@@ -224,7 +270,7 @@ pub fn read_regex(
         });
     }
 
-    let regex = build_regex(pattern, flags.case_insensitive).map_err(|e| {
+    let regex = get_or_compile_regex(pattern, flags.case_insensitive).map_err(|e| {
         TypeReadError::UnsupportedType {
             type_name: format!("regex compile error: {e}"),
         }
@@ -251,12 +297,10 @@ pub fn read_regex(
 /// violations (i.e., calls without a preceding successful `read_regex`) in
 /// dev/test builds.
 ///
-/// Note: the regex is compiled twice per successful match -- once in
-/// `read_regex` and again here. Caching the compiled `Regex` would require
-/// threading it through `TypeReadError`/`Value` or adding a second return
-/// channel, both of which complicate the reader API for a micro-
-/// optimization. The duplicated compile is a deliberate simplicity-over-
-/// caching trade-off.
+/// The compiled `Regex` is retrieved from the thread-local cache populated
+/// by [`read_regex`] on the preceding successful match, so this function
+/// pays a `HashMap::get` + `Regex::clone` (a cheap `Arc` clone) instead of
+/// re-compiling the pattern.
 #[must_use]
 pub(super) fn regex_bytes_consumed(
     buffer: &[u8],
@@ -273,7 +317,7 @@ pub(super) fn regex_bytes_consumed(
         );
         return 0;
     }
-    let Ok(regex) = build_regex(pattern, flags.case_insensitive) else {
+    let Ok(regex) = get_or_compile_regex(pattern, flags.case_insensitive) else {
         debug_assert!(
             false,
             "regex_bytes_consumed: failed to re-compile pattern {pattern:?} -- engine invariant violated (read_regex already succeeded)"
@@ -341,6 +385,74 @@ mod tests {
         let buffer = b"Hello, World!";
         let result = read_regex(buffer, 0, "World", no_flags(), default_count()).unwrap();
         assert_eq!(result, Some(Value::String("World".to_string())));
+    }
+
+    /// Regression guard for review finding P-H1 (regex double-compile).
+    /// After a successful `read_regex` against a pattern, the thread-local
+    /// cache should contain an entry for `(pattern, case_insensitive)`,
+    /// and a subsequent `get_or_compile_regex` call should be a hit
+    /// (i.e. not compile again). We can't observe compile count directly,
+    /// but we can observe the cache state after each call and verify
+    /// `reset_regex_cache` clears it.
+    #[test]
+    fn test_regex_cache_populated_and_cleared() {
+        reset_regex_cache();
+        REGEX_CACHE.with(|c| assert!(c.borrow().is_empty()));
+
+        let buffer = b"Hello, World!";
+        let _ = read_regex(buffer, 0, "World", no_flags(), default_count()).unwrap();
+
+        REGEX_CACHE.with(|c| {
+            assert!(
+                c.borrow().contains_key(&("World".to_string(), false)),
+                "cache should contain (pattern, case_insensitive=false) after read_regex"
+            );
+        });
+
+        // Reading the same pattern again must not grow the cache.
+        let _ = read_regex(buffer, 0, "World", no_flags(), default_count()).unwrap();
+        REGEX_CACHE.with(|c| {
+            assert_eq!(
+                c.borrow().len(),
+                1,
+                "cache should not grow when re-reading the same pattern"
+            );
+        });
+
+        // Case-insensitive variant is a separate key.
+        let _ = read_regex(buffer, 0, "World", case_flag(), default_count()).unwrap();
+        REGEX_CACHE.with(|c| {
+            assert_eq!(
+                c.borrow().len(),
+                2,
+                "case_insensitive=true is a separate cache key"
+            );
+        });
+
+        // Reset empties the cache.
+        reset_regex_cache();
+        REGEX_CACHE.with(|c| assert!(c.borrow().is_empty()));
+    }
+
+    /// Regression guard: `regex_bytes_consumed` must reuse the cache
+    /// populated by the preceding `read_regex`, i.e. must not grow
+    /// the cache size when called after a match with the same pattern.
+    #[test]
+    fn test_regex_bytes_consumed_uses_cache() {
+        reset_regex_cache();
+        let buffer = b"Hello, World!";
+        let _ = read_regex(buffer, 0, "World", no_flags(), default_count()).unwrap();
+        let before = REGEX_CACHE.with(|c| c.borrow().len());
+        let advance = regex_bytes_consumed(buffer, 0, "World", no_flags(), default_count());
+        let after = REGEX_CACHE.with(|c| c.borrow().len());
+        assert_eq!(
+            before, after,
+            "regex_bytes_consumed must not add to the cache when the pattern was already compiled by read_regex"
+        );
+        assert_eq!(
+            advance, 12,
+            "advance should be match-end for \"World\" at index 7"
+        );
     }
 
     #[test]

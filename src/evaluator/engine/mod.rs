@@ -481,6 +481,12 @@ pub fn evaluate_rules_with_config(
     // are rejected at the API boundary rather than triggering subtle
     // failures during evaluation.
     config.validate()?;
+    // Clear the thread-local regex compile cache so it is bounded to
+    // the lifetime of a single top-level evaluation call. Cache
+    // entries from a previous rule set would otherwise persist on the
+    // current thread until process exit. See
+    // `evaluator::types::regex::reset_regex_cache` for rationale.
+    crate::evaluator::types::regex::reset_regex_cache();
     let mut context = EvaluationContext::new(config.clone());
     evaluate_rules(rules, buffer, &mut context)
 }

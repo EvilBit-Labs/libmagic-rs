@@ -9,7 +9,7 @@
 mod date;
 mod float;
 mod numeric;
-mod regex;
+pub(crate) mod regex;
 mod search;
 mod string;
 
