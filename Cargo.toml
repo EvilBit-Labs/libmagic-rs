@@ -26,6 +26,13 @@ exclude = [
     "/.env.*",
     "*.orig",
     "AGENTS.md",
+    # `fuzz/` is a standalone cargo-fuzz crate that depends on
+    # `libfuzzer-sys` (nightly-only) and links against LLVM's
+    # libFuzzer runtime. Excluding it from the parent workspace keeps
+    # `cargo check` / `cargo test` / `cargo nextest` on a stable
+    # toolchain; fuzz targets are built from inside the fuzz/
+    # directory via `cargo +nightly fuzz run <target>`.
+    "/fuzz",
 ]
 
 # Workspace lint configuration
