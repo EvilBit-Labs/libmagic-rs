@@ -9,6 +9,8 @@
 mod date;
 mod float;
 mod numeric;
+mod regex;
+mod search;
 mod string;
 
 use crate::parser::ast::{TypeKind, Value};
@@ -19,6 +21,8 @@ use date::format_timestamp_value;
 pub use date::{read_date, read_qdate};
 pub use float::{read_double, read_float};
 pub use numeric::{read_byte, read_long, read_quad, read_short};
+pub use regex::read_regex;
+pub use search::read_search;
 pub use string::{read_pstring, read_string};
 
 /// Reads a fixed-size byte array from the buffer at the given offset.
@@ -95,6 +99,18 @@ pub enum TypeReadError {
 
 /// Reads bytes according to the specified `TypeKind`.
 ///
+/// This is the public dispatch entry point for type reading for non
+/// pattern-bearing types. It preserves the original three-argument
+/// signature used by external consumers -- fixed-width numeric, float,
+/// date, string, and pstring types need no pattern operand, so the hot
+/// path stays ergonomic.
+///
+/// For pattern-bearing types (`TypeKind::Regex`, `TypeKind::Search`) this
+/// function will return `TypeReadError::UnsupportedType` because the
+/// pattern operand is mandatory. Callers that need to evaluate regex/search
+/// rules should use [`read_typed_value_with_pattern`] and thread the rule
+/// value operand through as `pattern`.
+///
 /// # Examples
 ///
 /// ```
@@ -102,7 +118,8 @@ pub enum TypeReadError {
 /// use libmagic_rs::parser::ast::{Endianness, TypeKind, Value};
 ///
 /// let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x34, 0x12];
-/// let byte_result = read_typed_value(buffer, 0, &TypeKind::Byte { signed: false }).unwrap();
+/// let byte_result =
+///     read_typed_value(buffer, 0, &TypeKind::Byte { signed: false }).unwrap();
 /// assert_eq!(byte_result, Value::Uint(0x7f));
 ///
 /// let short_type = TypeKind::Short {
@@ -115,12 +132,59 @@ pub enum TypeReadError {
 ///
 /// # Errors
 ///
-/// Returns `TypeReadError::BufferOverrun` when the requested value extends past
-/// the buffer bounds.
+/// Returns `TypeReadError::BufferOverrun` when the requested value extends
+/// past the buffer bounds, `TypeReadError::UnsupportedType` when a
+/// pattern-bearing type is evaluated without a pattern, or
+/// `TypeReadError::InvalidPStringLength` for a malformed Pascal string
+/// length prefix.
 pub fn read_typed_value(
     buffer: &[u8],
     offset: usize,
     type_kind: &TypeKind,
+) -> Result<Value, TypeReadError> {
+    read_typed_value_with_pattern(buffer, offset, type_kind, None)
+}
+
+/// Reads bytes according to the specified `TypeKind`, threading a
+/// `pattern` operand through for pattern-bearing types (`Regex`, `Search`).
+///
+/// This is the internal dispatch entry point used by the evaluation engine
+/// to evaluate pattern-bearing types. The engine threads the rule's value
+/// operand through as `pattern` so the regex and search readers can
+/// compile/locate it against the buffer. For fixed-width and non-pattern
+/// types (numeric, float, date, string, pstring), the `pattern` parameter
+/// is ignored; external callers for those types should prefer the simpler
+/// three-argument [`read_typed_value`] wrapper.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::evaluator::types::read_typed_value_with_pattern;
+/// use libmagic_rs::parser::ast::{TypeKind, Value};
+///
+/// let haystack = b"abc123def";
+/// let regex_type = TypeKind::Regex {
+///     case_insensitive: false,
+///     start_of_line: false,
+/// };
+/// let pattern = Value::String("[0-9]+".to_string());
+/// let regex_result =
+///     read_typed_value_with_pattern(haystack, 0, &regex_type, Some(&pattern)).unwrap();
+/// assert_eq!(regex_result, Value::String("123".to_string()));
+/// ```
+///
+/// # Errors
+///
+/// Returns `TypeReadError::BufferOverrun` when the requested value extends
+/// past the buffer bounds, `TypeReadError::UnsupportedType` when a regex
+/// pattern fails to compile or a pattern-bearing type is evaluated without
+/// a pattern, or `TypeReadError::InvalidPStringLength` for a malformed
+/// Pascal string length prefix.
+pub fn read_typed_value_with_pattern(
+    buffer: &[u8],
+    offset: usize,
+    type_kind: &TypeKind,
+    pattern: Option<&Value>,
 ) -> Result<Value, TypeReadError> {
     match type_kind {
         TypeKind::Byte { signed } => read_byte(buffer, offset, *signed),
@@ -143,6 +207,108 @@ pub fn read_typed_value(
             *length_width,
             *length_includes_itself,
         ),
+        TypeKind::Regex {
+            case_insensitive,
+            start_of_line,
+        } => {
+            let pattern_str = match pattern {
+                Some(Value::String(s)) => s.as_str(),
+                _ => {
+                    return Err(TypeReadError::UnsupportedType {
+                        type_name: "regex without string pattern".to_string(),
+                    });
+                }
+            };
+            // Collapse `None` (no match) to `Value::String(String::new())`
+            // for back-compat with callers using the single-Value return
+            // shape. The engine path goes through `read_pattern_match`
+            // directly and preserves the `Option` so it can distinguish a
+            // zero-width match from a miss.
+            Ok(read_regex(
+                buffer,
+                offset,
+                pattern_str,
+                *case_insensitive,
+                *start_of_line,
+            )?
+            .unwrap_or_else(|| Value::String(String::new())))
+        }
+        TypeKind::Search { range } => {
+            let pattern_bytes: &[u8] = match pattern {
+                Some(Value::String(s)) => s.as_bytes(),
+                Some(Value::Bytes(b)) => b.as_slice(),
+                _ => {
+                    return Err(TypeReadError::UnsupportedType {
+                        type_name: "search without string/bytes pattern".to_string(),
+                    });
+                }
+            };
+            Ok(read_search(buffer, offset, pattern_bytes, *range)?
+                .unwrap_or_else(|| Value::String(String::new())))
+        }
+    }
+}
+
+/// Engine entry point for pattern-bearing types (`Regex`, `Search`).
+///
+/// Returns `Ok(None)` on a genuine "no match" outcome and `Ok(Some(value))`
+/// on a successful match -- including zero-width matches (e.g., regex `^`,
+/// `a*`, lookaheads). This is the contract the evaluator needs to
+/// distinguish a real miss from a zero-width hit; [`read_typed_value_with_pattern`]
+/// collapses both cases to `Value::String(String::new())` for back-compat.
+///
+/// # Errors
+///
+/// Returns [`TypeReadError`] for:
+///
+/// * `BufferOverrun` when `offset >= buffer.len()`
+/// * `UnsupportedType` if `type_kind` is not pattern-bearing, if the
+///   pattern operand is missing, or if the pattern has the wrong
+///   `Value` variant for the type
+/// * `UnsupportedType` (via [`read_regex`]) if a regex pattern fails to
+///   compile
+pub(crate) fn read_pattern_match(
+    buffer: &[u8],
+    offset: usize,
+    type_kind: &TypeKind,
+    pattern: Option<&Value>,
+) -> Result<Option<Value>, TypeReadError> {
+    match type_kind {
+        TypeKind::Regex {
+            case_insensitive,
+            start_of_line,
+        } => {
+            let pattern_str = match pattern {
+                Some(Value::String(s)) => s.as_str(),
+                _ => {
+                    return Err(TypeReadError::UnsupportedType {
+                        type_name: "regex without string pattern".to_string(),
+                    });
+                }
+            };
+            read_regex(
+                buffer,
+                offset,
+                pattern_str,
+                *case_insensitive,
+                *start_of_line,
+            )
+        }
+        TypeKind::Search { range } => {
+            let pattern_bytes: &[u8] = match pattern {
+                Some(Value::String(s)) => s.as_bytes(),
+                Some(Value::Bytes(b)) => b.as_slice(),
+                _ => {
+                    return Err(TypeReadError::UnsupportedType {
+                        type_name: "search without string/bytes pattern".to_string(),
+                    });
+                }
+            };
+            read_search(buffer, offset, pattern_bytes, *range)
+        }
+        _ => Err(TypeReadError::UnsupportedType {
+            type_name: format!("read_pattern_match called on non-pattern type: {type_kind:?}"),
+        }),
     }
 }
 
@@ -202,7 +368,8 @@ pub fn coerce_value_to_type<'a>(value: &'a Value, type_kind: &TypeKind) -> Cow<'
     }
 }
 
-/// Returns the anchor-advance distance for `type_kind` at `offset`.
+/// Returns the anchor-advance distance for `type_kind` at `offset`, threading
+/// the rule's value operand through for pattern-bearing types.
 ///
 /// This value is used by the evaluation engine to advance the GNU `file`
 /// "previous match" anchor for relative offset resolution. It reflects how
@@ -222,6 +389,16 @@ pub fn coerce_value_to_type<'a>(value: &'a Value, type_kind: &TypeKind) -> Cow<'
 /// next relative offset will bounds-fail gracefully. The engine only calls
 /// it after a successful read, so the defensive paths are belt-and-braces
 /// for any future caller that breaks that invariant.
+///
+/// For `TypeKind::Regex`, the pattern is required to re-run the match and
+/// compute the consumed bytes. When the pattern is unavailable (or not a
+/// string), the function returns `0` -- the anchor will then stay put and
+/// the next relative offset resolves against the previous anchor position,
+/// which is the same graceful-degradation behavior used by the other
+/// defensive paths in this module. For `TypeKind::Search`, the pattern is
+/// not needed because the consumed distance is the entire search window
+/// regardless of where the match was found. Non-pattern types should pass
+/// `pattern: None`.
 ///
 /// # Semantics
 ///
@@ -247,7 +424,12 @@ pub fn coerce_value_to_type<'a>(value: &'a Value, type_kind: &TypeKind) -> Cow<'
 ///   buffer length so a malicious oversized length prefix cannot poison the
 ///   anchor.
 #[must_use]
-pub(crate) fn bytes_consumed(buffer: &[u8], offset: usize, type_kind: &TypeKind) -> usize {
+pub(crate) fn bytes_consumed_with_pattern(
+    buffer: &[u8],
+    offset: usize,
+    type_kind: &TypeKind,
+    pattern: Option<&Value>,
+) -> usize {
     if let Some(bits) = type_kind.bit_width() {
         let width = (bits as usize) / 8;
         // Bounds-check the fixed-width path so a misuse (offset past end of
@@ -274,6 +456,46 @@ pub(crate) fn bytes_consumed(buffer: &[u8], offset: usize, type_kind: &TypeKind)
             *length_width,
             *length_includes_itself,
         ),
+        TypeKind::Regex {
+            case_insensitive,
+            start_of_line,
+        } => match pattern {
+            Some(Value::String(s)) => regex::regex_bytes_consumed(
+                buffer,
+                offset,
+                s.as_str(),
+                *case_insensitive,
+                *start_of_line,
+            ),
+            // Invariant: the engine only calls `bytes_consumed_with_pattern`
+            // after a successful `read_typed_value_with_pattern`/`read_pattern_match`,
+            // which requires `Some(Value::String(_))` for regex. If we land
+            // here the invariant is broken by a new caller and the anchor
+            // would silently stall instead of advancing. Fire a debug_assert
+            // so the mismatch is caught in dev/test builds.
+            other => {
+                debug_assert!(
+                    false,
+                    "bytes_consumed_with_pattern: TypeKind::Regex without Value::String pattern ({other:?}) -- engine invariant violated"
+                );
+                0
+            }
+        },
+        TypeKind::Search { range } => match pattern {
+            Some(Value::String(s)) => {
+                search::search_bytes_consumed(buffer, offset, s.as_bytes(), *range)
+            }
+            Some(Value::Bytes(b)) => {
+                search::search_bytes_consumed(buffer, offset, b.as_slice(), *range)
+            }
+            other => {
+                debug_assert!(
+                    false,
+                    "bytes_consumed_with_pattern: TypeKind::Search without Value::String/Bytes pattern ({other:?}) -- engine invariant violated"
+                );
+                0
+            }
+        },
         // A new variable-width TypeKind variant was added without updating
         // this match. Returning 0 here would silently corrupt the GNU `file`
         // anchor for any rule using relative offsets after a match of the

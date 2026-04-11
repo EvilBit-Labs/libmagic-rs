@@ -2275,3 +2275,177 @@ fn test_parse_type_and_operator_pstring_suffixes() {
         }
     }
 }
+
+#[test]
+fn test_parse_type_and_operator_regex_and_search_suffixes() {
+    use crate::parser::ast::TypeKind;
+    let cases: &[(&str, TypeKind, &str)] = &[
+        (
+            "regex",
+            TypeKind::Regex {
+                case_insensitive: false,
+                start_of_line: false,
+            },
+            "",
+        ),
+        (
+            "regex/c",
+            TypeKind::Regex {
+                case_insensitive: true,
+                start_of_line: false,
+            },
+            "",
+        ),
+        (
+            "regex/l",
+            TypeKind::Regex {
+                case_insensitive: false,
+                start_of_line: true,
+            },
+            "",
+        ),
+        (
+            "regex/cl",
+            TypeKind::Regex {
+                case_insensitive: true,
+                start_of_line: true,
+            },
+            "",
+        ),
+        (
+            "regex/lc",
+            TypeKind::Regex {
+                case_insensitive: true,
+                start_of_line: true,
+            },
+            "",
+        ),
+        (
+            "regex/1l",
+            TypeKind::Regex {
+                case_insensitive: false,
+                start_of_line: true,
+            },
+            "",
+        ),
+        (
+            "regex/1c",
+            TypeKind::Regex {
+                case_insensitive: true,
+                start_of_line: false,
+            },
+            "",
+        ),
+        (
+            "regex/c =",
+            TypeKind::Regex {
+                case_insensitive: true,
+                start_of_line: false,
+            },
+            "=",
+        ),
+        ("search", TypeKind::Search { range: None }, ""),
+        ("search/256", TypeKind::Search { range: Some(256) }, ""),
+        ("search/0", TypeKind::Search { range: Some(0) }, ""),
+        ("search/256 =", TypeKind::Search { range: Some(256) }, "="),
+    ];
+    for &(input, ref expected_kind, expected_rest) in cases {
+        let (rest, (kind, op)) = parse_type_and_operator(input).expect(input);
+        assert_eq!(rest, expected_rest, "rest for input: {input}");
+        assert!(op.is_none(), "operator for input: {input}");
+        assert_eq!(&kind, expected_kind, "kind for input: {input}");
+    }
+}
+
+#[test]
+fn test_parse_type_and_operator_regex_invalid_suffix() {
+    // Bare slash with no flags
+    assert!(parse_type_and_operator("regex/").is_err());
+    // Unrecognized flag letter
+    assert!(parse_type_and_operator("regex/z").is_err());
+    // Numeric line-count prefix with no flag letters following
+    assert!(parse_type_and_operator("regex/256").is_err());
+    // Non-operator trailing character is still rejected
+    assert!(parse_type_and_operator("regex/cz").is_err());
+}
+
+#[test]
+fn test_parse_type_and_operator_regex_operator_adjacent() {
+    use crate::parser::ast::{Operator, TypeKind};
+
+    // `regex/c=` should leave `=` for parse_operator, matching the `regex/c =`
+    // (space-separated) behavior and mirroring `search/256=`.
+    let (rest, (kind, op)) = parse_type_and_operator("regex/c=").expect("regex/c=");
+    assert_eq!(rest, "=");
+    assert!(op.is_none());
+    assert_eq!(
+        kind,
+        TypeKind::Regex {
+            case_insensitive: true,
+            start_of_line: false,
+        }
+    );
+
+    // `regex/l!=` should leave `!=` for parse_operator.
+    let (rest, (kind, op)) = parse_type_and_operator("regex/l!=").expect("regex/l!=");
+    assert_eq!(rest, "!=");
+    assert!(op.is_none());
+    assert_eq!(
+        kind,
+        TypeKind::Regex {
+            case_insensitive: false,
+            start_of_line: true,
+        }
+    );
+
+    // Confirm the full pipeline parses the operator correctly through
+    // parse_type_and_operator + parse_operator chaining.
+    let (rest, (_, _)) = parse_type_and_operator("regex/c=foo").expect("regex/c=foo");
+    let (rest_after_op, op) = crate::parser::grammar::parse_operator(rest).expect("operator");
+    assert_eq!(op, Operator::Equal);
+    assert_eq!(rest_after_op, "foo");
+}
+
+#[test]
+fn test_parse_magic_rule_regex_and_search() {
+    // regex/c: case-insensitive flag
+    let input = r#"0 regex/c "hello" case-insensitive match"#;
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+    assert_eq!(remaining, "");
+    assert_eq!(rule.offset, OffsetSpec::Absolute(0));
+    assert_eq!(
+        rule.typ,
+        TypeKind::Regex {
+            case_insensitive: true,
+            start_of_line: false,
+        }
+    );
+    assert_eq!(rule.op, Operator::Equal);
+    assert_eq!(rule.value, Value::String("hello".to_string()));
+    assert_eq!(rule.message, "case-insensitive match");
+
+    // search/256
+    let input = r#"0 search/256 "MZ" DOS executable"#;
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+    assert_eq!(remaining, "");
+    assert_eq!(rule.typ, TypeKind::Search { range: Some(256) });
+    assert_eq!(rule.op, Operator::Equal);
+    assert_eq!(rule.value, Value::String("MZ".to_string()));
+    assert_eq!(rule.message, "DOS executable");
+
+    // regex/1l: numeric line-count prefix at child level (mirrors regex-eol.magic
+    // syntax shape; the magic-file `&+N`/`&-N` relative-offset syntax is not
+    // yet parseable, so we use an absolute offset here).
+    let input = r#">1 regex/1l "[0-9]+" version line"#;
+    let (remaining, rule) = parse_magic_rule(input).unwrap();
+    assert_eq!(remaining, "");
+    assert_eq!(rule.level, 1);
+    assert_eq!(
+        rule.typ,
+        TypeKind::Regex {
+            case_insensitive: false,
+            start_of_line: true,
+        }
+    );
+    assert_eq!(rule.message, "version line");
+}

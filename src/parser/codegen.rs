@@ -232,6 +232,16 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
                 length_includes_itself
             ),
         },
+        TypeKind::Regex {
+            case_insensitive,
+            start_of_line,
+        } => format!(
+            "TypeKind::Regex {{ case_insensitive: {case_insensitive}, start_of_line: {start_of_line} }}"
+        ),
+        TypeKind::Search { range } => match range {
+            Some(value) => format!("TypeKind::Search {{ range: Some({value}) }}"),
+            None => "TypeKind::Search { range: None }".to_string(),
+        },
     }
 }
 

@@ -335,6 +335,71 @@ pub enum TypeKind {
         /// Whether the stored length includes the length field itself (`/J` flag)
         length_includes_itself: bool,
     },
+    /// Regular expression matching against file contents
+    ///
+    /// Regex types match a regular expression pattern against the file buffer. The `/c` flag
+    /// makes the match case-insensitive, and the `/l` flag anchors matching to line starts.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::TypeKind;
+    ///
+    /// // Plain `regex` with no flags
+    /// let plain = TypeKind::Regex {
+    ///     case_insensitive: false,
+    ///     start_of_line: false,
+    /// };
+    /// assert_eq!(
+    ///     plain,
+    ///     TypeKind::Regex {
+    ///         case_insensitive: false,
+    ///         start_of_line: false,
+    ///     }
+    /// );
+    ///
+    /// // `regex/l` -- start-of-line anchored
+    /// let line_anchored = TypeKind::Regex {
+    ///     case_insensitive: false,
+    ///     start_of_line: true,
+    /// };
+    /// assert_eq!(
+    ///     line_anchored,
+    ///     TypeKind::Regex {
+    ///         case_insensitive: false,
+    ///         start_of_line: true,
+    ///     }
+    /// );
+    /// ```
+    Regex {
+        /// Case-insensitive matching (`/c` flag)
+        case_insensitive: bool,
+        /// Anchor matches to line starts (`/l` flag)
+        start_of_line: bool,
+    },
+    /// Multi-byte pattern search within a bounded range
+    ///
+    /// Search types look for a literal pattern within `range` bytes of the offset. Unlike
+    /// [`TypeKind::String`], which only matches at the exact offset, `search` scans forward
+    /// up to `range` bytes for the first occurrence.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::TypeKind;
+    ///
+    /// // `search/256` -- search within 256 bytes
+    /// let bounded = TypeKind::Search { range: Some(256) };
+    /// assert_eq!(bounded, TypeKind::Search { range: Some(256) });
+    ///
+    /// // `search` with no range (default behavior is implementation-defined)
+    /// let unbounded = TypeKind::Search { range: None };
+    /// assert_eq!(unbounded, TypeKind::Search { range: None });
+    /// ```
+    Search {
+        /// Byte range to search within
+        range: Option<usize>,
+    },
 }
 
 impl TypeKind {
@@ -360,7 +425,10 @@ impl TypeKind {
             Self::Short { .. } => Some(16),
             Self::Long { .. } | Self::Float { .. } | Self::Date { .. } => Some(32),
             Self::Quad { .. } | Self::Double { .. } | Self::QDate { .. } => Some(64),
-            Self::String { .. } | Self::PString { .. } => None,
+            Self::String { .. }
+            | Self::PString { .. }
+            | Self::Regex { .. }
+            | Self::Search { .. } => None,
         }
     }
 }

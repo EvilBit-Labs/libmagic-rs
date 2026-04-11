@@ -65,6 +65,13 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
                 length_width: width,
                 length_includes_itself: includes_self,
             }),
+        (any::<bool>(), any::<bool>()).prop_map(|(case_insensitive, start_of_line)| {
+            TypeKind::Regex {
+                case_insensitive,
+                start_of_line,
+            }
+        }),
+        prop::option::of(0usize..4096usize).prop_map(|range| TypeKind::Search { range }),
     ]
 }
 

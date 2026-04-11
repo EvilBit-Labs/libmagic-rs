@@ -391,6 +391,7 @@ fn parse_pstring_suffix(
 ///
 /// # Errors
 /// Returns a nom parsing error if the input doesn't match the expected format
+#[allow(clippy::too_many_lines)]
 pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<Operator>)> {
     use crate::parser::ast::PStringLengthWidth;
 
@@ -408,6 +409,79 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
         input = rest;
         pstring_length_width = width;
         pstring_length_includes_itself = includes_j;
+    }
+
+    // Handle regex suffixes: flag letters (`c`, `l`). An optional decimal
+    // line-count prefix (e.g., `regex/1l`) is consumed but not yet used.
+    let mut regex_case_insensitive = false;
+    let mut regex_start_of_line = false;
+    if type_name == "regex"
+        && let Some(suffix_rest) = input.strip_prefix('/')
+    {
+        let mut rest = suffix_rest;
+        let mut flags_consumed = 0usize;
+
+        // Consume optional line-count prefix (ignored; not yet evaluated)
+        if rest.starts_with(|c: char| c.is_ascii_digit()) {
+            let (after_number, _line_count) = parse_decimal_number(rest).map_err(|_| {
+                nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
+            })?;
+            rest = after_number;
+        }
+
+        // Scan flag letters. Stop at whitespace or at operator boundary
+        // characters (`=`, `!`, `<`, `>`, `&`, `^`, `~`, `x`) so forms like
+        // `regex/c=...` or `regex/l!=...` leave the operator for
+        // `parse_operator` to handle, mirroring how `search/256=...` works.
+        // Uses `strip_prefix` instead of direct slicing per AGENTS.md
+        // "Memory Safety First" rule.
+        loop {
+            if let Some(next) = rest.strip_prefix('c') {
+                regex_case_insensitive = true;
+                rest = next;
+                flags_consumed += 1;
+            } else if let Some(next) = rest.strip_prefix('l') {
+                regex_start_of_line = true;
+                rest = next;
+                flags_consumed += 1;
+            } else {
+                match rest.chars().next() {
+                    Some(c) if c.is_whitespace() => break,
+                    None | Some('=' | '!' | '<' | '>' | '&' | '^' | '~' | 'x') => break,
+                    Some(_) => {
+                        return Err(nom::Err::Error(nom::error::Error::new(
+                            input,
+                            nom::error::ErrorKind::Tag,
+                        )));
+                    }
+                }
+            }
+        }
+
+        // A bare `regex/` with no valid flags is a parse error
+        if flags_consumed == 0 {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Tag,
+            )));
+        }
+
+        input = rest;
+    }
+
+    // Handle search suffix: required decimal range (e.g., `search/256`)
+    let mut search_range: Option<usize> = None;
+    if type_name == "search"
+        && let Some(suffix_rest) = input.strip_prefix('/')
+    {
+        let (rest, n) = parse_decimal_number(suffix_rest).map_err(|_| {
+            nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
+        })?;
+        let range_value = usize::try_from(n).map_err(|_| {
+            nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
+        })?;
+        search_range = Some(range_value);
+        input = rest;
     }
 
     // Check for attached operator with mask (like &0xf0000000)
@@ -437,15 +511,31 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
 
     let (input, _) = multispace0(input)?;
 
-    let mut type_kind = crate::parser::types::type_keyword_to_kind(type_name);
-    // Patch PString with parsed length_width and length_includes_itself
-    if let TypeKind::PString { max_length, .. } = type_kind {
-        type_kind = TypeKind::PString {
-            max_length,
-            length_width: pstring_length_width,
-            length_includes_itself: pstring_length_includes_itself,
-        };
-    }
+    // Build Regex/Search directly from the parsed suffixes; fall back to
+    // `type_keyword_to_kind` for every other type. PString still uses the
+    // patch-after-construct pattern because `type_keyword_to_kind` supplies
+    // its `max_length` default and the suffix parser only produces the
+    // length-width and `/J` flag.
+    let type_kind = match type_name {
+        "regex" => TypeKind::Regex {
+            case_insensitive: regex_case_insensitive,
+            start_of_line: regex_start_of_line,
+        },
+        "search" => TypeKind::Search {
+            range: search_range,
+        },
+        _ => {
+            let mut kind = crate::parser::types::type_keyword_to_kind(type_name);
+            if let TypeKind::PString { max_length, .. } = kind {
+                kind = TypeKind::PString {
+                    max_length,
+                    length_width: pstring_length_width,
+                    length_includes_itself: pstring_length_includes_itself,
+                };
+            }
+            kind
+        }
+    };
 
     Ok((input, (type_kind, attached_op)))
 }

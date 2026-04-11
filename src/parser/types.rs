@@ -95,8 +95,8 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
             tag("ledate"),
             tag("date"),
         )),
-        // String types
-        alt((tag("pstring"), tag("string"))),
+        // String types (and regex/search, which share the string-type family)
+        alt((tag("pstring"), tag("search"), tag("regex"), tag("string"))),
     ))
     .parse(input)
 }
@@ -300,6 +300,15 @@ pub fn type_keyword_to_kind(type_name: &str) -> TypeKind {
             length_width: PStringLengthWidth::OneByte,
             length_includes_itself: false,
         },
+
+        // REGEX type -- suffix parsing (flags) handled in grammar/mod.rs
+        "regex" => TypeKind::Regex {
+            case_insensitive: false,
+            start_of_line: false,
+        },
+
+        // SEARCH type -- range parsing handled in grammar/mod.rs
+        "search" => TypeKind::Search { range: None },
 
         _ => unreachable!("type_keyword_to_kind called with unknown type: {type_name}"),
     }
@@ -546,7 +555,8 @@ mod tests {
             "long", "ulong", "lelong", "ulelong", "belong", "ubelong", "quad", "uquad", "lequad",
             "ulequad", "bequad", "ubequad", "float", "befloat", "lefloat", "double", "bedouble",
             "ledouble", "date", "ldate", "bedate", "beldate", "ledate", "leldate", "qdate",
-            "qldate", "beqdate", "beqldate", "leqdate", "leqldate", "pstring", "string",
+            "qldate", "beqdate", "beqldate", "leqdate", "leqldate", "pstring", "string", "regex",
+            "search",
         ];
         for keyword in keywords {
             let (rest, parsed) = parse_type_keyword(keyword).unwrap();
