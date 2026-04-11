@@ -420,3 +420,84 @@ fn test_concatenate_messages_with_backspace() {
     let result = MagicDatabase::concatenate_messages(&matches);
     assert_eq!(result, "ELF, 64-bit"); // No space before comma
 }
+
+/// Regression test for review finding M5 / GOTCHAS S14.1: the `\b`
+/// (backspace) prefix must suppress the leading separator even when the
+/// backspace-prefixed message is the first entry. This is a degenerate
+/// case — there is no prior space to suppress — but the stripping must
+/// still happen so the output text doesn't contain a stray backspace.
+#[test]
+fn test_concatenate_messages_backspace_on_first_match() {
+    let matches = vec![evaluator::RuleMatch {
+        message: "\u{0008}leading-strip".to_string(),
+        offset: 0,
+        level: 0,
+        value: Value::Uint(0),
+        type_kind: TypeKind::Byte { signed: false },
+        confidence: 0.5,
+    }];
+
+    let result = MagicDatabase::concatenate_messages(&matches);
+    assert_eq!(
+        result, "leading-strip",
+        "backspace-prefixed first match must strip the backspace byte"
+    );
+}
+
+/// Regression test for review finding M5 / GOTCHAS S14.1: two consecutive
+/// backspace-prefixed messages must both strip their prefixes, producing
+/// a space-free concatenation (relevant for "ELF\b, 64-bit\b, LSB" style
+/// chains).
+#[test]
+fn test_concatenate_messages_consecutive_backspaces() {
+    let make_match = |message: &str| evaluator::RuleMatch {
+        message: message.to_string(),
+        offset: 0,
+        level: 0,
+        value: Value::Uint(0),
+        type_kind: TypeKind::Byte { signed: false },
+        confidence: 0.5,
+    };
+    let matches = vec![
+        make_match("ELF"),
+        make_match("\u{0008}, 64-bit"),
+        make_match("\u{0008}, LSB"),
+    ];
+
+    let result = MagicDatabase::concatenate_messages(&matches);
+    assert_eq!(
+        result, "ELF, 64-bit, LSB",
+        "consecutive backspace-prefixed messages must each strip cleanly"
+    );
+}
+
+/// Regression test for review finding M5 / GOTCHAS S14.1: a backspace
+/// prefix followed by an empty rest must append nothing (not a bare
+/// backspace, not a stray space).
+#[test]
+fn test_concatenate_messages_backspace_empty_rest() {
+    let matches = vec![
+        evaluator::RuleMatch {
+            message: "prefix".to_string(),
+            offset: 0,
+            level: 0,
+            value: Value::Uint(0),
+            type_kind: TypeKind::Byte { signed: false },
+            confidence: 0.5,
+        },
+        evaluator::RuleMatch {
+            message: "\u{0008}".to_string(),
+            offset: 0,
+            level: 0,
+            value: Value::Uint(0),
+            type_kind: TypeKind::Byte { signed: false },
+            confidence: 0.5,
+        },
+    ];
+
+    let result = MagicDatabase::concatenate_messages(&matches);
+    assert_eq!(
+        result, "prefix",
+        "backspace with empty rest must contribute nothing to the output"
+    );
+}

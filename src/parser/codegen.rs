@@ -414,3 +414,83 @@ fn push_field(output: &mut String, indent: usize, name: &str, value: &str) {
     output.push_str(value);
     output.push_str(",\n");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Security regression test for review finding S-L2.
+    ///
+    /// Verifies that `serialize_magic_rule` escapes attacker-controlled
+    /// content in the `message` field so that it cannot inject Rust code
+    /// into the generated `builtin_rules.rs` source. The test simulates
+    /// a malicious `builtin_rules.magic` message by constructing a rule
+    /// programmatically and asserts that the injection tokens do not
+    /// appear as bare Rust tokens in the generated output.
+    #[test]
+    fn test_serialize_escapes_injection_in_message() {
+        let malicious = r#""; panic!("pwned-from-message"); let _ = ""#;
+        let rule = MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Byte { signed: false },
+            op: Operator::Equal,
+            value: Value::Uint(0),
+            message: malicious.to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        };
+
+        let generated = serialize_magic_rule(&rule, 0);
+
+        // Injection tokens must NOT appear as bare Rust code.
+        assert!(
+            !generated.contains(r#"panic!("pwned-from-message")"#),
+            "injected Rust tokens leaked into generated source:\n{generated}"
+        );
+        // The escaped form should be present (every `"` in the message
+        // becomes `\"` via `str::escape_default`).
+        assert!(
+            generated.contains(r#"\""#),
+            "escaped quote missing from serialized message; \
+             escape_default may be broken:\n{generated}"
+        );
+    }
+
+    /// Security regression test for review finding S-L2: ensure message
+    /// strings containing raw newlines, tabs, and control bytes are
+    /// escaped rather than written verbatim into the generated source
+    /// (which would break string-literal syntax or create multi-line
+    /// source fragments).
+    #[test]
+    fn test_serialize_escapes_control_bytes_in_message() {
+        let message = "line1\nline2\ttab\u{0008}backspace";
+        let rule = MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Byte { signed: false },
+            op: Operator::Equal,
+            value: Value::Uint(0),
+            message: message.to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        };
+
+        let generated = serialize_magic_rule(&rule, 0);
+
+        // Raw control characters must not appear verbatim.
+        assert!(
+            !generated.contains("line1\nline2"),
+            "raw newline leaked into generated source:\n{generated}"
+        );
+        assert!(
+            !generated.contains("line2\ttab"),
+            "raw tab leaked into generated source:\n{generated}"
+        );
+        // Escaped forms must be present.
+        assert!(
+            generated.contains(r"\n"),
+            "escaped newline missing from serialized message:\n{generated}"
+        );
+    }
+}
