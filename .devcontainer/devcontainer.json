@@ -24,7 +24,7 @@
             "version": "latest"
         },
         "ghcr.io/devcontainer-config/features/dot-config:4": {},
-        "ghcr.io/devcontainers-extra/features/claude-code:1": {}
+        "ghcr.io/devcontainers-extra/features/claude-code:2": {}
     },
     "mounts": [
         {
