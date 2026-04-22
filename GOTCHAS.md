@@ -73,6 +73,10 @@ The cap is a DoS mitigation: without it, a malicious regex against a multi-GB bu
 
 Both `RegexCount::Default` (plain `regex`) and `RegexCount::Lines(None)` (the `regex/l` shorthand with no explicit count) produce the full 8192-byte capped window. `compute_window` handles them with a shared match arm, and `calculate_default_strength` gives them the same strength score (20, no "constrained scan" bonus). The two variants are kept distinct at the AST level because the magic-file surface syntax distinguishes them — `regex` and `regex/l` parse to different `RegexCount` variants and round-trip through codegen as different Rust expressions — but no runtime path treats them differently. If you write a test that passes `Lines(None)` expecting different behavior from `Default`, the test is wrong, not the implementation. See `test_read_regex_lines_none_is_equivalent_to_default_on_buffer_with_terminators` in `src/evaluator/types/regex.rs` for the regression guard that pins this equivalence.
 
+### 2.11 `MetaType` Exhaustive Matches
+
+Adding a variant to the `MetaType` enum (nested inside `TypeKind::Meta`) requires updates in: `ast.rs` (variant definition + 3 test fixtures that iterate MetaType variants: `test_meta_type_variants_debug_clone_eq`, `test_meta_type_serde_roundtrip`, `test_type_kind_meta_bit_width_is_none`), `parser/types.rs` (`parse_type_keyword` tag + `type_keyword_to_kind` match arm + `test_roundtrip_all_keywords` array), `parser/codegen.rs` (`serialize_type_kind` -- the inner `TypeKind::Meta(meta)` arm), and `tests/property_tests.rs` (`arb_type_kind` `prop_oneof` branch). The evaluator does NOT need updates: `TypeKind::Meta(_)` is handled uniformly as a no-op via the wildcard arm in `engine::evaluate_single_rule_with_anchor`, `strength.rs::calculate_default_strength`, and `types/mod.rs::bytes_consumed_with_pattern`.
+
 ## 3. Parser Architecture
 
 ### 3.1 Type Keyword Parsing Split
@@ -98,9 +102,9 @@ The nom `tuple` combinator is deprecated. Use bare tuple syntax `(a, b, c)` dire
 
 `parse_number` handles `-` signs but not `+`. When parsing syntax like `+4` (e.g., indirect offset adjustments), consume the `+` character manually before calling `parse_number`.
 
-### 3.6 `parse_value` Requires Quoted Strings
+### 3.6 `parse_value` Requires Quoted Strings (But `parse_magic_rule` Has a Bare-Word Fallback)
 
-`parse_value()` does not accept bare unquoted strings. String values in magic file rules must be quoted (e.g., `string "MZ"` not `string MZ`). Integration tests writing magic files must use `r#"0 string "MZ" description"#` format.
+`parse_value()` itself does not accept bare unquoted strings -- `parse_value("xyz")` still returns `Err` (see `test_parse_value_invalid_input` in `grammar/tests/mod.rs`, which pins this behavior). However, `parse_magic_rule` adds a bare-word fallback (`parse_bare_string_value`) when the rule's type is string-family (`String`, `PString`, `Regex`, `Search`), so `0 string TEST` and `>0 search/12 ABC` parse successfully without quotes -- matching libmagic magic(5) surface syntax and allowing real-world fixtures like `third_party/tests/searchbug.magic` to load. For non-string-family types (byte/short/long/etc.), bare words still fail; integration tests exercising `parse_value` directly (as opposed to going through `parse_magic_rule`) must still quote string literals.
 
 ### 3.7 Indirect Offset Pointer Specifiers Follow GNU `file` Semantics
 
