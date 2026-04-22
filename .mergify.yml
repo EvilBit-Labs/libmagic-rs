@@ -1,8 +1,8 @@
+# WARNING: auto_merge applies globally to all queue rules. The following queue rules did NOT have autoqueue enabled and will now also auto-queue: 'default'. Review your queue_conditions to ensure this is the desired behavior.
 queue_rules:
   # Dosubot: only needs quality (fmt + clippy) to pass
   - name: dosubot
     merge_method: squash
-    autoqueue: true
     queue_conditions:
       - base = main
       - label != do-not-merge
@@ -13,7 +13,6 @@ queue_rules:
   # Dependabot: full CI required
   - name: dependabot
     merge_method: squash
-    autoqueue: true
     queue_conditions:
       - base = main
       - label != do-not-merge
@@ -30,7 +29,6 @@ queue_rules:
   # Release-plz: DCO only (exempt from full CI -- code already tested on main)
   - name: release-plz
     merge_method: squash
-    autoqueue: true
     queue_conditions:
       - base = main
       - label != do-not-merge
@@ -122,3 +120,4 @@ merge_protections:
       - "#commits-behind <= 10"
 merge_protections_settings:
   reporting_method: check-runs
+  auto_merge: true
