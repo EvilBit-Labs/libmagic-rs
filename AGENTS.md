@@ -220,9 +220,10 @@ cargo test --doc   # Test documentation examples
 - **String Matching**: Exact string matching with null-termination and Pascal string (length-prefixed) support
 - **Regex type**: Binary-safe regex matching via `regex::bytes::Regex`. Full flag support: `/c` (case-insensitive), `/s` (anchor advances to match-start instead of match-end), `/l` (scan window is measured in lines instead of bytes). Flags combine in any order (`regex/cs`, `regex/csl`, `regex/lc`). Numeric counts are honored: `regex/100` scans at most 100 bytes; `regex/1l` scans at most 1 line. Multi-line regex matching is always on (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries regardless of `/l`. Every scan window is capped at 8192 bytes (`FILE_REGEX_MAX`) regardless of the user's count.
 - **Search type**: Bounded literal pattern scan via `memchr::memmem::find`; `search/N` caps the scan window to `N` bytes from the offset. The range is **mandatory** and stored as `NonZeroUsize`, so bare `search` and `search/0` are parse errors (matching GNU `file` magic(5)). Anchor advance follows GNU `file` semantics (match-end, not window-end) so relative-offset children resolve to the byte immediately after the matched pattern.
-- **Meta-type directives**: `default`, `clear`, `name <id>`, `use <id>`, `indirect` are parsed into `TypeKind::Meta(MetaType::...)` and preserved through codegen. The evaluator currently treats all five as silent no-ops (returns `Ok(None)` in `evaluate_single_rule_with_anchor`); control-flow semantics will be wired up in a subsequent phase.
+- **Meta-type directives**: `default`, `clear`, `name <id>`, `use <id>`, `indirect`, and `offset` are fully implemented. `name` blocks are hoisted into a `NameTable` at load time (`parser::name_table::extract_name_table`). `use` invokes subroutines at the resolved offset via `RuleEnvironment` threaded through `EvaluationContext::rule_env`; subroutine-local absolute offsets resolve relative to the use-site base (tracked via `EvaluationContext::base_offset`). `default` fires only when no sibling at the same level has matched; `clear` resets the per-level sibling-matched flag so a later `default` can fire. `indirect` re-applies the root rule set at the resolved offset, bounded by `EvaluationConfig::max_recursion_depth`. `offset` reports the resolved file offset as `Value::Uint(pos)` for format-string rendering. Continuation siblings (`recursion_depth > 0`) see the parent-level anchor on each iteration rather than chaining -- matching libmagic's `ms->c.li[cont_level]` model. Top-level siblings still chain (documented in GOTCHAS S3.8).
+- **Printf-style format substitution**: Rule messages support `%d`, `%i`, `%u`, `%x`, `%X`, `%o`, `%s`, `%c`, and `%%`, along with width/padding modifiers (`%05d`, `%-5d`) and length modifiers (`l`, `ll`, `h`, etc. -- parsed and ignored). Hex specifiers respect the rule's `TypeKind::bit_width()` to mask sign-extended signed reads (so a signed byte carrying `-1` renders as `ff`, not `ffffffffffffffff`). Implemented in `src/output/format.rs::format_magic_message` and wired into `MagicDatabase::build_result`. Unrecognized specifiers pass through literally with a `debug!` log.
 
-See **Development Phases** below for the planned roadmap of features not yet implemented (Aho-Corasick multi-pattern optimization, compiled-regex caching, `!:mime`/`!:ext`/`!:apple` directive evaluation, and evaluator wiring for the parsed meta-type directives `default`/`clear`/`name`/`use`/`indirect`).
+See **Development Phases** below for the planned roadmap of features not yet implemented (Aho-Corasick multi-pattern optimization and `!:mime`/`!:ext`/`!:apple` directive evaluation).
 
 ## Current Limitations (v0.5.x, unreleased)
 
@@ -246,7 +247,7 @@ See **Development Phases** below for the planned roadmap of features not yet imp
 
 - Limited support for special directives (only `!:strength` is parsed)
 - No support for `!:mime`, `!:ext`, `!:apple` directives in evaluation
-- Meta-type directives (`default`, `clear`, `name`, `use`, `indirect`) are parsed into the AST but evaluated as silent no-ops; full control-flow semantics are deferred
+- Meta-type directives (`default`, `clear`, `name`, `use`, `indirect`, `offset`) are all fully implemented with evaluator dispatch, including printf-style format substitution in message rendering (see "Currently Implemented" above for details).
 
 See issue #52 for the planned enhancement roadmap.
 
@@ -320,6 +321,17 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 5. Update `serialize_type_kind()` in `src/parser/codegen.rs`
 6. Add tests for the new type
 7. Update documentation
+
+### Adding a new meta-type
+
+Meta-types sit inside `TypeKind::Meta(MetaType)` and do not read bytes. Adding a new variant requires:
+
+1. Add the variant to `MetaType` in `src/parser/ast.rs`. Update the three test fixtures that iterate `MetaType` variants: `test_meta_type_variants_debug_clone_eq`, `test_meta_type_serde_roundtrip`, `test_type_kind_meta_bit_width_is_none` (see GOTCHAS S2.11).
+2. Add the keyword tag in `parse_type_keyword` and the arm in `type_keyword_to_kind` in `src/parser/types.rs`, plus the `test_roundtrip_all_keywords` array.
+3. Update `serialize_type_kind` (the inner `TypeKind::Meta(meta)` arm) in `src/parser/codegen.rs`.
+4. Update `arb_type_kind` in `tests/property_tests.rs` (`prop_oneof` branch for `MetaType`).
+5. Decide semantics: does the new variant need inline loop-level dispatch in `evaluate_rules` (like `Use`, `Default`, `Clear`, `Indirect` — each of which mutates the match vector or `sibling_matched` flag) or is it a silent no-op via the `Meta(_)` wildcard arm in `evaluate_single_rule_with_anchor`? Add the arm accordingly in `src/evaluator/engine/mod.rs`.
+6. Add unit tests covering parse round-trip, the evaluator arm, and any new `RuleEnvironment` lookups.
 
 ### Adding New Operators
 

@@ -82,12 +82,13 @@ libmagic-rs/
 │   ├── build_helpers.rs    # Build script utilities
 │   │
 │   ├── parser/             # Magic file parsing
-│   │   ├── mod.rs          # Parser interface
-│   │   ├── ast.rs          # AST definitions (MagicRule, TypeKind::Byte { signed: bool }, etc.)
+│   │   ├── mod.rs          # Parser interface, ParsedMagic { rules, name_table } return type
+│   │   ├── ast.rs          # AST definitions (MagicRule, TypeKind::Meta(MetaType), etc.)
 │   │   ├── grammar/        # nom-based parsing combinators
 │   │   │   ├── mod.rs      # Rule and type parsing (796 lines)
 │   │   │   ├── numbers.rs  # Decimal/hex number parsing
 │   │   │   └── value.rs    # Value-literal parsing
+│   │   ├── name_table.rs   # Load-time extraction of `name <id>` subroutine blocks into NameTable
 │   │   └── loader.rs       # Magic file loading and format detection
 │   │
 │   ├── evaluator/          # Rule evaluation engine
@@ -233,8 +234,10 @@ The main entry point for users. Manages rule loading and evaluation.
 
 ```rust
 pub struct MagicDatabase {
-    rules: Vec<MagicRule>,      // Parsed magic rules
-    config: EvaluationConfig,   // Evaluation settings
+    rules: Arc<[MagicRule]>,      // Parsed magic rules (shared, immutable)
+    root_rules: Arc<[MagicRule]>, // Full top-level rule list for `indirect` re-entry
+    name_table: Arc<NameTable>,   // `name`/`use` subroutine dispatch table
+    config: EvaluationConfig,     // Evaluation settings
     source_path: Option<PathBuf>, // Where rules came from
 }
 ```
@@ -297,6 +300,7 @@ pub struct MagicRule {
 - `String { max_length: Option<usize> }` - Null-terminated string
 - `Regex { flags: RegexFlags, count: RegexCount }` - Regular expression matching (see `RegexCount` for the `Default` / `Bytes(n)` / `Lines(Option<n>)` variants)
 - `Search { range: NonZeroUsize }` - Bounded literal pattern search
+- `Meta(MetaType)` - Control-flow directive: `Default`, `Clear`, `Name(id)`, `Use(id)`, `Indirect`
 
 **Hierarchical Structure:**
 

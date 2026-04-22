@@ -364,3 +364,46 @@ fn test_compatibility_files_available() {
     assert!(!test_files.is_empty(), "No compatibility test files found");
     println!("Found {} compatibility test files", test_files.len());
 }
+
+/// Partial-match regression for the canonical GNU `file` `searchbug` fixture.
+///
+/// Full byte-for-byte match against `searchbug.result` requires the `offset`
+/// pseudo-type (to render `at_offset %lld`) and printf-style format-specifier
+/// substitution (to render `0x%02x` as `0x31`/`0x32`); both are tracked in
+/// follow-up issues. This test exercises the `name`/`use` subroutine dispatch
+/// shipped in v0.5.x by asserting that the description carries the
+/// recognizable (unsubstituted) fragments from
+/// `third_party/tests/searchbug.result`.
+#[test]
+fn test_searchbug_partial_match() {
+    let magic_path = Path::new("third_party/tests/searchbug.magic");
+    let testfile_path = Path::new("third_party/tests/searchbug.testfile");
+    if !magic_path.exists() || !testfile_path.exists() {
+        println!("Skipping searchbug partial-match test: fixtures not found");
+        return;
+    }
+
+    let db =
+        MagicDatabase::load_from_file(magic_path).expect("searchbug.magic must load end-to-end");
+    let bytes = fs::read(testfile_path).expect("searchbug.testfile fixture must be readable");
+
+    let result = db
+        .evaluate_buffer(&bytes)
+        .expect("evaluate_buffer on searchbug.testfile");
+
+    assert!(
+        result.description.starts_with("Testfmt"),
+        "description should start with \"Testfmt\", got: {}",
+        result.description
+    );
+    assert!(
+        result.description.contains("found_ABC"),
+        "description should contain \"found_ABC\" (subroutine match), got: {}",
+        result.description
+    );
+    assert!(
+        result.description.contains("followed_by"),
+        "description should contain \"followed_by\" (subroutine child rule), got: {}",
+        result.description
+    );
+}

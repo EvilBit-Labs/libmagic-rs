@@ -18,6 +18,21 @@ pub mod types;
 
 pub use engine::{evaluate_rules, evaluate_rules_with_config, evaluate_single_rule};
 
+/// Shared environment attached to an [`EvaluationContext`] so the engine can
+/// resolve whole-database operations (currently: `Use` subroutine lookups;
+/// eventually `indirect` whole-tree re-entry).
+///
+/// Stored as an `Arc` so cloning a context across recursive calls is cheap
+/// and the rule data can be shared safely across threads.
+#[derive(Debug, Clone)]
+pub(crate) struct RuleEnvironment {
+    /// Named subroutine table, keyed by identifier.
+    pub(crate) name_table: std::sync::Arc<crate::parser::name_table::NameTable>,
+    /// Top-level rule list retained for future whole-database operations.
+    #[allow(dead_code)]
+    pub(crate) root_rules: std::sync::Arc<[crate::parser::ast::MagicRule]>,
+}
+
 /// Context for maintaining evaluation state during rule processing
 ///
 /// The `EvaluationContext` tracks the current state of rule evaluation,
@@ -54,6 +69,22 @@ pub struct EvaluationContext {
     recursion_depth: u32,
     /// Configuration settings for evaluation behavior
     config: EvaluationConfig,
+    /// Optional rule environment (name table + root rules) threaded from
+    /// [`MagicDatabase`](crate::MagicDatabase). Evaluations that come in
+    /// through the low-level [`evaluate_rules`] / [`evaluate_rules_with_config`]
+    /// surface (tests, programmatic consumers) run with `rule_env = None`,
+    /// in which case `MetaType::Use` rules are silent no-ops.
+    rule_env: Option<std::sync::Arc<RuleEnvironment>>,
+    /// Base offset applied to absolute offset resolution.
+    ///
+    /// Normally 0. When evaluating a subroutine body via `MetaType::Use`,
+    /// this is set to the use-site offset so that the subroutine's
+    /// `OffsetSpec::Absolute(n)` rules resolve to `base + n` (matching
+    /// magic(5) / libmagic semantics: subroutines see offsets relative
+    /// to the caller's invocation point, not absolute file positions).
+    /// Restored to the caller's value on subroutine exit via the
+    /// `BaseOffsetScope` RAII guard in `engine/mod.rs`.
+    base_offset: usize,
 }
 
 impl EvaluationContext {
@@ -79,7 +110,43 @@ impl EvaluationContext {
             last_match_end: 0,
             recursion_depth: 0,
             config,
+            rule_env: None,
+            base_offset: 0,
         }
+    }
+
+    /// Read-only access to the subroutine base offset. Non-zero only
+    /// during a `MetaType::Use` body evaluation.
+    #[must_use]
+    pub(crate) const fn base_offset(&self) -> usize {
+        self.base_offset
+    }
+
+    /// Set the subroutine base offset.
+    ///
+    /// `pub(crate)` and owned by the engine's `BaseOffsetScope` RAII
+    /// guard -- no external caller should set this directly.
+    pub(crate) fn set_base_offset(&mut self, offset: usize) {
+        self.base_offset = offset;
+    }
+
+    /// Attach a rule environment to this context.
+    ///
+    /// The environment carries the name-subroutine table and root rule list
+    /// so the engine can resolve `MetaType::Use` rules and (eventually)
+    /// `MetaType::Indirect` re-entries. Intended to be called once by
+    /// [`MagicDatabase`](crate::MagicDatabase) before handing the context
+    /// to [`evaluate_rules`].
+    #[must_use]
+    pub(crate) fn with_rule_env(mut self, env: std::sync::Arc<RuleEnvironment>) -> Self {
+        self.rule_env = Some(env);
+        self
+    }
+
+    /// Read-only access to the attached rule environment, if any.
+    #[must_use]
+    pub(crate) fn rule_env(&self) -> Option<&RuleEnvironment> {
+        self.rule_env.as_deref()
     }
 
     /// Get the current offset position
@@ -236,6 +303,7 @@ impl EvaluationContext {
         self.current_offset = 0;
         self.last_match_end = 0;
         self.recursion_depth = 0;
+        self.base_offset = 0;
     }
 }
 

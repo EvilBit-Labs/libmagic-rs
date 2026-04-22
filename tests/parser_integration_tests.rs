@@ -7,7 +7,7 @@
 //! rule evaluation, ensuring all components work together correctly.
 
 use libmagic_rs::MagicDatabase;
-use libmagic_rs::parser::load_magic_file;
+use libmagic_rs::parser::{ParsedMagic, load_magic_file};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -66,7 +66,8 @@ fn test_load_text_magic_file_success() {
 ";
     let magic_file = create_test_magic_file(temp_dir.path(), "magic", magic_content);
 
-    let rules = load_magic_file(&magic_file).expect("Failed to load magic file");
+    let ParsedMagic { rules, .. } =
+        load_magic_file(&magic_file).expect("Failed to load magic file");
 
     // Verify rules loaded correctly - should have 2 top-level rules
     assert_eq!(rules.len(), 2, "Should have 2 top-level rules");
@@ -109,7 +110,7 @@ fn test_load_directory_magic_file_success() {
     );
     create_test_magic_file(&magic_dir, "02_pdf", "0 string \\x25PDF- PDF document\n");
 
-    let rules = load_magic_file(&magic_dir).expect("Failed to load directory");
+    let ParsedMagic { rules, .. } = load_magic_file(&magic_dir).expect("Failed to load directory");
 
     // Verify all files merged correctly in alphabetical order
     assert_eq!(rules.len(), 3, "Should have 3 rules from 3 files");
@@ -159,10 +160,56 @@ fn test_load_empty_directory() {
     let empty_dir = temp_dir.path().join("empty_magic.d");
     fs::create_dir(&empty_dir).expect("Failed to create empty directory");
 
-    let rules = load_magic_file(&empty_dir).expect("Failed to load empty directory");
+    let ParsedMagic { rules, .. } =
+        load_magic_file(&empty_dir).expect("Failed to load empty directory");
 
     // Should return empty rules vector (not error)
     assert_eq!(rules.len(), 0, "Empty directory should return empty rules");
+}
+
+// ============================================================
+// Tests for name/use subroutine round-trip
+// ============================================================
+
+#[test]
+fn test_name_use_round_trip() {
+    use libmagic_rs::parser::ast::{MetaType, TypeKind};
+
+    // A `name` declaration + a `use` invocation at the top level. The
+    // name rule should be hoisted into the name table; the use rule
+    // should survive in the rules list. Evaluating the file against a
+    // matching buffer should surface the subroutine's message.
+    let magic = "\
+0 name part2
+>3 byte 0x42 sub-match
+
+0 use part2
+";
+    let parsed = libmagic_rs::parser::parse_text_magic_file(magic).expect("parse meta round-trip");
+
+    // The name rule should be hoisted; only the `use` remains at the top.
+    assert_eq!(parsed.rules.len(), 1, "name rule must be hoisted out");
+    assert!(
+        matches!(
+            parsed.rules[0].typ,
+            TypeKind::Meta(MetaType::Use(ref n)) if n == "part2"
+        ),
+        "remaining top-level rule must be the use invocation"
+    );
+
+    // End-to-end evaluation via MagicDatabase.
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let magic_file = create_test_magic_file(temp_dir.path(), "meta.magic", magic);
+    let db = MagicDatabase::load_from_file(&magic_file)
+        .expect("load meta-type magic file into MagicDatabase");
+
+    let buffer = b"\x00\x00\x00\x42\x00";
+    let result = db.evaluate_buffer(buffer).expect("evaluate meta buffer");
+    assert!(
+        result.description.contains("sub-match"),
+        "description should contain subroutine message, got '{}'",
+        result.description
+    );
 }
 
 // ============================================================

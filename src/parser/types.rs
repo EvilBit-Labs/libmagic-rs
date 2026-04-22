@@ -11,7 +11,7 @@
 
 use nom::{IResult, Parser, branch::alt, bytes::complete::tag};
 
-use crate::parser::ast::{Endianness, PStringLengthWidth, TypeKind};
+use crate::parser::ast::{Endianness, MetaType, PStringLengthWidth, TypeKind};
 
 /// Error returned by [`type_keyword_to_kind`] when the supplied keyword is
 /// not a recognized magic type keyword.
@@ -123,6 +123,22 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
         )),
         // String types (and regex/search, which share the string-type family)
         alt((tag("pstring"), tag("search"), tag("regex"), tag("string"))),
+        // Meta / control-flow directives. `indirect` is listed first so the
+        // longest match is tried before `default`, `clear`, `name`, `use`;
+        // none of these collide with other supported keywords.
+        //
+        // `offset` is recognized here so the parser can accept magic files
+        // that use it (e.g. `searchbug.magic`). In this phase it is
+        // evaluated as a silent no-op via `TypeKind::Meta(MetaType::Offset)`;
+        // full offset-reporting semantics are deferred.
+        alt((
+            tag("indirect"),
+            tag("default"),
+            tag("offset"),
+            tag("clear"),
+            tag("name"),
+            tag("use"),
+        )),
     ))
     .parse(input)
 }
@@ -195,8 +211,24 @@ pub fn type_keyword_to_kind(type_name: &str) -> Result<Option<TypeKind>, Unknown
     // here makes the "keyword alone isn't enough" invariant
     // type-enforced instead of relying on a placeholder that the
     // grammar layer is expected to overwrite.
-    if matches!(type_name, "regex" | "search") {
+    //
+    // `name` and `use` also return `Ok(None)` because their identifier
+    // suffix is parsed in the grammar layer, following the same
+    // "keyword alone isn't enough" pattern.
+    if matches!(type_name, "regex" | "search" | "name" | "use") {
         return Ok(None);
+    }
+
+    // Meta / control-flow directives with no trailing operand are fully
+    // specified by the keyword alone. `offset` is included here because
+    // parser-only support for it lands it in the AST as a silent no-op
+    // during this phase; full offset-reporting semantics are deferred.
+    match type_name {
+        "default" => return Ok(Some(TypeKind::Meta(MetaType::Default))),
+        "clear" => return Ok(Some(TypeKind::Meta(MetaType::Clear))),
+        "indirect" => return Ok(Some(TypeKind::Meta(MetaType::Indirect))),
+        "offset" => return Ok(Some(TypeKind::Meta(MetaType::Offset))),
+        _ => {}
     }
 
     if let Some(kind) = byte_family(type_name)
@@ -605,7 +637,8 @@ mod tests {
             "long", "ulong", "lelong", "ulelong", "belong", "ubelong", "quad", "uquad", "lequad",
             "ulequad", "bequad", "ubequad", "float", "befloat", "lefloat", "double", "bedouble",
             "ledouble", "date", "ldate", "bedate", "beldate", "ledate", "leldate", "qdate",
-            "qldate", "beqdate", "beqldate", "leqdate", "leqldate", "pstring", "string",
+            "qldate", "beqdate", "beqldate", "leqdate", "leqldate", "pstring", "string", "default",
+            "clear", "indirect", "offset",
         ];
         for keyword in convertible_keywords {
             let (rest, parsed) = parse_type_keyword(keyword).unwrap();
@@ -615,10 +648,11 @@ mod tests {
                 "{keyword} should map to Ok(Some(TypeKind))"
             );
         }
-        // regex and search are recognized by parse_type_keyword but
-        // require grammar-layer suffix parsing to construct their
-        // TypeKind. Verify both sides of this split invariant.
-        for keyword in ["regex", "search"] {
+        // regex, search, name, and use are recognized by parse_type_keyword
+        // but require grammar-layer suffix parsing (flags/count/range or an
+        // identifier) to construct their TypeKind. Verify both sides of
+        // this split invariant.
+        for keyword in ["regex", "search", "name", "use"] {
             let (rest, parsed) = parse_type_keyword(keyword).unwrap();
             assert_eq!(rest, "", "Keyword {keyword} should consume all input");
             assert_eq!(

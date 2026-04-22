@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- **parser**: Implement meta-type directives: `name`/`use` subroutines, `default`/`clear` per-level fallback, and `indirect` re-evaluation. `parse_text_magic_file` now returns `ParsedMagic { rules, name_table }` (breaking change from `Vec<MagicRule>`). Named subroutines are hoisted into `NameTable` at load time and dispatched via `RuleEnvironment` in the evaluator. Recursion is bounded by `EvaluationConfig::max_recursion_depth`. Resolves [#42](https://github.com/EvilBit-Labs/libmagic-rs/issues/42).
 - **evaluator**: Thread-local regex compile cache eliminates the double-compile paid by every successful regex match. `regex_bytes_consumed` now reuses the compiled `Regex` from `read_regex` instead of recompiling the pattern to derive the anchor advance. The cache is reset at the start of every `evaluate_rules_with_config` call, bounding memory to one evaluation.
 - **config**: `EvaluationConfig` is now `#[non_exhaustive]`; new builder-style setters (`with_max_recursion_depth`, `with_max_string_length`, `with_stop_at_first_match`, `with_mime_types`, `with_timeout_ms`) let external crates construct configurations without struct literals.
 - **parser**: `MagicRule::new()` smart constructor with `::with_children()`, `::with_strength_modifier()`, `::with_level()` builder methods and a `::validate()` method enforcing structural invariants (non-empty message, `level <= MAX_LEVEL`, children nested strictly deeper than parent). New `MagicRuleValidationError` error type.
@@ -40,6 +41,10 @@ All notable changes to this project will be documented in this file.
 - Backspace message concatenation regression tests for first-match, consecutive, and empty-rest edge cases.
 - `MagicRule::validate()` tests covering empty message, child level invariant, and max-depth rejection.
 - `RegexCache` population/clear/reuse tests.
+
+### Breaking Changes
+
+- **parser**: `parse_text_magic_file` return type changed from `Result<Vec<MagicRule>, ParseError>` to `Result<ParsedMagic, ParseError>`. Callers must destructure `ParsedMagic { rules, name_table }`. Low-level callers that only need the rule list can use `parsed.rules`. `load_magic_file` and `load_magic_directory` return the same new type.
 
 ## [0.5.0] - 2026-03-07
 

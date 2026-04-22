@@ -198,7 +198,21 @@ pub fn read_typed_value_with_pattern(
         TypeKind::Double { endian } => read_double(buffer, offset, *endian),
         TypeKind::Date { endian, utc } => read_date(buffer, offset, *endian, *utc),
         TypeKind::QDate { endian, utc } => read_qdate(buffer, offset, *endian, *utc),
-        TypeKind::String { max_length } => read_string(buffer, offset, *max_length),
+        TypeKind::String { max_length } => {
+            // libmagic semantics: `string TEST` compares the first
+            // pattern-length bytes of the buffer against the literal,
+            // *not* a NUL-terminated C-string. When the rule specifies
+            // no explicit `max_length` but the operand is a `Value::String`
+            // literal, fall back to the pattern's byte length so the
+            // read/compare path matches GNU `file` on NUL-free inputs.
+            // An explicit `max_length` on the rule always wins.
+            let effective_max = match (max_length, pattern) {
+                (Some(n), _) => Some(*n),
+                (None, Some(Value::String(p))) => Some(p.len()),
+                (None, _) => None,
+            };
+            read_string(buffer, offset, effective_max)
+        }
         TypeKind::PString {
             max_length,
             length_width,
@@ -240,6 +254,9 @@ pub fn read_typed_value_with_pattern(
             Ok(read_search(buffer, offset, pattern_bytes, *range)?
                 .unwrap_or_else(|| Value::String(String::new())))
         }
+        TypeKind::Meta(meta) => Err(TypeReadError::UnsupportedType {
+            type_name: format!("meta-type {meta:?} cannot be read as a value"),
+        }),
     }
 }
 
@@ -291,6 +308,9 @@ pub(crate) fn read_pattern_match(
             };
             read_search(buffer, offset, pattern_bytes, *range)
         }
+        TypeKind::Meta(meta) => Err(TypeReadError::UnsupportedType {
+            type_name: format!("meta-type {meta:?} cannot be read as a pattern match"),
+        }),
         _ => Err(TypeReadError::UnsupportedType {
             type_name: format!("read_pattern_match called on non-pattern type: {type_kind:?}"),
         }),
@@ -433,7 +453,35 @@ pub(crate) fn bytes_consumed_with_pattern(
     }
 
     match type_kind {
-        TypeKind::String { max_length } => string_bytes_consumed(buffer, offset, *max_length),
+        TypeKind::String { max_length } => {
+            // For the (`max_length: None`, string literal pattern)
+            // combination we now compare exactly `pattern.len()` bytes
+            // in `read_typed_value_with_pattern` (libmagic semantics).
+            // Keep the NUL-terminator inclusion that the chained-record
+            // tests rely on by peeking at the byte immediately after
+            // the pattern window: if it is NUL, consume one extra
+            // byte; otherwise stop at the pattern boundary. Explicit
+            // `max_length` rules and non-string patterns keep the
+            // original NUL-scan behavior.
+            match (max_length, pattern) {
+                (Some(n), _) => string_bytes_consumed(buffer, offset, Some(*n)),
+                (None, Some(Value::String(p))) => {
+                    let plen = p.len();
+                    let base = offset
+                        .checked_add(plen)
+                        .map_or(0, |end| if end > buffer.len() { 0 } else { plen });
+                    if base == 0 {
+                        0
+                    } else {
+                        match buffer.get(offset.saturating_add(plen)) {
+                            Some(&0) => base.saturating_add(1),
+                            _ => base,
+                        }
+                    }
+                }
+                (None, _) => string_bytes_consumed(buffer, offset, None),
+            }
+        }
         TypeKind::PString {
             max_length,
             length_width,
@@ -502,6 +550,12 @@ pub(crate) fn bytes_consumed_with_pattern(
             );
             0
         }
+        // Meta-type directives do not consume buffer bytes; the anchor
+        // should not advance when a meta rule is encountered. Per the
+        // GOTCHAS S2.1 checklist, listing them explicitly (rather than
+        // relying on a `_ =>` wildcard) keeps the match exhaustive so
+        // any future `TypeKind` variant triggers a compile error.
+        TypeKind::Meta(_) => 0,
     }
 }
 

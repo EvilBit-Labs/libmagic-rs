@@ -118,14 +118,45 @@ pub(crate) fn resolve_offset_with_context(
     buffer: &[u8],
     last_match_end: usize,
 ) -> Result<usize, LibmagicError> {
+    resolve_offset_with_base(spec, buffer, last_match_end, 0)
+}
+
+/// Like [`resolve_offset_with_context`] but applies a subroutine
+/// `base_offset` to positive absolute offsets.
+///
+/// Inside a `MetaType::Use` subroutine body, `OffsetSpec::Absolute(n)`
+/// with `n >= 0` resolves to `base_offset + n`, matching magic(5)
+/// semantics where the subroutine's offsets are relative to the
+/// caller's invocation point. Negative `Absolute`, `FromEnd`,
+/// `Relative`, and `Indirect` are unaffected -- they already have
+/// well-defined frames of reference (buffer end, previous match, or
+/// a pointer read from the buffer).
+pub(crate) fn resolve_offset_with_base(
+    spec: &OffsetSpec,
+    buffer: &[u8],
+    last_match_end: usize,
+    base_offset: usize,
+) -> Result<usize, LibmagicError> {
     match spec {
         OffsetSpec::Absolute(offset) => {
-            resolve_absolute_offset(*offset, buffer).map_err(|e| map_offset_error(&e, *offset))
+            // Apply base_offset only to positive absolute offsets.
+            // Negative values mean "from end" and should not be shifted
+            // by the subroutine base.
+            let effective = if *offset >= 0 {
+                let abs = usize::try_from(*offset).unwrap_or(usize::MAX);
+                let biased = base_offset.saturating_add(abs);
+                i64::try_from(biased).unwrap_or(i64::MAX)
+            } else {
+                *offset
+            };
+            resolve_absolute_offset(effective, buffer).map_err(|e| map_offset_error(&e, effective))
         }
         OffsetSpec::Indirect { .. } => indirect::resolve_indirect_offset(spec, buffer),
         OffsetSpec::Relative(_) => relative::resolve_relative_offset(spec, buffer, last_match_end),
         OffsetSpec::FromEnd(offset) => {
-            // FromEnd is handled the same as negative Absolute offsets
+            // FromEnd is handled the same as negative Absolute offsets.
+            // Base offset does not apply -- "from end" is always
+            // relative to the buffer itself.
             resolve_absolute_offset(*offset, buffer).map_err(|e| map_offset_error(&e, *offset))
         }
     }

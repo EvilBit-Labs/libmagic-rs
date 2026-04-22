@@ -18,7 +18,7 @@ use nom::{
 };
 
 use crate::parser::ast::{
-    Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, TypeKind, Value,
+    Endianness, MagicRule, MetaType, OffsetSpec, Operator, StrengthModifier, TypeKind, Value,
 };
 
 mod numbers;
@@ -195,6 +195,17 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
         let (input, spec) = parse_indirect_offset(input)?;
         let (input, _) = multispace0(input)?;
         Ok((input, spec))
+    } else if let Some(rest) = input.strip_prefix('&') {
+        // Relative offset: `&N`, `&+N`, or `&-N`. `parse_number` handles the
+        // bare and `-`-prefixed cases natively; `+` is consumed manually
+        // (see the indirect-offset adjustment parser for the same pattern).
+        let (rest, value) = if let Some(after_plus) = rest.strip_prefix('+') {
+            parse_number(after_plus)?
+        } else {
+            parse_number(rest)?
+        };
+        let (rest, _) = multispace0(rest)?;
+        Ok((rest, OffsetSpec::Relative(value)))
     } else {
         let (input, offset_value) = parse_number(input)?;
         let (input, _) = multispace0(input)?;
@@ -263,14 +274,11 @@ pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
                 (Operator::Equal, 1)
             }
         }
-        Some(b'!') => {
-            // Only "!=" is valid; bare "!" is an error.
-            if bytes.get(1).copied() == Some(b'=') {
-                (Operator::NotEqual, 2)
-            } else {
-                return Err(err());
-            }
-        }
+        // Only "!=" is valid; bare "!" is an error. Express this as a
+        // match arm with a guard so clippy's `collapsible_match` lint is
+        // satisfied -- a guard-false fallthrough lands on the final `_`
+        // arm below, which returns the same parse error.
+        Some(b'!') if bytes.get(1).copied() == Some(b'=') => (Operator::NotEqual, 2),
         Some(b'<') => {
             // "<=", "<>", or bare "<"
             match bytes.get(1).copied() {
@@ -327,6 +335,74 @@ pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
     Ok((remaining, op))
 }
 
+/// Parse the identifier operand of a `name` / `use` meta-type directive.
+///
+/// Called from [`parse_type_and_operator`] when the leading keyword is
+/// `name` or `use`. Enforces that the keyword is followed by whitespace,
+/// an identifier matching `[A-Za-z0-9_-]+`, and no further non-whitespace
+/// content on the line. Malformed identifiers such as `part2=foo`
+/// (operator-adjacent continuation) or `part 2` (split identifier) are
+/// rejected as parse errors rather than silently consumed as a message.
+fn parse_name_or_use_meta<'a>(
+    type_name: &str,
+    input: &'a str,
+) -> IResult<&'a str, (TypeKind, Option<Operator>)> {
+    use nom::character::complete::space1;
+
+    // Require at least one whitespace character between the keyword and
+    // the identifier. `space1` rejects an empty gap, which enforces
+    // "bare `name` / `use` with no identifier" as a parse error.
+    let (input, _) = space1(input)?;
+    let (after_id, id) =
+        take_while(|c: char| c.is_alphanumeric() || c == '_' || c == '-').parse(input)?;
+    if id.is_empty() {
+        return Err(nom::Err::Error(NomError::new(
+            after_id,
+            nom::error::ErrorKind::AlphaNumeric,
+        )));
+    }
+
+    // The character immediately following the identifier must be
+    // whitespace or end-of-input. Anything else (e.g. `=`, `!`, `<`,
+    // `>`, `&`, `^`, `~`, `|`, punctuation) means `take_while` truncated
+    // a malformed identifier such as `part2=foo`: reject instead of
+    // silently treating the leftover text as a message.
+    if let Some(next_char) = after_id.chars().next()
+        && !matches!(next_char, ' ' | '\t' | '\n' | '\r')
+    {
+        return Err(nom::Err::Error(NomError::new(
+            after_id,
+            nom::error::ErrorKind::Alpha,
+        )));
+    }
+
+    // Consume horizontal whitespace after the identifier; the remaining
+    // text on this line must then be empty or terminated by a newline.
+    // `parse_text_magic_file` splits input into lines before parsing,
+    // so "empty" means no trailing content at all. Anything else
+    // (like `part 2`) is a split identifier and must fail.
+    let mut tail = after_id;
+    while let Some(rest) = tail.strip_prefix(' ').or_else(|| tail.strip_prefix('\t')) {
+        tail = rest;
+    }
+    if let Some(next_char) = tail.chars().next()
+        && !matches!(next_char, '\n' | '\r')
+    {
+        return Err(nom::Err::Error(NomError::new(
+            tail,
+            nom::error::ErrorKind::AlphaNumeric,
+        )));
+    }
+
+    let meta = if type_name == "name" {
+        MetaType::Name(id.to_string())
+    } else {
+        MetaType::Use(id.to_string())
+    };
+    let (input, _) = multispace0(tail)?;
+    Ok((input, (TypeKind::Meta(meta), None)))
+}
+
 /// Parse a type specification with an optional attached bitwise-AND mask operator
 /// (e.g., `lelong&0xf0000000`).
 ///
@@ -356,6 +432,15 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
     let (input, _) = multispace0(input)?;
 
     let (mut input, type_name) = crate::parser::types::parse_type_keyword(input)?;
+
+    // `name` and `use` are meta-type directives with a mandatory
+    // identifier suffix. They short-circuit the operator/value parse
+    // path via `parse_name_or_use_meta`, which also rejects malformed
+    // identifiers (operator-adjacent continuations like `part2=foo` or
+    // split identifiers like `part 2`).
+    if type_name == "name" || type_name == "use" {
+        return parse_name_or_use_meta(type_name, input);
+    }
 
     // Handle pstring suffixes: /B, /H, /h, /L, /l, and optional /J modifier
     let mut pstring_length_width = PStringLengthWidth::OneByte;
@@ -675,6 +760,23 @@ pub fn is_strength_directive(input: &str) -> bool {
 /// assert_eq!(rule.message, "32-bit");
 /// ```
 ///
+/// Consume a leading `x` (`AnyValue`) operator with surrounding whitespace,
+/// if present. Used by the Meta-type short-circuit so that
+/// `>>&0 offset x at_offset %lld` does not emit `x\tat_offset %lld` as
+/// the message. A bare `x` with no following whitespace (e.g. `xylophone`)
+/// is left untouched -- we require the `x` to be a standalone token.
+fn strip_optional_x_operator(input: &str) -> &str {
+    let trimmed = input.trim_start_matches([' ', '\t']);
+    if let Some(rest) = trimmed.strip_prefix('x') {
+        // Require whitespace or end-of-line after `x` so we don't eat
+        // the first character of a message that happens to start with x.
+        if rest.is_empty() || rest.starts_with([' ', '\t', '\n', '\r']) {
+            return rest.trim_start_matches([' ', '\t']);
+        }
+    }
+    input
+}
+
 /// # Errors
 ///
 /// Returns a nom parsing error if:
@@ -692,13 +794,62 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
     // Parse the type and any attached operator
     let (input, (typ, attached_op)) = parse_type_and_operator(input)?;
 
+    // Meta-type directives (default, clear, name, use, indirect, offset)
+    // conceptually have no operator/value operand, but magic(5) source
+    // files (including GNU `file`'s own `searchbug.magic`) often write
+    // them with an `x` (AnyValue) placeholder between the type and the
+    // message, e.g. `>>&0 offset x at_offset %lld`. Consume an optional
+    // leading `x` token here so it does not leak into the rendered
+    // message.
+    //
+    // `name`/`use` are handled earlier in parse_type_and_operator and
+    // already consumed their identifier operand, so the `x` stripping
+    // is a no-op for them.
+    if matches!(typ, TypeKind::Meta(_)) {
+        let input = strip_optional_x_operator(input);
+        let (input, message) = if input.trim().is_empty() {
+            (input, String::new())
+        } else {
+            parse_message(input)?
+        };
+        let rule = MagicRule {
+            offset,
+            typ,
+            op: Operator::AnyValue,
+            value: Value::Uint(0),
+            message,
+            children: vec![],
+            level,
+            strength_modifier: None,
+        };
+        return Ok((input, rule));
+    }
+
     // Try to parse a separate operator (optional - use attached operator if present)
     let (input, separate_op) = opt(parse_operator).parse(input)?;
     let op = attached_op.or(separate_op).unwrap_or(Operator::Equal);
 
-    // For AnyValue (`x`), no operand is needed -- treat remaining text as message
+    // For AnyValue (`x`), no operand is needed -- treat remaining text as message.
+    // For string-family types, fall back to a bare (unquoted) single-token
+    // literal if the strict `parse_value` alternatives all fail. magic(5)
+    // syntax permits writing `string TEST` or `search/12 ABC` without
+    // surrounding quotes, and this fallback supports that form without
+    // relaxing value parsing for non-string types (where `xyz` must
+    // still be rejected -- see `test_parse_value_invalid_input`).
+    let is_string_family_type = matches!(
+        typ,
+        TypeKind::String { .. }
+            | TypeKind::PString { .. }
+            | TypeKind::Regex { .. }
+            | TypeKind::Search { .. }
+    );
     let (input, value) = if op == Operator::AnyValue {
         (input, Value::Uint(0))
+    } else if is_string_family_type {
+        match parse_value(input) {
+            Ok(ok) => ok,
+            Err(orig_err) => parse_bare_string_value(input).map_err(|_| orig_err)?,
+        }
     } else {
         parse_value(input)?
     };
@@ -722,6 +873,30 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
     };
 
     Ok((input, rule))
+}
+
+/// Parse a bare (unquoted) single-token string literal as a `Value::String`.
+///
+/// Used only as a fallback for string-family types (`string`, `pstring`,
+/// `regex`, `search`) when the strict [`parse_value`] alternatives all
+/// fail. Consumes leading whitespace, then reads a run of non-whitespace
+/// characters as the literal value. This supports the magic(5) syntax
+/// `string TEST` where the value is not surrounded by quotes.
+///
+/// # Errors
+/// Returns a nom parsing error if the input contains no non-whitespace
+/// token (e.g. it is empty or consists entirely of whitespace).
+fn parse_bare_string_value(input: &str) -> IResult<&str, Value> {
+    let (input, _) = multispace0(input)?;
+    let (input, token) =
+        take_while(|c: char| !c.is_whitespace() && c != '\n' && c != '\r').parse(input)?;
+    if token.is_empty() {
+        return Err(nom::Err::Error(NomError::new(
+            input,
+            nom::error::ErrorKind::TakeWhile1,
+        )));
+    }
+    Ok((input, Value::String(token.to_string())))
 }
 
 /// Parse a comment line (starts with #)

@@ -12,8 +12,8 @@
 //! binary as built-in rules.
 
 use super::ast::{
-    Endianness, MagicRule, OffsetSpec, Operator, PStringLengthWidth, StrengthModifier, TypeKind,
-    Value,
+    Endianness, MagicRule, MetaType, OffsetSpec, Operator, PStringLengthWidth, StrengthModifier,
+    TypeKind, Value,
 };
 
 const INDENT_WIDTH: usize = 4;
@@ -29,7 +29,7 @@ pub fn generate_builtin_rules(rules: &[MagicRule]) -> String {
     push_line(&mut output, "#[allow(unused_imports)]");
     push_line(
         &mut output,
-        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness, StrengthModifier, PStringLengthWidth};",
+        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness, StrengthModifier, PStringLengthWidth, MetaType};",
     );
     push_line(&mut output, "use std::sync::LazyLock;");
     push_line(&mut output, "");
@@ -269,6 +269,20 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
             "TypeKind::Search {{ range: ::std::num::NonZeroUsize::new({}).unwrap_or(::std::num::NonZeroUsize::MIN) }}",
             range.get()
         ),
+        TypeKind::Meta(meta) => match meta {
+            MetaType::Default => "TypeKind::Meta(MetaType::Default)".to_string(),
+            MetaType::Clear => "TypeKind::Meta(MetaType::Clear)".to_string(),
+            MetaType::Indirect => "TypeKind::Meta(MetaType::Indirect)".to_string(),
+            MetaType::Offset => "TypeKind::Meta(MetaType::Offset)".to_string(),
+            MetaType::Name(id) => format!(
+                "TypeKind::Meta(MetaType::Name(String::from({})))",
+                format_string_literal(id)
+            ),
+            MetaType::Use(id) => format!(
+                "TypeKind::Meta(MetaType::Use(String::from({})))",
+                format_string_literal(id)
+            ),
+        },
     }
 }
 
@@ -502,6 +516,38 @@ mod tests {
         assert!(
             generated.contains(r"\n"),
             "escaped newline missing from serialized message:\n{generated}"
+        );
+    }
+
+    /// Security regression test for `MetaType::Name` / `MetaType::Use`:
+    /// the identifier is user-controlled (from the magic file) and must
+    /// be escaped the same way as the message field. A malicious
+    /// identifier containing `"`, `panic!`, or other Rust tokens must
+    /// not escape the string literal and land as bare code in the
+    /// generated `builtin_rules.rs`.
+    #[test]
+    fn test_serialize_meta_name_escapes_injection() {
+        let malicious = r#""; panic!("pwned-from-meta"); let _ = ""#;
+        let rule = MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Meta(MetaType::Name(malicious.to_string())),
+            op: Operator::AnyValue,
+            value: Value::Uint(0),
+            message: "meta rule".to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        };
+
+        let generated = serialize_magic_rule(&rule, 0);
+
+        assert!(
+            !generated.contains(r#"panic!("pwned-from-meta")"#),
+            "injected Rust tokens leaked through MetaType::Name identifier:\n{generated}"
+        );
+        assert!(
+            generated.contains(r#"\""#),
+            "escaped quote missing from serialized MetaType::Name identifier:\n{generated}"
         );
     }
 }

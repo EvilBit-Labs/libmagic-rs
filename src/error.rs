@@ -201,12 +201,61 @@ pub enum EvaluationError {
     #[error("Type reading error: {0}")]
     TypeReadError(#[from] crate::evaluator::types::TypeReadError),
 
+    /// A `use` directive referenced a name not present in the name table.
+    ///
+    /// The evaluator currently handles this condition with a `warn!` log
+    /// plus `Ok(vec![])` for backward compatibility with magic files that
+    /// invoke subroutines defined in another magic file. This variant is
+    /// reserved for consumers that opt in to strict-mode evaluation where
+    /// an unknown-name reference should abort the run.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::error::EvaluationError;
+    ///
+    /// let error = EvaluationError::UnknownName {
+    ///     name: "missing_sub".to_string(),
+    /// };
+    /// assert!(matches!(error, EvaluationError::UnknownName { .. }));
+    /// ```
+    #[error("use directive references unknown name: {name}")]
+    UnknownName {
+        /// The name that could not be resolved in the name table.
+        name: String,
+    },
+
     /// Internal error indicating a bug in the evaluation logic.
     #[error("Internal error: {message}")]
     InternalError {
         /// Description of the internal error
         message: String,
     },
+
+    /// An `indirect` directive was evaluated without a rule environment
+    /// attached to the [`crate::evaluator::EvaluationContext`].
+    ///
+    /// `MetaType::Indirect` re-evaluates the entire root rule list at the
+    /// resolved offset. Without a [`crate::evaluator::RuleEnvironment`] (the
+    /// shared root rules + name table) the engine has nothing to re-enter,
+    /// so the directive is a no-op. This variant is reserved for consumers
+    /// that opt in to strict-mode evaluation where the misconfiguration
+    /// should abort the run; the default engine path logs at `debug!` and
+    /// returns `Ok(vec![])` for backward compatibility with low-level
+    /// programmatic callers (tests, fuzz harnesses) that intentionally run
+    /// without a `MagicDatabase`-attached environment, mirroring the
+    /// `Use`-without-env contract.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::error::EvaluationError;
+    ///
+    /// let error = EvaluationError::indirect_without_environment();
+    /// assert!(matches!(error, EvaluationError::IndirectWithoutEnvironment));
+    /// ```
+    #[error("indirect directive evaluated without a rule environment")]
+    IndirectWithoutEnvironment,
 }
 
 impl ParseError {
@@ -330,6 +379,12 @@ impl EvaluationError {
         Self::InternalError {
             message: message.into(),
         }
+    }
+
+    /// Create a new `IndirectWithoutEnvironment` error.
+    #[must_use]
+    pub const fn indirect_without_environment() -> Self {
+        Self::IndirectWithoutEnvironment
     }
 }
 
