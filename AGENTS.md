@@ -82,9 +82,12 @@ pub enum Operator {
 parser/
 ├── mod.rs      // Public parser interface
 ├── ast.rs      // AST node definitions
-├── grammar/    // Magic file DSL parsing (nom)
-│   ├── mod.rs  // Grammar parsing logic
-│   └── tests.rs // Grammar parser tests
+├── grammar/    // Magic file DSL parsing (nom) -- split into focused submodules
+│   ├── mod.rs        // Top-level parse_magic_rule_line, dispatch
+│   ├── numbers.rs    // parse_number, parse_unsigned_number
+│   ├── value.rs      // parse_value (quoted strings, numeric literals)
+│   ├── type_suffix.rs // pstring /B/H/L, regex /c/s, search /N suffixes
+│   └── tests/        // Grammar test modules
 ├── types.rs    // Type keyword parsing and TypeKind conversion
 └── codegen.rs  // Serialization for code generation (shared with build.rs)
 
@@ -95,7 +98,13 @@ evaluator/
 ├── engine/         // Core evaluation engine submodule
 │   ├── mod.rs      // evaluate_single_rule, evaluate_rules, evaluate_rules_with_config
 │   └── tests.rs    // Engine unit tests
-├── types.rs        // Type interpretation with endianness
+├── types/          // Type interpretation with endianness (directory module, issue #63)
+│   ├── mod.rs      // read_typed_value, read_pattern_match, bytes_consumed_with_pattern
+│   ├── numeric.rs  // byte/short/long/quad readers
+│   ├── string.rs   // string/pstring readers
+│   ├── float.rs    // float/double readers
+│   ├── date.rs     // date/qdate readers and timestamp formatting
+│   └── regex.rs    // regex/search readers, REGEX_MAX_BYTES cap, thread-local cache
 ├── strength.rs     // Strength modifier application
 ├── offset/         // Offset resolution submodule
 │   ├── mod.rs      // Dispatcher (resolve_offset) and re-exports
