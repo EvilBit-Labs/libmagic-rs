@@ -211,7 +211,7 @@ cargo test --doc   # Test documentation examples
 
 ## Magic File Compatibility
 
-### Currently Implemented (v0.5.0)
+### Currently Implemented (v0.5.x, unreleased)
 
 - **Offsets**: Absolute, from-end, indirect, and relative specifications (relative offsets `&+N`/`&-N` are evaluated using GNU `file` semantics -- the previous-match anchor)
 - **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`; `pstring` is a Pascal string (length-prefixed) with support for 1/2/4-byte length prefixes via `/B`, `/H` (2-byte BE), `/h` (2-byte LE), `/L` (4-byte BE), `/l` (4-byte LE) suffixes, and the `/J` flag (stored length includes prefix width, JPEG convention) which is combinable with width suffixes (e.g., `pstring/HJ`); date values formatted as "Www Mmm DD HH:MM:SS YYYY" matching GNU `file` output; types are signed by default (libmagic-compatible)
@@ -220,20 +220,22 @@ cargo test --doc   # Test documentation examples
 - **String Matching**: Exact string matching with null-termination and Pascal string (length-prefixed) support
 - **Regex type**: Binary-safe regex matching via `regex::bytes::Regex`. Full flag support: `/c` (case-insensitive), `/s` (anchor advances to match-start instead of match-end), `/l` (scan window is measured in lines instead of bytes). Flags combine in any order (`regex/cs`, `regex/csl`, `regex/lc`). Numeric counts are honored: `regex/100` scans at most 100 bytes; `regex/1l` scans at most 1 line. Multi-line regex matching is always on (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries regardless of `/l`. Every scan window is capped at 8192 bytes (`FILE_REGEX_MAX`) regardless of the user's count.
 - **Search type**: Bounded literal pattern scan via `memchr::memmem::find`; `search/N` caps the scan window to `N` bytes from the offset. The range is **mandatory** and stored as `NonZeroUsize`, so bare `search` and `search/0` are parse errors (matching GNU `file` magic(5)). Anchor advance follows GNU `file` semantics (match-end, not window-end) so relative-offset children resolve to the byte immediately after the matched pattern.
+- **Meta-type directives**: `default`, `clear`, `name <id>`, `use <id>`, `indirect` are parsed into `TypeKind::Meta(MetaType::...)` and preserved through codegen. The evaluator currently treats all five as silent no-ops (returns `Ok(None)` in `evaluate_single_rule_with_anchor`); control-flow semantics will be wired up in a subsequent phase.
 
-See **Development Phases** below for the planned roadmap of features not yet implemented (Aho-Corasick multi-pattern optimization, compiled-regex caching, `!:mime`/`!:ext`/`!:apple` directive evaluation, and `use`/`name` named test directives).
+See **Development Phases** below for the planned roadmap of features not yet implemented (Aho-Corasick multi-pattern optimization, compiled-regex caching, `!:mime`/`!:ext`/`!:apple` directive evaluation, and evaluator wiring for the parsed meta-type directives `default`/`clear`/`name`/`use`/`indirect`).
 
-## Current Limitations (v0.5.0)
+## Current Limitations (v0.5.x, unreleased)
 
 ### Type System
 
 - 64-bit integer types: `quad`/`uquad`, `bequad`/`ubequad`, `lequad`/`ulequad` are implemented; `qquad` (128-bit) is not yet supported
-- String evaluation reads until first NUL or end-of-buffer by default; `pstring` reads a length-prefixed Pascal string; `max_length: Some(_)` is supported internally but no dedicated fixed-length string parser syntax exists yet
+- `string` evaluation reads until first NUL or end-of-buffer; `max_length: Some(_)` is supported programmatically (via the AST) but libmagic itself has no corresponding surface syntax, so this is not a parity gap
+- `string` type modifier flags are not supported: `/B` (compact whitespace), `/b` (compact blanks), `/c`/`/C` (case-insensitive), `/t`/`/T` (force text/binary), `/w`/`/W` (whitespace optional). Only `pstring` has suffix parsing today.
 - `pstring` supports 1-byte (`/B`), 2-byte big-endian (`/H`), 2-byte little-endian (`/h`), 4-byte big-endian (`/L`), and 4-byte little-endian (`/l`) length prefixes, plus the `/J` flag (stored length includes prefix width). All flags are combinable (e.g., `pstring/HJ`) and fully implemented.
 
 ### Operators
 
-- BitwiseAnd supports mask values but not all libmagic mask syntax
+- Parser handles `&`, `&<decimal>`, and `&0x<hex>` masks across the full `u64` range; compound forms like arithmetic expressions in mask position (`&(N+M)`) or post-mask modifiers are not parsed
 
 ### Offset Specifications
 
@@ -244,7 +246,7 @@ See **Development Phases** below for the planned roadmap of features not yet imp
 
 - Limited support for special directives (only `!:strength` is parsed)
 - No support for `!:mime`, `!:ext`, `!:apple` directives in evaluation
-- No support for named tests or use/name directives
+- Meta-type directives (`default`, `clear`, `name`, `use`, `indirect`) are parsed into the AST but evaluated as silent no-ops; full control-flow semantics are deferred
 
 See issue #52 for the planned enhancement roadmap.
 
