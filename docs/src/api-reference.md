@@ -230,6 +230,24 @@ use libmagic_rs::TypeKind;
 | `Double { endian }`        | 64-bit IEEE 754 double-precision floating-point (added in v0.5.0)                           |
 | `String { max_length }`    | String data (discriminant changed from 4 to 6 in v0.5.0)                                    |
 | `PString { max_length }`   | Pascal string - length-prefixed byte followed by string data (returns `Value::String`)      |
+| `Meta(MetaType)`           | Control flow and subroutine directives for conditional execution and code reuse             |
+
+### MetaType
+
+Control-flow directives carried by `TypeKind::Meta`.
+
+```rust
+use libmagic_rs::MetaType;
+```
+
+| Variant           | Description                                                                                           |
+| ----------------- | ----------------------------------------------------------------------------------------------------- |
+| `Default`         | Fires when no sibling at the same indentation level matched at the current offset                    |
+| `Clear`           | Resets the sibling-matched flag so a later `default` sibling can fire even if an earlier sibling matched |
+| `Name(String)`    | Declares a named subroutine that can be invoked later via `Use`                                      |
+| `Use(String)`     | Invokes a named subroutine previously declared via `Name`                                            |
+| `Indirect`        | Re-applies the entire magic database at the resolved offset                                          |
+| `Offset`          | Reports the current file offset as `Value::Uint(position)` rather than reading a typed value         |
 
 ### Operator
 
@@ -414,7 +432,7 @@ use libmagic_rs::evaluator::MatchResult;
 
 | Field        | Type       | Description                               |
 | ------------ | ---------- | ----------------------------------------- |
-| `message`    | `String`   | Match description                         |
+| `message`    | `String`   | Match description (printf-style format specifiers like `%d`, `%x`, `%s` are substituted at output time) |
 | `offset`     | `usize`    | Match offset                              |
 | `level`      | `u32`      | Rule level                                |
 | `value`      | `Value`    | Matched value                             |
@@ -523,6 +541,10 @@ pub use error::{EvaluationError, LibmagicError, ParseError};
 - `Value` enum: Added `Float(f64)` variant for floating-point values
 - `Value` enum: No longer derives `Eq` trait (only `PartialEq` is available due to floating-point values)
 - `RuleMatch` struct: Added `type_kind: TypeKind` field to indicate the type used for matching
+
+### Breaking Changes (post-0.5.0)
+
+- Parser functions (`parse_text_magic_file`, `load_magic_file`, `load_magic_directory`) now return `ParsedMagic { rules, name_table }` instead of `Vec<MagicRule>`. Code must destructure: `let ParsedMagic { rules, name_table } = parse_text_magic_file(...)?;`
 
 ### Breaking Changes in v0.2.0
 

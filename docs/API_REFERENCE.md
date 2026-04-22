@@ -25,6 +25,17 @@ The main interface for loading magic rules and evaluating files.
 use libmagic_rs::MagicDatabase;
 ```
 
+The struct contains internal fields:
+
+| Field (Internal)  | Type                 | Description                                                      |
+| ----------------- | -------------------- | ---------------------------------------------------------------- |
+| `rules`           | `Vec<MagicRule>`     | Top-level magic rules                                            |
+| `name_table`      | `Arc<NameTable>`     | Named subroutine definitions extracted from `name` rules         |
+| `root_rules`      | `Arc<[MagicRule]>`   | Shared immutable slice of top-level rules for `indirect` re-entry |
+| `config`          | `EvaluationConfig`   | Evaluation configuration                                         |
+| `source_path`     | `Option<PathBuf>`    | Optional path to the source magic file or directory              |
+| `mime_mapper`     | `MimeMapper`         | MIME type mapper                                                 |
+
 #### Constructor Methods
 
 | Method                                     | Description                                  |
@@ -252,7 +263,64 @@ match MagicDatabase::load_from_file("invalid.magic") {
 
 ## Parser Module
 
+### Parser Functions
+
+#### parse_text_magic_file
+
+Parses a complete magic file from raw text input.
+
+```rust
+use libmagic_rs::parser::parse_text_magic_file;
+
+let magic = "0 string \\x7fELF ELF file";
+let parsed = parse_text_magic_file(magic)?;
+assert_eq!(parsed.rules.len(), 1);
+```
+
+Returns `Result<ParsedMagic, ParseError>` where `ParsedMagic` contains the top-level rules and the name table.
+
+#### load_magic_file
+
+Loads magic rules from a file or directory, automatically detecting the format.
+
+```rust
+use libmagic_rs::parser::load_magic_file;
+
+let parsed = load_magic_file("/usr/share/misc/magic")?;
+println!("Loaded {} magic rules", parsed.rules.len());
+```
+
+Returns `Result<ParsedMagic, ParseError>`.
+
+#### load_magic_directory
+
+Loads and merges magic rules from all files in a directory.
+
+```rust
+use libmagic_rs::parser::load_magic_directory;
+
+let parsed = load_magic_directory("/usr/share/file/magic.d")?;
+println!("Loaded {} rules from directory", parsed.rules.len());
+```
+
+Returns `Result<ParsedMagic, ParseError>`.
+
 ### AST Types
+
+#### ParsedMagic
+
+Result of parsing a text magic file.
+
+```rust
+use libmagic_rs::parser::ParsedMagic;
+```
+
+Contains the top-level rule list with any `name`-declared subroutines hoisted into a separate name table keyed by identifier.
+
+| Field        | Type          | Description                                                  |
+| ------------ | ------------- | ------------------------------------------------------------ |
+| `rules`      | `Vec<MagicRule>` | Top-level rules after `Name` subroutines have been removed |
+| `name_table` | `NameTable` (internal) | Extracted `name` subroutine definitions, consulted by the evaluator when a rule of type `TypeKind::Meta(MetaType::Use(_))` is reached |
 
 #### MagicRule
 
@@ -307,6 +375,24 @@ use libmagic_rs::TypeKind;
 | `Date { endian, utc }`     | 32-bit Unix timestamp (signed seconds since epoch). The `endian` parameter specifies byte order (LittleEndian or BigEndian), and `utc` is a boolean indicating whether to format as UTC or local time. Date values are formatted as "Www Mmm DD HH:MM:SS YYYY" strings to match GNU file output.  |
 | `QDate { endian, utc }`    | 64-bit Unix timestamp (signed seconds since epoch). The `endian` parameter specifies byte order (LittleEndian or BigEndian), and `utc` is a boolean indicating whether to format as UTC or local time. QDate values are formatted as "Www Mmm DD HH:MM:SS YYYY" strings to match GNU file output. |
 | `String { max_length }`    | String data                                                                                                                                                                                                                                                                                       |
+| `Meta(MetaType)`           | Meta-type directives for control flow, conditional execution, and named subroutines. Variants: `Default`, `Clear`, `Name`, `Use`, `Indirect`, `Offset`. See [`MetaType`](#metatype) for details.                                                                                                 |
+
+##### MetaType
+
+Control-flow directive variants carried by `TypeKind::Meta`.
+
+```rust
+use libmagic_rs::parser::ast::MetaType;
+```
+
+| Variant    | Description                                                                                                                          |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `Default`  | Fires when no sibling at the same indentation level has matched                                                                     |
+| `Clear`    | Resets the sibling-matched flag so a later `default` sibling can fire even if an earlier sibling matched                            |
+| `Name(id)` | Declares a named subroutine with identifier `id` that can be invoked later via `Use`                                                |
+| `Use(id)`  | Invokes a named subroutine previously declared via `Name`                                                                           |
+| `Indirect` | Re-applies the entire magic database at the resolved offset                                                                         |
+| `Offset`   | Reports the current file offset as `Value::Uint(pos)` rather than reading a typed value from the buffer; operator must be `AnyValue` (`x`) |
 
 ##### 64-bit Integer Types
 
@@ -443,7 +529,7 @@ use libmagic_rs::evaluator::MatchResult;
 
 | Field        | Type     | Description       |
 | ------------ | -------- | ----------------- |
-| `message`    | `String` | Match description |
+| `message`    | `String` | Match description (printf-style format specifiers like `%d`, `%x`, `%s` are substituted with the matched value) |
 | `offset`     | `usize`  | Match offset      |
 | `level`      | `u32`    | Rule level        |
 | `value`      | `Value`  | Matched value     |
@@ -558,3 +644,16 @@ Currently, libmagic-rs does not have optional feature flags. All functionality i
 - **Minimum Rust Version**: 1.89
 - **Edition**: 2024
 - **License**: Apache-2.0
+
+---
+
+## Breaking Changes
+
+### v0.5.0
+
+**Meta-type directives and format substitution** (PR #230):
+
+- Parser functions `parse_text_magic_file`, `load_magic_file`, and `load_magic_directory` return `Result<ParsedMagic, ParseError>` instead of `Result<Vec<MagicRule>, ParseError>`. `ParsedMagic` is a struct with fields `rules: Vec<MagicRule>` and `name_table: NameTable`.
+- `MagicDatabase` struct now includes internal fields `root_rules: Arc<[MagicRule]>` and `name_table: Arc<NameTable>` to support meta-type evaluation.
+- Printf-style format substitution (`%d`, `%x`, `%s`, etc.) is applied to the `message` field in `MatchResult`. Messages containing literal `%` characters that were previously passed through verbatim will now be interpreted as format specifiers. Escape literal `%` as `%%`.
+- `TypeKind::Meta(MetaType)` enum added with variants `Default`, `Clear`, `Name`, `Use`, `Indirect`, `Offset`.
