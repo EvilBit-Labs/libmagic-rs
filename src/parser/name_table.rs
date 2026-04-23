@@ -125,7 +125,10 @@ fn scrub_nested_names(children: Vec<MagicRule>, parent_level: u32) -> Vec<MagicR
     let mut kept = Vec::with_capacity(children.len());
     for child in children {
         if let TypeKind::Meta(MetaType::Name(ref name)) = child.typ {
-            warn!("name directive '{name}' at level {parent_level} is not top-level; skipping");
+            warn!(
+                "name directive '{name}' at level {} under parent level {parent_level} is not top-level; skipping",
+                child.level
+            );
             continue;
         }
         let scrubbed = scrub_nested_names(child.children, child.level + 1);

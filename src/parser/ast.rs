@@ -503,13 +503,17 @@ pub enum TypeKind {
         /// Scan window width in bytes, starting at the rule's offset.
         range: NonZeroUsize,
     },
-    /// Control-flow directive (`default`, `clear`, `name`, `use`, `indirect`).
+    /// Control-flow directive (`default`, `clear`, `name`, `use`,
+    /// `indirect`, `offset`).
     ///
     /// These magic(5) keywords do not read or compare bytes; they modify
-    /// how a rule set is traversed. In the current phase they are parsed
-    /// into the AST and preserved through codegen, but the evaluator
-    /// treats them as silent no-ops. See [`MetaType`] for the individual
-    /// variants and their intended semantics.
+    /// how a rule set is traversed. All six variants are fully evaluated:
+    /// `default` fires as a fallback when no sibling at the same level
+    /// has matched; `clear` resets that flag; `name`/`use` support
+    /// subroutine definition and invocation; `indirect` re-enters the
+    /// rule set at a resolved offset; `offset` emits the resolved file
+    /// position as `Value::Uint` for printf-style message substitution.
+    /// See [`MetaType`] for the individual variants.
     ///
     /// # Examples
     ///

@@ -114,6 +114,7 @@ pub enum MetaType {
     Name(String),                 // `name <id>` subroutine declaration (hoisted at load time)
     Use(String),                  // `use <id>` subroutine invocation
     Indirect,                     // `indirect` re-applies root rules at the resolved offset
+    Offset,                       // `offset` emits the resolved file position as Value::Uint for printf-style message substitution
 }
 
 pub enum Operator {

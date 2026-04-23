@@ -300,10 +300,16 @@ fn render(spec: &Spec, value: &Value, type_kind: &TypeKind) -> Option<String> {
         Conv::Char => {
             let n = coerce_to_u64(value)?;
             let byte = u8::try_from(n).ok()?;
-            if byte > 0x7f {
-                return None;
-            }
-            Some(pad_numeric(&(byte as char).to_string(), spec))
+            // GNU `file` / C printf `%c` converts the int argument to
+            // unsigned char and emits it directly for all byte values
+            // 0x00-0xff. Rust's `String` must be valid UTF-8, so we
+            // embed bytes >= 0x80 as their Latin-1 code points (U+0080
+            // through U+00FF) via `char::from(u8)` which is infallible
+            // and lossless. Consumers with UTF-8 terminals see the
+            // 2-byte UTF-8 encoding of that code point; consumers
+            // iterating the returned bytes directly can recover the
+            // original byte by re-encoding the code point as Latin-1.
+            Some(pad_numeric(&char::from(byte).to_string(), spec))
         }
     }
 }
@@ -711,9 +717,20 @@ mod tests {
     }
 
     #[test]
-    fn test_char_specifier_rejects_non_ascii() {
-        // Values above 0x7f cannot be rendered as `%c` -> pass through literally.
+    fn test_char_specifier_accepts_full_byte_range() {
+        // `%c` emits every byte value 0x00..=0xff directly, matching
+        // GNU `file` / C printf semantics. Bytes 0x80-0xff are embedded
+        // as their Latin-1 code points via `char::from(u8)`.
+        // 0xff maps to U+00FF ('ÿ'); UTF-8 encoding is 0xc3 0xbf.
         let out = format_magic_message("[%c]", &Value::Uint(0xff), &byte_t());
+        assert_eq!(out, "[\u{00ff}]");
+
+        // ASCII boundary stays unchanged.
+        let out = format_magic_message("[%c]", &Value::Uint(u64::from(b'A')), &byte_t());
+        assert_eq!(out, "[A]");
+
+        // Out-of-range (doesn't fit u8) passes through literally.
+        let out = format_magic_message("[%c]", &Value::Uint(0x1_0000), &byte_t());
         assert_eq!(out, "[%c]");
     }
 

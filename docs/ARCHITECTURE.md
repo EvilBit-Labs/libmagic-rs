@@ -234,11 +234,12 @@ The main entry point for users. Manages rule loading and evaluation.
 
 ```rust
 pub struct MagicDatabase {
-    rules: Arc<[MagicRule]>,      // Parsed magic rules (shared, immutable)
-    root_rules: Arc<[MagicRule]>, // Full top-level rule list for `indirect` re-entry
-    name_table: Arc<NameTable>,   // `name`/`use` subroutine dispatch table
+    rules: Vec<MagicRule>,        // Parsed magic rules (top-level, strength-sorted)
+    name_table: Arc<NameTable>,   // `name`/`use` subroutine dispatch table (Arc for cheap clone across evaluations)
+    root_rules: Arc<[MagicRule]>, // Shared immutable slice of top-level rules for `indirect` re-entry
     config: EvaluationConfig,     // Evaluation settings
     source_path: Option<PathBuf>, // Where rules came from
+    mime_mapper: MimeMapper,      // Cached MIME-type lookup
 }
 ```
 

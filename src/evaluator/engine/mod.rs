@@ -217,11 +217,14 @@ fn evaluate_single_rule_with_anchor(
     // metacharacters.
     //
     // Meta-type directives (`default`, `clear`, `name`, `use`,
-    // `indirect`) are silent no-ops in this phase -- the parser
-    // preserves them in the AST but the evaluator does not yet wire
-    // them into any control-flow behavior. Short-circuiting here with
-    // `Ok(None)` keeps them out of the value/pattern paths (which
-    // would otherwise surface `TypeReadError::UnsupportedType`).
+    // `indirect`, `offset`) are dispatched by `evaluate_rules` at the
+    // outer loop level (not here) -- this single-rule helper is only
+    // invoked for non-meta rules. Short-circuiting the Meta arms here
+    // with `Ok(None)` is defense-in-depth for programmatic callers
+    // (property tests, fuzz harnesses) that hand-build a Meta rule
+    // and feed it directly to `evaluate_single_rule`; without the
+    // guard, the value/pattern paths would surface
+    // `TypeReadError::UnsupportedType`.
     let (matched, read_value) = match &rule.typ {
         TypeKind::Meta(MetaType::Name(name)) => {
             // `Name` rules are normally hoisted into the name table at

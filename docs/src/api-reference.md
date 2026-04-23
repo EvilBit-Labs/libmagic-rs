@@ -237,7 +237,7 @@ use libmagic_rs::TypeKind;
 Control-flow directives carried by `TypeKind::Meta`.
 
 ```rust
-use libmagic_rs::MetaType;
+use libmagic_rs::parser::ast::MetaType;
 ```
 
 | Variant        | Description                                                                                              |

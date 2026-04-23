@@ -2622,10 +2622,10 @@ fn test_parse_magic_rule_meta_name_use_reject_malformed_identifiers() {
 
 #[test]
 fn test_parse_text_magic_file_meta_roundtrip() {
-    // Build a small magic file that uses all five meta-types. The `name`
+    // Build a small magic file that uses the six meta-types. The `name`
     // block is a level-1 subroutine invoked by the top-level `use`, and
-    // `indirect` / `default` / `clear` appear as sibling directives to
-    // exercise the parse path for each variant.
+    // `indirect` / `default` / `clear` / `offset` appear as sibling
+    // directives to exercise the parse path for each variant.
     //
     // NOTE: all rules use the SAME top-level indentation so
     // build_rule_hierarchy treats them as siblings. Child rules would
