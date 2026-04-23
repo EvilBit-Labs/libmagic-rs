@@ -83,7 +83,8 @@ pub struct EvaluationContext {
     /// magic(5) / libmagic semantics: subroutines see offsets relative
     /// to the caller's invocation point, not absolute file positions).
     /// Restored to the caller's value on subroutine exit via the
-    /// `BaseOffsetScope` RAII guard in `engine/mod.rs`.
+    /// `SubroutineScope` RAII guard in `engine/mod.rs`, which saves
+    /// and restores both `last_match_end` and `base_offset` together.
     base_offset: usize,
     /// One-shot flag set by `MetaType::Indirect` dispatch before
     /// re-entering the root rule list. When true, the next entry to
@@ -140,7 +141,7 @@ impl EvaluationContext {
 
     /// Set the subroutine base offset.
     ///
-    /// `pub(crate)` and owned by the engine's `BaseOffsetScope` RAII
+    /// `pub(crate)` and owned by the engine's `SubroutineScope` RAII
     /// guard -- no external caller should set this directly.
     pub(crate) fn set_base_offset(&mut self, offset: usize) {
         self.base_offset = offset;
