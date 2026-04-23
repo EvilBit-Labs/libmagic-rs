@@ -107,6 +107,13 @@ impl Drop for SubroutineScope<'_> {
 /// environment do not flood the log on every `Use` rule they encounter.
 static USE_WITHOUT_RULE_ENV_WARNED: AtomicBool = AtomicBool::new(false);
 
+/// Process-local once guard for the "`evaluate_rules_with_config` called
+/// with an `indirect` rule but without a `RuleEnvironment`" warning.
+/// Same rationale as `USE_WITHOUT_RULE_ENV_WARNED`: surface the
+/// misconfiguration exactly once per process so a large corpus of
+/// env-less `indirect` rules does not flood the log.
+static INDIRECT_WITHOUT_RULE_ENV_WARNED: AtomicBool = AtomicBool::new(false);
+
 /// Evaluate a single magic rule against a file buffer
 ///
 /// This is a thin wrapper around [`evaluate_rules`] that evaluates exactly
@@ -442,6 +449,20 @@ fn evaluate_children_or_warn(
         Err(LibmagicError::Timeout { timeout_ms }) => {
             return Err(LibmagicError::Timeout { timeout_ms });
         }
+        // `RecursionLimitExceeded` is listed explicitly (rather than
+        // relying on the catch-all below) so a future maintainer adding
+        // another swallowed variant cannot accidentally swallow it.
+        // Both this arm and the catch-all intentionally propagate via
+        // `return Err(e)`; `match_same_arms` is suppressed because the
+        // explicit arm's purpose is documentation and future-proofing,
+        // not different behavior. See GOTCHAS S13 for the recursion-
+        // depth guard contract.
+        #[allow(clippy::match_same_arms)]
+        Err(
+            e @ LibmagicError::EvaluationError(
+                crate::error::EvaluationError::RecursionLimitExceeded { .. },
+            ),
+        ) => return Err(e),
         Err(
             e @ (LibmagicError::EvaluationError(
                 crate::error::EvaluationError::BufferOverrun { .. }
@@ -1111,14 +1132,22 @@ pub fn evaluate_rules_with_config(
     // without an attached `RuleEnvironment`, which means any
     // `MetaType::Indirect` rule reached during evaluation is silently
     // no-op'd at runtime. That is the intentional behavior for low-level
-    // callers (matching the `Use`-without-env contract), but we log the
-    // misconfiguration at `debug!` level so consumer tests can detect
-    // env-less `indirect` usage. Using `debug_assert!` would panic in test
-    // builds and break the "evaluator never panics" invariant documented in
-    // GOTCHAS S2.4 -- a misconfigured caller should get a no-op, not a crash.
-    if contains_indirect_rule(rules) {
-        debug!(
-            "{}",
+    // callers (matching the `Use`-without-env contract), but we surface
+    // the misconfiguration at `warn!` level (once per process) so a
+    // consumer who wires up env-less `indirect` rules will see the
+    // diagnostic in default logging rather than only at debug level.
+    // The tree walk runs only in debug builds -- in release builds the
+    // `cfg(debug_assertions)` gate prevents the O(n) scan on every
+    // top-level evaluation. Using `debug_assert!` would panic in test
+    // builds and break the "evaluator never panics" invariant documented
+    // in GOTCHAS S2.4 -- a misconfigured caller should get a no-op with
+    // a log entry, not a crash.
+    #[cfg(debug_assertions)]
+    if contains_indirect_rule(rules)
+        && !INDIRECT_WITHOUT_RULE_ENV_WARNED.swap(true, Ordering::Relaxed)
+    {
+        warn!(
+            "{} (subsequent occurrences suppressed)",
             crate::error::EvaluationError::indirect_without_environment()
         );
     }

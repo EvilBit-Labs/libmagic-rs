@@ -3621,3 +3621,46 @@ fn test_continuation_sibling_reset_after_bytes_consumed() {
          if reset is missing it reads buffer[5]=0x42 and test fails. got {matches:?}"
     );
 }
+
+// =======================================================================
+// evaluate_children_or_warn graceful-error helper (issue #42 close-out)
+// =======================================================================
+
+#[test]
+fn test_evaluate_children_or_warn_swallows_buffer_overrun_keeps_parent_match() {
+    // Regression guard for the extracted `evaluate_children_or_warn`
+    // helper: a child with an absolute offset past the buffer end must
+    // produce a `BufferOverrun` that is swallowed (warn-logged) rather
+    // than propagated. The parent match must still appear in the
+    // results. Covers the graceful-skip arm for all four dispatch
+    // sites (Default/Indirect/Offset/Use) via the Offset arm -- they
+    // all delegate to the same helper.
+    let config = EvaluationConfig {
+        stop_at_first_match: false,
+        ..EvaluationConfig::default()
+    };
+
+    // Child rule at absolute offset 1000 reads a byte -- far past the
+    // tiny buffer we supply. The helper should catch the BufferOverrun
+    // and warn-log, not fail the evaluation.
+    let child = MagicRule {
+        offset: OffsetSpec::Absolute(1000),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(0x00),
+        message: "unreachable-child".to_string(),
+        children: vec![],
+        level: 1,
+        strength_modifier: None,
+    };
+    let parent = offset_rule(0, "parent-offset-match", vec![child]);
+
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[parent], &[0u8; 4], &mut context).unwrap();
+    let messages: Vec<&str> = matches.iter().map(|m| m.message.as_str()).collect();
+    assert_eq!(
+        messages,
+        vec!["parent-offset-match"],
+        "parent match must survive a child's BufferOverrun; child must be silently skipped, got {matches:?}"
+    );
+}

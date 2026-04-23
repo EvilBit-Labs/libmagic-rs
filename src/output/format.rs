@@ -278,28 +278,24 @@ fn render(spec: &Spec, value: &Value, type_kind: &TypeKind) -> Option<String> {
         }
         Conv::HexLower => {
             let n = coerce_to_u64_masked(value, type_kind)?;
-            Some(render_prefixed_int(
-                &format!("{n:x}"),
-                if spec.alt_form { "0x" } else { "" },
-                spec,
-            ))
+            // C printf suppresses the `0x`/`0X` alt-form prefix when the
+            // value is zero: `printf("%#x", 0)` emits `"0"`, not `"0x0"`.
+            let prefix = if spec.alt_form && n != 0 { "0x" } else { "" };
+            Some(render_prefixed_int(&format!("{n:x}"), prefix, spec))
         }
         Conv::HexUpper => {
             let n = coerce_to_u64_masked(value, type_kind)?;
-            Some(render_prefixed_int(
-                &format!("{n:X}"),
-                if spec.alt_form { "0X" } else { "" },
-                spec,
-            ))
+            let prefix = if spec.alt_form && n != 0 { "0X" } else { "" };
+            Some(render_prefixed_int(&format!("{n:X}"), prefix, spec))
         }
         Conv::Octal => {
             let n = coerce_to_u64_masked(value, type_kind)?;
-            // C printf uses a single "0" prefix for %#o (not Rust's "0o").
-            Some(render_prefixed_int(
-                &format!("{n:o}"),
-                if spec.alt_form { "0" } else { "" },
-                spec,
-            ))
+            // C printf uses a single "0" prefix for %#o (not Rust's "0o"),
+            // and suppresses the prefix when the value itself is zero --
+            // the resulting digit `0` already satisfies the "starts with
+            // 0" invariant that the alt-form is meant to guarantee.
+            let prefix = if spec.alt_form && n != 0 { "0" } else { "" };
+            Some(render_prefixed_int(&format!("{n:o}"), prefix, spec))
         }
         Conv::Char => {
             let n = coerce_to_u64(value)?;
@@ -548,6 +544,27 @@ mod tests {
             &TypeKind::String { max_length: None },
         );
         assert_eq!(out, "data=abc");
+    }
+
+    #[test]
+    fn test_alt_form_prefix_suppressed_on_zero_value() {
+        // C printf special-cases `%#o`, `%#x`, `%#X` with value 0: the
+        // alt-form prefix is suppressed because the rendered digit
+        // already begins with `0`. Regression guard after pr-review
+        // caught that our implementation emitted `"00"` / `"0x0"` /
+        // `"0X0"` for zero values.
+        let out = format_magic_message("%#o", &Value::Uint(0), &byte_t());
+        assert_eq!(out, "0", "%#o with 0 must emit single '0', not '00'");
+
+        let out = format_magic_message("%#x", &Value::Uint(0), &byte_t());
+        assert_eq!(out, "0", "%#x with 0 must emit single '0', not '0x0'");
+
+        let out = format_magic_message("%#X", &Value::Uint(0), &byte_t());
+        assert_eq!(out, "0", "%#X with 0 must emit single '0', not '0X0'");
+
+        // Non-zero values still get the prefix.
+        let out = format_magic_message("%#x", &Value::Uint(1), &byte_t());
+        assert_eq!(out, "0x1");
     }
 
     #[test]
