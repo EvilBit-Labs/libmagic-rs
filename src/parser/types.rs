@@ -128,9 +128,10 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
         // none of these collide with other supported keywords.
         //
         // `offset` is recognized here so the parser can accept magic files
-        // that use it (e.g. `searchbug.magic`). In this phase it is
-        // evaluated as a silent no-op via `TypeKind::Meta(MetaType::Offset)`;
-        // full offset-reporting semantics are deferred.
+        // that use it (e.g. `searchbug.magic`). It maps to
+        // `TypeKind::Meta(MetaType::Offset)` and is fully evaluated by the
+        // engine: the resolved offset is emitted as `Value::Uint(position)`
+        // and participates in printf-style format substitution.
         alt((
             tag("indirect"),
             tag("default"),
@@ -220,9 +221,9 @@ pub fn type_keyword_to_kind(type_name: &str) -> Result<Option<TypeKind>, Unknown
     }
 
     // Meta / control-flow directives with no trailing operand are fully
-    // specified by the keyword alone. `offset` is included here because
-    // parser-only support for it lands it in the AST as a silent no-op
-    // during this phase; full offset-reporting semantics are deferred.
+    // specified by the keyword alone. `offset` maps to
+    // `MetaType::Offset` which the engine evaluates by emitting the
+    // resolved file position as `Value::Uint` for format substitution.
     match type_name {
         "default" => return Ok(Some(TypeKind::Meta(MetaType::Default))),
         "clear" => return Ok(Some(TypeKind::Meta(MetaType::Clear))),

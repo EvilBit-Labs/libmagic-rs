@@ -10,6 +10,7 @@
 //! without re-walking the AST.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use log::warn;
 
@@ -21,9 +22,14 @@ use crate::parser::ast::{MagicRule, MetaType, TypeKind};
 /// rule list. The evaluator consults this table when it encounters a
 /// `TypeKind::Meta(MetaType::Use(name))` rule to retrieve the rules that
 /// should be evaluated as if inlined at the `use` site.
+///
+/// Subroutine bodies are stored as `Arc<[MagicRule]>` so the evaluator can
+/// clone the `Arc` (a reference-count increment) rather than deep-cloning the
+/// full rule vector on every `use` dispatch. This is important for large magic
+/// corpora where the same subroutine may be invoked many times per evaluation.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct NameTable {
-    inner: HashMap<String, Vec<MagicRule>>,
+    inner: HashMap<String, Arc<[MagicRule]>>,
 }
 
 impl NameTable {
@@ -36,19 +42,29 @@ impl NameTable {
     }
 
     /// Look up a subroutine's rule list by name.
+    ///
+    /// Returns an `Arc` reference so callers can clone it cheaply (reference
+    /// count increment) and then release the immutable borrow of `self`
+    /// before mutably borrowing any surrounding context.
     #[must_use]
-    pub(crate) fn get(&self, name: &str) -> Option<&Vec<MagicRule>> {
-        self.inner.get(name)
+    pub(crate) fn get(&self, name: &str) -> Option<Arc<[MagicRule]>> {
+        self.inner.get(name).cloned()
     }
 
-    /// Mutable access to the underlying map.
+    /// Sort all subroutine rule bodies in place by the provided comparator.
     ///
-    /// Used by `MagicDatabase` after load to sort each subroutine's rules
-    /// by strength without allocating a new map.
-    pub(crate) fn values_mut(
-        &mut self,
-    ) -> std::collections::hash_map::ValuesMut<'_, String, Vec<MagicRule>> {
-        self.inner.values_mut()
+    /// Used by `MagicDatabase` after load to apply strength-based ordering to
+    /// each subroutine body, matching the ordering applied to top-level rules.
+    /// Because subroutine bodies are stored as `Arc<[MagicRule]>` (immutable
+    /// slices), sorting requires materializing a `Vec`, sorting it, and
+    /// rebuilding the `Arc`. This is a one-time cost per load, not per
+    /// evaluation.
+    pub(crate) fn sort_subroutines(&mut self, mut sort_fn: impl FnMut(&mut Vec<MagicRule>)) {
+        for arc in self.inner.values_mut() {
+            let mut vec: Vec<MagicRule> = arc.iter().cloned().collect();
+            sort_fn(&mut vec);
+            *arc = Arc::from(vec);
+        }
     }
 
     /// Merge another name table into this one.
@@ -91,7 +107,7 @@ pub(crate) fn extract_name_table(rules: Vec<MagicRule>) -> (Vec<MagicRule>, Name
             // Recursively scrub nested Name rules from the subroutine's
             // children (shouldn't appear in practice, but be defensive).
             let children = scrub_nested_names(rule.children, rule.level);
-            table.inner.insert(name.clone(), children);
+            table.inner.insert(name.clone(), Arc::from(children));
         } else {
             let scrubbed_children = scrub_nested_names(rule.children, rule.level + 1);
             kept.push(MagicRule {

@@ -291,10 +291,10 @@ fn evaluate_use_rule(
         warn!("use directive references unknown name '{name}'");
         return Ok((None, Vec::new()));
     };
-
-    // Clone the Arc reference to detach from the immutable borrow of
-    // `context`, so we can mutably borrow the context below.
-    let subroutine_rules: Vec<MagicRule> = subroutine_rules.clone();
+    // `NameTable::get` returns an `Arc<[MagicRule]>`, so this clone is a
+    // reference-count increment rather than a deep copy of the rule tree.
+    // The Arc is cloned here to release the immutable borrow of `context`
+    // (via `env`) before we mutably borrow the context below.
 
     // Resolve the use-site offset under the *caller's* base, not the
     // subroutine's -- the use rule itself is in the caller's scope.
@@ -392,6 +392,75 @@ fn evaluate_value_rule(
         op => operators::apply_operator(op, &read_value, expected_ref),
     };
     Ok((matched, read_value))
+}
+
+/// Evaluate a rule's children under the standard recursion-guard/graceful-skip discipline.
+///
+/// This helper centralises the `RecursionGuard` + `evaluate_rules` + error-dispatch
+/// pattern that is identical across the `Default`, `Indirect`, `Offset`, and `Use`
+/// meta-type arms in [`evaluate_rules`]. Extracting it prevents the four copies
+/// from drifting apart during future maintenance.
+///
+/// # Behaviour
+///
+/// * If `rule.children` is empty the function is a no-op (returns `Ok(())`).
+/// * Child matches are appended to `matches` in document order.
+/// * `LibmagicError::Timeout` and `LibmagicError::EvaluationError(RecursionLimitExceeded)`
+///   propagate immediately as `Err` so the caller can bail out.
+/// * Data-dependent errors (`BufferOverrun`, `InvalidOffset`,
+///   `TypeReadError::BufferOverrun`, `TypeReadError::InvalidPStringLength`,
+///   `IoError`) are logged at `warn!` and swallowed; the parent match
+///   already in `matches` is left intact. This mirrors the defensive
+///   comment in each arm: the inner `evaluate_rules` already catches and
+///   logs individual child failures, so this arm only fires if that
+///   strategy changes.
+///
+/// # Arguments
+///
+/// * `rule`      – The parent rule whose children will be evaluated.
+/// * `rule_kind` – A short label for the rule kind used in the `warn!`
+///   message (e.g. `"default"`, `"indirect"`, `"offset"`, `"use"`).
+/// * `buffer`    – The file buffer passed to the recursive call.
+/// * `context`   – Mutable evaluation context; the recursion depth is
+///   incremented on entry and decremented on drop via [`RecursionGuard`].
+/// * `matches`   – Output vector; child matches are appended here.
+fn evaluate_children_or_warn(
+    rule: &MagicRule,
+    rule_kind: &str,
+    buffer: &[u8],
+    context: &mut EvaluationContext,
+    matches: &mut Vec<RuleMatch>,
+) -> Result<(), LibmagicError> {
+    if rule.children.is_empty() {
+        return Ok(());
+    }
+    let mut guard = RecursionGuard::enter(context)?;
+    match evaluate_rules(&rule.children, buffer, guard.context()) {
+        Ok(child_matches) => {
+            matches.extend(child_matches);
+        }
+        Err(LibmagicError::Timeout { timeout_ms }) => {
+            return Err(LibmagicError::Timeout { timeout_ms });
+        }
+        Err(
+            e @ (LibmagicError::EvaluationError(
+                crate::error::EvaluationError::BufferOverrun { .. }
+                | crate::error::EvaluationError::InvalidOffset { .. }
+                | crate::error::EvaluationError::TypeReadError(
+                    crate::evaluator::types::TypeReadError::BufferOverrun { .. }
+                    | crate::evaluator::types::TypeReadError::InvalidPStringLength { .. },
+                ),
+            )
+            | LibmagicError::IoError(_)),
+        ) => {
+            warn!(
+                "Discarding child evaluation under {} rule '{}' due to unexpected error: {} -- parent match is still emitted",
+                rule_kind, rule.message, e
+            );
+        }
+        Err(e) => return Err(e),
+    }
+    Ok(())
 }
 
 /// Evaluate a list of magic rules against a file buffer with hierarchical processing
@@ -582,38 +651,7 @@ pub fn evaluate_rules(
                 // `default` is treated as a successful match at this
                 // level, so its children are evaluated under the same
                 // recursion-guard pattern as every other successful rule.
-                if !rule.children.is_empty() {
-                    let mut guard = RecursionGuard::enter(context)?;
-                    match evaluate_rules(&rule.children, buffer, guard.context()) {
-                        Ok(child_matches) => {
-                            matches.extend(child_matches);
-                        }
-                        Err(LibmagicError::Timeout { timeout_ms }) => {
-                            return Err(LibmagicError::Timeout { timeout_ms });
-                        }
-                        Err(
-                            e @ (LibmagicError::EvaluationError(
-                                crate::error::EvaluationError::BufferOverrun { .. }
-                                | crate::error::EvaluationError::InvalidOffset { .. }
-                                | crate::error::EvaluationError::TypeReadError(
-                                    crate::evaluator::types::TypeReadError::BufferOverrun {
-                                        ..
-                                    }
-                                    | crate::evaluator::types::TypeReadError::InvalidPStringLength {
-                                        ..
-                                    },
-                                ),
-                            )
-                            | LibmagicError::IoError(_)),
-                        ) => {
-                            warn!(
-                                "Discarding child evaluation under default rule '{}' due to unexpected error: {} -- default match is still emitted",
-                                rule.message, e
-                            );
-                        }
-                        Err(e) => return Err(e),
-                    }
-                }
+                evaluate_children_or_warn(rule, "default", buffer, context, &mut matches)?;
 
                 sibling_matched = true;
 
@@ -734,36 +772,7 @@ pub fn evaluate_rules(
 
             // Evaluate the indirect rule's own children under the same
             // recursion-guard pattern used by every other successful rule.
-            if !rule.children.is_empty() {
-                let mut guard = RecursionGuard::enter(context)?;
-                match evaluate_rules(&rule.children, buffer, guard.context()) {
-                    Ok(child_matches) => {
-                        matches.extend(child_matches);
-                    }
-                    Err(LibmagicError::Timeout { timeout_ms }) => {
-                        return Err(LibmagicError::Timeout { timeout_ms });
-                    }
-                    Err(
-                        e @ (LibmagicError::EvaluationError(
-                            crate::error::EvaluationError::BufferOverrun { .. }
-                            | crate::error::EvaluationError::InvalidOffset { .. }
-                            | crate::error::EvaluationError::TypeReadError(
-                                crate::evaluator::types::TypeReadError::BufferOverrun { .. }
-                                | crate::evaluator::types::TypeReadError::InvalidPStringLength {
-                                    ..
-                                },
-                            ),
-                        )
-                        | LibmagicError::IoError(_)),
-                    ) => {
-                        warn!(
-                            "Discarding child evaluation under indirect rule '{}' due to unexpected error: {} -- indirect matches are still emitted",
-                            rule.message, e
-                        );
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
+            evaluate_children_or_warn(rule, "indirect", buffer, context, &mut matches)?;
 
             if matches.len() > matches_before && context.should_stop_at_first_match() {
                 break;
@@ -835,36 +844,7 @@ pub fn evaluate_rules(
 
             // Evaluate children under the recursion-guard pattern used
             // by every other successful rule.
-            if !rule.children.is_empty() {
-                let mut guard = RecursionGuard::enter(context)?;
-                match evaluate_rules(&rule.children, buffer, guard.context()) {
-                    Ok(child_matches) => {
-                        matches.extend(child_matches);
-                    }
-                    Err(LibmagicError::Timeout { timeout_ms }) => {
-                        return Err(LibmagicError::Timeout { timeout_ms });
-                    }
-                    Err(
-                        e @ (LibmagicError::EvaluationError(
-                            crate::error::EvaluationError::BufferOverrun { .. }
-                            | crate::error::EvaluationError::InvalidOffset { .. }
-                            | crate::error::EvaluationError::TypeReadError(
-                                crate::evaluator::types::TypeReadError::BufferOverrun { .. }
-                                | crate::evaluator::types::TypeReadError::InvalidPStringLength {
-                                    ..
-                                },
-                            ),
-                        )
-                        | LibmagicError::IoError(_)),
-                    ) => {
-                        warn!(
-                            "Discarding child evaluation under offset rule '{}' due to unexpected error: {} -- offset match is still emitted",
-                            rule.message, e
-                        );
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
+            evaluate_children_or_warn(rule, "offset", buffer, context, &mut matches)?;
 
             if matches.len() > matches_before && context.should_stop_at_first_match() {
                 break;
@@ -923,41 +903,8 @@ pub fn evaluate_rules(
             // document order. The recursion guard mirrors the non-`Use`
             // path so a `use`-site chain cannot blow past the configured
             // recursion limit.
-            if use_resolved && !rule.children.is_empty() {
-                let mut guard = RecursionGuard::enter(context)?;
-                match evaluate_rules(&rule.children, buffer, guard.context()) {
-                    Ok(child_matches) => {
-                        matches.extend(child_matches);
-                    }
-                    Err(LibmagicError::Timeout { timeout_ms }) => {
-                        return Err(LibmagicError::Timeout { timeout_ms });
-                    }
-                    Err(
-                        e @ (LibmagicError::EvaluationError(
-                            crate::error::EvaluationError::BufferOverrun { .. }
-                            | crate::error::EvaluationError::InvalidOffset { .. }
-                            | crate::error::EvaluationError::TypeReadError(
-                                crate::evaluator::types::TypeReadError::BufferOverrun { .. }
-                                | crate::evaluator::types::TypeReadError::InvalidPStringLength {
-                                    ..
-                                },
-                            ),
-                        )
-                        | LibmagicError::IoError(_)),
-                    ) => {
-                        // Same defensive rationale as the main rule path:
-                        // individual child failures are already handled
-                        // inside the recursive `evaluate_rules`, so this
-                        // arm only fires if that error-handling strategy
-                        // changes. Logged at warn! so the asymmetry is
-                        // visible.
-                        warn!(
-                            "Discarding child evaluation under use rule '{name}' due to unexpected error: {e} -- subroutine matches are still emitted; investigate the recursive evaluate_rules error-handling path"
-                        );
-                    }
-                    Err(e) => return Err(e),
-                }
-                // `guard` drops here, decrementing the recursion depth.
+            if use_resolved {
+                evaluate_children_or_warn(rule, "use", buffer, context, &mut matches)?;
             }
 
             // A successful `use` site is treated as a sibling match for
@@ -1160,19 +1107,21 @@ pub fn evaluate_rules_with_config(
     // are rejected at the API boundary rather than triggering subtle
     // failures during evaluation.
     config.validate()?;
-    // Debug-only guard: `evaluate_rules_with_config` builds a context
+    // Diagnostic guard: `evaluate_rules_with_config` builds a context
     // without an attached `RuleEnvironment`, which means any
     // `MetaType::Indirect` rule reached during evaluation is silently
-    // no-op'd at runtime. That is the intentional release behavior
-    // (matching the `Use`-without-env contract for low-level callers),
-    // but in debug builds we surface the misconfiguration eagerly so
-    // consumer tests catch env-less `indirect` usage before it ships.
-    // Release behavior is unchanged.
-    debug_assert!(
-        !contains_indirect_rule(rules),
-        "{}",
-        crate::error::EvaluationError::indirect_without_environment()
-    );
+    // no-op'd at runtime. That is the intentional behavior for low-level
+    // callers (matching the `Use`-without-env contract), but we log the
+    // misconfiguration at `debug!` level so consumer tests can detect
+    // env-less `indirect` usage. Using `debug_assert!` would panic in test
+    // builds and break the "evaluator never panics" invariant documented in
+    // GOTCHAS S2.4 -- a misconfigured caller should get a no-op, not a crash.
+    if contains_indirect_rule(rules) {
+        debug!(
+            "{}",
+            crate::error::EvaluationError::indirect_without_environment()
+        );
+    }
     // Clear the thread-local regex compile cache so it is bounded to
     // the lifetime of a single top-level evaluation call. Cache
     // entries from a previous rule set would otherwise persist on the
@@ -1186,16 +1135,12 @@ pub fn evaluate_rules_with_config(
 /// Recursively walk `rules` (including children) looking for any
 /// [`MetaType::Indirect`] directive.
 ///
-/// Used by the debug-only guard in [`evaluate_rules_with_config`]: the
+/// Used by the diagnostic guard in [`evaluate_rules_with_config`]: the
 /// low-level `_with_config` entry point builds a context without a
 /// [`crate::evaluator::RuleEnvironment`], so any `indirect` rule is
-/// silently no-op'd at runtime. Firing `debug_assert!` here makes that
-/// misconfiguration loud in tests without affecting release behavior.
-///
-/// Intentionally not gated on `cfg(debug_assertions)` so release builds
-/// still compile the `debug_assert!` call site (the macro evaluates its
-/// arguments in both modes for type-checking, even though the check
-/// itself is stripped in release).
+/// silently no-op'd at runtime. The check logs the misconfiguration at
+/// `debug!` level so consumer tests can detect it without panicking (see
+/// GOTCHAS S2.4 for why `debug_assert!` would be wrong here).
 fn contains_indirect_rule(rules: &[MagicRule]) -> bool {
     rules.iter().any(|rule| {
         matches!(rule.typ, TypeKind::Meta(MetaType::Indirect))

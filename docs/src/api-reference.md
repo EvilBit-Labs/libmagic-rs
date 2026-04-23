@@ -240,14 +240,35 @@ Control-flow directives carried by `TypeKind::Meta`.
 use libmagic_rs::MetaType;
 ```
 
-| Variant           | Description                                                                                           |
-| ----------------- | ----------------------------------------------------------------------------------------------------- |
-| `Default`         | Fires when no sibling at the same indentation level matched at the current offset                    |
-| `Clear`           | Resets the sibling-matched flag so a later `default` sibling can fire even if an earlier sibling matched |
-| `Name(String)`    | Declares a named subroutine that can be invoked later via `Use`                                      |
-| `Use(String)`     | Invokes a named subroutine previously declared via `Name`                                            |
-| `Indirect`        | Re-applies the entire magic database at the resolved offset                                          |
-| `Offset`          | Reports the current file offset as `Value::Uint(position)` rather than reading a typed value         |
+| Variant        | Description                                                                                              |
+| -------------- | -------------------------------------------------------------------------------------------------------- |
+| `Default`      | Fires when no sibling at the same indentation level matched at the current offset                        |
+| `Clear`        | Resets the sibling-matched flag so a later `default` sibling can fire even if an earlier sibling matched |
+| `Name(String)` | Declares a named subroutine that can be invoked later via `Use`                                          |
+| `Use(String)`  | Invokes a named subroutine previously declared via `Name`                                                |
+| `Indirect`     | Re-applies the entire magic database at the resolved offset                                              |
+| `Offset`       | Reports the current file offset as `Value::Uint(position)` rather than reading a typed value             |
+
+#### Examples
+
+```rust
+use libmagic_rs::{TypeKind, parser::ast::MetaType};
+
+// A default fallback rule (fires when no sibling matched)
+let default_type = TypeKind::Meta(MetaType::Default);
+
+// Define a named subroutine
+let name_type = TypeKind::Meta(MetaType::Name("riff_header".to_string()));
+
+// Invoke that subroutine at a given offset
+let use_type = TypeKind::Meta(MetaType::Use("riff_header".to_string()));
+
+// Re-enter the root rule set at a resolved offset (ZIP-in-DOCX etc.)
+let indirect_type = TypeKind::Meta(MetaType::Indirect);
+
+// Emit the current file offset as a match value for printf substitution
+let offset_type = TypeKind::Meta(MetaType::Offset);
+```
 
 ### Operator
 
@@ -430,14 +451,14 @@ Result from internal evaluation.
 use libmagic_rs::evaluator::MatchResult;
 ```
 
-| Field        | Type       | Description                               |
-| ------------ | ---------- | ----------------------------------------- |
-| `message`    | `String`   | Match description (printf-style format specifiers like `%d`, `%x`, `%s` are substituted at output time) |
-| `offset`     | `usize`    | Match offset                              |
-| `level`      | `u32`      | Rule level                                |
-| `value`      | `Value`    | Matched value                             |
-| `type_kind`  | `TypeKind` | Type used to read value (added in v0.5.0) |
-| `confidence` | `f64`      | Confidence score                          |
+| Field        | Type       | Description                                                                                                                                                                                                                                                                                                               |
+| ------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `message`    | `String`   | Match description. Printf-style format specifiers (`%d`, `%i`, `%u`, `%x`, `%X`, `%o`, `%s`, `%c`, plus width/padding modifiers) are substituted with the rule's read value at output time. **Literal `%` must be escaped as `%%`** -- unescaped `%` is interpreted as a format specifier (breaking change since v0.5.0). |
+| `offset`     | `usize`    | Match offset                                                                                                                                                                                                                                                                                                              |
+| `level`      | `u32`      | Rule level                                                                                                                                                                                                                                                                                                                |
+| `value`      | `Value`    | Matched value                                                                                                                                                                                                                                                                                                             |
+| `type_kind`  | `TypeKind` | Type used to read value (added in v0.5.0)                                                                                                                                                                                                                                                                                 |
+| `confidence` | `f64`      | Confidence score                                                                                                                                                                                                                                                                                                          |
 
 ## Output Module
 
@@ -544,7 +565,8 @@ pub use error::{EvaluationError, LibmagicError, ParseError};
 
 ### Breaking Changes (post-0.5.0)
 
-- Parser functions (`parse_text_magic_file`, `load_magic_file`, `load_magic_directory`) now return `ParsedMagic { rules, name_table }` instead of `Vec<MagicRule>`. Code must destructure: `let ParsedMagic { rules, name_table } = parse_text_magic_file(...)?;`
+- Parser functions (`parse_text_magic_file`, `load_magic_file`, `load_magic_directory`) now return `ParsedMagic { rules, name_table }` instead of `Vec<MagicRule>`. External consumers can only access the public `rules` field — `name_table` is `pub(crate)` and managed internally by `MagicDatabase`. Typical usage: `let parsed = parse_text_magic_file(&source)?; /* use parsed.rules */`. The library wires `name_table` through `MagicDatabase::load_from_file` automatically; direct access is not required (or supported) for external code.
+- Rule messages are now rendered through printf-style format substitution: specifiers like `%d`, `%x`, `%02x`, `%s`, `%lld` are replaced with the rule's read value at output time. **Literal `%` in rule messages must be escaped as `%%`.** Messages that were previously emitted verbatim with bare `%` characters will now be interpreted as format specifiers — this is a visible behavior change for existing magic files that used `%` for non-formatting purposes.
 
 ### Breaking Changes in v0.2.0
 

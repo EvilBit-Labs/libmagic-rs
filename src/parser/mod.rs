@@ -142,7 +142,6 @@ mod format;
 pub(crate) mod grammar;
 mod hierarchy;
 mod loader;
-#[allow(dead_code)]
 pub(crate) mod name_table;
 pub(crate) mod preprocessing;
 pub mod types;

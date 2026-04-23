@@ -550,4 +550,34 @@ mod tests {
             "escaped quote missing from serialized MetaType::Name identifier:\n{generated}"
         );
     }
+
+    /// Regression guard: `MetaType::Use` uses a separate match arm from
+    /// `MetaType::Name` in `serialize_type_kind`, so it needs its own
+    /// injection test to ensure the identifier is string-literal escaped
+    /// and cannot leak Rust tokens into the generated `builtin_rules.rs`.
+    #[test]
+    fn test_serialize_meta_use_escapes_injection() {
+        let malicious = r#""; panic!("pwned-from-use"); let _ = ""#;
+        let rule = MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Meta(MetaType::Use(malicious.to_string())),
+            op: Operator::AnyValue,
+            value: Value::Uint(0),
+            message: "meta use rule".to_string(),
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        };
+
+        let generated = serialize_magic_rule(&rule, 0);
+
+        assert!(
+            !generated.contains(r#"panic!("pwned-from-use")"#),
+            "injected Rust tokens leaked through MetaType::Use identifier:\n{generated}"
+        );
+        assert!(
+            generated.contains(r#"\""#),
+            "escaped quote missing from serialized MetaType::Use identifier:\n{generated}"
+        );
+    }
 }

@@ -518,13 +518,14 @@ Output: `GIF image data, version 89a`
 
 Meta-types are pseudo-types that do not read bytes from the buffer. Instead, they control the evaluation flow: defining named subroutines, invoking them, providing fallbacks when no sibling matched, resetting per-level match state, or re-applying the entire rule database at a resolved offset.
 
-| Keyword     | Syntax                 | Description                                                        |
-| ----------- | ---------------------- | ------------------------------------------------------------------ |
-| `name <id>` | `0 name part2`         | Defines a named subroutine block; children are the subroutine body |
-| `use <id>`  | `>0 use part2`         | Invokes a named subroutine at the resolved offset                  |
-| `default`   | `0 default x Fallback` | Fires only when no sibling at the same level has matched           |
-| `clear`     | `0 clear`              | Resets the per-level sibling-matched flag                          |
-| `indirect`  | `8 indirect x`         | Re-applies the full rule database at the resolved offset           |
+| Keyword     | Syntax                      | Description                                                                       |
+| ----------- | --------------------------- | --------------------------------------------------------------------------------- |
+| `name <id>` | `0 name part2`              | Defines a named subroutine block; children are the subroutine body                |
+| `use <id>`  | `>0 use part2`              | Invokes a named subroutine at the resolved offset                                 |
+| `default`   | `0 default x Fallback`      | Fires only when no sibling at the same level has matched                          |
+| `clear`     | `0 clear`                   | Resets the per-level sibling-matched flag                                         |
+| `indirect`  | `8 indirect x`              | Re-applies the full rule database at the resolved offset                          |
+| `offset`    | `0 offset x at_offset %lld` | Emits the resolved file position as a `Value::Uint` for printf-style substitution |
 
 ### `name` and `use` — Named Subroutines
 

@@ -168,11 +168,13 @@ pub enum OffsetSpec {
 /// Control-flow directive carried by [`TypeKind::Meta`].
 ///
 /// These are not value-reading types -- they correspond to magic(5)
-/// control-flow keywords (`default`, `clear`, `name`, `use`, `indirect`)
-/// that modify how a rule set is traversed rather than which bytes are
-/// read from the buffer. In this phase they are parsed and preserved in
-/// the AST but evaluated as silent no-ops; subsequent phases will wire
-/// each variant into the evaluator.
+/// control-flow keywords (`default`, `clear`, `name`, `use`, `indirect`,
+/// `offset`) that modify how a rule set is traversed rather than reading
+/// bytes from the buffer. All six variants are fully evaluated by the
+/// engine: `default`/`clear` manage per-level sibling-matched state;
+/// `name`/`use` implement subroutine dispatch; `indirect` re-applies the
+/// root rule database at a resolved offset; and `offset` emits the
+/// current file position as `Value::Uint` for printf-style formatting.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MetaType {

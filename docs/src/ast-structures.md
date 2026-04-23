@@ -466,6 +466,9 @@ pub enum MetaType {
     Use(String),
     /// `indirect` — re-applies the full rule database at the resolved offset.
     Indirect,
+    /// `offset` — emits the resolved file position as `Value::Uint` for
+    /// printf-style format substitution (e.g. `%lld`).
+    Offset,
 }
 ```
 
@@ -488,6 +491,9 @@ let use_rule = TypeKind::Meta(MetaType::Use("part2".to_string()));
 
 // Re-entry into root rules
 let indirect_rule = TypeKind::Meta(MetaType::Indirect);
+
+// Report the resolved file offset for format substitution
+let offset_rule = TypeKind::Meta(MetaType::Offset);
 ```
 
 **Parse-time Name Extraction:**

@@ -164,6 +164,13 @@ struct Spec {
     end: usize,
 }
 
+/// Maximum width value accepted from a format specifier.
+///
+/// Caps the field width to prevent crafted magic rules with enormous widths
+/// (e.g., `%999999999d`) from driving unbounded `repeat_n` allocations in the
+/// padding helpers. 4096 is generous for any real magic-corpus usage.
+const MAX_FORMAT_WIDTH: usize = 4096;
+
 /// Parse a format specifier starting at `start` (the first byte after the
 /// leading `%`). Returns `None` if the sequence does not end in a
 /// recognized conversion character.
@@ -197,11 +204,15 @@ fn parse_spec(bytes: &[u8], start: usize) -> Option<Spec> {
         }
     }
 
-    // Width (decimal digits).
+    // Width (decimal digits). Capped at MAX_FORMAT_WIDTH to prevent
+    // unbounded allocations from crafted format strings.
     let mut width: usize = 0;
     while i < bytes.len() && bytes[i].is_ascii_digit() {
         let digit = (bytes[i] - b'0') as usize;
-        width = width.saturating_mul(10).saturating_add(digit);
+        width = width
+            .saturating_mul(10)
+            .saturating_add(digit)
+            .min(MAX_FORMAT_WIDTH);
         i += 1;
     }
 
@@ -277,15 +288,16 @@ fn render(spec: &Spec, value: &Value, type_kind: &TypeKind) -> Option<String> {
             let n = coerce_to_u64_masked(value, type_kind)?;
             Some(render_prefixed_int(
                 &format!("{n:X}"),
-                if spec.alt_form { "0x" } else { "" },
+                if spec.alt_form { "0X" } else { "" },
                 spec,
             ))
         }
         Conv::Octal => {
             let n = coerce_to_u64_masked(value, type_kind)?;
+            // C printf uses a single "0" prefix for %#o (not Rust's "0o").
             Some(render_prefixed_int(
                 &format!("{n:o}"),
-                if spec.alt_form { "0o" } else { "" },
+                if spec.alt_form { "0" } else { "" },
                 spec,
             ))
         }
@@ -398,9 +410,26 @@ fn render_prefixed_int(digits: &str, prefix: &str, spec: &Spec) -> String {
 }
 
 /// Apply width and padding to an already-rendered numeric body.
+///
+/// For zero-padded right-aligned formatting, a leading `-` sign is kept at
+/// the front while zeros are inserted between the sign and the magnitude
+/// digits -- matching C printf semantics (e.g., `%05d` with `-7` → `-0007`,
+/// not `000-7`).
 fn pad_numeric(body: &str, spec: &Spec) -> String {
     if body.len() >= spec.width {
         return body.to_string();
+    }
+    // C printf sign-aware zero-padding: sign goes before the zeros.
+    if spec.zero_pad
+        && !spec.left_align
+        && let Some(digits) = body.strip_prefix('-')
+    {
+        let needed = spec.width.saturating_sub(1 + digits.len());
+        if needed == 0 {
+            return body.to_string();
+        }
+        let zeros: String = std::iter::repeat_n('0', needed).collect();
+        return format!("-{zeros}{digits}");
     }
     let pad = spec.width - body.len();
     let pad_char = if spec.zero_pad && !spec.left_align {
@@ -493,9 +522,14 @@ mod tests {
         let out = format_magic_message("%-#6x|", &Value::Uint(0xab), &byte_t());
         assert_eq!(out, "0xab  |");
 
-        // %#08o: zero-pad inserts between "0o" prefix and digits.
+        // %#08o: zero-pad inserts between C-style "0" prefix and digits.
+        // C printf uses a single "0" prefix for %#o (not Rust's "0o").
         let out = format_magic_message("%#08o", &Value::Uint(8), &byte_t());
-        assert_eq!(out, "0o000010");
+        assert_eq!(out, "00000010");
+
+        // %#X: uppercase alt-form uses "0X" prefix to match the specifier case.
+        let out = format_magic_message("%#X", &Value::Uint(0xab), &byte_t());
+        assert_eq!(out, "0XAB");
     }
 
     #[test]
@@ -520,8 +554,9 @@ mod tests {
     fn test_octal_substitution() {
         let out = format_magic_message("%o", &Value::Uint(8), &byte_t());
         assert_eq!(out, "10");
+        // C printf %#o uses a single "0" prefix, not Rust's "0o".
         let out = format_magic_message("%#o", &Value::Uint(8), &byte_t());
-        assert_eq!(out, "0o10");
+        assert_eq!(out, "010");
     }
 
     #[test]
@@ -568,15 +603,43 @@ mod tests {
 
     #[test]
     fn test_width_padding() {
+        // Zero-padded width with negative value: sign must precede zeros.
+        // Regression guard for sign-aware zero-padding (C printf semantics).
+        let out = format_magic_message("%05d", &Value::Int(-7), &long_t());
+        assert_eq!(out, "-0007");
+        let out = format_magic_message("%06d", &Value::Int(-42), &long_t());
+        assert_eq!(out, "-00042");
         // Zero-padded width.
         let out = format_magic_message("%05d", &Value::Int(42), &long_t());
         assert_eq!(out, "00042");
         // Space-padded width.
         let out = format_magic_message("%5d", &Value::Int(42), &long_t());
         assert_eq!(out, "   42");
+        // Negative with space-padding: sign stays in the body, spaces lead.
+        let out = format_magic_message("%5d", &Value::Int(-7), &long_t());
+        assert_eq!(out, "   -7");
         // Left-aligned (zero flag ignored when `-` is set).
         let out = format_magic_message("%-5d|", &Value::Int(42), &long_t());
         assert_eq!(out, "42   |");
+        // Left-aligned negative: body left-aligned, spaces trail.
+        let out = format_magic_message("%-6d|", &Value::Int(-7), &long_t());
+        assert_eq!(out, "-7    |");
+    }
+
+    #[test]
+    fn test_width_cap_prevents_large_allocation() {
+        // A width larger than MAX_FORMAT_WIDTH must be silently clamped.
+        // The output should be valid (the value rendered, possibly padded)
+        // rather than triggering a huge allocation.
+        let huge_width = format!("%{}d", usize::MAX);
+        let out = format_magic_message(&huge_width, &Value::Int(1), &long_t());
+        // After clamping, the output is at most MAX_FORMAT_WIDTH+1 chars.
+        assert!(
+            out.len() <= MAX_FORMAT_WIDTH + 1,
+            "output too long: {}",
+            out.len()
+        );
+        assert!(out.ends_with('1'), "rendered value must appear: {out:?}");
     }
 
     // ---- edge cases --------------------------------------------------

@@ -429,19 +429,20 @@ parse_type_and_operator("search/0")
 - ✅ Bare `search` and `search/0` rejected at parse time
 - ✅ Binary-safe literal matching via `memchr::memmem::find`
 
-### Meta-type Directives (`name`, `use`, `default`, `clear`, `indirect`)
+### Meta-type Directives (`name`, `use`, `default`, `clear`, `indirect`, `offset`)
 
-The parser supports five meta-type directives that represent control-flow rather than buffer reads. They all parse into the `TypeKind::Meta(MetaType)` AST variant and carry no endianness or width.
+The parser supports six meta-type directives that represent control-flow rather than buffer reads. They all parse into the `TypeKind::Meta(MetaType)` AST variant and carry no endianness or width.
 
 **Type Keywords and `MetaType` Variants:**
 
-| Keyword     | `MetaType` Variant       | Role                                                           |
-| ----------- | ------------------------ | -------------------------------------------------------------- |
-| `name <id>` | `MetaType::Name(String)` | Declares a named subroutine; children form the subroutine body |
-| `use <id>`  | `MetaType::Use(String)`  | Invokes a named subroutine at the resolved offset              |
-| `default`   | `MetaType::Default`      | Fires only when no sibling at the same level has matched       |
-| `clear`     | `MetaType::Clear`        | Resets the per-level sibling-matched flag                      |
-| `indirect`  | `MetaType::Indirect`     | Re-applies the root rule set at the resolved offset            |
+| Keyword     | `MetaType` Variant       | Role                                                                          |
+| ----------- | ------------------------ | ----------------------------------------------------------------------------- |
+| `name <id>` | `MetaType::Name(String)` | Declares a named subroutine; children form the subroutine body                |
+| `use <id>`  | `MetaType::Use(String)`  | Invokes a named subroutine at the resolved offset                             |
+| `default`   | `MetaType::Default`      | Fires only when no sibling at the same level has matched                      |
+| `clear`     | `MetaType::Clear`        | Resets the per-level sibling-matched flag                                     |
+| `indirect`  | `MetaType::Indirect`     | Re-applies the root rule set at the resolved offset                           |
+| `offset`    | `MetaType::Offset`       | Emits the resolved file position as `Value::Uint` for printf-style formatting |
 
 Meta-types have `bit_width() == None` because they consume zero on-disk bytes.
 
@@ -452,7 +453,7 @@ Meta-types have `bit_width() == None` because they consume zero on-disk bytes.
 ```rust
 pub struct ParsedMagic {
     pub rules: Vec<MagicRule>,
-    pub name_table: NameTable,
+    pub(crate) name_table: NameTable,
 }
 ```
 
@@ -480,7 +481,7 @@ Top-level `name <id>` rules are hoisted *out* of `ParsedMagic::rules` by `parser
 
 **Features:**
 
-- ✅ All five keywords recognized by `parse_type_keyword` + `type_keyword_to_kind`
+- ✅ All six keywords recognized by `parse_type_keyword` + `type_keyword_to_kind`
 - ✅ Round-trip through `serialize_type_kind` in `codegen.rs`
 - ✅ Top-level `name` extraction into `NameTable`
 - ✅ Defensive scrubbing of misplaced nested `name` rules
@@ -597,7 +598,6 @@ match detect_format(path)? {
 ### Not Yet Implemented
 
 - **Binary .mgc Format**: Compiled magic database format
-- **`offset` pseudo-type**: The `offset` keyword used in `searchbug.magic` for `at_offset %lld` output
 
 ### Planned Enhancements
 

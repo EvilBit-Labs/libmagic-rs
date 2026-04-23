@@ -1,14 +1,15 @@
 // Copyright (c) 2025-2026 the libmagic-rs contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! End-to-end smoke tests for meta-type directives (name/use/default/clear/indirect).
+//! End-to-end smoke tests for meta-type directives
+//! (name/use/default/clear/indirect/offset).
 //!
 //! Uses the canonical GNU `file` `searchbug.magic` fixture, which exercises
 //! the `name`/`use` subroutine machinery together with `offset`, `search/N`,
-//! and relative-offset (`&N`) semantics. These tests verify the acceptance
-//! surface shipped in this phase and are intentionally loose about the
-//! exact result string -- the full byte-for-byte match is deferred to a
-//! later phase that wires up the `offset` pseudo-type.
+//! and relative-offset (`&N`) semantics. All six meta-type variants are fully
+//! evaluated; `test_searchbug_matches_full_result_string` verifies the
+//! byte-for-byte output against `searchbug.result` including the `offset`
+//! pseudo-type's printf-style format substitution.
 
 use std::fs;
 use std::io::Write;

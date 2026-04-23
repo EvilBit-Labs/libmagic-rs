@@ -27,14 +27,14 @@ use libmagic_rs::MagicDatabase;
 
 The struct contains internal fields:
 
-| Field (Internal)  | Type                 | Description                                                      |
-| ----------------- | -------------------- | ---------------------------------------------------------------- |
-| `rules`           | `Vec<MagicRule>`     | Top-level magic rules                                            |
-| `name_table`      | `Arc<NameTable>`     | Named subroutine definitions extracted from `name` rules         |
-| `root_rules`      | `Arc<[MagicRule]>`   | Shared immutable slice of top-level rules for `indirect` re-entry |
-| `config`          | `EvaluationConfig`   | Evaluation configuration                                         |
-| `source_path`     | `Option<PathBuf>`    | Optional path to the source magic file or directory              |
-| `mime_mapper`     | `MimeMapper`         | MIME type mapper                                                 |
+| Field (Internal) | Type               | Description                                                       |
+| ---------------- | ------------------ | ----------------------------------------------------------------- |
+| `rules`          | `Vec<MagicRule>`   | Top-level magic rules                                             |
+| `name_table`     | `Arc<NameTable>`   | Named subroutine definitions extracted from `name` rules          |
+| `root_rules`     | `Arc<[MagicRule]>` | Shared immutable slice of top-level rules for `indirect` re-entry |
+| `config`         | `EvaluationConfig` | Evaluation configuration                                          |
+| `source_path`    | `Option<PathBuf>`  | Optional path to the source magic file or directory               |
+| `mime_mapper`    | `MimeMapper`       | MIME type mapper                                                  |
 
 #### Constructor Methods
 
@@ -317,9 +317,9 @@ use libmagic_rs::parser::ParsedMagic;
 
 Contains the top-level rule list with any `name`-declared subroutines hoisted into a separate name table keyed by identifier.
 
-| Field        | Type          | Description                                                  |
-| ------------ | ------------- | ------------------------------------------------------------ |
-| `rules`      | `Vec<MagicRule>` | Top-level rules after `Name` subroutines have been removed |
+| Field        | Type                   | Description                                                                                                                           |
+| ------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `rules`      | `Vec<MagicRule>`       | Top-level rules after `Name` subroutines have been removed                                                                            |
 | `name_table` | `NameTable` (internal) | Extracted `name` subroutine definitions, consulted by the evaluator when a rule of type `TypeKind::Meta(MetaType::Use(_))` is reached |
 
 #### MagicRule
@@ -375,7 +375,7 @@ use libmagic_rs::TypeKind;
 | `Date { endian, utc }`     | 32-bit Unix timestamp (signed seconds since epoch). The `endian` parameter specifies byte order (LittleEndian or BigEndian), and `utc` is a boolean indicating whether to format as UTC or local time. Date values are formatted as "Www Mmm DD HH:MM:SS YYYY" strings to match GNU file output.  |
 | `QDate { endian, utc }`    | 64-bit Unix timestamp (signed seconds since epoch). The `endian` parameter specifies byte order (LittleEndian or BigEndian), and `utc` is a boolean indicating whether to format as UTC or local time. QDate values are formatted as "Www Mmm DD HH:MM:SS YYYY" strings to match GNU file output. |
 | `String { max_length }`    | String data                                                                                                                                                                                                                                                                                       |
-| `Meta(MetaType)`           | Meta-type directives for control flow, conditional execution, and named subroutines. Variants: `Default`, `Clear`, `Name`, `Use`, `Indirect`, `Offset`. See [`MetaType`](#metatype) for details.                                                                                                 |
+| `Meta(MetaType)`           | Meta-type directives for control flow, conditional execution, and named subroutines. Variants: `Default`, `Clear`, `Name`, `Use`, `Indirect`, `Offset`. See [`MetaType`](#metatype) for details.                                                                                                  |
 
 ##### MetaType
 
@@ -385,13 +385,13 @@ Control-flow directive variants carried by `TypeKind::Meta`.
 use libmagic_rs::parser::ast::MetaType;
 ```
 
-| Variant    | Description                                                                                                                          |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `Default`  | Fires when no sibling at the same indentation level has matched                                                                     |
-| `Clear`    | Resets the sibling-matched flag so a later `default` sibling can fire even if an earlier sibling matched                            |
-| `Name(id)` | Declares a named subroutine with identifier `id` that can be invoked later via `Use`                                                |
-| `Use(id)`  | Invokes a named subroutine previously declared via `Name`                                                                           |
-| `Indirect` | Re-applies the entire magic database at the resolved offset                                                                         |
+| Variant    | Description                                                                                                                                |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Default`  | Fires when no sibling at the same indentation level has matched                                                                            |
+| `Clear`    | Resets the sibling-matched flag so a later `default` sibling can fire even if an earlier sibling matched                                   |
+| `Name(id)` | Declares a named subroutine with identifier `id` that can be invoked later via `Use`                                                       |
+| `Use(id)`  | Invokes a named subroutine previously declared via `Name`                                                                                  |
+| `Indirect` | Re-applies the entire magic database at the resolved offset                                                                                |
 | `Offset`   | Reports the current file offset as `Value::Uint(pos)` rather than reading a typed value from the buffer; operator must be `AnyValue` (`x`) |
 
 ##### 64-bit Integer Types
@@ -527,13 +527,13 @@ Result from internal evaluation.
 use libmagic_rs::evaluator::MatchResult;
 ```
 
-| Field        | Type     | Description       |
-| ------------ | -------- | ----------------- |
+| Field        | Type     | Description                                                                                                     |
+| ------------ | -------- | --------------------------------------------------------------------------------------------------------------- |
 | `message`    | `String` | Match description (printf-style format specifiers like `%d`, `%x`, `%s` are substituted with the matched value) |
-| `offset`     | `usize`  | Match offset      |
-| `level`      | `u32`    | Rule level        |
-| `value`      | `Value`  | Matched value     |
-| `confidence` | `f64`    | Confidence score  |
+| `offset`     | `usize`  | Match offset                                                                                                    |
+| `level`      | `u32`    | Rule level                                                                                                      |
+| `value`      | `Value`  | Matched value                                                                                                   |
+| `confidence` | `f64`    | Confidence score                                                                                                |
 
 ---
 

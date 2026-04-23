@@ -320,9 +320,9 @@ impl MagicDatabase {
         // Each named subroutine body must be sorted by the same strength
         // ordering so evaluation of a `use` site is deterministic and
         // matches the ordering applied to top-level rules.
-        for subroutine in name_table.values_mut() {
-            crate::evaluator::strength::sort_rules_by_strength_recursive(subroutine);
-        }
+        name_table.sort_subroutines(|rules| {
+            crate::evaluator::strength::sort_rules_by_strength_recursive(rules);
+        });
 
         let root_rules: std::sync::Arc<[MagicRule]> = std::sync::Arc::from(rules.as_slice());
         Ok(Self {
