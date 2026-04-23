@@ -323,13 +323,22 @@ fn evaluate_use_rule(
     // through the guard's `Drop` impl and the caller's context
     // returns to its pre-use state. Without the RAII wrapper a manual
     // save/restore pair would be bypassed on every error path.
-    let subroutine_matches = {
+    // Capture both the subroutine's matches AND the terminal anchor
+    // where the subroutine left `last_match_end`. The terminal anchor
+    // is what GNU `file`-compatible inlining semantics require: sibling
+    // rules after the `use` site must resolve `&N` against the position
+    // the subroutine reached, not the use-site offset. Reading the
+    // anchor INSIDE the scope (before Drop restores the caller's value)
+    // preserves it for the caller.
+    let (subroutine_matches, terminal_anchor) = {
         let mut scope = SubroutineScope::enter(context, absolute_offset);
         let mut guard = RecursionGuard::enter(scope.context())?;
-        evaluate_rules(&subroutine_rules, buffer, guard.context())?
+        let matches = evaluate_rules(&subroutine_rules, buffer, guard.context())?;
+        let terminal = guard.context().last_match_end();
+        (matches, terminal)
     };
 
-    Ok((Some(absolute_offset), subroutine_matches))
+    Ok((Some(terminal_anchor), subroutine_matches))
 }
 
 /// Evaluate a pattern-bearing rule (`TypeKind::Regex` / `TypeKind::Search`).
@@ -611,8 +620,22 @@ pub fn evaluate_rules(
     // post-match anchor (via the current value of `last_match_end()` at
     // the point of recursion), so child sibling lists see their parent's
     // resolved position as their own entry anchor.
+    //
+    // INDIRECT RE-ENTRY exception: `MetaType::Indirect` dispatches its
+    // sub-evaluation via `RecursionGuard::enter` (to bound the recursion
+    // cycle), which forces `recursion_depth > 0`. But an indirect
+    // re-entry semantically evaluates the root rule list with TOP-LEVEL
+    // sibling semantics -- each rule is an independent classification
+    // attempt against the re-entered sub-buffer, NOT a continuation
+    // list. The indirect dispatch sets `context.set_indirect_reentry(true)`
+    // just before this call; `take_indirect_reentry()` consumes it at
+    // entry so only this iteration treats siblings as top-level.
+    // Children of matched rules inside the re-entry still see the flag
+    // as false (consumed) and correctly fall back to continuation
+    // semantics via `recursion_depth > 0`.
     let entry_anchor = context.last_match_end();
-    let is_child_sibling_list = context.recursion_depth() > 0;
+    let is_indirect_reentry = context.take_indirect_reentry();
+    let is_child_sibling_list = context.recursion_depth() > 0 && !is_indirect_reentry;
 
     // Entry-point timeout check: ensures every recursive descent is bounded
     // and that evaluations of small rule sets (< 16 rules) are still guarded.
@@ -776,9 +799,16 @@ pub fn evaluate_rules(
             // Recursion guard + anchor scope: nested indirect / use cycles
             // surface as `RecursionLimitExceeded` instead of a stack overflow,
             // and the caller's anchor is restored on every exit path.
+            //
+            // Mark the upcoming `evaluate_rules` call as a top-level
+            // re-entry (consumed at entry) so sibling anchor-reset
+            // semantics do NOT fire -- root rules in the re-entered
+            // database chain their anchors across siblings like any
+            // other top-level evaluation.
             {
                 let mut guard = RecursionGuard::enter(context)?;
                 let mut anchor_scope = AnchorScope::enter(guard.context(), 0);
+                anchor_scope.context().set_indirect_reentry(true);
                 match evaluate_rules(&root_rules, sub_buffer, anchor_scope.context()) {
                     Ok(sub_matches) => {
                         matches.extend(sub_matches);
@@ -891,18 +921,19 @@ pub fn evaluate_rules(
         if let TypeKind::Meta(MetaType::Use(name)) = &rule.typ {
             let matches_before = matches.len();
             let use_resolved = match evaluate_use_rule(rule, name, buffer, context) {
-                Ok((Some(absolute_offset), subroutine_matches)) => {
+                Ok((Some(terminal_anchor), subroutine_matches)) => {
                     matches.extend(subroutine_matches);
 
-                    // A `use` rule itself does not produce a surface
-                    // `RuleMatch` in GNU `file` output; the subroutine's
-                    // rules carry the visible messages. We therefore only
-                    // advance the anchor (to the use-site offset, which
-                    // may have been moved by the subroutine; since we
-                    // restored it above, we now re-advance to the
-                    // use-site offset so subsequent sibling rules resolve
-                    // relative offsets from the use-site end).
-                    context.set_last_match_end(absolute_offset);
+                    // A `use` rule does not produce a surface
+                    // `RuleMatch` itself -- the subroutine's rules
+                    // carry the visible messages. Advance the
+                    // caller's anchor to the subroutine's TERMINAL
+                    // anchor (where the subroutine left `last_match_end`),
+                    // not the use-site offset. This makes `use`
+                    // behave like inlining the subroutine: sibling
+                    // rules after the `use` see `&N` resolve against
+                    // the subroutine's final match position.
+                    context.set_last_match_end(terminal_anchor);
                     true
                 }
                 Ok((None, _)) => {

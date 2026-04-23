@@ -85,6 +85,21 @@ pub struct EvaluationContext {
     /// Restored to the caller's value on subroutine exit via the
     /// `BaseOffsetScope` RAII guard in `engine/mod.rs`.
     base_offset: usize,
+    /// One-shot flag set by `MetaType::Indirect` dispatch before
+    /// re-entering the root rule list. When true, the next entry to
+    /// `evaluate_rules` treats the iteration as a top-level sibling
+    /// chain (anchor chains across siblings per GOTCHAS S3.8) rather
+    /// than as a continuation list (anchor resets between siblings).
+    /// Consumed at entry — children of a matched rule inside the
+    /// re-entry see the flag cleared, so their own continuation-reset
+    /// semantics kick in via the `recursion_depth > 0` gate.
+    ///
+    /// Without this flag, `indirect` wrapping re-entry under
+    /// `RecursionGuard` forces `recursion_depth > 0`, which forces
+    /// continuation-reset semantics on the root rule list — wrong,
+    /// because top-level rules in the re-entered database should
+    /// chain sibling anchors like any other top-level evaluation.
+    indirect_reentry: bool,
 }
 
 impl EvaluationContext {
@@ -112,6 +127,7 @@ impl EvaluationContext {
             config,
             rule_env: None,
             base_offset: 0,
+            indirect_reentry: false,
         }
     }
 
@@ -128,6 +144,25 @@ impl EvaluationContext {
     /// guard -- no external caller should set this directly.
     pub(crate) fn set_base_offset(&mut self, offset: usize) {
         self.base_offset = offset;
+    }
+
+    /// Read-and-clear the indirect-reentry flag. Used by `evaluate_rules`
+    /// at entry to decide whether the iteration is a top-level re-entry
+    /// (no anchor reset between siblings) or a continuation list (reset
+    /// between siblings). Cleared on read so children of a matched rule
+    /// inside the re-entry see the flag as false and fall back to the
+    /// `recursion_depth > 0` gate for their own continuation semantics.
+    pub(crate) fn take_indirect_reentry(&mut self) -> bool {
+        std::mem::take(&mut self.indirect_reentry)
+    }
+
+    /// Set the indirect-reentry flag.
+    ///
+    /// `pub(crate)` and owned by the `MetaType::Indirect` dispatch in
+    /// `engine/mod.rs`. Callers should set this true exactly once
+    /// before invoking `evaluate_rules` on the root rule list.
+    pub(crate) fn set_indirect_reentry(&mut self, flag: bool) {
+        self.indirect_reentry = flag;
     }
 
     /// Attach a rule environment to this context.
@@ -304,6 +339,7 @@ impl EvaluationContext {
         self.last_match_end = 0;
         self.recursion_depth = 0;
         self.base_offset = 0;
+        self.indirect_reentry = false;
     }
 }
 
