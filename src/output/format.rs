@@ -74,17 +74,22 @@ pub fn format_magic_message(template: &str, value: &Value, type_kind: &TypeKind)
     let mut out = String::with_capacity(template.len());
     let bytes = template.as_bytes();
     let mut i = 0;
+    // Start of the most recent run of non-`%` bytes. We copy the run
+    // as a string slice rather than byte-by-byte so non-ASCII UTF-8
+    // code points survive intact. Scanning still happens at the byte
+    // level (safe because `%` is ASCII 0x25 and cannot appear as a
+    // UTF-8 continuation byte, which is always >= 0x80).
+    let mut plain_start = 0;
 
     while i < bytes.len() {
-        let b = bytes[i];
-        if b != b'%' {
-            // SAFETY: iterating by byte but template is valid UTF-8; any
-            // non-ASCII multi-byte character has all continuation bytes
-            // > 0x7f which cannot equal b'%' (0x25), so we never split
-            // a UTF-8 codepoint here. Push as char.
-            out.push(b as char);
+        if bytes[i] != b'%' {
             i += 1;
             continue;
+        }
+
+        // Flush any pending plain-text run as a single UTF-8 slice.
+        if plain_start < i {
+            out.push_str(&template[plain_start..i]);
         }
 
         // Start of a format specifier at position i.
@@ -97,6 +102,9 @@ pub fn format_magic_message(template: &str, value: &Value, type_kind: &TypeKind)
                 "format_magic_message: malformed specifier at byte {i} in template {template:?}; passing through remainder literally",
             );
             out.push_str(&template[i..]);
+            // Skip the trailing flush -- we have already emitted the
+            // remainder above.
+            plain_start = bytes.len();
             break;
         };
         let next_i = parsed_spec.end;
@@ -112,6 +120,12 @@ pub fn format_magic_message(template: &str, value: &Value, type_kind: &TypeKind)
             out.push_str(literal);
         }
         i = next_i;
+        plain_start = i;
+    }
+
+    // Flush any trailing plain-text run.
+    if plain_start < bytes.len() {
+        out.push_str(&template[plain_start..]);
     }
 
     out
@@ -520,6 +534,26 @@ mod tests {
     fn test_percent_escape() {
         let out = format_magic_message("100%% sure", &Value::Uint(0), &byte_t());
         assert_eq!(out, "100% sure");
+    }
+
+    #[test]
+    fn test_non_ascii_template_preserved() {
+        // Regression guard: earlier revisions iterated by byte and
+        // pushed each `b as char`, which re-encoded non-ASCII UTF-8
+        // continuation bytes as Latin-1 code points and mangled the
+        // output (e.g., "café" -> "cafÃ©"). The plain-run flush path
+        // must copy slices of the original template to preserve the
+        // original UTF-8 byte sequences.
+        let out = format_magic_message("café %d", &Value::Int(42), &long_t());
+        assert_eq!(out, "café 42");
+
+        // Non-ASCII around a specifier on both sides.
+        let out = format_magic_message("→ %s ←", &Value::String("ok".into()), &byte_t());
+        assert_eq!(out, "→ ok ←");
+
+        // Non-ASCII only, no specifiers.
+        let out = format_magic_message("über", &Value::Uint(0), &byte_t());
+        assert_eq!(out, "über");
     }
 
     #[test]

@@ -273,6 +273,88 @@ mod tests {
     }
 
     #[test]
+    fn test_resolve_offset_with_base_biases_positive_absolute() {
+        // Positive Absolute inside a subroutine body is biased by
+        // `base_offset`. This is the load-bearing invariant of
+        // `MetaType::Use` subroutine semantics.
+        let buffer = b"0123456789ABCDEF";
+        let spec = OffsetSpec::Absolute(4);
+        // base_offset = 10 -> resolves to 14 (not 4).
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 0, 10).unwrap(),
+            14,
+            "positive Absolute must be biased by base_offset inside a subroutine"
+        );
+    }
+
+    #[test]
+    fn test_resolve_offset_with_base_does_not_bias_negative_absolute() {
+        // Negative Absolute means "from-end" semantics (magic(5)
+        // allows either explicit `FromEnd` or negative `Absolute`).
+        // The subroutine base_offset is relative to the file start
+        // and has no meaning for from-end positions.
+        let buffer = b"0123456789ABCDEF";
+        let spec = OffsetSpec::Absolute(-4);
+        // Without bias: resolves to len - 4 = 12.
+        // Buggy with-bias would give: 10 + (len - 4) or similar.
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 0, 10).unwrap(),
+            12,
+            "negative Absolute must NOT be biased"
+        );
+    }
+
+    #[test]
+    fn test_resolve_offset_with_base_does_not_bias_from_end() {
+        // `FromEnd` is always relative to the buffer, not the
+        // subroutine's use-site.
+        let buffer = b"0123456789ABCDEF";
+        let spec = OffsetSpec::FromEnd(-4);
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 0, 10).unwrap(),
+            12,
+            "FromEnd must NOT be biased"
+        );
+    }
+
+    #[test]
+    fn test_resolve_offset_with_base_does_not_bias_relative() {
+        // `Relative(N)` resolves against the previous-match anchor,
+        // not the subroutine base. Inside a subroutine body,
+        // `last_match_end` is seeded to the use-site by
+        // `SubroutineScope::enter`, so this already has the correct
+        // frame of reference without additional bias.
+        let buffer = b"0123456789ABCDEF";
+        let spec = OffsetSpec::Relative(3);
+        // last_match_end = 2, base_offset = 10.
+        // Expected: 2 + 3 = 5 (bias does NOT apply).
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 2, 10).unwrap(),
+            5,
+            "Relative must NOT be biased (already resolved against last_match_end)"
+        );
+    }
+
+    #[test]
+    fn test_resolve_offset_with_base_does_not_bias_indirect() {
+        // `Indirect` reads a pointer from the buffer; the pointer's
+        // value is an absolute file position, not a subroutine-
+        // relative one.
+        let buffer = b"\x05TestXdata";
+        let spec = OffsetSpec::Indirect {
+            base_offset: 0,
+            pointer_type: crate::parser::ast::TypeKind::Byte { signed: false },
+            adjustment: 0,
+            endian: crate::parser::ast::Endianness::Little,
+        };
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 0, 10).unwrap(),
+            5,
+            "Indirect must NOT be biased"
+        );
+    }
+
+    #[test]
     fn test_resolve_offset_comprehensive() {
         let buffer = b"0123456789ABCDEF";
 

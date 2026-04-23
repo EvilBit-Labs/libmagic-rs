@@ -44,7 +44,6 @@ impl<'a> AnchorScope<'a> {
     }
 
     /// Access the underlying context for the duration of the guard.
-    #[allow(dead_code)]
     fn context(&mut self) -> &mut EvaluationContext {
         self.context
     }
@@ -53,6 +52,51 @@ impl<'a> AnchorScope<'a> {
 impl Drop for AnchorScope<'_> {
     fn drop(&mut self) {
         self.context.set_last_match_end(self.saved_anchor);
+    }
+}
+
+/// RAII guard for `MetaType::Use` subroutine dispatch.
+///
+/// Saves `last_match_end` and `base_offset` on entry, seeds the context
+/// with the use-site offset (for both fields so that a subroutine's
+/// `&0` relative offset resolves to the use-site and its positive
+/// absolute offsets bias against the use-site per magic(5)), and
+/// restores both on drop.
+///
+/// This is the safety net for early-return paths inside
+/// `evaluate_use_rule`: a `RecursionGuard::enter` failure or a
+/// `Timeout`/`RecursionLimitExceeded` inside the subroutine body would
+/// otherwise leave the caller's context with corrupted anchor and
+/// base-offset state. The guard's `Drop` impl restores both fields on
+/// every exit path, error or success.
+struct SubroutineScope<'a> {
+    context: &'a mut EvaluationContext,
+    saved_anchor: usize,
+    saved_base: usize,
+}
+
+impl<'a> SubroutineScope<'a> {
+    fn enter(context: &'a mut EvaluationContext, use_site: usize) -> Self {
+        let saved_anchor = context.last_match_end();
+        let saved_base = context.base_offset();
+        context.set_last_match_end(use_site);
+        context.set_base_offset(use_site);
+        Self {
+            context,
+            saved_anchor,
+            saved_base,
+        }
+    }
+
+    fn context(&mut self) -> &mut EvaluationContext {
+        self.context
+    }
+}
+
+impl Drop for SubroutineScope<'_> {
+    fn drop(&mut self) {
+        self.context.set_last_match_end(self.saved_anchor);
+        self.context.set_base_offset(self.saved_base);
     }
 }
 
@@ -261,24 +305,19 @@ fn evaluate_use_rule(
         context.base_offset(),
     )?;
 
-    // Save the anchor and base offset, seed the subroutine body with the
-    // use-site offset for both, and restore on exit. This gives the
-    // subroutine:
-    //   * `&N` offsets resolving from the use-site (via last_match_end)
-    //   * `>N` / absolute offsets in the subroutine resolving as
-    //     `use_site + N` (via base_offset), matching magic(5) semantics
-    let saved_anchor = context.last_match_end();
-    let saved_base = context.base_offset();
-    context.set_last_match_end(absolute_offset);
-    context.set_base_offset(absolute_offset);
-
+    // `SubroutineScope` seeds `last_match_end` and `base_offset` with
+    // the use-site offset and restores both on drop. This is the
+    // safety net for early-return paths below -- if
+    // `RecursionGuard::enter` or the inner `evaluate_rules` returns
+    // `Err(Timeout)` / `Err(RecursionLimitExceeded)`, the `?` unwinds
+    // through the guard's `Drop` impl and the caller's context
+    // returns to its pre-use state. Without the RAII wrapper a manual
+    // save/restore pair would be bypassed on every error path.
     let subroutine_matches = {
-        let mut guard = RecursionGuard::enter(context)?;
+        let mut scope = SubroutineScope::enter(context, absolute_offset);
+        let mut guard = RecursionGuard::enter(scope.context())?;
         evaluate_rules(&subroutine_rules, buffer, guard.context())?
     };
-
-    context.set_last_match_end(saved_anchor);
-    context.set_base_offset(saved_base);
 
     Ok((Some(absolute_offset), subroutine_matches))
 }
