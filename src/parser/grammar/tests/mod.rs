@@ -6,6 +6,7 @@ mod meta_types;
 
 use super::*;
 use crate::parser::ast::Endianness;
+use crate::parser::ast::IndirectAdjustmentOp;
 use crate::parser::ast::MetaType;
 use crate::parser::ast::PStringLengthWidth;
 
@@ -325,6 +326,7 @@ fn test_parse_rule_offset_indirect_child() {
                         signed: true
                     },
                     adjustment: 0,
+                    adjustment_op: IndirectAdjustmentOp::Add,
                     endian: Endianness::Little,
                 }
             )
@@ -344,6 +346,7 @@ fn test_parse_rule_offset_indirect_child() {
                         signed: true
                     },
                     adjustment: 4,
+                    adjustment_op: IndirectAdjustmentOp::Add,
                     endian: Endianness::Little,
                 }
             )
@@ -367,6 +370,7 @@ fn test_parse_rule_offset_indirect_with_remaining() {
                         signed: true
                     },
                     adjustment: 0,
+                    adjustment_op: IndirectAdjustmentOp::Add,
                     endian: Endianness::Little,
                 }
             )
@@ -386,6 +390,7 @@ fn test_parse_rule_offset_indirect_with_remaining() {
                         signed: true
                     },
                     adjustment: 4,
+                    adjustment_op: IndirectAdjustmentOp::Add,
                     endian: Endianness::Little,
                 }
             )
@@ -527,11 +532,22 @@ fn test_parse_operator_invalid_input() {
     assert!(parse_operator("").is_err());
     assert!(parse_operator("abc").is_err());
     assert!(parse_operator("123").is_err());
-    assert!(parse_operator("!").is_err());
     assert!(parse_operator("===").is_err()); // Too many equals
     assert!(parse_operator("&&").is_err()); // Double ampersand not supported
     assert!(parse_operator("^^").is_err()); // Double caret not supported
     assert!(parse_operator("~~").is_err()); // Double tilde not supported
+}
+
+#[test]
+fn test_parse_operator_bare_bang_is_not_equal() {
+    // magic(5) uses bare `!` as a "not equal" prefix on values, e.g.
+    // `!0xb8c0078e`. Both bare `!` and `!=` map to NotEqual.
+    assert_eq!(parse_operator("!"), Ok(("", Operator::NotEqual)));
+    assert_eq!(
+        parse_operator("!0xb8c0078e"),
+        Ok(("0xb8c0078e", Operator::NotEqual))
+    );
+    assert_eq!(parse_operator("!IHISK"), Ok(("IHISK", Operator::NotEqual)));
 }
 
 #[test]
@@ -2072,6 +2088,38 @@ fn test_parse_strength_directive_with_whitespace() {
     assert_eq!(
         parse_strength_directive("!:strength   50"),
         Ok(("", StrengthModifier::Set(50)))
+    );
+}
+
+#[test]
+fn test_parse_strength_directive_space_after_operator() {
+    // GNU `file` magic(5) parsers accept whitespace between the operator
+    // and the operand. Real-world example: the Minix filesystem entries
+    // in /usr/share/file/magic/filesystems use `!:strength / 2`.
+    assert_eq!(
+        parse_strength_directive("!:strength + 10"),
+        Ok(("", StrengthModifier::Add(10)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength - 5"),
+        Ok(("", StrengthModifier::Subtract(5)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength * 2"),
+        Ok(("", StrengthModifier::Multiply(2)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength / 2"),
+        Ok(("", StrengthModifier::Divide(2)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength = 100"),
+        Ok(("", StrengthModifier::Set(100)))
+    );
+    // Tabs between operator and number are also permitted.
+    assert_eq!(
+        parse_strength_directive("!:strength /\t2"),
+        Ok(("", StrengthModifier::Divide(2)))
     );
 }
 

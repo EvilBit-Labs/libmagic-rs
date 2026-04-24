@@ -117,7 +117,16 @@ The nom `tuple` combinator is deprecated. Use bare tuple syntax `(a, b, c)` dire
 
 ### 3.7 Indirect Offset Pointer Specifiers Follow GNU `file` Semantics
 
-Lowercase pointer specifiers (`.s`, `.l`, `.q`) map to **little-endian**, not native endian. Uppercase (`.S`, `.L`, `.Q`) map to big-endian. All numeric pointer types are **signed by default** (per S6.3). The adjustment is parsed **after** the closing paren: `(base.type)+adj`, not `(base.type+adj)`.
+Lowercase pointer specifiers (`.s`, `.l`, `.q`) map to **little-endian**, not native endian. Uppercase (`.S`, `.L`, `.Q`) map to big-endian. All numeric pointer types are **signed by default** (per S6.3).
+
+Adjustment is accepted in two forms:
+
+- **Inside the parens** (canonical magic(5)): `(base.type+N)`, `(base.type-N)`, `(base.type*N)`, `(base.type/N)`, `(base.type%N)`, `(base.type&N)`, `(base.type|N)`, `(base.type^N)`. The full magic(5) operator set is supported here.
+- **After the closing paren** (legacy/alternate): `(base.type)+N`, `(base.type)-N`. Only `+`/`-` are accepted in this form.
+
+Only one form may be used per rule; combinations like `(19.b-1)+2` are not permitted. The operator selection is stored on `OffsetSpec::Indirect.adjustment_op` (`IndirectAdjustmentOp` enum). Subtraction is folded into `IndirectAdjustmentOp::Add` with a negative `adjustment` so the evaluator does not need a dedicated `Sub` variant.
+
+The evaluator (`evaluator/offset/indirect.rs::apply_adjustment`) treats the operand as `i64` for `Add` (signed addition) and reinterprets it as `u64` for `Mul`/`Div`/`Mod`/`And`/`Or`/`Xor` to match libmagic's `apprentice.c::do_offset` raw-machine-word semantics. `Div`/`Mod` reject a zero operand with `EvaluationError::InvalidOffset`; `Mul` rejects integer overflow the same way. `IndirectAdjustmentOp` derives `Default = Add` so a missing field round-trips correctly through serde for older AST snapshots.
 
 ### 3.8 Relative Offsets: Global Anchor, No Save/Restore
 

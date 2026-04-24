@@ -18,7 +18,8 @@ use nom::{
 };
 
 use crate::parser::ast::{
-    Endianness, MagicRule, MetaType, OffsetSpec, Operator, StrengthModifier, TypeKind, Value,
+    Endianness, IndirectAdjustmentOp, MagicRule, MetaType, OffsetSpec, Operator, StrengthModifier,
+    TypeKind, Value,
 };
 
 mod numbers;
@@ -102,11 +103,69 @@ fn pointer_specifier_to_type(spec: char) -> Option<(TypeKind, Endianness)> {
     }
 }
 
-/// Parse an indirect offset specification: `(base.type)` or `(base.type)+/-adj`
+/// Parse an indirect offset specification with optional arithmetic.
 ///
-/// Reads a pointer specifier after the dot, closes the parenthesized expression,
-/// then optionally parses `+N` or `-N` adjustment after the `)`.
+/// Accepts these forms:
+///
+/// - `(base.type)` — no adjustment
+/// - `(base.type+N)` / `(base.type-N)` — additive (canonical magic(5))
+/// - `(base.type*N)` / `(base.type/N)` / `(base.type%N)` — multiplicative
+/// - `(base.type&N)` / `(base.type|N)` / `(base.type^N)` — bitwise
+/// - `(base.type)+N` / `(base.type)-N` — additive outside the parens
+///   (backwards-compatible alternate form; only `+`/`-` are accepted here)
+///
+/// Only one adjustment form may be used per rule; combinations like
+/// `(19.b-1)+2` or `(0x200.s*2)+4` are not permitted. Subtraction is
+/// represented as [`IndirectAdjustmentOp::Add`] with a negative
+/// `adjustment`.
 fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
+    // Inside-paren adjustment supports the full magic(5) operator set.
+    // Returns `Some((op, value))` when an operator+operand was consumed.
+    fn parse_inside_adjustment(input: &str) -> IResult<&str, Option<(IndirectAdjustmentOp, i64)>> {
+        // Subtraction is folded into Add with a negated operand so the
+        // evaluator does not need a dedicated Sub variant.
+        if let Some(rest) = input.strip_prefix('+') {
+            let (rest, n) = parse_number(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Add, n))))
+        } else if input.starts_with('-') {
+            let (rest, n) = parse_number(input)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Add, n))))
+        } else if let Some(rest) = input.strip_prefix('*') {
+            let (rest, n) = parse_number(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Mul, n))))
+        } else if let Some(rest) = input.strip_prefix('/') {
+            let (rest, n) = parse_number(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Div, n))))
+        } else if let Some(rest) = input.strip_prefix('%') {
+            let (rest, n) = parse_number(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Mod, n))))
+        } else if let Some(rest) = input.strip_prefix('&') {
+            let (rest, n) = parse_number(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::And, n))))
+        } else if let Some(rest) = input.strip_prefix('|') {
+            let (rest, n) = parse_number(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Or, n))))
+        } else if let Some(rest) = input.strip_prefix('^') {
+            let (rest, n) = parse_number(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Xor, n))))
+        } else {
+            Ok((input, None))
+        }
+    }
+
+    // Outside-paren adjustment: only `+`/`-` are accepted (legacy form).
+    fn parse_outside_adjustment(input: &str) -> IResult<&str, Option<i64>> {
+        if let Some(rest) = input.strip_prefix('+') {
+            let (rest, n) = parse_number(rest)?;
+            Ok((rest, Some(n)))
+        } else if input.starts_with('-') {
+            let (rest, n) = parse_number(input)?;
+            Ok((rest, Some(n)))
+        } else {
+            Ok((input, None))
+        }
+    }
+
     let (input, _) = char('(')(input)?;
     let (input, base_offset) = parse_number(input)?;
     let (input, _) = char('.')(input)?;
@@ -115,17 +174,15 @@ fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
     let (pointer_type, endian) = pointer_specifier_to_type(spec_char)
         .ok_or_else(|| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::OneOf)))?;
 
+    let (input, inside) = parse_inside_adjustment(input)?;
     let (input, _) = char(')')(input)?;
 
-    // Optional adjustment AFTER closing paren: (base.type)+N or (base.type)-N
-    // parse_number handles '-' but not '+', so consume '+' manually
-    let (input, adjustment) = if input.starts_with('+') {
-        let (input, _) = char('+')(input)?;
-        parse_number(input)?
-    } else if input.starts_with('-') {
-        parse_number(input)?
+    // Fall back to outside-paren adjustment if no inside form was present.
+    let (input, adjustment_op, adjustment) = if let Some((op, n)) = inside {
+        (input, op, n)
     } else {
-        (input, 0)
+        let (input, outside) = parse_outside_adjustment(input)?;
+        (input, IndirectAdjustmentOp::Add, outside.unwrap_or(0))
     };
 
     Ok((
@@ -134,6 +191,7 @@ fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
             base_offset,
             pointer_type,
             adjustment,
+            adjustment_op,
             endian,
         },
     ))
@@ -274,11 +332,17 @@ pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
                 (Operator::Equal, 1)
             }
         }
-        // Only "!=" is valid; bare "!" is an error. Express this as a
-        // match arm with a guard so clippy's `collapsible_match` lint is
-        // satisfied -- a guard-false fallthrough lands on the final `_`
-        // arm below, which returns the same parse error.
-        Some(b'!') if bytes.get(1).copied() == Some(b'=') => (Operator::NotEqual, 2),
+        // "!=" or bare "!" -- both map to NotEqual. magic(5) uses the bare
+        // form (e.g., `!0xb8c0078e` means "not equal to 0xb8c0078e"); the
+        // `!=` form is accepted as a convenience and matches operators in
+        // other parts of this parser.
+        Some(b'!') => {
+            if bytes.get(1).copied() == Some(b'=') {
+                (Operator::NotEqual, 2)
+            } else {
+                (Operator::NotEqual, 1)
+            }
+        }
         Some(b'<') => {
             // "<=", "<>", or bare "<"
             match bytes.get(1).copied() {
@@ -686,24 +750,35 @@ pub fn parse_strength_directive(input: &str) -> IResult<&str, StrengthModifier> 
     let (input, _) = multispace0(input)?;
 
     // Parse the operator: +, -, *, /, = or bare number (implies =).
+    // Optional whitespace is permitted between the operator character and
+    // the operand to match GNU `file` magic(5) parsers, which accept forms
+    // like `!:strength / 2` in real-world magic files (e.g., the Minix
+    // entries in /usr/share/file/magic/filesystems).
+    //
     // Use `preceded` + `Parser::map` (nom 8 idiom) rather than
     // `map(pair(..), |(_, n)| ..)` so the throwaway `_` goes away and
     // the composition matches the rest of this file's `.parse(input)?`
-    // style.
+    // style. Tuples implement `Parser` in nom 8 and are used as the first
+    // element of `preceded` to consume the operator char plus any trailing
+    // whitespace.
     let (input, modifier) = alt((
         // +N -> Add
-        preceded(char('+'), parse_number).map(|n| StrengthModifier::Add(clamp_to_i32(n))),
+        preceded((char('+'), multispace0), parse_number)
+            .map(|n| StrengthModifier::Add(clamp_to_i32(n))),
         // -N -> Subtract (parse_number handles negative directly; we
         // need parse_decimal_number after the explicit `-` consumer
         // so the sign is applied exactly once).
-        preceded(char('-'), parse_decimal_number)
+        preceded((char('-'), multispace0), parse_decimal_number)
             .map(|n| StrengthModifier::Subtract(clamp_to_i32(n))),
         // *N -> Multiply
-        preceded(char('*'), parse_number).map(|n| StrengthModifier::Multiply(clamp_to_i32(n))),
+        preceded((char('*'), multispace0), parse_number)
+            .map(|n| StrengthModifier::Multiply(clamp_to_i32(n))),
         // /N -> Divide
-        preceded(char('/'), parse_number).map(|n| StrengthModifier::Divide(clamp_to_i32(n))),
+        preceded((char('/'), multispace0), parse_number)
+            .map(|n| StrengthModifier::Divide(clamp_to_i32(n))),
         // =N -> Set
-        preceded(char('='), parse_number).map(|n| StrengthModifier::Set(clamp_to_i32(n))),
+        preceded((char('='), multispace0), parse_number)
+            .map(|n| StrengthModifier::Set(clamp_to_i32(n))),
         // Bare number -> Set
         parse_number.map(|n| StrengthModifier::Set(clamp_to_i32(n))),
     ))

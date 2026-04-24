@@ -11,7 +11,7 @@
 
 use proptest::prelude::*;
 
-use libmagic_rs::parser::ast::{MetaType, PStringLengthWidth};
+use libmagic_rs::parser::ast::{IndirectAdjustmentOp, MetaType, PStringLengthWidth};
 use libmagic_rs::{
     Endianness, EvaluationConfig, MagicDatabase, MagicRule, OffsetSpec, Operator, TypeKind, Value,
 };
@@ -308,6 +308,7 @@ proptest! {
                 base_offset: base,
                 pointer_type,
                 adjustment: adjust,
+                adjustment_op: IndirectAdjustmentOp::Add,
                 endian,
             },
             typ: TypeKind::Byte { signed: false },

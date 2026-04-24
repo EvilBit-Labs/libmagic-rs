@@ -9,7 +9,7 @@
 use crate::LibmagicError;
 use crate::error::EvaluationError;
 use crate::evaluator::types::{TypeReadError, read_byte, read_long, read_quad, read_short};
-use crate::parser::ast::{Endianness, OffsetSpec, TypeKind, Value};
+use crate::parser::ast::{Endianness, IndirectAdjustmentOp, OffsetSpec, TypeKind, Value};
 
 use super::{map_offset_error, resolve_absolute_offset};
 
@@ -32,13 +32,20 @@ use super::{map_offset_error, resolve_absolute_offset};
 /// * `EvaluationError::BufferOverrun` - If the pointer read or final offset exceeds buffer bounds
 /// * `EvaluationError::UnsupportedType` - If `pointer_type` is not a numeric type
 pub fn resolve_indirect_offset(spec: &OffsetSpec, buffer: &[u8]) -> Result<usize, LibmagicError> {
-    let (base_offset, pointer_type, adjustment, endian) = match spec {
+    let (base_offset, pointer_type, adjustment, adjustment_op, endian) = match spec {
         OffsetSpec::Indirect {
             base_offset,
             pointer_type,
             adjustment,
+            adjustment_op,
             endian,
-        } => (*base_offset, pointer_type, *adjustment, *endian),
+        } => (
+            *base_offset,
+            pointer_type,
+            *adjustment,
+            *adjustment_op,
+            *endian,
+        ),
         _ => {
             return Err(LibmagicError::EvaluationError(
                 EvaluationError::internal_error(
@@ -71,7 +78,7 @@ pub fn resolve_indirect_offset(spec: &OffsetSpec, buffer: &[u8]) -> Result<usize
     let pointer_value = read_pointer(buffer, abs_base, pointer_type, endian)?;
 
     // Step 3: Apply adjustment with checked arithmetic
-    let final_offset = apply_adjustment(pointer_value, adjustment)?;
+    let final_offset = apply_adjustment(pointer_value, adjustment, adjustment_op)?;
 
     // Step 4: Validate final offset against buffer length
     if final_offset >= buffer.len() {
@@ -122,18 +129,53 @@ fn extract_raw_unsigned(value: &Value) -> Result<u64, LibmagicError> {
     }
 }
 
-/// Apply an `i64` adjustment to a `u64` pointer value with checked arithmetic.
-fn apply_adjustment(pointer: u64, adjustment: i64) -> Result<usize, LibmagicError> {
-    // `i64::unsigned_abs` handles `i64::MIN` without overflow (it returns
-    // `2^63` as `u64`), so no special case is needed.
-    let adjusted = if adjustment >= 0 {
-        pointer
-            .checked_add(adjustment.unsigned_abs())
-            .ok_or_else(|| overflow_error(pointer, adjustment))?
-    } else {
-        pointer
-            .checked_sub(adjustment.unsigned_abs())
-            .ok_or_else(|| overflow_error(pointer, adjustment))?
+/// Apply an arithmetic operation to a `u64` pointer value with the given
+/// `i64` operand and checked arithmetic.
+///
+/// `IndirectAdjustmentOp::Add` accepts negative operands (subtraction is
+/// folded into Add by the parser). Multiplicative and bitwise operators
+/// take signed operands too, but `Div` and `Mod` reject a zero operand
+/// with `EvaluationError::InvalidOffset`.
+fn apply_adjustment(
+    pointer: u64,
+    adjustment: i64,
+    op: IndirectAdjustmentOp,
+) -> Result<usize, LibmagicError> {
+    // Bitwise and multiplicative ops view the operand as a `u64`. Casting
+    // `i64 -> u64` reinterprets the bit pattern (so `-1` becomes
+    // `u64::MAX`), which matches libmagic's `apprentice.c::do_offset`
+    // behavior of operating on raw machine words. Add still uses signed
+    // semantics so that `(N.X-1)` (encoded by the parser as `Add(-1)`)
+    // performs subtraction.
+    #[allow(clippy::cast_sign_loss)]
+    let operand_u64 = adjustment as u64;
+
+    let adjusted = match op {
+        IndirectAdjustmentOp::Add => {
+            // `i64::unsigned_abs` handles `i64::MIN` without overflow (it
+            // returns `2^63` as `u64`), so no special case is needed.
+            if adjustment >= 0 {
+                pointer
+                    .checked_add(adjustment.unsigned_abs())
+                    .ok_or_else(|| overflow_error(pointer, adjustment))?
+            } else {
+                pointer
+                    .checked_sub(adjustment.unsigned_abs())
+                    .ok_or_else(|| overflow_error(pointer, adjustment))?
+            }
+        }
+        IndirectAdjustmentOp::Mul => pointer
+            .checked_mul(operand_u64)
+            .ok_or_else(|| overflow_error(pointer, adjustment))?,
+        IndirectAdjustmentOp::Div => pointer
+            .checked_div(operand_u64)
+            .ok_or_else(|| overflow_error(pointer, adjustment))?,
+        IndirectAdjustmentOp::Mod => pointer
+            .checked_rem(operand_u64)
+            .ok_or_else(|| overflow_error(pointer, adjustment))?,
+        IndirectAdjustmentOp::And => pointer & operand_u64,
+        IndirectAdjustmentOp::Or => pointer | operand_u64,
+        IndirectAdjustmentOp::Xor => pointer ^ operand_u64,
     };
 
     usize::try_from(adjusted).map_err(|_| overflow_error(pointer, adjustment))
@@ -169,6 +211,25 @@ mod tests {
             base_offset,
             pointer_type,
             adjustment,
+            adjustment_op: IndirectAdjustmentOp::Add,
+            endian,
+        }
+    }
+
+    /// Helper for constructing an indirect spec with a non-`Add` op
+    /// (used by arithmetic-op test cases).
+    fn indirect_with_op(
+        base_offset: i64,
+        pointer_type: TypeKind,
+        adjustment: i64,
+        adjustment_op: IndirectAdjustmentOp,
+        endian: Endianness,
+    ) -> OffsetSpec {
+        OffsetSpec::Indirect {
+            base_offset,
+            pointer_type,
+            adjustment,
+            adjustment_op,
             endian,
         }
     }
@@ -629,5 +690,82 @@ mod tests {
             ),
             "Expected InternalError for non-indirect spec"
         );
+    }
+
+    #[test]
+    fn test_resolve_indirect_offset_arithmetic_ops() {
+        // Buffer with a byte value of 4 at offset 0; indirect resolution
+        // reads that 4 and combines it with the operand using each op.
+        // Buffer is 32 bytes so all results stay in-bounds.
+        let buffer = &[0x04u8; 32];
+        let cases: &[(&str, IndirectAdjustmentOp, i64, usize)] = &[
+            ("Mul: 4 * 2 = 8", IndirectAdjustmentOp::Mul, 2, 8),
+            ("Mul: 4 * 4 = 16", IndirectAdjustmentOp::Mul, 4, 16),
+            ("Div: 4 / 2 = 2", IndirectAdjustmentOp::Div, 2, 2),
+            ("Mod: 4 % 3 = 1", IndirectAdjustmentOp::Mod, 3, 1),
+            ("And: 4 & 0x0F = 4", IndirectAdjustmentOp::And, 0x0F, 4),
+            ("Or:  4 | 0x10 = 20", IndirectAdjustmentOp::Or, 0x10, 20),
+            ("Xor: 4 ^ 0x0c = 8", IndirectAdjustmentOp::Xor, 0x0c, 8),
+        ];
+        for (name, op, operand, expected) in cases {
+            let spec = indirect_with_op(
+                0,
+                TypeKind::Byte { signed: false },
+                *operand,
+                *op,
+                Endianness::Little,
+            );
+            let result = resolve_indirect_offset(&spec, buffer)
+                .unwrap_or_else(|e| panic!("{name}: unexpected error {e:?}"));
+            assert_eq!(result, *expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn test_resolve_indirect_offset_div_or_mod_by_zero() {
+        // Div and Mod must reject a zero operand instead of panicking.
+        let buffer = &[0x04u8; 8];
+        for op in [IndirectAdjustmentOp::Div, IndirectAdjustmentOp::Mod] {
+            let spec = indirect_with_op(
+                0,
+                TypeKind::Byte { signed: false },
+                0,
+                op,
+                Endianness::Little,
+            );
+            let result = resolve_indirect_offset(&spec, buffer);
+            assert!(
+                matches!(
+                    result,
+                    Err(LibmagicError::EvaluationError(
+                        EvaluationError::InvalidOffset { .. }
+                    ))
+                ),
+                "Expected InvalidOffset for {op:?} by zero"
+            );
+        }
+    }
+
+    #[test]
+    fn test_resolve_indirect_offset_mul_overflow() {
+        // u64::MAX (0xFF...FF read as quad) * 2 overflows.
+        let buffer = &[0xFFu8; 16];
+        let spec = indirect_with_op(
+            0,
+            TypeKind::Quad {
+                endian: Endianness::Little,
+                signed: false,
+            },
+            2,
+            IndirectAdjustmentOp::Mul,
+            Endianness::Little,
+        );
+        let result = resolve_indirect_offset(&spec, buffer);
+        assert!(matches!(
+            result,
+            Err(LibmagicError::EvaluationError(
+                EvaluationError::InvalidOffset { .. }
+            ))
+        ));
     }
 }

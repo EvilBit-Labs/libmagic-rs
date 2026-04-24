@@ -12,8 +12,8 @@
 //! binary as built-in rules.
 
 use super::ast::{
-    Endianness, MagicRule, MetaType, OffsetSpec, Operator, PStringLengthWidth, StrengthModifier,
-    TypeKind, Value,
+    Endianness, IndirectAdjustmentOp, MagicRule, MetaType, OffsetSpec, Operator,
+    PStringLengthWidth, StrengthModifier, TypeKind, Value,
 };
 
 const INDENT_WIDTH: usize = 4;
@@ -29,7 +29,7 @@ pub fn generate_builtin_rules(rules: &[MagicRule]) -> String {
     push_line(&mut output, "#[allow(unused_imports)]");
     push_line(
         &mut output,
-        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness, StrengthModifier, PStringLengthWidth, MetaType};",
+        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness, IndirectAdjustmentOp, StrengthModifier, PStringLengthWidth, MetaType};",
     );
     push_line(&mut output, "use std::sync::LazyLock;");
     push_line(&mut output, "");
@@ -160,10 +160,12 @@ pub fn serialize_offset_spec(offset: &OffsetSpec) -> String {
             base_offset,
             pointer_type,
             adjustment,
+            adjustment_op,
             endian,
         } => format!(
-            "OffsetSpec::Indirect {{ base_offset: {base_offset}, pointer_type: {}, adjustment: {adjustment}, endian: {} }}",
+            "OffsetSpec::Indirect {{ base_offset: {base_offset}, pointer_type: {}, adjustment: {adjustment}, adjustment_op: {}, endian: {} }}",
             serialize_type_kind(pointer_type),
+            serialize_indirect_adjustment_op(*adjustment_op),
             serialize_endianness(*endian)
         ),
         OffsetSpec::Relative(value) => format!("OffsetSpec::Relative({value})"),
@@ -344,6 +346,19 @@ pub fn serialize_endianness(endian: Endianness) -> String {
         Endianness::Little => "Endianness::Little".to_string(),
         Endianness::Big => "Endianness::Big".to_string(),
         Endianness::Native => "Endianness::Native".to_string(),
+    }
+}
+
+/// Serialize an indirect-offset adjustment operation as a Rust expression
+pub fn serialize_indirect_adjustment_op(op: IndirectAdjustmentOp) -> &'static str {
+    match op {
+        IndirectAdjustmentOp::Add => "IndirectAdjustmentOp::Add",
+        IndirectAdjustmentOp::Mul => "IndirectAdjustmentOp::Mul",
+        IndirectAdjustmentOp::Div => "IndirectAdjustmentOp::Div",
+        IndirectAdjustmentOp::Mod => "IndirectAdjustmentOp::Mod",
+        IndirectAdjustmentOp::And => "IndirectAdjustmentOp::And",
+        IndirectAdjustmentOp::Or => "IndirectAdjustmentOp::Or",
+        IndirectAdjustmentOp::Xor => "IndirectAdjustmentOp::Xor",
     }
 }
 

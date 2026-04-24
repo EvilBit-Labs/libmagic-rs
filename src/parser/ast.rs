@@ -95,6 +95,103 @@ impl PStringLengthWidth {
     }
 }
 
+/// Arithmetic operation applied to the value read at an indirect offset's
+/// `base_offset` before the result is used as the final file offset.
+///
+/// magic(5) supports `+`, `-`, `*`, `/`, `%`, `&`, `|`, and `^` between the
+/// pointer-type specifier and the operand inside the parentheses. Addition
+/// and subtraction collapse to [`IndirectAdjustmentOp::Add`] with a signed
+/// `adjustment` (so `(N.X-1)` is `Add(-1)` rather than a separate `Sub`
+/// variant); the remaining operators each have a dedicated variant.
+///
+/// The default is [`IndirectAdjustmentOp::Add`]; an indirect offset with no
+/// arithmetic — just `(base.type)` — is encoded as `Add` with `adjustment:
+/// 0`, preserving backwards compatibility.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::IndirectAdjustmentOp;
+///
+/// assert_eq!(IndirectAdjustmentOp::default(), IndirectAdjustmentOp::Add);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[non_exhaustive]
+pub enum IndirectAdjustmentOp {
+    /// Addition (also covers subtraction via negative `adjustment`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::IndirectAdjustmentOp;
+    /// assert_eq!(IndirectAdjustmentOp::default(), IndirectAdjustmentOp::Add);
+    /// ```
+    #[default]
+    Add,
+    /// Multiplication: `pointer_value * adjustment`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::IndirectAdjustmentOp;
+    /// let op = IndirectAdjustmentOp::Mul;
+    /// assert_eq!(op, IndirectAdjustmentOp::Mul);
+    /// ```
+    Mul,
+    /// Truncating integer division: `pointer_value / adjustment`. Division
+    /// by zero is rejected by the evaluator with an error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::IndirectAdjustmentOp;
+    /// let op = IndirectAdjustmentOp::Div;
+    /// assert_eq!(op, IndirectAdjustmentOp::Div);
+    /// ```
+    Div,
+    /// Remainder: `pointer_value % adjustment`. Modulo by zero is rejected
+    /// by the evaluator with an error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::IndirectAdjustmentOp;
+    /// let op = IndirectAdjustmentOp::Mod;
+    /// assert_eq!(op, IndirectAdjustmentOp::Mod);
+    /// ```
+    Mod,
+    /// Bitwise AND: `pointer_value & adjustment`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::IndirectAdjustmentOp;
+    /// let op = IndirectAdjustmentOp::And;
+    /// assert_eq!(op, IndirectAdjustmentOp::And);
+    /// ```
+    And,
+    /// Bitwise OR: `pointer_value | adjustment`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::IndirectAdjustmentOp;
+    /// let op = IndirectAdjustmentOp::Or;
+    /// assert_eq!(op, IndirectAdjustmentOp::Or);
+    /// ```
+    Or,
+    /// Bitwise XOR: `pointer_value ^ adjustment`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::IndirectAdjustmentOp;
+    /// let op = IndirectAdjustmentOp::Xor;
+    /// assert_eq!(op, IndirectAdjustmentOp::Xor);
+    /// ```
+    Xor,
+}
+
 /// Offset specification for locating data in files
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
@@ -117,17 +214,24 @@ pub enum OffsetSpec {
     /// Indirect offset through pointer dereferencing
     ///
     /// Reads a pointer value at `base_offset`, interprets it according to `pointer_type`
-    /// and `endian`, then adds `adjustment` to get the final offset.
+    /// and `endian`, then combines `adjustment` with the pointer value using
+    /// `adjustment_op` to get the final offset. The default `adjustment_op`
+    /// is [`IndirectAdjustmentOp::Add`], so `(base.type)` and
+    /// `(base.type+N)` / `(base.type-N)` use addition (subtraction is
+    /// encoded as `Add` with a negative `adjustment`). magic(5) also
+    /// supports multiplicative and bitwise forms inside the parens, e.g.
+    /// `(0x200.s*2)` ([`IndirectAdjustmentOp::Mul`]).
     ///
     /// # Examples
     ///
     /// ```
-    /// use libmagic_rs::parser::ast::{OffsetSpec, TypeKind, Endianness};
+    /// use libmagic_rs::parser::ast::{OffsetSpec, TypeKind, Endianness, IndirectAdjustmentOp};
     ///
     /// let indirect = OffsetSpec::Indirect {
     ///     base_offset: 0x20,
     ///     pointer_type: TypeKind::Long { endian: Endianness::Little, signed: false },
     ///     adjustment: 4,
+    ///     adjustment_op: IndirectAdjustmentOp::Add,
     ///     endian: Endianness::Little,
     /// };
     /// ```
@@ -136,8 +240,19 @@ pub enum OffsetSpec {
         base_offset: i64,
         /// Type of pointer value
         pointer_type: TypeKind,
-        /// Adjustment to add to pointer value
+        /// Operand combined with the pointer value via `adjustment_op`.
+        ///
+        /// For `IndirectAdjustmentOp::Add`, the operand is signed (negative
+        /// values encode subtraction). For multiplicative and bitwise ops
+        /// the operand is interpreted as `i64` but typically magic files
+        /// supply non-negative literals.
         adjustment: i64,
+        /// Arithmetic operation applied to the pointer value with
+        /// `adjustment` as the operand. Defaults to
+        /// [`IndirectAdjustmentOp::Add`] for legacy AST consumers via
+        /// serde's `default` attribute.
+        #[serde(default)]
+        adjustment_op: IndirectAdjustmentOp,
         /// Endianness for pointer reading
         endian: Endianness,
     },
@@ -1258,6 +1373,7 @@ mod tests {
                 signed: false,
             },
             adjustment: 4,
+            adjustment_op: IndirectAdjustmentOp::Add,
             endian: Endianness::Little,
         };
 
@@ -1311,6 +1427,7 @@ mod tests {
                 signed: true,
             },
             adjustment: -2,
+            adjustment_op: IndirectAdjustmentOp::Add,
             endian: Endianness::Big,
         };
 
@@ -1338,6 +1455,7 @@ mod tests {
                 signed: false,
             },
             adjustment: 12,
+            adjustment_op: IndirectAdjustmentOp::Add,
             endian: Endianness::Native,
         };
 
@@ -1357,6 +1475,7 @@ mod tests {
                 base_offset: 0x20,
                 pointer_type: TypeKind::Byte { signed: true },
                 adjustment: 0,
+                adjustment_op: IndirectAdjustmentOp::Add,
                 endian: Endianness::Little,
             },
             OffsetSpec::Relative(50),
@@ -1390,6 +1509,7 @@ mod tests {
                     signed: false,
                 },
                 adjustment: 0,
+                adjustment_op: IndirectAdjustmentOp::Add,
                 endian,
             };
 

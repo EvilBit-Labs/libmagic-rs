@@ -435,7 +435,7 @@ pub fn into_sorted_by_strength(mut rules: Vec<MagicRule>) -> Vec<MagicRule> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::ast::Endianness;
+    use crate::parser::ast::{Endianness, IndirectAdjustmentOp};
 
     // Helper to create a basic test rule
     fn make_rule(typ: TypeKind, op: Operator, offset: OffsetSpec, value: Value) -> MagicRule {
@@ -676,6 +676,7 @@ mod tests {
                                 signed: false,
                             },
                             adjustment: 0,
+                            adjustment_op: IndirectAdjustmentOp::Add,
                             endian: Endianness::Little,
                         },
                         Value::Uint(0),

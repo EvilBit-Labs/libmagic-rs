@@ -234,6 +234,7 @@ mod tests {
             base_offset: 0,
             pointer_type: crate::parser::ast::TypeKind::Byte { signed: false },
             adjustment: 0,
+            adjustment_op: crate::parser::ast::IndirectAdjustmentOp::Add,
             endian: crate::parser::ast::Endianness::Little,
         };
 
@@ -282,6 +283,7 @@ mod tests {
             base_offset: 0,
             pointer_type: crate::parser::ast::TypeKind::Byte { signed: false },
             adjustment: 0,
+            adjustment_op: crate::parser::ast::IndirectAdjustmentOp::Add,
             endian: crate::parser::ast::Endianness::Little,
         };
         assert_eq!(resolve_offset_with_context(&spec, buffer, 42).unwrap(), 5);
@@ -360,6 +362,7 @@ mod tests {
             base_offset: 0,
             pointer_type: crate::parser::ast::TypeKind::Byte { signed: false },
             adjustment: 0,
+            adjustment_op: crate::parser::ast::IndirectAdjustmentOp::Add,
             endian: crate::parser::ast::Endianness::Little,
         };
         assert_eq!(

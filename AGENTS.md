@@ -215,7 +215,7 @@ cargo test --doc   # Test documentation examples
 
 - **Offsets**: Absolute, from-end, indirect, and relative specifications (relative offsets `&+N`/`&-N` are evaluated using GNU `file` semantics -- the previous-match anchor)
 - **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`; `pstring` is a Pascal string (length-prefixed) with support for 1/2/4-byte length prefixes via `/B`, `/H` (2-byte BE), `/h` (2-byte LE), `/L` (4-byte BE), `/l` (4-byte LE) suffixes, and the `/J` flag (stored length includes prefix width, JPEG convention) which is combinable with width suffixes (e.g., `pstring/HJ`); date values formatted as "Www Mmm DD HH:MM:SS YYYY" matching GNU `file` output; types are signed by default (libmagic-compatible)
-- **Operators**: `=` (equal), `!=` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value)
+- **Operators**: `=` (equal), `!=` and bare `!` (not equal), `<` (less than), `>` (greater than), `<=` (less equal), `>=` (greater equal), `&` (bitwise AND with optional mask), `^` (bitwise XOR), `~` (bitwise NOT), `x` (any value). magic(5) bare `!` prefix (e.g., `!0xb8c0078e`) is treated as `NotEqual`.
 - **Nested Rules**: Hierarchical rule evaluation with proper indentation
 - **String Matching**: Exact string matching with null-termination and Pascal string (length-prefixed) support
 - **Regex type**: Binary-safe regex matching via `regex::bytes::Regex`. Full flag support: `/c` (case-insensitive), `/s` (anchor advances to match-start instead of match-end), `/l` (scan window is measured in lines instead of bytes). Flags combine in any order (`regex/cs`, `regex/csl`, `regex/lc`). Numeric counts are honored: `regex/100` scans at most 100 bytes; `regex/1l` scans at most 1 line. Multi-line regex matching is always on (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries regardless of `/l`. Every scan window is capped at 8192 bytes (`FILE_REGEX_MAX`) regardless of the user's count.
@@ -240,13 +240,12 @@ See **Development Phases** below for the planned roadmap of features not yet imp
 
 ### Offset Specifications
 
-- Indirect offsets are fully implemented (parsing + evaluation) with specifiers: `.b/.B` (byte), `.s/.S` (short), `.l/.L` (long), `.q/.Q` (quad); lowercase = little-endian, uppercase = big-endian (GNU `file` semantics); pointer types signed by default; adjustment after closing paren: `(base.type)+adj`
+- Indirect offsets are fully implemented (parsing + evaluation) with specifiers: `.b/.B` (byte), `.s/.S` (short), `.l/.L` (long), `.q/.Q` (quad); lowercase = little-endian, uppercase = big-endian (GNU `file` semantics); pointer types signed by default. Adjustment is accepted both **inside** the parens (canonical magic(5): `(base.type+N)`, `(base.type-N)`, `(base.type*N)`, `(base.type/N)`, `(base.type%N)`, `(base.type&N)`, `(base.type|N)`, `(base.type^N)`) and **after** the closing paren as a legacy form (`(base.type)+N`, `(base.type)-N` only). Only one form per rule
 - Relative offsets are fully evaluated against the GNU `file` previous-match anchor: the engine tracks `EvaluationContext::last_match_end()`, advancing it after each successful match by the bytes consumed (variable-width types include c-string NUL terminators and pstring length prefixes). Top-level relative offsets resolve from anchor 0. Magic-file `&+N`/`&-N` *parsing* is still TODO -- relative offsets are exercised programmatically through the AST.
 
 ### Magic File Syntax
 
-- Limited support for special directives (only `!:strength` is parsed)
-- No support for `!:mime`, `!:ext`, `!:apple` directives in evaluation
+- Only `!:strength` is parsed and evaluated. Other `!:` directives (`!:mime`, `!:ext`, `!:apple`, ...) are silently skipped at preprocessing time so files that include them load successfully, but their metadata is not surfaced anywhere.
 - Meta-type directives (`default`, `clear`, `name`, `use`, `indirect`, `offset`) are all fully implemented with evaluator dispatch, including printf-style format substitution in message rendering (see "Currently Implemented" above for details).
 
 See issue #52 for the planned enhancement roadmap.

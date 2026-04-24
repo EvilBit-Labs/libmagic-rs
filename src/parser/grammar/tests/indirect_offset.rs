@@ -79,6 +79,7 @@ fn test_parse_offset_indirect_all_specifiers() {
                     base_offset: base,
                     pointer_type: expected_type.clone(),
                     adjustment: 0,
+                    adjustment_op: IndirectAdjustmentOp::Add,
                     endian: *expected_endian,
                 }
             )),
@@ -101,6 +102,7 @@ fn test_parse_offset_indirect_with_positive_adjustment() {
                     signed: true
                 },
                 adjustment: 4,
+                adjustment_op: IndirectAdjustmentOp::Add,
                 endian: Endianness::Little,
             }
         ))
@@ -113,6 +115,7 @@ fn test_parse_offset_indirect_with_positive_adjustment() {
                 base_offset: 0,
                 pointer_type: TypeKind::Byte { signed: true },
                 adjustment: 255,
+                adjustment_op: IndirectAdjustmentOp::Add,
                 endian: Endianness::Little,
             }
         ))
@@ -132,6 +135,7 @@ fn test_parse_offset_indirect_with_negative_adjustment() {
                     signed: true
                 },
                 adjustment: -8,
+                adjustment_op: IndirectAdjustmentOp::Add,
                 endian: Endianness::Little,
             }
         ))
@@ -147,10 +151,96 @@ fn test_parse_offset_indirect_with_negative_adjustment() {
                     signed: true
                 },
                 adjustment: -16,
+                adjustment_op: IndirectAdjustmentOp::Add,
                 endian: Endianness::Little,
             }
         ))
     );
+}
+
+#[test]
+fn test_parse_offset_indirect_adjustment_inside_parens() {
+    // Canonical magic(5) syntax places the adjustment INSIDE the parens.
+    // Regression: /usr/share/file/magic/filesystems line 235 uses
+    // `(19.b-1)` for DOS Emulator image detection.
+    assert_eq!(
+        parse_offset("(19.b-1)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 19,
+                pointer_type: TypeKind::Byte { signed: true },
+                adjustment: -1,
+                adjustment_op: IndirectAdjustmentOp::Add,
+                endian: Endianness::Little,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_offset("(0x3c.l+4)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 0x3c,
+                pointer_type: TypeKind::Long {
+                    endian: Endianness::Little,
+                    signed: true
+                },
+                adjustment: 4,
+                adjustment_op: IndirectAdjustmentOp::Add,
+                endian: Endianness::Little,
+            }
+        ))
+    );
+    assert_eq!(
+        parse_offset("(100.S+0xFF)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 100,
+                pointer_type: TypeKind::Short {
+                    endian: Endianness::Big,
+                    signed: true
+                },
+                adjustment: 255,
+                adjustment_op: IndirectAdjustmentOp::Add,
+                endian: Endianness::Big,
+            }
+        ))
+    );
+}
+
+#[test]
+fn test_parse_offset_indirect_arithmetic_ops() {
+    // magic(5) supports `* / % & | ^` inside the parens alongside `+`/`-`.
+    // Regression: /usr/share/file/magic/filesystems line 1555 uses
+    // `(0x200.s*2)` for NTFS unicode loadername scanning.
+    let cases: &[(&str, IndirectAdjustmentOp, i64)] = &[
+        ("(0x200.s*2)", IndirectAdjustmentOp::Mul, 2),
+        ("(0x107a.b*56)", IndirectAdjustmentOp::Mul, 56),
+        ("(4.l/2)", IndirectAdjustmentOp::Div, 2),
+        ("(8.l%4)", IndirectAdjustmentOp::Mod, 4),
+        ("(0.b&0x7f)", IndirectAdjustmentOp::And, 0x7f),
+        ("(0.b|0x80)", IndirectAdjustmentOp::Or, 0x80),
+        ("(0.b^0xff)", IndirectAdjustmentOp::Xor, 0xff),
+    ];
+
+    for (input, expected_op, expected_value) in cases {
+        let parsed = parse_offset(input).unwrap_or_else(|_| panic!("Failed to parse {input}"));
+        let (rest, spec) = parsed;
+        assert_eq!(rest, "", "Parser left unexpected input for {input}");
+        match spec {
+            OffsetSpec::Indirect {
+                adjustment,
+                adjustment_op,
+                ..
+            } => {
+                assert_eq!(adjustment_op, *expected_op, "Wrong op for {input}");
+                assert_eq!(adjustment, *expected_value, "Wrong operand for {input}");
+            }
+            _ => panic!("Expected Indirect for {input}, got {spec:?}"),
+        }
+    }
 }
 
 #[test]
@@ -167,6 +257,7 @@ fn test_parse_offset_indirect_negative_base() {
                     signed: true
                 },
                 adjustment: 0,
+                adjustment_op: IndirectAdjustmentOp::Add,
                 endian: Endianness::Little,
             }
         ))
@@ -183,6 +274,7 @@ fn test_parse_offset_indirect_negative_base() {
                     signed: true
                 },
                 adjustment: 2,
+                adjustment_op: IndirectAdjustmentOp::Add,
                 endian: Endianness::Little,
             }
         ))
@@ -202,6 +294,7 @@ fn test_parse_offset_indirect_hex_base() {
                     signed: true
                 },
                 adjustment: 0,
+                adjustment_op: IndirectAdjustmentOp::Add,
                 endian: Endianness::Little,
             }
         ))
@@ -222,6 +315,7 @@ fn test_parse_offset_indirect_with_whitespace() {
                     signed: true
                 },
                 adjustment: 0,
+                adjustment_op: IndirectAdjustmentOp::Add,
                 endian: Endianness::Little,
             }
         ))
@@ -238,6 +332,7 @@ fn test_parse_offset_indirect_with_whitespace() {
                     signed: true
                 },
                 adjustment: 0,
+                adjustment_op: IndirectAdjustmentOp::Add,
                 endian: Endianness::Little,
             }
         ))
@@ -274,6 +369,7 @@ fn test_parse_rule_offset_indirect() {
                         signed: true
                     },
                     adjustment: 0,
+                    adjustment_op: IndirectAdjustmentOp::Add,
                     endian: Endianness::Little,
                 }
             )
