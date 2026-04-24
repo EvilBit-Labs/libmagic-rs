@@ -369,7 +369,7 @@ Before calling `evaluate_single_rule_with_anchor` for a value-read rule, `evalua
 - **`MetaType::Use(name)`**: Looks up `name` in `RuleEnvironment::name_table`. On hit, evaluates the subroutine's child rules at the resolved offset, propagates their matches into the caller's match vector, then also evaluates the `use` rule's own `rule.children`. On miss, logs a `warn!` and returns `Ok(None)` (treated as non-match).
 - **`MetaType::Indirect`**: Resolves the rule's offset against the buffer, slices the buffer at that point, resets the `EvaluationContext` anchor to 0, calls `evaluate_rules` recursively with `RuleEnvironment::root_rules` (the complete top-level rule list), and then restores the caller's anchor on return. Recursion is bounded by `EvaluationConfig::max_recursion_depth`.
 - **`MetaType::Name`**: Unreachable after load-time extraction — `name` blocks are hoisted out of the rule list by `parser::name_table::extract_name_table` before the evaluator ever sees them. Defensive arm returns `Ok(None)` and emits a `debug!` rather than `debug_assert!` so that property tests synthesizing arbitrary `TypeKind` values do not break the never-panics invariant.
-- **`MetaType::Offset`**: Resolves the rule's offset against the buffer and records a `RuleMatch` whose `value` is `Value::Uint(resolved_offset)`. The rule's `message` is then rendered through `format_magic_message`, which substitutes printf-style specifiers (`%lld`, `%d`) with that value. Used by magic fixtures that need to report "matched at offset N" in the output (e.g., GNU `file`'s `searchbug.magic` fixture).
+- **`MetaType::Offset`**: Resolves the rule's offset against the buffer and records a `RuleMatch` whose `value` is `Value::Uint(resolved_offset)`. The evaluator stores the raw resolved offset as `value` without substituting any printf specifiers — printf substitution (`%lld`, `%d`, etc.) is performed later during output/message assembly by `format_magic_message` (called from `MagicDatabase::build_result`), not inside `evaluate_rules`. Used by magic fixtures that need to report "matched at offset N" in the output (e.g., GNU `file`'s `searchbug.magic` fixture).
 
 ```mermaid
 sequenceDiagram
@@ -517,7 +517,7 @@ pub fn evaluate_single_rule(
 ### Usage Example
 
 ```rust
-use libmagic_rs::{evaluate_rules, EvaluationConfig};
+use libmagic_rs::{evaluate_rules, EvaluationConfig, EvaluationContext};
 use libmagic_rs::parser::parse_text_magic_file;
 
 // Parse magic rules
@@ -534,7 +534,8 @@ let buffer = std::fs::read("sample.bin")?;
 // Evaluate with default config. The low-level `evaluate_rules` takes only
 // the top-level rules; `parsed.name_table` is handled by `MagicDatabase`
 // (see library-api.md) and is ignored here.
-let matches = evaluate_rules(&parsed.rules, &buffer)?;
+let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+let matches = evaluate_rules(&parsed.rules, &buffer, &mut ctx)?;
 
 for m in matches {
     println!("Match at offset {}: {}", m.offset, m.message);
@@ -544,7 +545,7 @@ for m in matches {
 **Example with comparison operators (v0.2.0+):**
 
 ```rust
-use libmagic_rs::{evaluate_rules, EvaluationConfig};
+use libmagic_rs::{evaluate_rules, EvaluationConfig, EvaluationContext};
 use libmagic_rs::parser::parse_text_magic_file;
 
 // Parse magic rule with comparison operator
@@ -555,7 +556,8 @@ let magic_content = r#"
 let parsed = parse_text_magic_file(magic_content)?;
 
 let buffer = vec![0x0A, 0x00]; // Little-endian 10
-let matches = evaluate_rules(&parsed.rules, &buffer)?;
+let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+let matches = evaluate_rules(&parsed.rules, &buffer, &mut ctx)?;
 
 // Matches first rule (<100)
 assert_eq!(matches[0].message, "Small value detected");
@@ -564,7 +566,7 @@ assert_eq!(matches[0].message, "Small value detected");
 **Example with floating-point types:**
 
 ```rust
-use libmagic_rs::{evaluate_rules, EvaluationConfig};
+use libmagic_rs::{evaluate_rules, EvaluationConfig, EvaluationContext};
 use libmagic_rs::parser::parse_text_magic_file;
 
 // Parse magic rule with float type
@@ -576,7 +578,8 @@ let parsed = parse_text_magic_file(magic_content)?;
 
 // IEEE 754 little-endian representation of 3.14159f32
 let buffer = vec![0xd0, 0x0f, 0x49, 0x40];
-let matches = evaluate_rules(&parsed.rules, &buffer)?;
+let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+let matches = evaluate_rules(&parsed.rules, &buffer, &mut ctx)?;
 
 assert_eq!(matches[0].message, "Pi constant detected");
 ```
@@ -584,7 +587,7 @@ assert_eq!(matches[0].message, "Pi constant detected");
 **Example with pstring types:**
 
 ```rust
-use libmagic_rs::{evaluate_rules, EvaluationConfig};
+use libmagic_rs::{evaluate_rules, EvaluationConfig, EvaluationContext};
 use libmagic_rs::parser::parse_text_magic_file;
 
 // Parse magic rules with pstring variants
@@ -599,7 +602,8 @@ let parsed = parse_text_magic_file(magic_content)?;
 
 // 1-byte prefix: length=5, then "MAGIC"
 let buffer = b"\x05MAGIC";
-let matches = evaluate_rules(&parsed.rules, &buffer)?;
+let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+let matches = evaluate_rules(&parsed.rules, &buffer, &mut ctx)?;
 assert_eq!(matches[0].message, "Pascal string (1-byte prefix)");
 
 // 2-byte big-endian prefix with /J flag: stored length 7 (includes 2-byte prefix), effective content 5 bytes
@@ -608,7 +612,8 @@ let magic_content_j = r#"
 "#;
 let parsed_j = parse_text_magic_file(magic_content_j)?;
 let buffer_j = b"\x00\x07MAGIC"; // 2-byte BE prefix: value 7, minus 2 = 5 bytes of content
-let matches_j = evaluate_rules(&parsed_j.rules, &buffer_j)?;
+let mut ctx_j = EvaluationContext::new(EvaluationConfig::default());
+let matches_j = evaluate_rules(&parsed_j.rules, &buffer_j, &mut ctx_j)?;
 assert_eq!(matches_j[0].message, "JPEG-style pstring with self-inclusive length");
 ```
 
@@ -628,7 +633,7 @@ assert_eq!(matches_j[0].message, "JPEG-style pstring with self-inclusive length"
 - [x] Relative offset support (GNU `file` anchor semantics, issue #38)
 - [x] Regex type support (binary-safe `regex::bytes::Regex` with `/c`, `/s`, `/l` flags and 8192-byte cap; unconditional `REG_NEWLINE`)
 - [x] Search type support (bounded literal pattern scan via `memchr::memmem::find` with mandatory `NonZeroUsize` range)
-- [x] Meta-type directives: `default`, `clear`, `name`/`use` subroutines, `indirect` re-evaluation (issue #42)
+- [x] Meta-type directives: `default`, `clear`, `name`/`use` subroutines, `indirect` re-evaluation, `offset` resolved-address reporting (issue #42)
 - [ ] Performance optimizations (rule ordering, caching)
 
 ## Performance Considerations

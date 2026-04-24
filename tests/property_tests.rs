@@ -360,9 +360,13 @@ proptest! {
     /// Property: meta-type rule evaluation never panics for any
     /// `TypeKind::Meta(...)` variant. Exercises the inline branches added
     /// for `Default`, `Clear`, and `Indirect` together with the `Use`
-    /// fast-path and `Name` leaked-rule no-op. The 1-second timeout guard
-    /// keeps the property test bounded even when an arbitrarily-generated
-    /// rule fires the indirect-recursion path against a small buffer.
+    /// fast-path and `Name` leaked-rule no-op. Because this test constructs
+    /// an `EvaluationContext` without a `RuleEnvironment`, `MetaType::Indirect`
+    /// and `MetaType::Use` take their env-less no-op path -- no root re-entry,
+    /// no subroutine dispatch -- so the coverage this test provides is
+    /// panic-freedom of the meta dispatch arms themselves. The 1-second
+    /// timeout guard is a defence-in-depth bound that stays in place if a
+    /// future refactor ever does reach the recursive path from here.
     #[test]
     fn prop_meta_type_evaluation_never_panics(
         meta_rules in prop::collection::vec(arb_meta_rule(), 1..8),

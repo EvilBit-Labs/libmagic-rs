@@ -19,27 +19,38 @@ use super::{EvaluationContext, RecursionGuard, RuleMatch, offset, operators, typ
 use log::{debug, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// RAII guard that saves the GNU `file` previous-match anchor on entry and
-/// restores it on drop.
+/// RAII guard that saves the GNU `file` previous-match anchor **and**
+/// `base_offset` on entry and restores both on drop.
 ///
 /// `MetaType::Indirect` re-evaluates the root rule list at the resolved
-/// offset, which means it must seed the anchor with that offset for the
-/// nested call and then put the caller's anchor back when it returns.
+/// offset. The re-entered rules are top-level-semantic (`base_offset=0`)
+/// and must start with a fresh anchor (the resolved indirect offset).
+/// When `indirect` fires inside a `MetaType::Use` subroutine, the outer
+/// subroutine's non-zero `base_offset` would otherwise leak into the
+/// root re-entry, causing every positive absolute offset in the re-entered
+/// database to be biased by the outer use-site -- producing reads at the
+/// wrong positions. Saving and restoring `base_offset` here prevents that.
+///
 /// Without an RAII wrapper, every early-return path inside the indirect
-/// branch would have to remember to restore the anchor manually.
+/// branch would have to remember to restore both fields manually.
 struct AnchorScope<'a> {
     context: &'a mut EvaluationContext,
     saved_anchor: usize,
+    saved_base: usize,
 }
 
 impl<'a> AnchorScope<'a> {
-    /// Save the current anchor and seed the context with `new_anchor`.
+    /// Save the current anchor and `base_offset`, then seed the context
+    /// with `new_anchor` and reset `base_offset` to 0.
     fn enter(context: &'a mut EvaluationContext, new_anchor: usize) -> Self {
         let saved_anchor = context.last_match_end();
+        let saved_base = context.base_offset();
         context.set_last_match_end(new_anchor);
+        context.set_base_offset(0);
         Self {
             context,
             saved_anchor,
+            saved_base,
         }
     }
 
@@ -52,6 +63,7 @@ impl<'a> AnchorScope<'a> {
 impl Drop for AnchorScope<'_> {
     fn drop(&mut self) {
         self.context.set_last_match_end(self.saved_anchor);
+        self.context.set_base_offset(self.saved_base);
     }
 }
 

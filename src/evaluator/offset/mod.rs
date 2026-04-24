@@ -143,9 +143,24 @@ pub(crate) fn resolve_offset_with_base(
             // Negative values mean "from end" and should not be shifted
             // by the subroutine base.
             let effective = if *offset >= 0 {
-                let abs = usize::try_from(*offset).unwrap_or(usize::MAX);
-                let biased = base_offset.saturating_add(abs);
-                i64::try_from(biased).unwrap_or(i64::MAX)
+                // Use checked conversions so overflow is reported as
+                // InvalidOffset rather than silently producing a huge
+                // biased value that later surfaces as BufferOverrun.
+                let abs = usize::try_from(*offset).map_err(|_| {
+                    LibmagicError::EvaluationError(crate::error::EvaluationError::InvalidOffset {
+                        offset: *offset,
+                    })
+                })?;
+                let biased = base_offset
+                    .checked_add(abs)
+                    .ok_or(LibmagicError::EvaluationError(
+                        crate::error::EvaluationError::InvalidOffset { offset: *offset },
+                    ))?;
+                i64::try_from(biased).map_err(|_| {
+                    LibmagicError::EvaluationError(crate::error::EvaluationError::InvalidOffset {
+                        offset: *offset,
+                    })
+                })?
             } else {
                 *offset
             };
@@ -374,6 +389,43 @@ mod tests {
         for (spec, expected) in test_cases {
             let result = resolve_offset(&spec, buffer).unwrap();
             assert_eq!(result, expected, "Failed for spec: {spec:?}");
+        }
+    }
+
+    /// Regression test for RU0: `base_offset + large_positive_absolute` that
+    /// overflows `usize` must produce `InvalidOffset`, not `BufferOverrun`.
+    ///
+    /// Before the fix, saturating arithmetic turned overflow into `usize::MAX`
+    /// (or `i64::MAX`), which then flowed into `resolve_absolute_offset` and
+    /// surfaced as a `BufferOverrun` at that giant offset -- losing the more
+    /// precise overflow signal.
+    #[test]
+    fn test_resolve_offset_with_base_overflow_yields_invalid_offset() {
+        let buffer = b"0123456789ABCDEF"; // 16 bytes
+        // base_offset near usize::MAX combined with any positive Absolute
+        // must overflow. Use usize::MAX - 1 so that adding even 2 overflows.
+        let base = usize::MAX - 1;
+        let spec = OffsetSpec::Absolute(2); // base + 2 overflows usize
+
+        let result = resolve_offset_with_base(&spec, buffer, 0, base);
+        assert!(
+            result.is_err(),
+            "overflow of base_offset + absolute must fail"
+        );
+        match result.unwrap_err() {
+            LibmagicError::EvaluationError(crate::error::EvaluationError::InvalidOffset {
+                ..
+            }) => {
+                // Correct: overflow reported as InvalidOffset, not BufferOverrun.
+            }
+            LibmagicError::EvaluationError(crate::error::EvaluationError::BufferOverrun {
+                ..
+            }) => {
+                panic!(
+                    "overflow of base_offset + absolute must be InvalidOffset, not BufferOverrun"
+                );
+            }
+            other => panic!("unexpected error variant: {other:?}"),
         }
     }
 }

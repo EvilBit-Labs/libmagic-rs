@@ -272,3 +272,65 @@ fn test_indirect_recursion_limit() {
         "infinite indirect recursion must surface RecursionLimitExceeded, got {result:?}"
     );
 }
+
+/// Regression test for `RFn1`: `indirect` inside a `use` subroutine must reset
+/// `base_offset` to 0 when re-entering root rules.
+///
+/// Before the fix, `AnchorScope::enter` only saved/restored `last_match_end`.
+/// When `indirect` fired inside a `use` subroutine that had set `base_offset`
+/// to a non-zero use-site, the re-entered root rules inherited that
+/// `base_offset`. Every positive `Absolute(N)` offset in the root rules was
+/// then biased by the outer use-site offset, causing reads at the wrong
+/// positions (e.g., a rule at `Absolute(0)` would read from `use-site + 0`
+/// rather than from byte 0 of the sub-buffer).
+///
+/// Layout of this test:
+/// - Outer buffer: 8 bytes
+///   - Bytes 0-3: dummy header (0x11 0x22 0x33 0x44)
+///   - Bytes 4-7: embedded payload (0xAA 0xBB 0xCC 0xDD)
+/// - A `use sub` rule at offset 4 dispatches a subroutine (`base_offset=4`).
+/// - The subroutine contains an `indirect` rule also at offset 0 (use-site
+///   relative, resolves to absolute 4 under `base_offset` biasing = byte 4).
+/// - The root rules check byte 0 of the sub-buffer (== outer byte 4) for 0xAA.
+/// - After the fix: root rules see `base_offset=0`, so `Absolute(0)` reads
+///   `sub-buffer[0]` == 0xAA => match.
+/// - Before the fix: root rules inherited `base_offset=4`, so `Absolute(0)` was
+///   biased to effective offset 4 of the 4-byte sub-buffer => `BufferOverrun` =>
+///   no match.
+#[test]
+fn test_indirect_inside_use_subroutine_resets_base_offset() {
+    let config = EvaluationConfig {
+        stop_at_first_match: false,
+        ..EvaluationConfig::default()
+    };
+
+    // Root rules: check that byte 0 of the re-entered sub-buffer equals 0xAA.
+    // `Absolute(0)` must resolve to sub-buffer[0], NOT sub-buffer[4] (which
+    // would be the biased result if base_offset leaked from the use subroutine).
+    let root_rules: Vec<MagicRule> = vec![byte_eq_rule(0, 0xAA, "root-payload-match")];
+
+    // Subroutine body: an `indirect` rule at offset 0 (relative to the use-site
+    // base). Inside a use subroutine with base_offset=4, `Absolute(0)` resolves
+    // to absolute 4 -- the start of the payload in the outer buffer. That slice
+    // becomes the sub-buffer passed to root rule re-entry.
+    let subroutine_body: Vec<MagicRule> = vec![indirect_rule(0, "inner-indirect", vec![])];
+
+    let table = build_name_table(vec![("sub", subroutine_body)]);
+    let env = std::sync::Arc::new(RuleEnvironment {
+        name_table: std::sync::Arc::new(table),
+        root_rules: std::sync::Arc::from(root_rules.as_slice()),
+    });
+    let mut context = EvaluationContext::new(config).with_rule_env(env);
+
+    // Buffer: 4 dummy bytes, then 4 payload bytes starting with 0xAA.
+    let buffer = [0x11u8, 0x22, 0x33, 0x44, 0xAA, 0xBB, 0xCC, 0xDD];
+    // `use sub` at use-site offset 4 -- sets base_offset=4 for the subroutine.
+    let rules = vec![use_rule_at("sub", 4)];
+    let matches = evaluate_rules(&rules, &buffer, &mut context).unwrap();
+
+    assert!(
+        matches.iter().any(|m| m.message == "root-payload-match"),
+        "indirect inside use must reset base_offset to 0 so root rules read from \
+         sub-buffer[0], not sub-buffer[base+0]; got {matches:?}"
+    );
+}

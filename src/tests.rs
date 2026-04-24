@@ -278,7 +278,10 @@ fn test_with_builtin_rules() {
     let db = MagicDatabase::with_builtin_rules().expect("builtin rules should load");
 
     // Verify built-in rules are loaded
-    assert!(!db.rules.is_empty(), "Built-in rules should not be empty");
+    assert!(
+        !db.root_rules.is_empty(),
+        "Built-in rules should not be empty"
+    );
 
     // Verify source_path is None for built-in rules
     assert!(db.source_path().is_none());

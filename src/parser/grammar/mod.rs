@@ -806,6 +806,17 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
     // already consumed their identifier operand, so the `x` stripping
     // is a no-op for them.
     if matches!(typ, TypeKind::Meta(_)) {
+        // Meta-type directives have no operand, so an attached operator
+        // like `default&0xf` is malformed — reject it here rather than
+        // silently dropping it on the floor. `name`/`use` short-circuit in
+        // `parse_type_and_operator` and never carry an attached op, so only
+        // `default`/`clear`/`indirect`/`offset` can trip this.
+        if attached_op.is_some() {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Verify,
+            )));
+        }
         let input = strip_optional_x_operator(input);
         let (input, message) = if input.trim().is_empty() {
             (input, String::new())

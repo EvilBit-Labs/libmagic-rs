@@ -150,15 +150,14 @@ impl From<crate::io::IoError> for LibmagicError {
 /// Main interface for magic rule database
 #[derive(Debug)]
 pub struct MagicDatabase {
-    rules: Vec<MagicRule>,
     /// Named subroutine definitions extracted from magic file `name` rules,
     /// keyed by identifier. The evaluator consults this table when a rule of
     /// type `TypeKind::Meta(MetaType::Use(name))` is reached.
     name_table: std::sync::Arc<crate::parser::name_table::NameTable>,
-    /// Top-level rules retained as a shared immutable slice. Passed through
-    /// the evaluation context as part of the rule environment so future
-    /// whole-database operations (e.g. `indirect`) can re-enter at the root
-    /// without re-sorting or cloning the rule tree.
+    /// Top-level rules as a shared immutable slice. This is the primary rule
+    /// storage for the database. Passed through the evaluation context as part
+    /// of the rule environment so whole-database operations (e.g. `indirect`)
+    /// can re-enter at the root without re-sorting or cloning the rule tree.
     root_rules: std::sync::Arc<[MagicRule]>,
     config: EvaluationConfig,
     /// Optional path to the source magic file or directory from which rules were loaded.
@@ -250,9 +249,9 @@ impl MagicDatabase {
         config.validate()?;
         let mut rules = crate::builtin_rules::get_builtin_rules();
         crate::evaluator::strength::sort_rules_by_strength_recursive(&mut rules);
-        let root_rules: std::sync::Arc<[MagicRule]> = std::sync::Arc::from(rules.as_slice());
+        let root_rules: std::sync::Arc<[MagicRule]> =
+            std::sync::Arc::from(rules.into_boxed_slice());
         Ok(Self {
-            rules,
             name_table: std::sync::Arc::new(crate::parser::name_table::NameTable::empty()),
             root_rules,
             config,
@@ -324,9 +323,9 @@ impl MagicDatabase {
             crate::evaluator::strength::sort_rules_by_strength_recursive(rules);
         });
 
-        let root_rules: std::sync::Arc<[MagicRule]> = std::sync::Arc::from(rules.as_slice());
+        let root_rules: std::sync::Arc<[MagicRule]> =
+            std::sync::Arc::from(rules.into_boxed_slice());
         Ok(Self {
-            rules,
             name_table: std::sync::Arc::new(name_table),
             root_rules,
             config,
@@ -475,7 +474,7 @@ impl MagicDatabase {
 
         // `evaluate_rules` returns `Ok(vec![])` for an empty rule list,
         // so no `is_empty()` guard is needed here.
-        let matches = evaluate_rules(&self.rules, buffer, &mut context)?;
+        let matches = evaluate_rules(&self.root_rules, buffer, &mut context)?;
 
         Ok(self.build_result(matches, file_size, start_time))
     }
@@ -515,7 +514,7 @@ impl MagicDatabase {
             metadata: EvaluationMetadata {
                 file_size,
                 evaluation_time_ms: start_time.elapsed().as_secs_f64() * 1000.0,
-                rules_evaluated: self.rules.len(),
+                rules_evaluated: self.root_rules.len(),
                 magic_file: self.source_path.clone(),
                 timed_out: false,
             },

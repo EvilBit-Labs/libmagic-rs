@@ -172,7 +172,7 @@ The evaluator executes magic rules against file buffers to identify file types. 
 
 - `mod.rs`: Public API surface (~720 lines) with `EvaluationContext`, `RuleMatch` types, and re-exports. Also defines `pub(crate) struct RuleEnvironment { root_rules, name_table }` — the optional environment threaded through `EvaluationContext::rule_env` so the engine can dispatch `MetaType::Use` and `MetaType::Indirect` without taking an extra parameter on every function.
 - `engine/`: Core evaluation engine submodule
-  - `mod.rs`: `evaluate_single_rule`, `evaluate_rules`, and `evaluate_rules_with_config` functions. Inline dispatch for `MetaType::Default`, `MetaType::Clear`, `MetaType::Use`, and `MetaType::Indirect` lives in the `evaluate_rules` loop body.
+  - `mod.rs`: `evaluate_single_rule`, `evaluate_rules`, and `evaluate_rules_with_config` functions. Inline dispatch for `MetaType::Default`, `MetaType::Clear`, `MetaType::Use`, `MetaType::Indirect`, and `MetaType::Offset` lives in the `evaluate_rules` loop body.
   - `tests.rs`: Engine unit tests
 - `types/`: Type interpretation submodule
   - `mod.rs`: Public API surface with `read_typed_value`, `coerce_value_to_type`, and type re-exports

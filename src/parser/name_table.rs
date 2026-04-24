@@ -109,7 +109,7 @@ pub(crate) fn extract_name_table(rules: Vec<MagicRule>) -> (Vec<MagicRule>, Name
             let children = scrub_nested_names(rule.children, rule.level);
             table.inner.insert(name.clone(), Arc::from(children));
         } else {
-            let scrubbed_children = scrub_nested_names(rule.children, rule.level + 1);
+            let scrubbed_children = scrub_nested_names(rule.children, rule.level);
             kept.push(MagicRule {
                 children: scrubbed_children,
                 ..rule
@@ -131,7 +131,7 @@ fn scrub_nested_names(children: Vec<MagicRule>, parent_level: u32) -> Vec<MagicR
             );
             continue;
         }
-        let scrubbed = scrub_nested_names(child.children, child.level + 1);
+        let scrubbed = scrub_nested_names(child.children, child.level);
         kept.push(MagicRule {
             children: scrubbed,
             ..child

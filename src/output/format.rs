@@ -146,7 +146,7 @@ enum Conv {
     Octal,
     /// `%s` -- string.
     Str,
-    /// `%c` -- single character (from an integer codepoint, ASCII range only).
+    /// `%c` -- single character (full 0x00-0xff byte range via Latin-1 code points).
     Char,
     /// `%%` -- literal percent.
     Percent,
@@ -309,7 +309,11 @@ fn render(spec: &Spec, value: &Value, type_kind: &TypeKind) -> Option<String> {
             // 2-byte UTF-8 encoding of that code point; consumers
             // iterating the returned bytes directly can recover the
             // original byte by re-encoding the code point as Latin-1.
-            Some(pad_numeric(&char::from(byte).to_string(), spec))
+            //
+            // POSIX: the `0` flag is ignored for `%c` -- zero-padding only
+            // applies to numeric/float conversions. Always use space-padding
+            // for `%c`, matching C printf behavior.
+            Some(pad_non_numeric(&char::from(byte).to_string(), spec))
         }
     }
 }
@@ -408,6 +412,23 @@ fn render_prefixed_int(digits: &str, prefix: &str, spec: &Spec) -> String {
     } else {
         let spaces: String = std::iter::repeat_n(' ', pad).collect();
         format!("{spaces}{prefix}{digits}")
+    }
+}
+
+/// Apply width and alignment to a non-numeric rendered body using space-only padding.
+///
+/// Used for `%c` (and any other non-numeric conversion where the POSIX `0` flag
+/// must be ignored). Zero-padding is not applied regardless of `spec.zero_pad`.
+fn pad_non_numeric(body: &str, spec: &Spec) -> String {
+    if body.len() >= spec.width {
+        return body.to_string();
+    }
+    let pad = spec.width - body.len();
+    let padding: String = std::iter::repeat_n(' ', pad).collect();
+    if spec.left_align {
+        format!("{body}{padding}")
+    } else {
+        format!("{padding}{body}")
     }
 }
 
@@ -586,6 +607,33 @@ mod tests {
     fn test_char_substitution() {
         let out = format_magic_message("[%c]", &Value::Uint(u64::from(b'A')), &byte_t());
         assert_eq!(out, "[A]");
+
+        // Full 0x00-0xff range: bytes >= 0x80 are embedded as Latin-1 code points.
+        let out = format_magic_message("%c", &Value::Uint(0xa9), &byte_t());
+        assert_eq!(out, "\u{00a9}"); // U+00A9 COPYRIGHT SIGN
+
+        // Width with space-padding (right-aligned).
+        let out = format_magic_message("%3c", &Value::Uint(u64::from(b'A')), &byte_t());
+        assert_eq!(out, "  A");
+
+        // Left-aligned width.
+        let out = format_magic_message("%-3c|", &Value::Uint(u64::from(b'A')), &byte_t());
+        assert_eq!(out, "A  |");
+    }
+
+    #[test]
+    fn test_char_zero_flag_ignored() {
+        // POSIX: the `0` flag is ignored for `%c` -- zero-padding applies only to
+        // numeric conversions. `%03c` must produce space-padded "  A", not "00A".
+        // Regression guard: an earlier revision called `pad_numeric` for `Conv::Char`,
+        // which applied zero-padding and diverged from C printf semantics.
+        let out = format_magic_message("%03c", &Value::Uint(u64::from(b'A')), &byte_t());
+        assert_eq!(out, "  A", "%03c must use space-padding, not zero-padding");
+
+        // Combined zero and left-align: `-` overrides `0` for numerics; for %c
+        // `0` was never active, but `-` still triggers left-alignment.
+        let out = format_magic_message("%-03c|", &Value::Uint(u64::from(b'A')), &byte_t());
+        assert_eq!(out, "A  |", "%-03c must left-align with spaces");
     }
 
     #[test]
