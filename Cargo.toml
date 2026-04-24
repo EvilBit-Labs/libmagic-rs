@@ -2,10 +2,7 @@
 name = "libmagic-rs"
 version = "0.5.0"
 edition = "2024"
-authors = [
-    "UncleSp1d3r <unclespid3r@evilbitlabs.io>",
-    "KryptoKat <kryptokat@evilbitlabs.io>",
-]
+authors = ["UncleSp1d3r <unclespid3r@evilbitlabs.io>"]
 description = "A pure-Rust implementation of libmagic for file type identification"
 license = "Apache-2.0"
 repository = "https://github.com/EvilBit-Labs/libmagic-rs"

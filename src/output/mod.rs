@@ -9,6 +9,7 @@
 //! The module follows a structured approach where evaluation results contain metadata
 //! about the evaluation process and a list of matches found during rule processing.
 
+pub mod format;
 pub mod json;
 pub mod text;
 

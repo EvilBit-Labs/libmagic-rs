@@ -6,7 +6,7 @@
 //! These tests validate the `load_magic_directory()` function's behavior
 //! with various directory structures and content scenarios.
 
-use libmagic_rs::parser::load_magic_directory;
+use libmagic_rs::parser::{ParsedMagic, load_magic_directory};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -52,7 +52,8 @@ fn create_magdir_structure(dir: &Path) -> Vec<PathBuf> {
 #[test]
 fn test_load_empty_directory() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let rules = load_magic_directory(temp_dir.path()).expect("Failed to load empty directory");
+    let ParsedMagic { rules, .. } =
+        load_magic_directory(temp_dir.path()).expect("Failed to load empty directory");
 
     assert_eq!(rules.len(), 0, "Empty directory should return no rules");
 }
@@ -69,7 +70,8 @@ fn test_load_directory_single_file() {
          >4 byte 2 64-bit\n",
     );
 
-    let rules = load_magic_directory(temp_dir.path()).expect("Failed to load directory");
+    let ParsedMagic { rules, .. } =
+        load_magic_directory(temp_dir.path()).expect("Failed to load directory");
 
     assert_eq!(rules.len(), 1, "Should load one top-level rule");
     assert_eq!(rules[0].message, "ELF executable");
@@ -99,7 +101,8 @@ fn test_load_directory_multiple_files() {
         "0 string \\x23\\x21 shell script\n",
     );
 
-    let rules = load_magic_directory(temp_dir.path()).expect("Failed to load directory");
+    let ParsedMagic { rules, .. } =
+        load_magic_directory(temp_dir.path()).expect("Failed to load directory");
 
     assert_eq!(rules.len(), 4, "Should load all rules from all files");
 
@@ -134,7 +137,8 @@ fn test_load_directory_preserves_order() {
         "0 string \\x07\\x08\\x09 third file\n",
     );
 
-    let rules = load_magic_directory(temp_dir.path()).expect("Failed to load directory");
+    let ParsedMagic { rules, .. } =
+        load_magic_directory(temp_dir.path()).expect("Failed to load directory");
 
     assert_eq!(rules.len(), 3);
     // Files should be processed in alphabetical order
@@ -159,7 +163,8 @@ fn test_load_directory_skips_subdirectories() {
     fs::create_dir(&subdir).expect("Failed to create subdirectory");
     create_test_magic_file(&subdir, "sub.magic", "0 string \\x03\\x04 sub file\n");
 
-    let rules = load_magic_directory(temp_dir.path()).expect("Failed to load directory");
+    let ParsedMagic { rules, .. } =
+        load_magic_directory(temp_dir.path()).expect("Failed to load directory");
 
     // Should only load the main file, not the one in subdirectory
     assert_eq!(rules.len(), 1);
@@ -192,7 +197,8 @@ fn test_load_directory_skips_symlinks() {
     let symlink_path = temp_dir.path().join("symlink.magic");
     symlink(&external_file, &symlink_path).expect("Failed to create symlink");
 
-    let rules = load_magic_directory(temp_dir.path()).expect("Failed to load directory");
+    let ParsedMagic { rules, .. } =
+        load_magic_directory(temp_dir.path()).expect("Failed to load directory");
 
     // Should only load the regular file, not the symlinked one
     assert_eq!(rules.len(), 1, "Should skip symlinks");
@@ -226,7 +232,8 @@ fn test_load_directory_with_parse_errors() {
     );
 
     // Should succeed and load only the valid files
-    let rules = load_magic_directory(temp_dir.path()).expect("Failed to load directory");
+    let ParsedMagic { rules, .. } =
+        load_magic_directory(temp_dir.path()).expect("Failed to load directory");
 
     assert_eq!(
         rules.len(),
@@ -271,7 +278,8 @@ fn test_load_directory_with_comments() {
          # Empty lines above\n",
     );
 
-    let rules = load_magic_directory(temp_dir.path()).expect("Failed to load directory");
+    let ParsedMagic { rules, .. } =
+        load_magic_directory(temp_dir.path()).expect("Failed to load directory");
 
     assert_eq!(rules.len(), 1);
     assert_eq!(rules[0].message, "test file");
@@ -292,7 +300,8 @@ fn test_load_directory_with_nested_rules() {
          >4 byte 2 64-bit\n",
     );
 
-    let rules = load_magic_directory(temp_dir.path()).expect("Failed to load directory");
+    let ParsedMagic { rules, .. } =
+        load_magic_directory(temp_dir.path()).expect("Failed to load directory");
 
     assert_eq!(rules.len(), 1, "Should have one top-level rule");
     assert_eq!(rules[0].children.len(), 2, "Should have two child rules");
@@ -311,7 +320,8 @@ fn test_load_directory_rule_count() {
 
     create_magdir_structure(temp_dir.path());
 
-    let rules = load_magic_directory(temp_dir.path()).expect("Failed to load directory");
+    let ParsedMagic { rules, .. } =
+        load_magic_directory(temp_dir.path()).expect("Failed to load directory");
 
     // Count total rules from create_magdir_structure:
     // 01-elf: 1 top-level (ELF executable) with 2 children = 1 top-level rule
@@ -342,7 +352,8 @@ fn test_load_directory_empty_files() {
         "0 string \\x01\\x02 valid file\n",
     );
 
-    let rules = load_magic_directory(temp_dir.path()).expect("Failed to load directory");
+    let ParsedMagic { rules, .. } =
+        load_magic_directory(temp_dir.path()).expect("Failed to load directory");
 
     // Empty files should be handled gracefully
     assert_eq!(
@@ -368,7 +379,8 @@ fn test_load_directory_mixed_extensions() {
 
     create_test_magic_file(temp_dir.path(), "noext", "0 string \\x05\\x06 no ext\n");
 
-    let rules = load_magic_directory(temp_dir.path()).expect("Failed to load directory");
+    let ParsedMagic { rules, .. } =
+        load_magic_directory(temp_dir.path()).expect("Failed to load directory");
 
     // All files should be processed regardless of extension
     assert_eq!(
@@ -423,7 +435,8 @@ fn test_load_directory_partial_failure_succeeds() {
     create_test_magic_file(temp_dir.path(), "bad", "not valid magic syntax");
 
     // Should succeed because at least one file parsed
-    let rules = load_magic_directory(temp_dir.path()).expect("Should succeed with partial failure");
+    let ParsedMagic { rules, .. } =
+        load_magic_directory(temp_dir.path()).expect("Should succeed with partial failure");
 
     assert_eq!(rules.len(), 1, "Should have one rule from the valid file");
     assert_eq!(rules[0].message, "valid rule");

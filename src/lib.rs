@@ -150,7 +150,15 @@ impl From<crate::io::IoError> for LibmagicError {
 /// Main interface for magic rule database
 #[derive(Debug)]
 pub struct MagicDatabase {
-    rules: Vec<MagicRule>,
+    /// Named subroutine definitions extracted from magic file `name` rules,
+    /// keyed by identifier. The evaluator consults this table when a rule of
+    /// type `TypeKind::Meta(MetaType::Use(name))` is reached.
+    name_table: std::sync::Arc<crate::parser::name_table::NameTable>,
+    /// Top-level rules as a shared immutable slice. This is the primary rule
+    /// storage for the database. Passed through the evaluation context as part
+    /// of the rule environment so whole-database operations (e.g. `indirect`)
+    /// can re-enter at the root without re-sorting or cloning the rule tree.
+    root_rules: std::sync::Arc<[MagicRule]>,
     config: EvaluationConfig,
     /// Optional path to the source magic file or directory from which rules were loaded.
     /// This is used for debugging and logging purposes.
@@ -241,8 +249,11 @@ impl MagicDatabase {
         config.validate()?;
         let mut rules = crate::builtin_rules::get_builtin_rules();
         crate::evaluator::strength::sort_rules_by_strength_recursive(&mut rules);
+        let root_rules: std::sync::Arc<[MagicRule]> =
+            std::sync::Arc::from(rules.into_boxed_slice());
         Ok(Self {
-            rules,
+            name_table: std::sync::Arc::new(crate::parser::name_table::NameTable::empty()),
+            root_rules,
             config,
             source_path: None,
             mime_mapper: mime::MimeMapper::new(),
@@ -296,14 +307,27 @@ impl MagicDatabase {
         config: EvaluationConfig,
     ) -> Result<Self> {
         config.validate()?;
-        let mut rules = parser::load_magic_file(path.as_ref()).map_err(|e| match e {
+        let parsed = parser::load_magic_file(path.as_ref()).map_err(|e| match e {
             ParseError::IoError(io_err) => LibmagicError::IoError(io_err),
             other => LibmagicError::ParseError(other),
         })?;
+        let parser::ParsedMagic {
+            mut rules,
+            mut name_table,
+        } = parsed;
         crate::evaluator::strength::sort_rules_by_strength_recursive(&mut rules);
+        // Each named subroutine body must be sorted by the same strength
+        // ordering so evaluation of a `use` site is deterministic and
+        // matches the ordering applied to top-level rules.
+        name_table.sort_subroutines(|rules| {
+            crate::evaluator::strength::sort_rules_by_strength_recursive(rules);
+        });
 
+        let root_rules: std::sync::Arc<[MagicRule]> =
+            std::sync::Arc::from(rules.into_boxed_slice());
         Ok(Self {
-            rules,
+            name_table: std::sync::Arc::new(name_table),
+            root_rules,
             config,
             source_path: Some(path.as_ref().to_path_buf()),
             mime_mapper: mime::MimeMapper::new(),
@@ -361,7 +385,6 @@ impl MagicDatabase {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn evaluate_file<P: AsRef<Path>>(&self, path: P) -> Result<EvaluationResult> {
-        use crate::evaluator::evaluate_rules_with_config;
         use crate::io::FileBuffer;
         use std::fs;
         use std::time::Instant;
@@ -387,11 +410,12 @@ impl MagicDatabase {
         let file_buffer = FileBuffer::from_path_and_metadata(path, &file_metadata)?;
         let buffer = file_buffer.as_slice();
 
-        // Evaluate rules against the file buffer. `evaluate_rules_with_config`
-        // returns `Ok(vec![])` for an empty rule list, so no guard is needed.
-        let matches = evaluate_rules_with_config(&self.rules, buffer, &self.config)?;
-
-        Ok(self.build_result(matches, file_size, start_time))
+        // Route the evaluation through `evaluate_buffer_internal` so the
+        // rule environment (name table + root rules) is attached to the
+        // context identically for in-memory and on-disk paths.
+        let mut result = self.evaluate_buffer_internal(buffer, start_time)?;
+        result.metadata.file_size = file_size;
+        Ok(result)
     }
 
     /// Evaluate magic rules against an in-memory buffer
@@ -429,13 +453,28 @@ impl MagicDatabase {
         buffer: &[u8],
         start_time: std::time::Instant,
     ) -> Result<EvaluationResult> {
-        use crate::evaluator::evaluate_rules_with_config;
+        use crate::evaluator::{EvaluationContext, RuleEnvironment, evaluate_rules};
 
         let file_size = buffer.len() as u64;
 
-        // `evaluate_rules_with_config` returns `Ok(vec![])` for an empty
-        // rule list, so no `is_empty()` guard is needed here.
-        let matches = evaluate_rules_with_config(&self.rules, buffer, &self.config)?;
+        // Validate config once at the entry point to match the previous
+        // behavior of `evaluate_rules_with_config`.
+        self.config.validate()?;
+
+        // Reset the thread-local regex compile cache so it is bounded to
+        // the lifetime of a single top-level evaluation call.
+        crate::evaluator::types::regex::reset_regex_cache();
+
+        let env = std::sync::Arc::new(RuleEnvironment {
+            name_table: self.name_table.clone(),
+            root_rules: self.root_rules.clone(),
+        });
+
+        let mut context = EvaluationContext::new(self.config.clone()).with_rule_env(env);
+
+        // `evaluate_rules` returns `Ok(vec![])` for an empty rule list,
+        // so no `is_empty()` guard is needed here.
+        let matches = evaluate_rules(&self.root_rules, buffer, &mut context)?;
 
         Ok(self.build_result(matches, file_size, start_time))
     }
@@ -475,7 +514,7 @@ impl MagicDatabase {
             metadata: EvaluationMetadata {
                 file_size,
                 evaluation_time_ms: start_time.elapsed().as_secs_f64() * 1000.0,
-                rules_evaluated: self.rules.len(),
+                rules_evaluated: self.root_rules.len(),
                 magic_file: self.source_path.clone(),
                 timed_out: false,
             },
@@ -484,20 +523,32 @@ impl MagicDatabase {
 
     /// Concatenate match messages following libmagic behavior
     ///
-    /// Messages are joined with spaces, except when a message starts with
-    /// backspace character (\\b) which suppresses the space.
+    /// Each match's `message` is first run through
+    /// [`crate::output::format::format_magic_message`], which substitutes
+    /// printf-style specifiers (`%lld`, `%02x`, `%s`, etc.) with the
+    /// rule's read value. The resulting rendered strings are then joined
+    /// with spaces, except when a rendered string starts with the
+    /// backspace character (`\b`, U+0008) which suppresses both the
+    /// separating space and the backspace itself (GOTCHAS.md S14.1).
+    ///
+    /// The backspace check runs on the *post-substitution* text so rules
+    /// like `\b, version %s` compose correctly once the specifier has been
+    /// rendered.
     fn concatenate_messages(matches: &[evaluator::RuleMatch]) -> String {
+        use crate::output::format::format_magic_message;
+
         let capacity: usize = matches.iter().map(|m| m.message.len() + 1).sum();
         let mut result = String::with_capacity(capacity);
         for m in matches {
-            if let Some(rest) = m.message.strip_prefix('\u{0008}') {
+            let rendered = format_magic_message(&m.message, &m.value, &m.type_kind);
+            if let Some(rest) = rendered.strip_prefix('\u{0008}') {
                 // Backspace suppresses the space and the character itself
                 result.push_str(rest);
             } else if !result.is_empty() {
                 result.push(' ');
-                result.push_str(&m.message);
+                result.push_str(&rendered);
             } else {
-                result.push_str(&m.message);
+                result.push_str(&rendered);
             }
         }
         result

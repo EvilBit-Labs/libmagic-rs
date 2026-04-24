@@ -9,7 +9,8 @@
 use log::warn;
 
 use crate::error::ParseError;
-use crate::parser::ast::MagicRule;
+use crate::parser::ParsedMagic;
+use crate::parser::name_table::NameTable;
 use std::path::{Path, PathBuf};
 
 use super::format::{MagicFileFormat, detect_format};
@@ -89,8 +90,8 @@ fn read_magic_file_bounded(path: &Path) -> Result<String, ParseError> {
 /// use libmagic_rs::parser::load_magic_directory;
 /// use std::path::Path;
 ///
-/// let rules = load_magic_directory(Path::new("/usr/share/file/magic.d"))?;
-/// println!("Loaded {} rules from directory", rules.len());
+/// let parsed = load_magic_directory(Path::new("/usr/share/file/magic.d"))?;
+/// println!("Loaded {} rules from directory", parsed.rules.len());
 /// # Ok::<(), libmagic_rs::ParseError>(())
 /// ```
 ///
@@ -106,7 +107,7 @@ fn read_magic_file_bounded(path: &Path) -> Result<String, ParseError> {
 /// //   ├── 02-archive
 /// //   └── 03-text
 ///
-/// let rules = load_magic_directory(Path::new("./magic.d"))?;
+/// let parsed = load_magic_directory(Path::new("./magic.d"))?;
 /// // Rules from all three files are merged in alphabetical order
 /// # Ok::<(), libmagic_rs::ParseError>(())
 /// ```
@@ -122,7 +123,7 @@ fn read_magic_file_bounded(path: &Path) -> Result<String, ParseError> {
 /// # Panics
 ///
 /// This function does not panic under normal operation.
-pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseError> {
+pub fn load_magic_directory(dir_path: &Path) -> Result<ParsedMagic, ParseError> {
     use std::fs;
 
     // Read directory entries
@@ -164,9 +165,11 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
     // Sort by filename for deterministic ordering
     file_paths.sort_by_key(|path| path.file_name().map(std::ffi::OsStr::to_os_string));
 
-    // Accumulate rules from all files
+    // Accumulate rules and name tables from all files
     let mut all_rules = Vec::new();
+    let mut merged_table = NameTable::empty();
     let mut parse_failures: Vec<(PathBuf, ParseError)> = Vec::new();
+    let mut any_success = false;
     let file_count = file_paths.len();
 
     for path in file_paths {
@@ -184,9 +187,10 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
 
         // Parse the file
         match super::parse_text_magic_file(&contents) {
-            Ok(rules) => {
-                // Successfully parsed - merge rules
-                all_rules.extend(rules);
+            Ok(parsed) => {
+                any_success = true;
+                all_rules.extend(parsed.rules);
+                merged_table.merge(parsed.name_table);
             }
             Err(e) => {
                 // Track parse failures for reporting
@@ -195,8 +199,12 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
         }
     }
 
-    // If all files failed to parse, return an error
-    if all_rules.is_empty() && !parse_failures.is_empty() {
+    // If all files failed to parse, return an error.
+    // Use `any_success` rather than `all_rules.is_empty()` so that directories
+    // whose files parse successfully but contain only meta-type definitions
+    // (e.g. a directory of pure `name`-subroutine files) are not mistaken for
+    // complete failure.
+    if !any_success && !parse_failures.is_empty() {
         use std::fmt::Write;
 
         let failure_details: Vec<String> = parse_failures
@@ -222,7 +230,10 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
         warn!("Failed to parse '{}': {}", path.display(), e);
     }
 
-    Ok(all_rules)
+    Ok(ParsedMagic {
+        rules: all_rules,
+        name_table: merged_table,
+    })
 }
 
 /// Loads magic rules from a file or directory, automatically detecting the format.
@@ -267,8 +278,8 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
 /// use libmagic_rs::parser::load_magic_file;
 /// use std::path::Path;
 ///
-/// let rules = load_magic_file(Path::new("/usr/share/misc/magic"))?;
-/// println!("Loaded {} magic rules", rules.len());
+/// let parsed = load_magic_file(Path::new("/usr/share/misc/magic"))?;
+/// println!("Loaded {} magic rules", parsed.rules.len());
 /// # Ok::<(), libmagic_rs::ParseError>(())
 /// ```
 ///
@@ -278,8 +289,8 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
 /// use libmagic_rs::parser::load_magic_file;
 /// use std::path::Path;
 ///
-/// let rules = load_magic_file(Path::new("/usr/share/misc/magic.d"))?;
-/// println!("Loaded {} rules from directory", rules.len());
+/// let parsed = load_magic_file(Path::new("/usr/share/misc/magic.d"))?;
+/// println!("Loaded {} rules from directory", parsed.rules.len());
 /// # Ok::<(), libmagic_rs::ParseError>(())
 /// ```
 ///
@@ -290,7 +301,7 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
 /// use std::path::Path;
 ///
 /// match load_magic_file(Path::new("/usr/share/misc/magic.mgc")) {
-///     Ok(rules) => println!("Loaded {} rules", rules.len()),
+///     Ok(parsed) => println!("Loaded {} rules", parsed.rules.len()),
 ///     Err(e) => {
 ///         eprintln!("Error loading magic file: {}", e);
 ///         eprintln!("Hint: Use --use-builtin for binary files");
@@ -318,7 +329,7 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<Vec<MagicRule>, ParseErro
 /// - [`detect_format()`] - Format detection logic
 /// - [`super::parse_text_magic_file()`] - Text file parser
 /// - [`load_magic_directory()`] - Directory loader
-pub fn load_magic_file(path: &Path) -> Result<Vec<MagicRule>, ParseError> {
+pub fn load_magic_file(path: &Path) -> Result<ParsedMagic, ParseError> {
     // Detect the magic file format
     let format = detect_format(path)?;
 
@@ -385,10 +396,10 @@ mod tests {
         fs::write(&invalid_path, "this is invalid syntax\n").expect("Failed to write invalid file");
 
         // Should succeed, loading only the valid file
-        let rules = load_magic_directory(temp_dir.path()).expect("Should load valid files");
+        let parsed = load_magic_directory(temp_dir.path()).expect("Should load valid files");
 
-        assert_eq!(rules.len(), 1, "Should load only valid file");
-        assert_eq!(rules[0].message, "valid");
+        assert_eq!(parsed.rules.len(), 1, "Should load only valid file");
+        assert_eq!(parsed.rules[0].message, "valid");
     }
 
     #[test]
@@ -408,9 +419,13 @@ mod tests {
             .expect("Failed to write comments file");
 
         // Should succeed with no rules
-        let rules = load_magic_directory(temp_dir.path()).expect("Should handle empty files");
+        let parsed = load_magic_directory(temp_dir.path()).expect("Should handle empty files");
 
-        assert_eq!(rules.len(), 0, "Empty files should contribute no rules");
+        assert_eq!(
+            parsed.rules.len(),
+            0,
+            "Empty files should contribute no rules"
+        );
     }
 
     #[test]
@@ -459,16 +474,16 @@ mod tests {
         fs::write(temp_dir.path().join("noext"), "0 string \\x05\\x06 noext\n")
             .expect("Failed to write no-ext file");
 
-        let rules = load_magic_directory(temp_dir.path())
+        let parsed = load_magic_directory(temp_dir.path())
             .expect("Should load all files regardless of extension");
 
         assert_eq!(
-            rules.len(),
+            parsed.rules.len(),
             3,
             "Should process all files regardless of extension"
         );
 
-        let messages: Vec<&str> = rules.iter().map(|r| r.message.as_str()).collect();
+        let messages: Vec<&str> = parsed.rules.iter().map(|r| r.message.as_str()).collect();
         assert!(messages.contains(&"magic"));
         assert!(messages.contains(&"txt"));
         assert!(messages.contains(&"noext"));
@@ -498,13 +513,13 @@ mod tests {
         )
         .expect("Failed to write second file");
 
-        let rules = load_magic_directory(temp_dir.path()).expect("Should load directory in order");
+        let parsed = load_magic_directory(temp_dir.path()).expect("Should load directory in order");
 
-        assert_eq!(rules.len(), 3);
+        assert_eq!(parsed.rules.len(), 3);
         // Should be sorted alphabetically by filename
-        assert_eq!(rules[0].message, "first");
-        assert_eq!(rules[1].message, "second");
-        assert_eq!(rules[2].message, "third");
+        assert_eq!(parsed.rules[0].message, "first");
+        assert_eq!(parsed.rules[1].message, "second");
+        assert_eq!(parsed.rules[2].message, "third");
     }
 
     // ============================================================
@@ -524,10 +539,10 @@ mod tests {
             .expect("Failed to write magic file");
 
         // Load using load_magic_file
-        let rules = load_magic_file(&magic_file).expect("Failed to load text magic file");
+        let parsed = load_magic_file(&magic_file).expect("Failed to load text magic file");
 
-        assert_eq!(rules.len(), 1);
-        assert_eq!(rules[0].message, "ELF executable");
+        assert_eq!(parsed.rules.len(), 1);
+        assert_eq!(parsed.rules[0].message, "ELF executable");
     }
 
     #[test]
@@ -552,11 +567,11 @@ mod tests {
         .expect("Failed to write zip file");
 
         // Load using load_magic_file
-        let rules = load_magic_file(&magic_dir).expect("Failed to load directory");
+        let parsed = load_magic_file(&magic_dir).expect("Failed to load directory");
 
-        assert_eq!(rules.len(), 2);
-        assert_eq!(rules[0].message, "ELF executable");
-        assert_eq!(rules[1].message, "ZIP archive");
+        assert_eq!(parsed.rules.len(), 2);
+        assert_eq!(parsed.rules[0].message, "ELF executable");
+        assert_eq!(parsed.rules[1].message, "ZIP archive");
     }
 
     #[test]
@@ -673,5 +688,33 @@ mod tests {
             err_msg.contains(&MAX_MAGIC_FILE_SIZE.to_string()),
             "Error should mention the maximum allowed size, got: {err_msg}"
         );
+    }
+
+    #[test]
+    fn test_load_directory_merges_name_tables() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+        // Each file defines a different named subroutine.
+        fs::write(
+            temp_dir.path().join("00_first"),
+            "0 name sub_a\n>0 byte 1 a-body\n",
+        )
+        .expect("Failed to write sub_a file");
+        fs::write(
+            temp_dir.path().join("01_second"),
+            "0 name sub_b\n>0 byte 2 b-body\n",
+        )
+        .expect("Failed to write sub_b file");
+
+        let parsed =
+            load_magic_directory(temp_dir.path()).expect("Should load both name subroutines");
+
+        // Both `name` rules are hoisted out, so top-level rules list is empty.
+        assert_eq!(parsed.rules.len(), 0);
+        assert!(parsed.name_table.get("sub_a").is_some());
+        assert!(parsed.name_table.get("sub_b").is_some());
     }
 }

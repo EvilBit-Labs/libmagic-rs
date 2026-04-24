@@ -514,6 +514,72 @@ Output: `GIF image data, version 89a`
 0       bedouble  =0.45455   PNG image with gamma 0.45455
 ```
 
+## Meta-types / Control Directives
+
+Meta-types are pseudo-types that do not read bytes from the buffer. Instead, they control the evaluation flow: defining named subroutines, invoking them, providing fallbacks when no sibling matched, resetting per-level match state, or re-applying the entire rule database at a resolved offset.
+
+| Keyword     | Syntax                      | Description                                                                       |
+| ----------- | --------------------------- | --------------------------------------------------------------------------------- |
+| `name <id>` | `0 name part2`              | Defines a named subroutine block; children are the subroutine body                |
+| `use <id>`  | `>0 use part2`              | Invokes a named subroutine at the resolved offset                                 |
+| `default`   | `0 default x Fallback`      | Fires only when no sibling at the same level has matched                          |
+| `clear`     | `0 clear`                   | Resets the per-level sibling-matched flag                                         |
+| `indirect`  | `8 indirect x`              | Re-applies the full rule database at the resolved offset                          |
+| `offset`    | `0 offset x at_offset %lld` | Emits the resolved file position as a `Value::Uint` for printf-style substitution |
+
+### `name` and `use` — Named Subroutines
+
+`name <id>` defines a named subroutine block at the top level; its children are the subroutine body. `use <id>` invokes that subroutine at a given offset.
+
+```text
+# Define a reusable subroutine
+0       name    part2
+>0      search/64    ABC       found_ABC
+>>&0    byte    x            followed_by 0x%x
+
+# Top-level rule that invokes the subroutine
+0       string  TEST          Testfmt
+>0      use     part2
+>64     use     part2
+```
+
+Top-level `name` blocks are hoisted out of the flat rule list at parse time into a `NameTable` keyed by identifier. Duplicate names retain the first definition and emit a warning. `name` rules nested inside another rule's children are not well-defined in magic(5) and are scrubbed at load time.
+
+### `default` — Fallback Rule
+
+A `default` rule at a given level fires only when none of its siblings at the same level have matched. The operator is conventionally `x` (any-value), and the value column is ignored.
+
+```text
+0       byte    0xAA    Real-Match
+0       default x       DEFAULT-FALLBACK
+```
+
+Against a buffer starting with `0xAA`, only `Real-Match` fires. Against a buffer starting with any other byte, `DEFAULT-FALLBACK` fires.
+
+### `clear` — Reset Sibling-Matched Flag
+
+A `clear` directive resets the per-level "sibling matched" flag, so a subsequent `default` at the same level can fire again even after an earlier sibling matched. Pair with `EvaluationConfig::with_stop_at_first_match(false)` to walk all top-level siblings.
+
+```text
+0       byte    0xAA    Match-A
+0       default x       DEFAULT-SKIPPED
+0       clear
+0       default x       DEFAULT-FIRES
+```
+
+Against a buffer starting with `0xAA`: `Match-A` fires, `DEFAULT-SKIPPED` is suppressed (a sibling matched), `clear` resets the flag, and `DEFAULT-FIRES` fires.
+
+### `indirect` — Re-apply Root Rules at a Resolved Offset
+
+An `indirect` rule resolves its offset, slices the buffer at that point, and re-applies the full rule database against the sub-buffer. Recursion is bounded by `EvaluationConfig::max_recursion_depth`.
+
+```text
+0       byte    0x42    Inner-Match
+8       indirect x
+```
+
+Against a 16-byte buffer with `buf[8] = 0x42`: the top-level `byte` rule at offset 0 does not match, and the `indirect` rule re-applies the root rules at offset 8 — where `buf[8] = 0x42` matches the inner `byte` rule, producing `Inner-Match`.
+
 ## Best Practices
 
 ### 1. Order Rules by Specificity
@@ -603,8 +669,6 @@ Consider:
 
 - Regex patterns
 - 128-bit integer types
-- Use/name directives
-- Default rules
 
 ### Recently Added
 

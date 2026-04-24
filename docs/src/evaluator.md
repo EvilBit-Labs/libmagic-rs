@@ -25,8 +25,8 @@ Memory Map    Context State      Endian Handling   Match Logic      Hierarchical
 
 The evaluator module separates public interface from implementation:
 
-- **`evaluator/mod.rs`** - Public API surface: defines `EvaluationContext` and `RuleMatch` types, re-exports core evaluation functions from the engine submodule
-- **`evaluator/engine/mod.rs`** - Core evaluation implementation: `evaluate_single_rule`, `evaluate_rules`, `evaluate_rules_with_config`
+- **`evaluator/mod.rs`** - Public API surface: defines `EvaluationContext` and `RuleMatch` types, re-exports core evaluation functions from the engine submodule. Also defines `pub(crate) struct RuleEnvironment { root_rules, name_table }` — the optional environment attached to `EvaluationContext::rule_env` that carries the full rule list and the `name`/`use` subroutine table for meta-type dispatch.
+- **`evaluator/engine/mod.rs`** - Core evaluation implementation: `evaluate_single_rule`, `evaluate_rules`, `evaluate_rules_with_config`. Also hosts the per-level `sibling_matched` bookkeeping and inline dispatch for `MetaType::Default`, `MetaType::Clear`, `MetaType::Use`, and `MetaType::Indirect`.
 - **`evaluator/offset/mod.rs`** - Offset resolution
 - **`evaluator/operators/mod.rs`** - Operator application
 - **`evaluator/types/`** - Type reading and coercion (organized as submodules as of v0.4.2)
@@ -360,6 +360,38 @@ pub fn evaluate_rules(
 
 3. Results accumulate hierarchically (parent message + child details)
 
+### Meta-type Dispatch
+
+Before calling `evaluate_single_rule_with_anchor` for a value-read rule, `evaluate_rules` inspects the rule's `TypeKind` for meta-type dispatch. Each `MetaType` variant has distinct semantics:
+
+- **`MetaType::Clear`**: Sets the per-level `sibling_matched` flag to `false`. No match is recorded, the anchor is unchanged, and children are not evaluated.
+- **`MetaType::Default`**: Fires only when `!sibling_matched` at the current level. On fire, records a `RuleMatch`, evaluates children (inheriting the match context), and sets `sibling_matched = true`.
+- **`MetaType::Use(name)`**: Looks up `name` in `RuleEnvironment::name_table`. On hit, evaluates the subroutine's child rules at the resolved offset, propagates their matches into the caller's match vector, then also evaluates the `use` rule's own `rule.children`. On miss, logs a `warn!` and returns `Ok(None)` (treated as non-match).
+- **`MetaType::Indirect`**: Resolves the rule's offset against the buffer, slices the buffer at that point, resets the `EvaluationContext` anchor to 0, calls `evaluate_rules` recursively with `RuleEnvironment::root_rules` (the complete top-level rule list), and then restores the caller's anchor on return. Recursion is bounded by `EvaluationConfig::max_recursion_depth`.
+- **`MetaType::Name`**: Unreachable after load-time extraction — `name` blocks are hoisted out of the rule list by `parser::name_table::extract_name_table` before the evaluator ever sees them. Defensive arm returns `Ok(None)` and emits a `debug!` rather than `debug_assert!` so that property tests synthesizing arbitrary `TypeKind` values do not break the never-panics invariant.
+- **`MetaType::Offset`**: Resolves the rule's offset against the buffer and records a `RuleMatch` whose `value` is `Value::Uint(resolved_offset)`. The evaluator stores the raw resolved offset as `value` without substituting any printf specifiers — printf substitution (`%lld`, `%d`, etc.) is performed later during output/message assembly by `format_magic_message` (called from `MagicDatabase::build_result`), not inside `evaluate_rules`. Used by magic fixtures that need to report "matched at offset N" in the output (e.g., GNU `file`'s `searchbug.magic` fixture).
+
+```mermaid
+sequenceDiagram
+    participant ER as evaluate_rules
+    participant ESR as evaluate_single_rule_with_anchor
+    participant NT as NameTable
+    participant RR as root_rules
+
+    ER->>ESR: rule (Use "part2")
+    ESR->>NT: lookup("part2")
+    NT-->>ESR: Vec<MagicRule> (subroutine)
+    ESR->>ER: evaluate_rules(subroutine, buffer, ctx)
+    ER-->>ESR: subroutine matches
+    ESR-->>ER: Ok(Some(offset, value)) + merged matches
+
+    ER->>ESR: rule (Indirect)
+    ESR->>RR: clone root_rules
+    ESR->>ER: evaluate_rules(root_rules, sub_buffer, ctx)
+    ER-->>ESR: inner matches
+    ESR-->>ER: Ok(Some(offset, value)) + merged matches
+```
+
 ### Hierarchical Processing
 
 ```mermaid
@@ -485,7 +517,7 @@ pub fn evaluate_single_rule(
 ### Usage Example
 
 ```rust
-use libmagic_rs::{evaluate_rules, EvaluationConfig};
+use libmagic_rs::{evaluate_rules, EvaluationConfig, EvaluationContext};
 use libmagic_rs::parser::parse_text_magic_file;
 
 // Parse magic rules
@@ -494,13 +526,16 @@ let magic_content = r#"
 >4 byte 1 32-bit
 >4 byte 2 64-bit
 "#;
-let rules = parse_text_magic_file(magic_content)?;
+let parsed = parse_text_magic_file(magic_content)?;
 
 // Read target file
 let buffer = std::fs::read("sample.bin")?;
 
-// Evaluate with default config
-let matches = evaluate_rules(&rules, &buffer)?;
+// Evaluate with default config. The low-level `evaluate_rules` takes only
+// the top-level rules; `parsed.name_table` is handled by `MagicDatabase`
+// (see library-api.md) and is ignored here.
+let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+let matches = evaluate_rules(&parsed.rules, &buffer, &mut ctx)?;
 
 for m in matches {
     println!("Match at offset {}: {}", m.offset, m.message);
@@ -510,7 +545,7 @@ for m in matches {
 **Example with comparison operators (v0.2.0+):**
 
 ```rust
-use libmagic_rs::{evaluate_rules, EvaluationConfig};
+use libmagic_rs::{evaluate_rules, EvaluationConfig, EvaluationContext};
 use libmagic_rs::parser::parse_text_magic_file;
 
 // Parse magic rule with comparison operator
@@ -518,10 +553,11 @@ let magic_content = r#"
 0 leshort <100 Small value detected
 0 leshort >=1000 Large value detected
 "#;
-let rules = parse_text_magic_file(magic_content)?;
+let parsed = parse_text_magic_file(magic_content)?;
 
 let buffer = vec![0x0A, 0x00]; // Little-endian 10
-let matches = evaluate_rules(&rules, &buffer)?;
+let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+let matches = evaluate_rules(&parsed.rules, &buffer, &mut ctx)?;
 
 // Matches first rule (<100)
 assert_eq!(matches[0].message, "Small value detected");
@@ -530,7 +566,7 @@ assert_eq!(matches[0].message, "Small value detected");
 **Example with floating-point types:**
 
 ```rust
-use libmagic_rs::{evaluate_rules, EvaluationConfig};
+use libmagic_rs::{evaluate_rules, EvaluationConfig, EvaluationContext};
 use libmagic_rs::parser::parse_text_magic_file;
 
 // Parse magic rule with float type
@@ -538,11 +574,12 @@ let magic_content = r#"
 0 lefloat 3.14159 Pi constant detected
 0 bedouble >100.0 Large double value
 "#;
-let rules = parse_text_magic_file(magic_content)?;
+let parsed = parse_text_magic_file(magic_content)?;
 
 // IEEE 754 little-endian representation of 3.14159f32
 let buffer = vec![0xd0, 0x0f, 0x49, 0x40];
-let matches = evaluate_rules(&rules, &buffer)?;
+let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+let matches = evaluate_rules(&parsed.rules, &buffer, &mut ctx)?;
 
 assert_eq!(matches[0].message, "Pi constant detected");
 ```
@@ -550,7 +587,7 @@ assert_eq!(matches[0].message, "Pi constant detected");
 **Example with pstring types:**
 
 ```rust
-use libmagic_rs::{evaluate_rules, EvaluationConfig};
+use libmagic_rs::{evaluate_rules, EvaluationConfig, EvaluationContext};
 use libmagic_rs::parser::parse_text_magic_file;
 
 // Parse magic rules with pstring variants
@@ -561,20 +598,22 @@ let magic_content = r#"
 0 pstring/L =\x00\x00\x00\x05MAGIC Pascal string (4-byte BE prefix)
 0 pstring/l =\x05\x00\x00\x00MAGIC Pascal string (4-byte LE prefix)
 "#;
-let rules = parse_text_magic_file(magic_content)?;
+let parsed = parse_text_magic_file(magic_content)?;
 
 // 1-byte prefix: length=5, then "MAGIC"
 let buffer = b"\x05MAGIC";
-let matches = evaluate_rules(&rules, &buffer)?;
+let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+let matches = evaluate_rules(&parsed.rules, &buffer, &mut ctx)?;
 assert_eq!(matches[0].message, "Pascal string (1-byte prefix)");
 
 // 2-byte big-endian prefix with /J flag: stored length 7 (includes 2-byte prefix), effective content 5 bytes
 let magic_content_j = r#"
 0 pstring/HJ =MAGIC JPEG-style pstring with self-inclusive length
 "#;
-let rules_j = parse_text_magic_file(magic_content_j)?;
+let parsed_j = parse_text_magic_file(magic_content_j)?;
 let buffer_j = b"\x00\x07MAGIC"; // 2-byte BE prefix: value 7, minus 2 = 5 bytes of content
-let matches_j = evaluate_rules(&rules_j, &buffer_j)?;
+let mut ctx_j = EvaluationContext::new(EvaluationConfig::default());
+let matches_j = evaluate_rules(&parsed_j.rules, &buffer_j, &mut ctx_j)?;
 assert_eq!(matches_j[0].message, "JPEG-style pstring with self-inclusive length");
 ```
 
@@ -594,6 +633,7 @@ assert_eq!(matches_j[0].message, "JPEG-style pstring with self-inclusive length"
 - [x] Relative offset support (GNU `file` anchor semantics, issue #38)
 - [x] Regex type support (binary-safe `regex::bytes::Regex` with `/c`, `/s`, `/l` flags and 8192-byte cap; unconditional `REG_NEWLINE`)
 - [x] Search type support (bounded literal pattern scan via `memchr::memmem::find` with mandatory `NonZeroUsize` range)
+- [x] Meta-type directives: `default`, `clear`, `name`/`use` subroutines, `indirect` re-evaluation, `offset` resolved-address reporting (issue #42)
 - [ ] Performance optimizations (rule ordering, caching)
 
 ## Performance Considerations

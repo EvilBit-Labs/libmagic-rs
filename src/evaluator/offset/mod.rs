@@ -118,14 +118,60 @@ pub(crate) fn resolve_offset_with_context(
     buffer: &[u8],
     last_match_end: usize,
 ) -> Result<usize, LibmagicError> {
+    resolve_offset_with_base(spec, buffer, last_match_end, 0)
+}
+
+/// Like [`resolve_offset_with_context`] but applies a subroutine
+/// `base_offset` to positive absolute offsets.
+///
+/// Inside a `MetaType::Use` subroutine body, `OffsetSpec::Absolute(n)`
+/// with `n >= 0` resolves to `base_offset + n`, matching magic(5)
+/// semantics where the subroutine's offsets are relative to the
+/// caller's invocation point. Negative `Absolute`, `FromEnd`,
+/// `Relative`, and `Indirect` are unaffected -- they already have
+/// well-defined frames of reference (buffer end, previous match, or
+/// a pointer read from the buffer).
+pub(crate) fn resolve_offset_with_base(
+    spec: &OffsetSpec,
+    buffer: &[u8],
+    last_match_end: usize,
+    base_offset: usize,
+) -> Result<usize, LibmagicError> {
     match spec {
         OffsetSpec::Absolute(offset) => {
-            resolve_absolute_offset(*offset, buffer).map_err(|e| map_offset_error(&e, *offset))
+            // Apply base_offset only to positive absolute offsets.
+            // Negative values mean "from end" and should not be shifted
+            // by the subroutine base.
+            let effective = if *offset >= 0 {
+                // Use checked conversions so overflow is reported as
+                // InvalidOffset rather than silently producing a huge
+                // biased value that later surfaces as BufferOverrun.
+                let abs = usize::try_from(*offset).map_err(|_| {
+                    LibmagicError::EvaluationError(crate::error::EvaluationError::InvalidOffset {
+                        offset: *offset,
+                    })
+                })?;
+                let biased = base_offset
+                    .checked_add(abs)
+                    .ok_or(LibmagicError::EvaluationError(
+                        crate::error::EvaluationError::InvalidOffset { offset: *offset },
+                    ))?;
+                i64::try_from(biased).map_err(|_| {
+                    LibmagicError::EvaluationError(crate::error::EvaluationError::InvalidOffset {
+                        offset: *offset,
+                    })
+                })?
+            } else {
+                *offset
+            };
+            resolve_absolute_offset(effective, buffer).map_err(|e| map_offset_error(&e, effective))
         }
         OffsetSpec::Indirect { .. } => indirect::resolve_indirect_offset(spec, buffer),
         OffsetSpec::Relative(_) => relative::resolve_relative_offset(spec, buffer, last_match_end),
         OffsetSpec::FromEnd(offset) => {
-            // FromEnd is handled the same as negative Absolute offsets
+            // FromEnd is handled the same as negative Absolute offsets.
+            // Base offset does not apply -- "from end" is always
+            // relative to the buffer itself.
             resolve_absolute_offset(*offset, buffer).map_err(|e| map_offset_error(&e, *offset))
         }
     }
@@ -242,6 +288,88 @@ mod tests {
     }
 
     #[test]
+    fn test_resolve_offset_with_base_biases_positive_absolute() {
+        // Positive Absolute inside a subroutine body is biased by
+        // `base_offset`. This is the load-bearing invariant of
+        // `MetaType::Use` subroutine semantics.
+        let buffer = b"0123456789ABCDEF";
+        let spec = OffsetSpec::Absolute(4);
+        // base_offset = 10 -> resolves to 14 (not 4).
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 0, 10).unwrap(),
+            14,
+            "positive Absolute must be biased by base_offset inside a subroutine"
+        );
+    }
+
+    #[test]
+    fn test_resolve_offset_with_base_does_not_bias_negative_absolute() {
+        // Negative Absolute means "from-end" semantics (magic(5)
+        // allows either explicit `FromEnd` or negative `Absolute`).
+        // The subroutine base_offset is relative to the file start
+        // and has no meaning for from-end positions.
+        let buffer = b"0123456789ABCDEF";
+        let spec = OffsetSpec::Absolute(-4);
+        // Without bias: resolves to len - 4 = 12.
+        // Buggy with-bias would give: 10 + (len - 4) or similar.
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 0, 10).unwrap(),
+            12,
+            "negative Absolute must NOT be biased"
+        );
+    }
+
+    #[test]
+    fn test_resolve_offset_with_base_does_not_bias_from_end() {
+        // `FromEnd` is always relative to the buffer, not the
+        // subroutine's use-site.
+        let buffer = b"0123456789ABCDEF";
+        let spec = OffsetSpec::FromEnd(-4);
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 0, 10).unwrap(),
+            12,
+            "FromEnd must NOT be biased"
+        );
+    }
+
+    #[test]
+    fn test_resolve_offset_with_base_does_not_bias_relative() {
+        // `Relative(N)` resolves against the previous-match anchor,
+        // not the subroutine base. Inside a subroutine body,
+        // `last_match_end` is seeded to the use-site by
+        // `SubroutineScope::enter`, so this already has the correct
+        // frame of reference without additional bias.
+        let buffer = b"0123456789ABCDEF";
+        let spec = OffsetSpec::Relative(3);
+        // last_match_end = 2, base_offset = 10.
+        // Expected: 2 + 3 = 5 (bias does NOT apply).
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 2, 10).unwrap(),
+            5,
+            "Relative must NOT be biased (already resolved against last_match_end)"
+        );
+    }
+
+    #[test]
+    fn test_resolve_offset_with_base_does_not_bias_indirect() {
+        // `Indirect` reads a pointer from the buffer; the pointer's
+        // value is an absolute file position, not a subroutine-
+        // relative one.
+        let buffer = b"\x05TestXdata";
+        let spec = OffsetSpec::Indirect {
+            base_offset: 0,
+            pointer_type: crate::parser::ast::TypeKind::Byte { signed: false },
+            adjustment: 0,
+            endian: crate::parser::ast::Endianness::Little,
+        };
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 0, 10).unwrap(),
+            5,
+            "Indirect must NOT be biased"
+        );
+    }
+
+    #[test]
     fn test_resolve_offset_comprehensive() {
         let buffer = b"0123456789ABCDEF";
 
@@ -261,6 +389,43 @@ mod tests {
         for (spec, expected) in test_cases {
             let result = resolve_offset(&spec, buffer).unwrap();
             assert_eq!(result, expected, "Failed for spec: {spec:?}");
+        }
+    }
+
+    /// Regression test for RU0: `base_offset + large_positive_absolute` that
+    /// overflows `usize` must produce `InvalidOffset`, not `BufferOverrun`.
+    ///
+    /// Before the fix, saturating arithmetic turned overflow into `usize::MAX`
+    /// (or `i64::MAX`), which then flowed into `resolve_absolute_offset` and
+    /// surfaced as a `BufferOverrun` at that giant offset -- losing the more
+    /// precise overflow signal.
+    #[test]
+    fn test_resolve_offset_with_base_overflow_yields_invalid_offset() {
+        let buffer = b"0123456789ABCDEF"; // 16 bytes
+        // base_offset near usize::MAX combined with any positive Absolute
+        // must overflow. Use usize::MAX - 1 so that adding even 2 overflows.
+        let base = usize::MAX - 1;
+        let spec = OffsetSpec::Absolute(2); // base + 2 overflows usize
+
+        let result = resolve_offset_with_base(&spec, buffer, 0, base);
+        assert!(
+            result.is_err(),
+            "overflow of base_offset + absolute must fail"
+        );
+        match result.unwrap_err() {
+            LibmagicError::EvaluationError(crate::error::EvaluationError::InvalidOffset {
+                ..
+            }) => {
+                // Correct: overflow reported as InvalidOffset, not BufferOverrun.
+            }
+            LibmagicError::EvaluationError(crate::error::EvaluationError::BufferOverrun {
+                ..
+            }) => {
+                panic!(
+                    "overflow of base_offset + absolute must be InvalidOffset, not BufferOverrun"
+                );
+            }
+            other => panic!("unexpected error variant: {other:?}"),
         }
     }
 }

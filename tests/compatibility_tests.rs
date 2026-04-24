@@ -364,3 +364,48 @@ fn test_compatibility_files_available() {
     assert!(!test_files.is_empty(), "No compatibility test files found");
     println!("Found {} compatibility test files", test_files.len());
 }
+
+/// Partial-match regression for the canonical GNU `file` `searchbug` fixture.
+///
+/// Loose partial-match sanity check that runs even when consumers strip or
+/// alter printf substitution (e.g., rendering helpers that output raw
+/// template fragments). Full byte-for-byte parity against
+/// `searchbug.result` is verified by `test_searchbug_matches_full_result_string`
+/// in `tests/meta_types_integration.rs` -- both the `offset` pseudo-type
+/// and printf-style format substitution are fully implemented. This test
+/// asserts the recognizable message fragments survive the evaluator's
+/// name/use + search dispatch; it's kept as a weaker regression guard
+/// for future consumers that might intercept the substitution layer.
+#[test]
+fn test_searchbug_partial_match() {
+    let magic_path = Path::new("third_party/tests/searchbug.magic");
+    let testfile_path = Path::new("third_party/tests/searchbug.testfile");
+    if !magic_path.exists() || !testfile_path.exists() {
+        println!("Skipping searchbug partial-match test: fixtures not found");
+        return;
+    }
+
+    let db =
+        MagicDatabase::load_from_file(magic_path).expect("searchbug.magic must load end-to-end");
+    let bytes = fs::read(testfile_path).expect("searchbug.testfile fixture must be readable");
+
+    let result = db
+        .evaluate_buffer(&bytes)
+        .expect("evaluate_buffer on searchbug.testfile");
+
+    assert!(
+        result.description.starts_with("Testfmt"),
+        "description should start with \"Testfmt\", got: {}",
+        result.description
+    );
+    assert!(
+        result.description.contains("found_ABC"),
+        "description should contain \"found_ABC\" (subroutine match), got: {}",
+        result.description
+    );
+    assert!(
+        result.description.contains("followed_by"),
+        "description should contain \"followed_by\" (subroutine child rule), got: {}",
+        result.description
+    );
+}

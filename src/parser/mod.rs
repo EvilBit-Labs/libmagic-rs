@@ -142,6 +142,7 @@ mod format;
 pub(crate) mod grammar;
 mod hierarchy;
 mod loader;
+pub(crate) mod name_table;
 pub(crate) mod preprocessing;
 pub mod types;
 
@@ -158,6 +159,22 @@ pub(crate) use preprocessing::preprocess_lines;
 
 use crate::error::ParseError;
 
+/// Result of parsing a text magic file.
+///
+/// Contains the top-level rule list with any `name`-declared subroutines
+/// hoisted into a separate [`name_table::NameTable`] keyed by identifier.
+/// The rule list preserves the original ordering of all non-`Name` top-level
+/// rules, so strength-based sorting and evaluation semantics are unchanged
+/// for magic files that do not use the `name`/`use` directive pair.
+#[derive(Debug)]
+pub struct ParsedMagic {
+    /// Top-level rules after `Name` subroutines have been removed.
+    pub rules: Vec<MagicRule>,
+    /// Extracted `name` subroutine definitions, consulted by the evaluator
+    /// when a rule of type `TypeKind::Meta(MetaType::Use(_))` is reached.
+    pub(crate) name_table: name_table::NameTable,
+}
+
 /// Parses a complete magic file from raw text input.
 ///
 /// This is the main public-facing parser function that orchestrates the complete
@@ -170,7 +187,9 @@ use crate::error::ParseError;
 ///
 /// # Returns
 ///
-/// `Result<Vec<MagicRule>, ParseError>` - A vector of root rules with nested children
+/// `Result<ParsedMagic, ParseError>` - A [`ParsedMagic`] value containing
+/// the top-level rules (with `name`-declared subroutines hoisted out) and
+/// the resulting name table.
 ///
 /// # Errors
 ///
@@ -188,14 +207,16 @@ use crate::error::ParseError;
 /// >4 byte 1 32-bit
 /// >4 byte 2 64-bit"#;
 ///
-/// let rules = parse_text_magic_file(magic)?;
-/// assert_eq!(rules.len(), 1);
-/// assert_eq!(rules[0].message, "ELF file");
+/// let parsed = parse_text_magic_file(magic)?;
+/// assert_eq!(parsed.rules.len(), 1);
+/// assert_eq!(parsed.rules[0].message, "ELF file");
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-pub fn parse_text_magic_file(input: &str) -> Result<Vec<MagicRule>, ParseError> {
+pub fn parse_text_magic_file(input: &str) -> Result<ParsedMagic, ParseError> {
     let lines = preprocess_lines(input)?;
-    build_rule_hierarchy(lines)
+    let rules = build_rule_hierarchy(lines)?;
+    let (rules, name_table) = name_table::extract_name_table(rules);
+    Ok(ParsedMagic { rules, name_table })
 }
 
 #[cfg(test)]
@@ -209,7 +230,7 @@ mod unit_tests {
     #[test]
     fn test_parse_text_magic_file_single_rule() {
         let input = "0 string 0 ZIP archive";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].message, "ZIP archive");
     }
@@ -221,7 +242,7 @@ mod unit_tests {
 >4 byte 1 32-bit
 >4 byte 2 64-bit
 ";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].children.len(), 2);
     }
@@ -233,7 +254,7 @@ mod unit_tests {
 0 string 0 ELF
 >4 byte 1 32-bit
 ";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].children.len(), 1);
     }
@@ -247,14 +268,14 @@ mod unit_tests {
 0 byte 2 PDF
 >5 byte 1 v1
 ";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 2);
     }
 
     #[test]
     fn test_parse_text_magic_file_empty_input() {
         let input = "";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 0);
     }
 
@@ -265,7 +286,7 @@ mod unit_tests {
 # Comment 2
 # Comment 3
 ";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 0);
     }
 
@@ -278,14 +299,14 @@ mod unit_tests {
 
 
 ";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 1);
     }
 
     #[test]
     fn test_parse_text_magic_file_with_message_spaces() {
         let input = "0 string 0 Long message continued here";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert!(rules[0].message.contains("continued"));
     }
 
@@ -300,7 +321,7 @@ mod unit_tests {
 0 byte 2 Root2
 >4 byte 4 Child3
 ";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].children.len(), 2);
         assert_eq!(rules[0].children[1].children.len(), 1);
@@ -325,7 +346,7 @@ mod unit_tests {
 >5 byte 0x34 version 1.4
 >5 byte 0x32 version 2.0
 ";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].message, "ELF executable");
         assert!(rules[0].children.len() > 1);
@@ -341,7 +362,7 @@ mod unit_tests {
 !:strength +10
 0 string \\x7fELF ELF executable
 ";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].strength_modifier, Some(StrengthModifier::Add(10)));
     }
@@ -353,7 +374,7 @@ mod unit_tests {
 0 string \\x7fELF ELF executable
 0 string \\x50\\x4b ZIP archive
 ";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 2);
         // Strength should only apply to the immediately following rule
         assert_eq!(
@@ -371,7 +392,7 @@ mod unit_tests {
 >4 byte 1 32-bit
 >4 byte 2 64-bit
 ";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 1);
         // Strength applies to root rule
         assert_eq!(rules[0].strength_modifier, Some(StrengthModifier::Set(50)));
@@ -388,7 +409,7 @@ mod unit_tests {
 !:strength -5
 0 string \\x50\\x4b ZIP archive
 ";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].strength_modifier, Some(StrengthModifier::Add(10)));
         assert_eq!(
@@ -415,7 +436,7 @@ mod unit_tests {
         ];
 
         for (input, expected_modifier) in inputs {
-            let rules = parse_text_magic_file(input).unwrap();
+            let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
             assert_eq!(
                 rules[0].strength_modifier,
                 Some(expected_modifier),
@@ -432,7 +453,7 @@ mod unit_tests {
     fn test_continuation_with_indentation() {
         let input = r">4 byte 1 Message \
 continued";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 1);
     }
 
@@ -442,7 +463,7 @@ continued";
 0x100 string 0 At 256
 0x200 string 0 At 512
 ";
-        let rules = parse_text_magic_file(input).unwrap();
+        let ParsedMagic { rules, .. } = parse_text_magic_file(input).unwrap();
         assert_eq!(rules.len(), 2);
     }
 
@@ -508,7 +529,9 @@ continued";
 
 #[cfg(test)]
 mod output_test {
-    use crate::parser::{build_rule_hierarchy, parse_text_magic_file, preprocess_lines};
+    use crate::parser::{
+        ParsedMagic, build_rule_hierarchy, parse_text_magic_file, preprocess_lines,
+    };
 
     #[test]
     fn demo_show_all_parser_outputs() {
@@ -544,7 +567,8 @@ mod output_test {
         // --------------------------------------------------
         println!("\n================ PARSED MAGIC RULES ================\n");
 
-        let rules = parse_text_magic_file(input).expect("parse_text_magic_file failed");
+        let ParsedMagic { rules, .. } =
+            parse_text_magic_file(input).expect("parse_text_magic_file failed");
 
         for (i, rule) in rules.iter().enumerate() {
             println!("ROOT RULE [{i}]:");

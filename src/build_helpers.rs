@@ -29,8 +29,10 @@ use crate::parser::codegen::{
 ///
 /// Returns a `ParseError` if the magic file content is invalid or malformed.
 pub fn parse_and_generate_builtin_rules(magic_content: &str) -> Result<String, ParseError> {
-    let rules = parse_text_magic_file(magic_content)?;
-    Ok(crate::parser::codegen::generate_builtin_rules(&rules))
+    let parsed = parse_text_magic_file(magic_content)?;
+    Ok(crate::parser::codegen::generate_builtin_rules(
+        &parsed.rules,
+    ))
 }
 
 /// Formats a parse error for display in build script output.

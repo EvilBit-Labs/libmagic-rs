@@ -21,7 +21,7 @@ fn evaluate_single_rule_legacy(
     rule: &MagicRule,
     buffer: &[u8],
 ) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
-    evaluate_single_rule_with_anchor(rule, buffer, 0)
+    evaluate_single_rule_with_anchor(rule, buffer, 0, 0)
 }
 
 #[test]
@@ -2630,3 +2630,24 @@ fn test_search_parent_relative_child_at_positive_offset() {
     assert_eq!(matches.len(), 2);
     assert_eq!(matches[1].message, "a after");
 }
+
+// Shared test helpers have been extracted into the `helpers` sub-tree so
+// this module stays focused on its own test wiring; the meta_* submodules
+// continue to access helpers via `super::*` thanks to the glob re-export
+// below. The three bare `use` items are for types that the submodules
+// still reference directly (e.g. `MetaType::Default`, `RuleEnvironment {
+// ... }` literal construction) and therefore must stay in this module's
+// namespace for `super::*` to reach.
+mod helpers;
+pub(super) use crate::evaluator::RuleEnvironment;
+pub(super) use crate::parser::ast::MetaType;
+pub(super) use crate::parser::name_table::NameTable;
+pub(super) use helpers::meta::*;
+
+// Submodule declarations
+#[cfg(test)]
+mod meta_default_clear_indirect_tests;
+#[cfg(test)]
+mod meta_offset_tests;
+#[cfg(test)]
+mod meta_use_tests;
