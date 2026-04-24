@@ -165,6 +165,101 @@ pub enum OffsetSpec {
     FromEnd(i64),
 }
 
+/// Control-flow directive carried by [`TypeKind::Meta`].
+///
+/// These are not value-reading types -- they correspond to magic(5)
+/// control-flow keywords (`default`, `clear`, `name`, `use`, `indirect`,
+/// `offset`) that modify how a rule set is traversed rather than reading
+/// bytes from the buffer. All six variants are fully evaluated by the
+/// engine: `default`/`clear` manage per-level sibling-matched state;
+/// `name`/`use` implement subroutine dispatch; `indirect` re-applies the
+/// root rule database at a resolved offset; and `offset` emits the
+/// current file position as `Value::Uint` for printf-style formatting.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MetaType {
+    /// `default` directive: fires when no sibling at the same indentation
+    /// level has matched at the current offset. See magic(5) for the
+    /// "default" type semantics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::MetaType;
+    /// let meta = MetaType::Default;
+    /// assert_eq!(meta, MetaType::Default);
+    /// ```
+    Default,
+    /// `clear` directive: resets the sibling-matched flag so a later
+    /// `default` sibling can fire even if an earlier sibling matched.
+    /// See magic(5) for the "clear" type semantics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::MetaType;
+    /// let meta = MetaType::Clear;
+    /// assert_eq!(meta, MetaType::Clear);
+    /// ```
+    Clear,
+    /// `name <identifier>` directive: declares a named subroutine that
+    /// can be invoked later via [`MetaType::Use`]. See magic(5) for the
+    /// "name" type semantics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::MetaType;
+    /// let meta = MetaType::Name("part2".to_string());
+    /// assert_eq!(meta, MetaType::Name("part2".to_string()));
+    /// ```
+    Name(String),
+    /// `use <identifier>` directive: invokes a named subroutine
+    /// previously declared via [`MetaType::Name`]. See magic(5) for the
+    /// "use" type semantics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::MetaType;
+    /// let meta = MetaType::Use("part2".to_string());
+    /// assert_eq!(meta, MetaType::Use("part2".to_string()));
+    /// ```
+    Use(String),
+    /// `indirect` directive: re-applies the entire magic database at the
+    /// resolved offset. See magic(5) for the "indirect" type semantics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::MetaType;
+    /// let meta = MetaType::Indirect;
+    /// assert_eq!(meta, MetaType::Indirect);
+    /// ```
+    Indirect,
+    /// `offset` type keyword: reports the current file offset rather than
+    /// reading a typed value from the buffer. See magic(5) for the
+    /// "offset" type semantics.
+    ///
+    /// Evaluation: the engine resolves the rule's offset specification
+    /// to an absolute position and emits a `RuleMatch` whose `value` is
+    /// `Value::Uint(position)`. Message templates can reference that
+    /// value through printf-style format specifiers (e.g. `%lld`),
+    /// which are substituted by
+    /// [`crate::output::format::format_magic_message`] at description-
+    /// assembly time. The only supported operator is `x` (`AnyValue`);
+    /// any other operator is `debug!`-logged and skipped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::MetaType;
+    /// let meta = MetaType::Offset;
+    /// assert_eq!(meta, MetaType::Offset);
+    /// ```
+    Offset,
+}
+
 /// Data type specifications for interpreting bytes
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
@@ -408,6 +503,26 @@ pub enum TypeKind {
         /// Scan window width in bytes, starting at the rule's offset.
         range: NonZeroUsize,
     },
+    /// Control-flow directive (`default`, `clear`, `name`, `use`,
+    /// `indirect`, `offset`).
+    ///
+    /// These magic(5) keywords do not read or compare bytes; they modify
+    /// how a rule set is traversed. All six variants are fully evaluated:
+    /// `default` fires as a fallback when no sibling at the same level
+    /// has matched; `clear` resets that flag; `name`/`use` support
+    /// subroutine definition and invocation; `indirect` re-enters the
+    /// rule set at a resolved offset; `offset` emits the resolved file
+    /// position as `Value::Uint` for printf-style message substitution.
+    /// See [`MetaType`] for the individual variants.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::{MetaType, TypeKind};
+    /// let default_rule = TypeKind::Meta(MetaType::Default);
+    /// assert_eq!(default_rule, TypeKind::Meta(MetaType::Default));
+    /// ```
+    Meta(MetaType),
 }
 
 /// Regex modifier flags parsed from the `/[cs]` suffix on a `regex` rule.
@@ -554,7 +669,8 @@ impl TypeKind {
             Self::String { .. }
             | Self::PString { .. }
             | Self::Regex { .. }
-            | Self::Search { .. } => None,
+            | Self::Search { .. }
+            | Self::Meta(_) => None,
         }
     }
 }
@@ -1804,5 +1920,84 @@ mod tests {
         };
 
         assert_eq!(rule.strength_modifier, None);
+    }
+
+    // MetaType tests
+    #[test]
+    fn test_meta_type_variants_debug_clone_eq() {
+        let cases = [
+            MetaType::Default,
+            MetaType::Clear,
+            MetaType::Indirect,
+            MetaType::Offset,
+            MetaType::Name("part2".to_string()),
+            MetaType::Use("part2".to_string()),
+        ];
+
+        for (i, variant) in cases.iter().enumerate() {
+            // Debug formatting is non-empty
+            let debug_str = format!("{variant:?}");
+            assert!(
+                !debug_str.is_empty(),
+                "Debug format must be non-empty for variant at index {i}"
+            );
+
+            // Clone round-trip preserves equality
+            let cloned = variant.clone();
+            assert_eq!(
+                variant, &cloned,
+                "Clone must preserve equality for variant at index {i}"
+            );
+
+            // Distinct variants are not equal
+            for (j, other) in cases.iter().enumerate() {
+                if i == j {
+                    assert_eq!(variant, other);
+                } else {
+                    assert_ne!(
+                        variant, other,
+                        "Variants at indices {i} and {j} must differ"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_meta_type_serde_roundtrip() {
+        let cases = [
+            MetaType::Default,
+            MetaType::Clear,
+            MetaType::Indirect,
+            MetaType::Offset,
+            MetaType::Name("foo".to_string()),
+            MetaType::Use("bar".to_string()),
+        ];
+
+        for variant in cases {
+            let json = serde_json::to_string(&variant).expect("serialize MetaType");
+            let deserialized: MetaType = serde_json::from_str(&json).expect("deserialize MetaType");
+            assert_eq!(variant, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_type_kind_meta_bit_width_is_none() {
+        let cases = [
+            MetaType::Default,
+            MetaType::Clear,
+            MetaType::Indirect,
+            MetaType::Offset,
+            MetaType::Name("x".to_string()),
+            MetaType::Use("x".to_string()),
+        ];
+        for meta in cases {
+            let kind = TypeKind::Meta(meta);
+            assert_eq!(
+                kind.bit_width(),
+                None,
+                "TypeKind::Meta must have no bit width: {kind:?}"
+            );
+        }
     }
 }

@@ -106,6 +106,38 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
         TypeKind::Short { .. } => 10,
         // Single bytes are least specific
         TypeKind::Byte { .. } => 5,
+        // Meta-type directives do not read or compare bytes, so most of
+        // them contribute no ordering specificity. `Use` and `Indirect`
+        // get a moderate score because the rules they dispatch into can
+        // carry real specificity that is opaque from the call site.
+        //
+        // `clippy::match_same_arms` is silenced here so the per-variant
+        // rationale is preserved verbatim instead of being collapsed into
+        // a single OR-arm: the variants are semantically distinct (each
+        // dispatches into a different evaluator path) and the explicit
+        // table is the documentation we want to keep next to the values.
+        #[allow(clippy::match_same_arms)]
+        TypeKind::Meta(meta) => match meta {
+            // `default` must sort below every real rule so it only fires
+            // when no sibling matched at the current level.
+            crate::parser::ast::MetaType::Default => 0,
+            // `clear` is a control-flow toggle with no byte-matching
+            // specificity of its own.
+            crate::parser::ast::MetaType::Clear => 0,
+            // `name` rules are extracted at load time and never sorted at
+            // eval time; the value is provided for completeness.
+            crate::parser::ast::MetaType::Name(_) => 0,
+            // `use` dispatches into a subroutine whose specificity is
+            // opaque from the call site -- give it a moderate weight so
+            // it sorts above pure no-ops but below real type-bearing rules.
+            crate::parser::ast::MetaType::Use(_) => 5,
+            // `indirect` re-evaluates the root rule set at the resolved
+            // offset; same rationale as `use` for the moderate weight.
+            crate::parser::ast::MetaType::Indirect => 5,
+            // `offset` reports the current file offset rather than reading
+            // a typed value -- no byte-matching specificity.
+            crate::parser::ast::MetaType::Offset => 0,
+        },
     };
 
     // Operator contribution: equality is most specific
@@ -1039,6 +1071,89 @@ mod tests {
         assert!(
             absolute_strength > relative_strength,
             "Absolute strength {absolute_strength} should be > relative strength {relative_strength}"
+        );
+    }
+
+    // ============================================================
+    // MetaType strength tests
+    // ============================================================
+
+    fn meta_rule(meta: crate::parser::ast::MetaType, msg: &str) -> MagicRule {
+        let mut rule = make_rule(
+            TypeKind::Meta(meta),
+            Operator::Equal,
+            OffsetSpec::Absolute(0),
+            Value::Uint(0),
+        );
+        rule.message = msg.to_string();
+        rule
+    }
+
+    #[test]
+    fn test_meta_default_and_clear_sort_to_bottom() {
+        use crate::parser::ast::MetaType;
+        let mut rules = vec![
+            meta_rule(MetaType::Default, "default"),
+            meta_rule(MetaType::Clear, "clear"),
+            {
+                let mut r = make_rule(
+                    TypeKind::Byte { signed: true },
+                    Operator::Equal,
+                    OffsetSpec::Absolute(0),
+                    Value::Uint(0),
+                );
+                r.message = "byte".to_string();
+                r
+            },
+        ];
+
+        sort_rules_by_strength(&mut rules);
+
+        // Byte rule has nonzero strength; default/clear are 0 + Equal 10 +
+        // Absolute 10 + numeric 0 = 20. Byte is 5 + Equal 10 + Absolute 10
+        // = 25 -- so byte sorts first.
+        assert_eq!(rules[0].message, "byte");
+    }
+
+    #[test]
+    fn test_meta_use_and_indirect_sort_above_default() {
+        use crate::parser::ast::MetaType;
+        let use_rule = meta_rule(MetaType::Use("sub".to_string()), "use");
+        let indirect_rule = meta_rule(MetaType::Indirect, "indirect");
+        let default_rule = meta_rule(MetaType::Default, "default");
+        let clear_rule = meta_rule(MetaType::Clear, "clear");
+
+        // use/indirect strength: 5 + Equal 10 + Absolute 10 = 25
+        // default/clear strength: 0 + Equal 10 + Absolute 10 = 20
+        assert!(
+            calculate_default_strength(&use_rule) > calculate_default_strength(&default_rule),
+            "use should sort above default"
+        );
+        assert!(
+            calculate_default_strength(&indirect_rule) > calculate_default_strength(&default_rule),
+            "indirect should sort above default"
+        );
+        assert!(
+            calculate_default_strength(&use_rule) > calculate_default_strength(&clear_rule),
+            "use should sort above clear"
+        );
+        assert!(
+            calculate_default_strength(&indirect_rule) > calculate_default_strength(&clear_rule),
+            "indirect should sort above clear"
+        );
+    }
+
+    #[test]
+    fn test_meta_name_strength_is_zero() {
+        use crate::parser::ast::MetaType;
+        let name_rule = meta_rule(MetaType::Name("foo".to_string()), "name");
+        let default_rule = meta_rule(MetaType::Default, "default");
+        // Both Name and Default should produce identical strength scores
+        // (both contribute 0 from the type axis).
+        assert_eq!(
+            calculate_default_strength(&name_rule),
+            calculate_default_strength(&default_rule),
+            "Name strength should equal Default strength (both type-axis 0)"
         );
     }
 }

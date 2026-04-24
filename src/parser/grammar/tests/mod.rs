@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod indirect_offset;
+mod meta_types;
 
 use super::*;
 use crate::parser::ast::Endianness;
+use crate::parser::ast::MetaType;
 use crate::parser::ast::PStringLengthWidth;
 
 /// Helper function to test parsing with various whitespace patterns
@@ -281,6 +283,30 @@ fn test_parse_offset_boundary_values() {
         parse_offset("0x100000"),
         Ok(("", OffsetSpec::Absolute(1_048_576)))
     );
+}
+
+#[test]
+fn test_parse_offset_relative() {
+    // `&N` -- relative offset from the GNU `file` previous-match anchor.
+    // Bare (`&0`), explicit-positive (`&+4`), and negative (`&-4`) forms
+    // all decode to `OffsetSpec::Relative(N)`.
+    assert_eq!(parse_offset("&0"), Ok(("", OffsetSpec::Relative(0))));
+    assert_eq!(parse_offset("&4"), Ok(("", OffsetSpec::Relative(4))));
+    assert_eq!(parse_offset("&+4"), Ok(("", OffsetSpec::Relative(4))));
+    assert_eq!(parse_offset("&-4"), Ok(("", OffsetSpec::Relative(-4))));
+    assert_eq!(parse_offset("&0x10"), Ok(("", OffsetSpec::Relative(16))));
+    assert_eq!(parse_offset("&-0x10"), Ok(("", OffsetSpec::Relative(-16))));
+
+    // Whitespace handling around the relative offset.
+    assert_eq!(parse_offset(" &0 "), Ok(("", OffsetSpec::Relative(0))));
+    assert_eq!(
+        parse_offset("&0 ubyte"),
+        Ok(("ubyte", OffsetSpec::Relative(0)))
+    );
+
+    // Bare `&` with no number must fail.
+    assert!(parse_offset("&").is_err(), "bare `&` must fail");
+    assert!(parse_offset("& ").is_err(), "`&` with only space must fail");
 }
 
 #[test]

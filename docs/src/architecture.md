@@ -52,7 +52,8 @@ The parser is responsible for converting magic files (text-based DSL) into an Ab
   - `mod.rs`: Main grammar dispatcher (796 lines)
   - `numbers.rs`: Numeric type parsing (decimal/hex, signed/unsigned)
   - `value.rs`: Value literal parsing (strings, floats, hex bytes)
-- `mod.rs`: Parser interface, format detection, and hierarchical rule building (✅ Complete)
+- `name_table.rs`: Load-time extraction of `name <id>` subroutine blocks into a `HashMap<String, Vec<MagicRule>>` (the `NameTable` type).
+- `mod.rs`: Parser interface, format detection, hierarchical rule building, and the `ParsedMagic { rules, name_table }` return type for `parse_text_magic_file` and `load_magic_directory` (✅ Complete)
 
 **Responsibilities:**
 
@@ -104,6 +105,16 @@ pub enum TypeKind {
         length_width: PStringLengthWidth,
         length_includes_itself: bool,
     }, // Pascal string (length-prefixed)
+    Meta(MetaType),               // Control-flow directive (see below)
+}
+
+pub enum MetaType {
+    Default,                      // `default` fallback rule
+    Clear,                        // `clear` resets sibling-matched flag
+    Name(String),                 // `name <id>` subroutine declaration (hoisted at load time)
+    Use(String),                  // `use <id>` subroutine invocation
+    Indirect,                     // `indirect` re-applies root rules at the resolved offset
+    Offset,                       // `offset` emits the resolved file position as Value::Uint for printf-style message substitution
 }
 
 pub enum Operator {
@@ -137,6 +148,10 @@ pub enum PStringLengthWidth {
 - **Type-safe**: Rust's type system prevents invalid rule combinations
 - **Explicit signedness**: `TypeKind::Byte` and integer types (Short, Long, Quad) distinguish signed from unsigned interpretations
 
+**Parsed Output:**
+
+`parse_text_magic_file` and `load_magic_directory` return `ParsedMagic { rules: Vec<MagicRule>, name_table: NameTable }` rather than a bare rule list. Top-level `name <id>` blocks are hoisted out of `rules` into `name_table` at load time so the evaluator can dispatch `MetaType::Use` invocations without a linear scan.
+
 **PString Length Prefix Support:**
 
 The `PString` type supports multiple length prefix formats through the `length_width` field:
@@ -155,9 +170,9 @@ The evaluator executes magic rules against file buffers to identify file types. 
 
 **Structure:**
 
-- `mod.rs`: Public API surface (~720 lines) with `EvaluationContext`, `RuleMatch` types, and re-exports
+- `mod.rs`: Public API surface (~720 lines) with `EvaluationContext`, `RuleMatch` types, and re-exports. Also defines `pub(crate) struct RuleEnvironment { root_rules, name_table }` — the optional environment threaded through `EvaluationContext::rule_env` so the engine can dispatch `MetaType::Use` and `MetaType::Indirect` without taking an extra parameter on every function.
 - `engine/`: Core evaluation engine submodule
-  - `mod.rs`: `evaluate_single_rule`, `evaluate_rules`, and `evaluate_rules_with_config` functions
+  - `mod.rs`: `evaluate_single_rule`, `evaluate_rules`, and `evaluate_rules_with_config` functions. Inline dispatch for `MetaType::Default`, `MetaType::Clear`, `MetaType::Use`, `MetaType::Indirect`, and `MetaType::Offset` lives in the `evaluate_rules` loop body.
   - `tests.rs`: Engine unit tests
 - `types/`: Type interpretation submodule
   - `mod.rs`: Public API surface with `read_typed_value`, `coerce_value_to_type`, and type re-exports
@@ -427,6 +442,7 @@ pub enum EvaluationError {
 flowchart TD
     L[lib.rs<br/>Public API and coordination<br/>624 lines]
     C[config.rs<br/>EvaluationConfig<br/>307 lines]
+    NT[NameTable<br/>name/use subroutines]
     L --> C
     L --> P[parser/<br/>Magic file parsing]
     L --> E[evaluator/<br/>Rule evaluation engine]
@@ -435,6 +451,8 @@ flowchart TD
     L --> ER[error.rs<br/>Error types]
 
     P --> ER
+    P --> NT
+    NT --> E
     E --> P
     E --> C
     E --> I
@@ -443,6 +461,7 @@ flowchart TD
 
     style L fill:#2a1a4a,stroke:#b39ddb,color:#e0e0e0
     style C fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0
+    style NT fill:#2a1a4a,stroke:#b39ddb,color:#e0e0e0
     style P fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
     style E fill:#4a3000,stroke:#ffb74d,color:#e0e0e0
     style O fill:#4a3000,stroke:#ffb74d,color:#e0e0e0

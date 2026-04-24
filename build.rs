@@ -52,7 +52,7 @@ fn main() {
         }
     };
 
-    let rules = match parse_text_magic_file(&magic_content) {
+    let parsed = match parse_text_magic_file(&magic_content) {
         Ok(parsed) => parsed,
         Err(err) => {
             eprintln!("{}", format_parse_error(&err));
@@ -69,7 +69,7 @@ fn main() {
     };
 
     let output_path = Path::new(&out_dir).join("builtin_rules.rs");
-    let generated = codegen::generate_builtin_rules(&rules);
+    let generated = codegen::generate_builtin_rules(&parsed.rules);
 
     if let Err(err) = fs::write(&output_path, generated) {
         eprintln!("Failed to write {}: {err}", output_path.display());

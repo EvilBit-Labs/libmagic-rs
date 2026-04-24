@@ -11,7 +11,7 @@
 
 use proptest::prelude::*;
 
-use libmagic_rs::parser::ast::PStringLengthWidth;
+use libmagic_rs::parser::ast::{MetaType, PStringLengthWidth};
 use libmagic_rs::{
     Endianness, EvaluationConfig, MagicDatabase, MagicRule, OffsetSpec, Operator, TypeKind, Value,
 };
@@ -96,6 +96,12 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
         (1usize..=4096usize).prop_map(|range| TypeKind::Search {
             range: ::std::num::NonZeroUsize::new(range).unwrap(),
         }),
+        Just(TypeKind::Meta(MetaType::Default)),
+        Just(TypeKind::Meta(MetaType::Clear)),
+        Just(TypeKind::Meta(MetaType::Indirect)),
+        Just(TypeKind::Meta(MetaType::Offset)),
+        "[a-zA-Z_][a-zA-Z0-9_-]{0,16}".prop_map(|id| TypeKind::Meta(MetaType::Name(id))),
+        "[a-zA-Z_][a-zA-Z0-9_-]{0,16}".prop_map(|id| TypeKind::Meta(MetaType::Use(id))),
     ]
 }
 
@@ -151,6 +157,40 @@ fn arb_magic_rule() -> impl Strategy<Value = MagicRule> {
 /// Generate arbitrary binary data for testing
 fn arb_buffer() -> impl Strategy<Value = Vec<u8>> {
     prop::collection::vec(any::<u8>(), 0..1024)
+}
+
+/// Generate a `MagicRule` whose `TypeKind` is one of the `Meta` variants.
+///
+/// Reuses [`arb_magic_rule`]-style construction but overrides `typ` with a
+/// random `MetaType` choice so the property test exercises the inline
+/// dispatch branches for `Default`/`Clear`/`Indirect`/`Use`/`Name`/`Offset`
+/// without diluting the sample with non-Meta variants.
+fn arb_meta_rule() -> impl Strategy<Value = MagicRule> {
+    let meta_kind = prop_oneof![
+        Just(TypeKind::Meta(MetaType::Default)),
+        Just(TypeKind::Meta(MetaType::Clear)),
+        Just(TypeKind::Meta(MetaType::Indirect)),
+        Just(TypeKind::Meta(MetaType::Offset)),
+        "[a-zA-Z_][a-zA-Z0-9_-]{0,16}".prop_map(|id| TypeKind::Meta(MetaType::Name(id))),
+        "[a-zA-Z_][a-zA-Z0-9_-]{0,16}".prop_map(|id| TypeKind::Meta(MetaType::Use(id))),
+    ];
+    (
+        arb_offset_spec(),
+        meta_kind,
+        arb_operator(),
+        arb_value(),
+        "[a-zA-Z0-9 _-]{1,64}",
+    )
+        .prop_map(|(offset, typ, op, value, message)| MagicRule {
+            offset,
+            typ,
+            op,
+            value,
+            message,
+            children: vec![],
+            level: 0,
+            strength_modifier: None,
+        })
 }
 
 // =============================================================================
@@ -315,6 +355,28 @@ proptest! {
         let config = EvaluationConfig::default().with_timeout_ms(Some(500));
         let mut context = EvaluationContext::new(config);
         let _ = evaluate_rules(&[rule], &buf, &mut context);
+    }
+
+    /// Property: meta-type rule evaluation never panics for any
+    /// `TypeKind::Meta(...)` variant. Exercises the inline branches added
+    /// for `Default`, `Clear`, and `Indirect` together with the `Use`
+    /// fast-path and `Name` leaked-rule no-op. Because this test constructs
+    /// an `EvaluationContext` without a `RuleEnvironment`, `MetaType::Indirect`
+    /// and `MetaType::Use` take their env-less no-op path -- no root re-entry,
+    /// no subroutine dispatch -- so the coverage this test provides is
+    /// panic-freedom of the meta dispatch arms themselves. The 1-second
+    /// timeout guard is a defence-in-depth bound that stays in place if a
+    /// future refactor ever does reach the recursive path from here.
+    #[test]
+    fn prop_meta_type_evaluation_never_panics(
+        meta_rules in prop::collection::vec(arb_meta_rule(), 1..8),
+        buffer in arb_buffer(),
+    ) {
+        use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
+        let config = EvaluationConfig::default().with_timeout_ms(Some(1000));
+        let mut context = EvaluationContext::new(config);
+        // Must never panic, regardless of variant or buffer contents.
+        let _ = evaluate_rules(&meta_rules, &buffer, &mut context);
     }
 
     /// Property: regex evaluation stays bounded for adversarial

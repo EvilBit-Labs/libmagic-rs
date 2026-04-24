@@ -34,7 +34,7 @@ See [GitHub Milestones](https://github.com/EvilBit-Labs/libmagic-rs/milestones) 
 - [x] Float and double types ([#40](https://github.com/EvilBit-Labs/libmagic-rs/issues/40))
 - [x] Date and timestamp types ([#41](https://github.com/EvilBit-Labs/libmagic-rs/issues/41))
 - [x] Pascal string type ([#43](https://github.com/EvilBit-Labs/libmagic-rs/issues/43))
-- [ ] Meta-types: default, clear, name, use, indirect ([#42](https://github.com/EvilBit-Labs/libmagic-rs/issues/42))
+- [x] Meta-types: default, clear, name, use, indirect, offset ([#42](https://github.com/EvilBit-Labs/libmagic-rs/issues/42))
 
 ## v0.4.0 - API and UX Polish
 

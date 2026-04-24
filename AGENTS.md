@@ -82,9 +82,12 @@ pub enum Operator {
 parser/
 ├── mod.rs      // Public parser interface
 ├── ast.rs      // AST node definitions
-├── grammar/    // Magic file DSL parsing (nom)
-│   ├── mod.rs  // Grammar parsing logic
-│   └── tests.rs // Grammar parser tests
+├── grammar/    // Magic file DSL parsing (nom) -- split into focused submodules
+│   ├── mod.rs        // Top-level parse_magic_rule_line, dispatch
+│   ├── numbers.rs    // parse_number, parse_unsigned_number
+│   ├── value.rs      // parse_value (quoted strings, numeric literals)
+│   ├── type_suffix.rs // pstring /B/H/L, regex /c/s, search /N suffixes
+│   └── tests/        // Grammar test modules
 ├── types.rs    // Type keyword parsing and TypeKind conversion
 └── codegen.rs  // Serialization for code generation (shared with build.rs)
 
@@ -95,7 +98,13 @@ evaluator/
 ├── engine/         // Core evaluation engine submodule
 │   ├── mod.rs      // evaluate_single_rule, evaluate_rules, evaluate_rules_with_config
 │   └── tests.rs    // Engine unit tests
-├── types.rs        // Type interpretation with endianness
+├── types/          // Type interpretation with endianness (directory module, issue #63)
+│   ├── mod.rs      // read_typed_value, read_pattern_match, bytes_consumed_with_pattern
+│   ├── numeric.rs  // byte/short/long/quad readers
+│   ├── string.rs   // string/pstring readers
+│   ├── float.rs    // float/double readers
+│   ├── date.rs     // date/qdate readers and timestamp formatting
+│   └── regex.rs    // regex/search readers, REGEX_MAX_BYTES cap, thread-local cache
 ├── strength.rs     // Strength modifier application
 ├── offset/         // Offset resolution submodule
 │   ├── mod.rs      // Dispatcher (resolve_offset) and re-exports
@@ -202,7 +211,7 @@ cargo test --doc   # Test documentation examples
 
 ## Magic File Compatibility
 
-### Currently Implemented (v0.5.0)
+### Currently Implemented (v0.5.x, unreleased)
 
 - **Offsets**: Absolute, from-end, indirect, and relative specifications (relative offsets `&+N`/`&-N` are evaluated using GNU `file` semantics -- the previous-match anchor)
 - **Types**: `byte`, `short`, `long`, `quad`, `float`, `double`, `string`, `pstring` with endianness support; unsigned variants `ubyte`, `ushort`/`ubeshort`/`uleshort`, `ulong`/`ubelong`/`ulelong`, `uquad`/`ubequad`/`ulequad`; float/double endian variants `befloat`/`lefloat`, `bedouble`/`ledouble`; 32-bit date/timestamp types `date`/`ldate`/`bedate`/`beldate`/`ledate`/`leldate`; 64-bit date/timestamp types `qdate`/`qldate`/`beqdate`/`beqldate`/`leqdate`/`leqldate`; `pstring` is a Pascal string (length-prefixed) with support for 1/2/4-byte length prefixes via `/B`, `/H` (2-byte BE), `/h` (2-byte LE), `/L` (4-byte BE), `/l` (4-byte LE) suffixes, and the `/J` flag (stored length includes prefix width, JPEG convention) which is combinable with width suffixes (e.g., `pstring/HJ`); date values formatted as "Www Mmm DD HH:MM:SS YYYY" matching GNU `file` output; types are signed by default (libmagic-compatible)
@@ -211,20 +220,23 @@ cargo test --doc   # Test documentation examples
 - **String Matching**: Exact string matching with null-termination and Pascal string (length-prefixed) support
 - **Regex type**: Binary-safe regex matching via `regex::bytes::Regex`. Full flag support: `/c` (case-insensitive), `/s` (anchor advances to match-start instead of match-end), `/l` (scan window is measured in lines instead of bytes). Flags combine in any order (`regex/cs`, `regex/csl`, `regex/lc`). Numeric counts are honored: `regex/100` scans at most 100 bytes; `regex/1l` scans at most 1 line. Multi-line regex matching is always on (matching libmagic's unconditional `REG_NEWLINE`), so `^` and `$` match at line boundaries regardless of `/l`. Every scan window is capped at 8192 bytes (`FILE_REGEX_MAX`) regardless of the user's count.
 - **Search type**: Bounded literal pattern scan via `memchr::memmem::find`; `search/N` caps the scan window to `N` bytes from the offset. The range is **mandatory** and stored as `NonZeroUsize`, so bare `search` and `search/0` are parse errors (matching GNU `file` magic(5)). Anchor advance follows GNU `file` semantics (match-end, not window-end) so relative-offset children resolve to the byte immediately after the matched pattern.
+- **Meta-type directives**: `default`, `clear`, `name <id>`, `use <id>`, `indirect`, and `offset` are fully implemented. `name` blocks are hoisted into a `NameTable` at load time (`parser::name_table::extract_name_table`). `use` invokes subroutines at the resolved offset via `RuleEnvironment` threaded through `EvaluationContext::rule_env`; subroutine-local absolute offsets resolve relative to the use-site base (tracked via `EvaluationContext::base_offset`). `default` fires only when no sibling at the same level has matched; `clear` resets the per-level sibling-matched flag so a later `default` can fire. `indirect` re-applies the root rule set at the resolved offset, bounded by `EvaluationConfig::max_recursion_depth`. `offset` reports the resolved file offset as `Value::Uint(pos)` for format-string rendering. Continuation siblings (`recursion_depth > 0`) see the parent-level anchor on each iteration rather than chaining -- matching libmagic's `ms->c.li[cont_level]` model. Top-level siblings still chain (documented in GOTCHAS S3.8).
+- **Printf-style format substitution**: Rule messages support `%d`, `%i`, `%u`, `%x`, `%X`, `%o`, `%s`, `%c`, and `%%`, along with width/padding modifiers (`%05d`, `%-5d`) and length modifiers (`l`, `ll`, `h`, etc. -- parsed and ignored). Hex specifiers respect the rule's `TypeKind::bit_width()` to mask sign-extended signed reads (so a signed byte carrying `-1` renders as `ff`, not `ffffffffffffffff`). Implemented in `src/output/format.rs::format_magic_message` and wired into `MagicDatabase::build_result`. Unrecognized specifiers pass through literally with a `debug!` log.
 
-See **Development Phases** below for the planned roadmap of features not yet implemented (Aho-Corasick multi-pattern optimization, compiled-regex caching, `!:mime`/`!:ext`/`!:apple` directive evaluation, and `use`/`name` named test directives).
+See **Development Phases** below for the planned roadmap of features not yet implemented (Aho-Corasick multi-pattern optimization and `!:mime`/`!:ext`/`!:apple` directive evaluation).
 
-## Current Limitations (v0.5.0)
+## Current Limitations (v0.5.x, unreleased)
 
 ### Type System
 
 - 64-bit integer types: `quad`/`uquad`, `bequad`/`ubequad`, `lequad`/`ulequad` are implemented; `qquad` (128-bit) is not yet supported
-- String evaluation reads until first NUL or end-of-buffer by default; `pstring` reads a length-prefixed Pascal string; `max_length: Some(_)` is supported internally but no dedicated fixed-length string parser syntax exists yet
+- `string` evaluation reads until first NUL or end-of-buffer; `max_length: Some(_)` is supported programmatically (via the AST) but libmagic itself has no corresponding surface syntax, so this is not a parity gap
+- `string` type modifier flags are not supported: `/B` (compact whitespace), `/b` (compact blanks), `/c`/`/C` (case-insensitive), `/t`/`/T` (force text/binary), `/w`/`/W` (whitespace optional). Only `pstring` has suffix parsing today.
 - `pstring` supports 1-byte (`/B`), 2-byte big-endian (`/H`), 2-byte little-endian (`/h`), 4-byte big-endian (`/L`), and 4-byte little-endian (`/l`) length prefixes, plus the `/J` flag (stored length includes prefix width). All flags are combinable (e.g., `pstring/HJ`) and fully implemented.
 
 ### Operators
 
-- BitwiseAnd supports mask values but not all libmagic mask syntax
+- Parser handles `&`, `&<decimal>`, and `&0x<hex>` masks across the full `u64` range; compound forms like arithmetic expressions in mask position (`&(N+M)`) or post-mask modifiers are not parsed
 
 ### Offset Specifications
 
@@ -235,7 +247,7 @@ See **Development Phases** below for the planned roadmap of features not yet imp
 
 - Limited support for special directives (only `!:strength` is parsed)
 - No support for `!:mime`, `!:ext`, `!:apple` directives in evaluation
-- No support for named tests or use/name directives
+- Meta-type directives (`default`, `clear`, `name`, `use`, `indirect`, `offset`) are all fully implemented with evaluator dispatch, including printf-style format substitution in message rendering (see "Currently Implemented" above for details).
 
 See issue #52 for the planned enhancement roadmap.
 
@@ -309,6 +321,17 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 5. Update `serialize_type_kind()` in `src/parser/codegen.rs`
 6. Add tests for the new type
 7. Update documentation
+
+### Adding a new meta-type
+
+Meta-types sit inside `TypeKind::Meta(MetaType)` and do not read bytes. Adding a new variant requires:
+
+1. Add the variant to `MetaType` in `src/parser/ast.rs`. Update the three test fixtures that iterate `MetaType` variants: `test_meta_type_variants_debug_clone_eq`, `test_meta_type_serde_roundtrip`, `test_type_kind_meta_bit_width_is_none` (see GOTCHAS S2.11).
+2. Add the keyword tag in `parse_type_keyword` and the arm in `type_keyword_to_kind` in `src/parser/types.rs`, plus the `test_roundtrip_all_keywords` array.
+3. Update `serialize_type_kind` (the inner `TypeKind::Meta(meta)` arm) in `src/parser/codegen.rs`.
+4. Update `arb_type_kind` in `tests/property_tests.rs` (`prop_oneof` branch for `MetaType`).
+5. Decide semantics: does the new variant need inline loop-level dispatch in `evaluate_rules` (like `Use`, `Default`, `Clear`, `Indirect` — each of which mutates the match vector or `sibling_matched` flag) or is it a silent no-op via the `Meta(_)` wildcard arm in `evaluate_single_rule_with_anchor`? Add the arm accordingly in `src/evaluator/engine/mod.rs`.
+6. Add unit tests covering parse round-trip, the evaluator arm, and any new `RuleEnvironment` lookups.
 
 ### Adding New Operators
 

@@ -429,6 +429,64 @@ parse_type_and_operator("search/0")
 - ✅ Bare `search` and `search/0` rejected at parse time
 - ✅ Binary-safe literal matching via `memchr::memmem::find`
 
+### Meta-type Directives (`name`, `use`, `default`, `clear`, `indirect`, `offset`)
+
+The parser supports six meta-type directives that represent control-flow rather than buffer reads. They all parse into the `TypeKind::Meta(MetaType)` AST variant and carry no endianness or width.
+
+**Type Keywords and `MetaType` Variants:**
+
+| Keyword     | `MetaType` Variant       | Role                                                                          |
+| ----------- | ------------------------ | ----------------------------------------------------------------------------- |
+| `name <id>` | `MetaType::Name(String)` | Declares a named subroutine; children form the subroutine body                |
+| `use <id>`  | `MetaType::Use(String)`  | Invokes a named subroutine at the resolved offset                             |
+| `default`   | `MetaType::Default`      | Fires only when no sibling at the same level has matched                      |
+| `clear`     | `MetaType::Clear`        | Resets the per-level sibling-matched flag                                     |
+| `indirect`  | `MetaType::Indirect`     | Re-applies the root rule set at the resolved offset                           |
+| `offset`    | `MetaType::Offset`       | Emits the resolved file position as `Value::Uint` for printf-style formatting |
+
+Meta-types have `bit_width() == None` because they consume zero on-disk bytes.
+
+**`ParsedMagic` Return Type (Breaking Change):**
+
+`parse_text_magic_file`, `load_magic_file`, and `load_magic_directory` now return `Result<ParsedMagic, ParseError>` (not `Result<Vec<MagicRule>, ParseError>`). The `ParsedMagic` struct carries both the top-level rules and a name table:
+
+```rust
+pub struct ParsedMagic {
+    pub rules: Vec<MagicRule>,
+    pub(crate) name_table: NameTable,
+}
+```
+
+Callers must destructure at the boundary:
+
+```rust
+use libmagic_rs::parser::parse_text_magic_file;
+
+let magic = r#"0 string \x7fELF ELF file
+>4 byte 1 32-bit"#;
+
+let parsed = parse_text_magic_file(magic)?;
+assert_eq!(parsed.rules.len(), 1);           // One root rule
+assert_eq!(parsed.rules[0].children.len(), 1); // One child rule
+// parsed.name_table holds any `name <id>` blocks extracted at load time
+```
+
+**Load-time Name Extraction:**
+
+Top-level `name <id>` rules are hoisted *out* of `ParsedMagic::rules` by `parser::name_table::extract_name_table` and placed into `name_table` keyed by identifier. As a result:
+
+- `name` rules do not appear in `ParsedMagic::rules` at all — only `use <id>` invocations remain to drive subroutine dispatch at evaluation time.
+- Duplicate `name` declarations keep the first definition and emit a `warn!`.
+- `name` rules that appear as children (not at level 0) are not well-defined in magic(5); they are scrubbed from the tree with a `warn!` during extraction.
+
+**Features:**
+
+- ✅ All six keywords recognized by `parse_type_keyword` + `type_keyword_to_kind`
+- ✅ Round-trip through `serialize_type_kind` in `codegen.rs`
+- ✅ Top-level `name` extraction into `NameTable`
+- ✅ Defensive scrubbing of misplaced nested `name` rules
+- ✅ First-wins merge across directory loads
+
 ## Parser Design Principles
 
 ### Error Handling
@@ -513,9 +571,10 @@ let magic_content = r#"
 >4 byte 2 64-bit
 "#;
 
-let rules = parse_text_magic_file(magic_content)?;
-assert_eq!(rules.len(), 1);           // One root rule
-assert_eq!(rules[0].children.len(), 2); // Two child rules
+let parsed = parse_text_magic_file(magic_content)?;
+assert_eq!(parsed.rules.len(), 1);           // One root rule
+assert_eq!(parsed.rules[0].children.len(), 2); // Two child rules
+// parsed.name_table holds any top-level `name <id>` subroutine blocks
 ```
 
 The parser distinguishes between signed and unsigned type variants (e.g., `byte` vs `ubyte`, `leshort` vs `uleshort`), mapping them to the `signed` field in `TypeKind::Byte { signed: bool }` and similar type variants. Unprefixed types default to signed in accordance with libmagic conventions. Float and double types do not have signed/unsigned variants; IEEE 754 handles sign internally.
@@ -538,9 +597,7 @@ match detect_format(path)? {
 
 ### Not Yet Implemented
 
-- **Indirect Offsets**: Pointer dereferencing patterns (e.g., `(0x3c.l)`)
 - **Binary .mgc Format**: Compiled magic database format
-- **Strength Modifiers**: `!:strength` parsing for rule priority
 
 ### Planned Enhancements
 
@@ -556,19 +613,20 @@ The parser provides a complete pipeline from text to AST:
 use libmagic_rs::parser::{parse_text_magic_file, detect_format, MagicFileFormat};
 
 // Detect format and parse accordingly
-let rules = match detect_format(path)? {
+let parsed = match detect_format(path)? {
     MagicFileFormat::Text => {
         let content = std::fs::read_to_string(path)?;
         parse_text_magic_file(&content)?
     }
     MagicFileFormat::Directory => {
-        // Load and merge all files in directory
+        // Load and merge all files in directory (rules + merged name table)
         load_magic_directory(path)?
     }
     MagicFileFormat::Binary => {
         return Err(ParseError::UnsupportedFormat { ... });
     }
 };
+// parsed.rules is the top-level rule list, parsed.name_table holds `name`/`use` subroutines
 ```
 
 The hierarchical structure is automatically built from indentation levels (`>` prefixes), enabling parent-child rule relationships for detailed file type identification.

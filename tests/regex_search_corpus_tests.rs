@@ -19,7 +19,7 @@
 
 use libmagic_rs::evaluator::evaluate_rules;
 use libmagic_rs::parser::ast::{RegexCount, RegexFlags};
-use libmagic_rs::parser::parse_text_magic_file;
+use libmagic_rs::parser::{ParsedMagic, parse_text_magic_file};
 use libmagic_rs::{
     EvaluationConfig, EvaluationContext, MagicRule, OffsetSpec, Operator, TypeKind, Value,
 };
@@ -247,7 +247,7 @@ fn test_json1_corpus_parser_roundtrip() {
     // escapes are interpreted by the regex compiler, not by the magic
     // parser, so the double-backslashes are correct.
     let magic = r#"0 regex "^\\s*[\\{\\[]" JSON text data"#;
-    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    let ParsedMagic { rules, .. } = parse_text_magic_file(magic).expect("parse_text_magic_file");
     assert_eq!(rules.len(), 1);
 
     let matches = run_rules(&rules, &buffer);
@@ -270,7 +270,7 @@ fn test_regex_flag_parser_roundtrip_case_insensitive() {
     // and evaluates, confirming the flag is wired through.
     let buffer = load_corpus_file("json1.testfile");
     let magic = r#"0 regex/c "^\\s*[\\{\\[]" JSON text data"#;
-    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    let ParsedMagic { rules, .. } = parse_text_magic_file(magic).expect("parse_text_magic_file");
     assert_eq!(rules.len(), 1);
 
     let matches = run_rules(&rules, &buffer);
@@ -284,7 +284,7 @@ fn test_regex_flag_parser_roundtrip_case_insensitive() {
 fn test_search_parser_roundtrip_with_range() {
     let buffer = load_corpus_file("searchbug.testfile");
     let magic = r#"0 search/32 "ABC" found ABC"#;
-    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    let ParsedMagic { rules, .. } = parse_text_magic_file(magic).expect("parse_text_magic_file");
     assert_eq!(rules.len(), 1);
 
     let matches = run_rules(&rules, &buffer);
@@ -312,7 +312,7 @@ fn test_regex_bytes_count_parser_roundtrip() {
     // Match the first JSON opener byte within a 64-byte window.
     let buffer = load_corpus_file("json1.testfile");
     let magic = r#"0 regex/64 "^\\s*[\\{\\[]" JSON in first 64 bytes"#;
-    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    let ParsedMagic { rules, .. } = parse_text_magic_file(magic).expect("parse_text_magic_file");
     assert_eq!(rules.len(), 1);
 
     let matches = run_rules(&rules, &buffer);
@@ -330,7 +330,7 @@ fn test_regex_bytes_count_parser_roundtrip() {
 fn test_regex_lines_count_parser_roundtrip() {
     let buffer = load_corpus_file("gedcom.testfile");
     let magic = r#"0 regex/1l "^0 HEAD" GEDCOM head on first line"#;
-    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    let ParsedMagic { rules, .. } = parse_text_magic_file(magic).expect("parse_text_magic_file");
     assert_eq!(rules.len(), 1);
 
     let matches = run_rules(&rules, &buffer);
@@ -351,7 +351,7 @@ fn test_regex_lines_count_parser_roundtrip() {
 fn test_regex_lines_none_parser_roundtrip() {
     let buffer = load_corpus_file("json1.testfile");
     let magic = r#"0 regex/l "^\\s*[\\{\\[]" JSON text data"#;
-    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    let ParsedMagic { rules, .. } = parse_text_magic_file(magic).expect("parse_text_magic_file");
     assert_eq!(rules.len(), 1);
 
     let matches = run_rules(&rules, &buffer);
@@ -368,7 +368,7 @@ fn test_regex_lines_none_parser_roundtrip() {
 fn test_regex_start_offset_and_line_flag_parser_roundtrip() {
     let buffer = load_corpus_file("json1.testfile");
     let magic = r#"0 regex/ls "^\\s*[\\{\\[]" JSON opener with /s anchor"#;
-    let rules = parse_text_magic_file(magic).expect("parse_text_magic_file");
+    let ParsedMagic { rules, .. } = parse_text_magic_file(magic).expect("parse_text_magic_file");
     assert_eq!(rules.len(), 1);
 
     let matches = run_rules(&rules, &buffer);

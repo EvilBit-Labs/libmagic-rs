@@ -439,6 +439,67 @@ let case_start = TypeKind::Regex {
 };
 ```
 
+### Meta-types (Control Directives)
+
+The `Meta` variant represents pseudo-types that do not read bytes from the buffer. They encode control-flow directives inherited from the libmagic magic(5) format.
+
+**Structure:**
+
+```rust
+/// Control-flow directives that do not read bytes from the buffer.
+Meta(MetaType),
+```
+
+`TypeKind::Meta(_)` returns `None` from `bit_width()` because meta-types consume zero on-disk bytes.
+
+**MetaType Enum:**
+
+```rust
+pub enum MetaType {
+    /// `default` — fires only when no sibling at the same level has matched.
+    Default,
+    /// `clear` — resets the per-level sibling-matched flag.
+    Clear,
+    /// `name <id>` — defines a named subroutine (hoisted out of the rule list at load time).
+    Name(String),
+    /// `use <id>` — invokes a named subroutine at the resolved offset.
+    Use(String),
+    /// `indirect` — re-applies the full rule database at the resolved offset.
+    Indirect,
+    /// `offset` — emits the resolved file position as `Value::Uint` for
+    /// printf-style format substitution (e.g. `%lld`).
+    Offset,
+}
+```
+
+**Examples:**
+
+```rust
+use libmagic_rs::parser::ast::{TypeKind, MetaType};
+
+// Default fallback rule
+let default_rule = TypeKind::Meta(MetaType::Default);
+
+// Clear sibling-matched flag
+let clear_rule = TypeKind::Meta(MetaType::Clear);
+
+// Named subroutine declaration
+let name_rule = TypeKind::Meta(MetaType::Name("part2".to_string()));
+
+// Subroutine invocation
+let use_rule = TypeKind::Meta(MetaType::Use("part2".to_string()));
+
+// Re-entry into root rules
+let indirect_rule = TypeKind::Meta(MetaType::Indirect);
+
+// Report the resolved file offset for format substitution
+let offset_rule = TypeKind::Meta(MetaType::Offset);
+```
+
+**Parse-time Name Extraction:**
+
+Top-level `name <id>` rules are hoisted out of `ParsedMagic::rules` by `parser::name_table::extract_name_table` and placed into the `name_table: NameTable` field of `ParsedMagic` keyed by identifier. As a result, `MetaType::Name` variants in the final parsed rule list are expected only as an internal intermediate representation — `name` rules do not survive past the load boundary in normal operation.
+
 ### Search (Bounded Literal Byte Sequence Search)
 
 The `Search` variant scans for a literal byte pattern within a bounded range. Unlike `String`, which matches only at the exact offset, `Search` scans forward up to `range` bytes for the first occurrence.
