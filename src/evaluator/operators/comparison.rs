@@ -35,6 +35,15 @@ pub fn compare_values(left: &Value, right: &Value) -> Option<Ordering> {
         (Value::Float(a), Value::Float(b)) => a.partial_cmp(b),
         (Value::String(a), Value::String(b)) => Some(a.cmp(b)),
         (Value::Bytes(a), Value::Bytes(b)) => Some(a.cmp(b)),
+        // Cross-type byte-sequence ordering: parser produces `Value::Bytes`
+        // for backslash-escape patterns like `\177ELF` while
+        // `read_string_exact` returns `Value::String`. Both must compare
+        // by underlying byte sequence so that `<`/`>`/`<=`/`>=` are
+        // consistent with the cross-type policy added to `apply_equal`.
+        // Without this, the trichotomy invariant breaks: two values
+        // could be neither less, equal, nor greater. See GOTCHAS S2.3.
+        (Value::String(s), Value::Bytes(b)) => Some(s.as_bytes().cmp(b.as_slice())),
+        (Value::Bytes(b), Value::String(s)) => Some(b.as_slice().cmp(s.as_bytes())),
         _ => None,
     }
 }
@@ -312,6 +321,67 @@ mod tests {
                 apply_greater_equal(left, right),
                 matches!(ord, Some(Ordering::Greater | Ordering::Equal)),
                 ">= for {left:?}, {right:?}"
+            );
+        }
+    }
+
+    /// Cross-type `Value::String` <-> `Value::Bytes` comparisons must
+    /// honor the same byte-sequence ordering that `apply_equal` uses
+    /// for cross-type equality. Without this, the trichotomy invariant
+    /// breaks: two byte-equal values would compare as `==` but neither
+    /// `<` nor `>` would be true (and a byte-unequal pair would have
+    /// `<` and `>` both false). magic(5) rules using `>` or `<` against
+    /// a `\177ELF`-style `Value::Bytes` literal vs a `Value::String`
+    /// read would silently never fire.
+    #[test]
+    fn cross_type_string_bytes_ordering_is_byte_sequence() {
+        // Equal bytes -> Equal regardless of variant order
+        assert_eq!(
+            compare_values(
+                &Value::String("abc".to_string()),
+                &Value::Bytes(b"abc".to_vec())
+            ),
+            Some(Ordering::Equal)
+        );
+        assert_eq!(
+            compare_values(
+                &Value::Bytes(b"abc".to_vec()),
+                &Value::String("abc".to_string())
+            ),
+            Some(Ordering::Equal)
+        );
+
+        // Less / Greater follow byte-lex ordering
+        assert_eq!(
+            compare_values(
+                &Value::Bytes(b"a".to_vec()),
+                &Value::String("b".to_string())
+            ),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            compare_values(
+                &Value::String("z".to_string()),
+                &Value::Bytes(b"a".to_vec())
+            ),
+            Some(Ordering::Greater)
+        );
+
+        // Trichotomy: for any cross-type pair, exactly one of <, ==, >
+        // is true via the apply_* helpers.
+        let pairs: &[(Value, Value)] = &[
+            (Value::String("abc".into()), Value::Bytes(b"abc".to_vec())),
+            (Value::String("abc".into()), Value::Bytes(b"abd".to_vec())),
+            (Value::Bytes(b"abc".to_vec()), Value::String("abb".into())),
+        ];
+        for (l, r) in pairs {
+            let lt = apply_less_than(l, r);
+            let eq = compare_values(l, r) == Some(Ordering::Equal);
+            let gt = apply_greater_than(l, r);
+            assert_eq!(
+                u8::from(lt) + u8::from(eq) + u8::from(gt),
+                1,
+                "trichotomy broken for {l:?} vs {r:?}: lt={lt} eq={eq} gt={gt}"
             );
         }
     }
