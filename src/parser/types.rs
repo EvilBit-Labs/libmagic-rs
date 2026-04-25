@@ -121,8 +121,21 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
             tag("ledate"),
             tag("date"),
         )),
-        // String types (and regex/search, which share the string-type family)
-        alt((tag("pstring"), tag("search"), tag("regex"), tag("string"))),
+        // String types (and regex/search, which share the string-type family).
+        //
+        // `lestring16`/`bestring16` are listed before `string` because nom
+        // tries each tag in order and we need the longer keyword to win when
+        // both could plausibly match -- in practice the prefixes (`lestring`,
+        // `bestring`) don't collide with anything else, but ordering by
+        // length is the safer pattern as more keywords are added.
+        alt((
+            tag("lestring16"),
+            tag("bestring16"),
+            tag("pstring"),
+            tag("search"),
+            tag("regex"),
+            tag("string"),
+        )),
         // Meta / control-flow directives. `indirect` is listed first so the
         // longest match is tried before `default`, `clear`, `name`, `use`;
         // none of these collide with other supported keywords.
@@ -241,6 +254,7 @@ pub fn type_keyword_to_kind(type_name: &str) -> Result<Option<TypeKind>, Unknown
         .or_else(|| date_family(type_name))
         .or_else(|| qdate_family(type_name))
         .or_else(|| string_family(type_name))
+        .or_else(|| string16_family(type_name))
     {
         return Ok(Some(kind));
     }
@@ -363,6 +377,22 @@ fn string_family(name: &str) -> Option<TypeKind> {
             max_length: None,
             length_width: PStringLengthWidth::OneByte,
             length_includes_itself: false,
+        }),
+        _ => None,
+    }
+}
+
+/// Map a UCS-2 string keyword (`lestring16`/`bestring16`) to its `TypeKind`.
+///
+/// magic(5) defines only the explicitly-endian forms; bare `string16` is not
+/// a valid keyword.
+fn string16_family(name: &str) -> Option<TypeKind> {
+    match name {
+        "lestring16" => Some(TypeKind::String16 {
+            endian: Endianness::Little,
+        }),
+        "bestring16" => Some(TypeKind::String16 {
+            endian: Endianness::Big,
         }),
         _ => None,
     }
@@ -626,6 +656,33 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_type_keyword_string16_variants() {
+        let (rest, kw) = parse_type_keyword("lestring16 rest").unwrap();
+        assert_eq!(kw, "lestring16");
+        assert_eq!(rest, " rest");
+
+        let (rest, kw) = parse_type_keyword("bestring16 rest").unwrap();
+        assert_eq!(kw, "bestring16");
+        assert_eq!(rest, " rest");
+    }
+
+    #[test]
+    fn test_string16_keyword_to_kind() {
+        assert_eq!(
+            type_keyword_to_kind("lestring16"),
+            Ok(Some(TypeKind::String16 {
+                endian: Endianness::Little,
+            }))
+        );
+        assert_eq!(
+            type_keyword_to_kind("bestring16"),
+            Ok(Some(TypeKind::String16 {
+                endian: Endianness::Big,
+            }))
+        );
+    }
+
+    #[test]
     fn test_roundtrip_all_keywords() {
         // Verify that every keyword parsed by parse_type_keyword can be
         // converted to a TypeKind by type_keyword_to_kind. Regex and
@@ -634,12 +691,52 @@ mod tests {
         // return None from `type_keyword_to_kind`; the keyword
         // parser still recognizes them.
         let convertible_keywords = [
-            "byte", "ubyte", "short", "ushort", "leshort", "uleshort", "beshort", "ubeshort",
-            "long", "ulong", "lelong", "ulelong", "belong", "ubelong", "quad", "uquad", "lequad",
-            "ulequad", "bequad", "ubequad", "float", "befloat", "lefloat", "double", "bedouble",
-            "ledouble", "date", "ldate", "bedate", "beldate", "ledate", "leldate", "qdate",
-            "qldate", "beqdate", "beqldate", "leqdate", "leqldate", "pstring", "string", "default",
-            "clear", "indirect", "offset",
+            "byte",
+            "ubyte",
+            "short",
+            "ushort",
+            "leshort",
+            "uleshort",
+            "beshort",
+            "ubeshort",
+            "long",
+            "ulong",
+            "lelong",
+            "ulelong",
+            "belong",
+            "ubelong",
+            "quad",
+            "uquad",
+            "lequad",
+            "ulequad",
+            "bequad",
+            "ubequad",
+            "float",
+            "befloat",
+            "lefloat",
+            "double",
+            "bedouble",
+            "ledouble",
+            "date",
+            "ldate",
+            "bedate",
+            "beldate",
+            "ledate",
+            "leldate",
+            "qdate",
+            "qldate",
+            "beqdate",
+            "beqldate",
+            "leqdate",
+            "leqldate",
+            "pstring",
+            "string",
+            "lestring16",
+            "bestring16",
+            "default",
+            "clear",
+            "indirect",
+            "offset",
         ];
         for keyword in convertible_keywords {
             let (rest, parsed) = parse_type_keyword(keyword).unwrap();

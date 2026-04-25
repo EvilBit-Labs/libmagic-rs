@@ -518,6 +518,30 @@ pub enum TypeKind {
         /// Maximum length to read
         max_length: Option<usize>,
     },
+    /// UCS-2 (16-bit Unicode) string with explicit byte order.
+    ///
+    /// Backs the magic(5) `lestring16` (little-endian) and `bestring16`
+    /// (big-endian) keywords. Each character occupies two bytes in the
+    /// file; the reader stops at a U+0000 terminator (encoded as the
+    /// 2-byte sequence `0x00 0x00`) or at the end of the buffer. The
+    /// decoded value is returned as a Rust `String` (so non-ASCII
+    /// characters are preserved when valid UCS-2).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+    ///
+    /// let le = TypeKind::String16 { endian: Endianness::Little };
+    /// assert_eq!(le, TypeKind::String16 { endian: Endianness::Little });
+    ///
+    /// let be = TypeKind::String16 { endian: Endianness::Big };
+    /// assert_eq!(be, TypeKind::String16 { endian: Endianness::Big });
+    /// ```
+    String16 {
+        /// Endianness for the 16-bit code units.
+        endian: Endianness,
+    },
     /// Pascal string (length-prefixed, supports 1/2/4-byte prefix, with optional max length)
     ///
     /// Pascal strings store the length as a prefix (1, 2, or 4 bytes, with configurable endianness), followed by
@@ -782,6 +806,7 @@ impl TypeKind {
             Self::Long { .. } | Self::Float { .. } | Self::Date { .. } => Some(32),
             Self::Quad { .. } | Self::Double { .. } | Self::QDate { .. } => Some(64),
             Self::String { .. }
+            | Self::String16 { .. }
             | Self::PString { .. }
             | Self::Regex { .. }
             | Self::Search { .. }

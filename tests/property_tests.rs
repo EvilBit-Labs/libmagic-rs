@@ -49,6 +49,7 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
         (0usize..256usize).prop_map(|len| TypeKind::String {
             max_length: Some(len),
         }),
+        arb_endianness().prop_map(|endian| TypeKind::String16 { endian }),
         (
             0usize..256usize,
             prop_oneof![

@@ -174,6 +174,7 @@ pub fn serialize_offset_spec(offset: &OffsetSpec) -> String {
 }
 
 /// Serialize a type kind as a Rust expression
+#[allow(clippy::too_many_lines)]
 pub fn serialize_type_kind(typ: &TypeKind) -> String {
     match typ {
         TypeKind::Byte { signed } => format!("TypeKind::Byte {{ signed: {signed} }}"),
@@ -216,6 +217,10 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
             }
             None => "TypeKind::String { max_length: None }".to_string(),
         },
+        TypeKind::String16 { endian } => format!(
+            "TypeKind::String16 {{ endian: {} }}",
+            serialize_endianness(*endian)
+        ),
         TypeKind::PString {
             max_length,
             length_width,

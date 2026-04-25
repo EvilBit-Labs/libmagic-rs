@@ -23,7 +23,8 @@ pub use float::{read_double, read_float};
 pub use numeric::{read_byte, read_long, read_quad, read_short};
 pub use regex::read_regex;
 pub use search::read_search;
-pub use string::{read_pstring, read_string};
+use string::string16_bytes_consumed;
+pub use string::{read_pstring, read_string, read_string16};
 
 /// Reads a fixed-size byte array from the buffer at the given offset.
 ///
@@ -213,6 +214,7 @@ pub fn read_typed_value_with_pattern(
             };
             read_string(buffer, offset, effective_max)
         }
+        TypeKind::String16 { endian } => read_string16(buffer, offset, *endian),
         TypeKind::PString {
             max_length,
             length_width,
@@ -482,6 +484,7 @@ pub(crate) fn bytes_consumed_with_pattern(
                 (None, _) => string_bytes_consumed(buffer, offset, None),
             }
         }
+        TypeKind::String16 { endian } => string16_bytes_consumed(buffer, offset, *endian),
         TypeKind::PString {
             max_length,
             length_width,
