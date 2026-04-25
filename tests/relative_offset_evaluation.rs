@@ -31,6 +31,7 @@ fn child_rule(offset: OffsetSpec, typ: TypeKind, value: Value, message: &str) ->
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     }
 }
 
@@ -61,6 +62,7 @@ fn relative_child_after_long_parent() {
         )],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut ctx = EvaluationContext::new(cfg());
@@ -92,6 +94,7 @@ fn relative_child_with_positive_delta() {
         )],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut ctx = EvaluationContext::new(cfg());
@@ -123,6 +126,7 @@ fn relative_child_with_negative_delta() {
         )],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut ctx = EvaluationContext::new(cfg());
@@ -173,6 +177,7 @@ fn relative_chain_marches_forward() {
         children: vec![middle],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut ctx = EvaluationContext::new(cfg());
@@ -202,6 +207,7 @@ fn relative_after_string_parent_includes_nul_terminator() {
         )],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut ctx = EvaluationContext::new(cfg());
@@ -234,6 +240,7 @@ fn relative_after_pstring_parent_consumes_prefix_and_payload() {
         )],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut ctx = EvaluationContext::new(cfg());
@@ -256,6 +263,7 @@ fn relative_top_level_resolves_from_zero_anchor() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut ctx = EvaluationContext::new(cfg());
@@ -284,6 +292,7 @@ fn relative_sibling_propagation_at_top_level() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let second = MagicRule {
         offset: OffsetSpec::Relative(0),
@@ -294,6 +303,7 @@ fn relative_sibling_propagation_at_top_level() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut ctx = EvaluationContext::new(cfg());
@@ -323,6 +333,7 @@ fn relative_out_of_bounds_skips_child_gracefully() {
         )],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut ctx = EvaluationContext::new(cfg());
@@ -360,6 +371,7 @@ fn relative_anchor_can_decrease_when_later_sibling_matches_at_lower_position() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let rule_b = MagicRule {
         offset: OffsetSpec::Absolute(2),
@@ -370,6 +382,7 @@ fn relative_anchor_can_decrease_when_later_sibling_matches_at_lower_position() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let rule_c = MagicRule {
         offset: OffsetSpec::Relative(0),
@@ -380,6 +393,7 @@ fn relative_anchor_can_decrease_when_later_sibling_matches_at_lower_position() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut ctx = EvaluationContext::new(cfg());
@@ -415,6 +429,7 @@ fn relative_anchor_persists_across_non_matching_intermediate_sibling() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let middle_no_match = MagicRule {
         offset: OffsetSpec::Absolute(4),
@@ -425,6 +440,7 @@ fn relative_anchor_persists_across_non_matching_intermediate_sibling() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let third = MagicRule {
         offset: OffsetSpec::Relative(0),
@@ -435,6 +451,7 @@ fn relative_anchor_persists_across_non_matching_intermediate_sibling() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut ctx = EvaluationContext::new(cfg());
@@ -465,6 +482,7 @@ fn relative_anchor_resets_between_evaluations_via_reset() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let pass_two = MagicRule {
         offset: OffsetSpec::Relative(0),
@@ -475,6 +493,7 @@ fn relative_anchor_resets_between_evaluations_via_reset() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut ctx = EvaluationContext::new(cfg());
@@ -507,6 +526,7 @@ fn relative_underflow_skips_child_gracefully() {
         )],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut ctx = EvaluationContext::new(cfg());

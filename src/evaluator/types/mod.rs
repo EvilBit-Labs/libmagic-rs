@@ -23,7 +23,8 @@ pub use float::{read_double, read_float};
 pub use numeric::{read_byte, read_long, read_quad, read_short};
 pub use regex::read_regex;
 pub use search::read_search;
-pub use string::{read_pstring, read_string};
+use string::string16_bytes_consumed;
+pub use string::{read_pstring, read_string, read_string_exact, read_string16};
 
 /// Reads a fixed-size byte array from the buffer at the given offset.
 ///
@@ -199,20 +200,32 @@ pub fn read_typed_value_with_pattern(
         TypeKind::Date { endian, utc } => read_date(buffer, offset, *endian, *utc),
         TypeKind::QDate { endian, utc } => read_qdate(buffer, offset, *endian, *utc),
         TypeKind::String { max_length } => {
-            // libmagic semantics: `string TEST` compares the first
-            // pattern-length bytes of the buffer against the literal,
-            // *not* a NUL-terminated C-string. When the rule specifies
-            // no explicit `max_length` but the operand is a `Value::String`
-            // literal, fall back to the pattern's byte length so the
-            // read/compare path matches GNU `file` on NUL-free inputs.
-            // An explicit `max_length` on the rule always wins.
-            let effective_max = match (max_length, pattern) {
-                (Some(n), _) => Some(*n),
-                (None, Some(Value::String(p))) => Some(p.len()),
-                (None, _) => None,
-            };
-            read_string(buffer, offset, effective_max)
+            // libmagic semantics: `string PATTERN` compares the first
+            // `len(PATTERN)` bytes of the buffer against the literal
+            // pattern -- byte-for-byte, with NO NUL truncation. This
+            // matters for patterns that legitimately contain NUL bytes
+            // (e.g. `0 string PNCIHISK\0 ...`): if we stop at the
+            // pattern's NUL we read 8 bytes from a 9-byte buffer and the
+            // comparison fails even though the file matches exactly.
+            //
+            // Three behaviors selected by `(max_length, pattern)`:
+            // - `(Some(n), _)`: read exactly `n` bytes (legacy explicit
+            //   max-length path). Used for programmatic AST construction.
+            // - `(None, Some(Value::String(p)))`: read exactly `p.len()`
+            //   bytes for byte-exact comparison. This is the path that
+            //   real magic-file rules go through.
+            // - `(None, _)`: scan-mode read until NUL/EOF. Used for the
+            //   `x` (any-value) operator, format substitution like
+            //   `string x %s`, and any caller that wants the printable
+            //   prefix rather than a fixed-length buffer slice.
+            match (max_length, pattern) {
+                (Some(n), _) => read_string_exact(buffer, offset, *n),
+                (None, Some(Value::String(p))) => read_string_exact(buffer, offset, p.len()),
+                (None, Some(Value::Bytes(b))) => read_string_exact(buffer, offset, b.len()),
+                (None, _) => read_string(buffer, offset, None),
+            }
         }
+        TypeKind::String16 { endian } => read_string16(buffer, offset, *endian),
         TypeKind::PString {
             max_length,
             length_width,
@@ -479,9 +492,25 @@ pub(crate) fn bytes_consumed_with_pattern(
                         }
                     }
                 }
+                // `Value::Bytes` patterns reach this arm for backslash-escape
+                // values like `\177ELF` (parsed via `parse_mixed_hex_ascii`).
+                // The read path uses `read_string_exact(buffer, offset,
+                // b.len())`, so the consume side must match -- otherwise the
+                // relative-offset anchor mis-advances by the NUL-scan length
+                // (which on a NUL-free ELF header is hundreds of bytes past
+                // the actual match end). This is the dual-purpose-helper-
+                // sync rule documented in GOTCHAS S6.4 / docs/solutions/
+                // logic-errors/magic-string-rule-matching-3-bug-fix.
+                (None, Some(Value::Bytes(b))) => {
+                    let blen = b.len();
+                    offset
+                        .checked_add(blen)
+                        .map_or(0, |end| if end > buffer.len() { 0 } else { blen })
+                }
                 (None, _) => string_bytes_consumed(buffer, offset, None),
             }
         }
+        TypeKind::String16 { endian } => string16_bytes_consumed(buffer, offset, *endian),
         TypeKind::PString {
             max_length,
             length_width,

@@ -153,6 +153,7 @@ fn test_regex_compile_bounded_for_pathological_patterns() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         };
 
         let mut ctx = EvaluationContext::new(config.clone());

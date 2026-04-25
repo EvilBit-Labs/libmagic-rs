@@ -152,6 +152,7 @@ fn test_offset_does_not_advance_anchor_for_continuation_siblings() {
                 children: vec![],
                 level: 1,
                 strength_modifier: None,
+                value_transform: None,
             },
             MagicRule {
                 offset: OffsetSpec::Relative(0),
@@ -162,10 +163,12 @@ fn test_offset_does_not_advance_anchor_for_continuation_siblings() {
                 children: vec![],
                 level: 1,
                 strength_modifier: None,
+                value_transform: None,
             },
         ],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = [0x01u8, 0x42, 0x00, 0x00];
@@ -233,6 +236,7 @@ fn test_evaluate_children_or_warn_swallows_buffer_overrun_keeps_parent_match() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
     let parent = offset_rule(0, "parent-offset-match", vec![child]);
 

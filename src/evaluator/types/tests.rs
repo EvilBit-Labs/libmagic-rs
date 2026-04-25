@@ -1135,3 +1135,52 @@ fn test_bytes_consumed_fixed_width_returns_zero_past_end() {
         0
     );
 }
+
+/// Regression: when a `TypeKind::String` rule's comparison value is a
+/// `Value::Bytes` (e.g., parser produces `Value::Bytes([0x7f, 'E', 'L',
+/// 'F'])` for the `\177ELF` ELF magic via `parse_mixed_hex_ascii`), the
+/// read path uses `read_string_exact(buffer, offset, b.len())` and so
+/// the consume path must agree -- otherwise the relative-offset anchor
+/// mis-advances by the NUL-scan length on a NUL-free ELF header. This
+/// is the same dual-purpose-helper-sync rule documented in GOTCHAS S6.4
+/// for `read_string` <-> `read_string_exact`. The bug pattern is the
+/// same class as the original 3-bug fix this PR addresses; the fix here
+/// closes the consume-side gap that comment-analyzer (PR #233 review)
+/// flagged as load-bearing for ELF-style rules.
+#[test]
+fn test_bytes_consumed_string_with_bytes_pattern_is_exact_length() {
+    use crate::parser::ast::Value;
+
+    // Buffer with no NUL anywhere -- typical ELF header. If the consume
+    // path had fallen through to the NUL-scan branch, this would return
+    // the full buffer length (16) instead of the pattern length (4).
+    let buf: &[u8] = &[
+        0x7f, 0x45, 0x4c, 0x46, // \x7fELF
+        0x02, 0x01, 0x01, 0x00, // ELF metadata
+        0x00, 0x00, 0x00, 0x00, // padding
+        0x00, 0x00, 0x00, 0x00, // padding
+    ];
+    let typ = TypeKind::String { max_length: None };
+    let pattern = Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]);
+
+    let consumed = bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern));
+    assert_eq!(
+        consumed, 4,
+        "Bytes pattern of length 4 must consume exactly 4 bytes, not the NUL-scan length"
+    );
+
+    // Buffer-overrun case: pattern longer than remaining buffer -> 0.
+    let short_buf: &[u8] = &[0x7f, 0x45];
+    assert_eq!(
+        bytes_consumed_with_pattern(short_buf, 0, &typ, Some(&pattern)),
+        0,
+        "Bytes pattern longer than buffer must return 0 (overrun)"
+    );
+
+    // Offset overflow case.
+    assert_eq!(
+        bytes_consumed_with_pattern(buf, usize::MAX, &typ, Some(&pattern)),
+        0,
+        "usize::MAX offset must return 0 via checked_add"
+    );
+}

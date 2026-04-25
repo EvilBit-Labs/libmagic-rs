@@ -201,6 +201,32 @@ pub enum EvaluationError {
     #[error("Type reading error: {0}")]
     TypeReadError(#[from] crate::evaluator::types::TypeReadError),
 
+    /// A pre-comparison `ValueTransform` (`type+N`, `type/N`, etc.) failed
+    /// to apply: division/modulo by zero, integer overflow, or any other
+    /// arithmetic failure produced by `apply_value_transform`. This is a
+    /// recoverable per-rule failure (the engine's graceful-skip path
+    /// drops the rule and continues), not a programming bug -- a
+    /// magic-file author who writes `lequad*1000000` against a buffer
+    /// where the read value overflows triggers this and the rest of the
+    /// rule set still runs.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::error::EvaluationError;
+    ///
+    /// let error = EvaluationError::InvalidValueTransform {
+    ///     reason: "Mul(2) overflow on 18446744073709551615".to_string(),
+    /// };
+    /// assert!(matches!(error, EvaluationError::InvalidValueTransform { .. }));
+    /// ```
+    #[error("invalid value transform: {reason}")]
+    InvalidValueTransform {
+        /// Free-form description of the operation, operand, and value
+        /// that triggered the failure.
+        reason: String,
+    },
+
     /// A `use` directive referenced a name not present in the name table.
     ///
     /// The evaluator currently handles this condition with a `warn!` log

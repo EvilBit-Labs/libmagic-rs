@@ -52,6 +52,7 @@ fuzz_target!(|data: &[u8]| {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let config = EvaluationConfig::default().with_timeout_ms(Some(500));

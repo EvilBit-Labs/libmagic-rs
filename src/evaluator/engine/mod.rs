@@ -171,6 +171,7 @@ static INDIRECT_WITHOUT_RULE_ENV_WARNED: AtomicBool = AtomicBool::new(false);
 ///     children: vec![],
 ///     level: 0,
 ///     strength_modifier: None,
+/// value_transform: None,
 /// };
 ///
 /// let mut context = EvaluationContext::new(EvaluationConfig::default());
@@ -413,16 +414,30 @@ fn evaluate_value_rule(
         types::read_typed_value_with_pattern(buffer, absolute_offset, &rule.typ, Some(&rule.value))
             .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
 
+    // Apply any pre-comparison value transform (`type+N`/`type-N`/`type*N`/
+    // `type/N`/`type%N`/`type|N`/`type^N`). The transform runs on the read
+    // value before the comparison operator and before printf-style format
+    // substitution, so `%d` in the message renders the post-transform
+    // number. `&MASK` is *not* handled here -- it lives at the operator
+    // layer via `Operator::BitwiseAndMask`.
+    let transformed_value = match rule.value_transform {
+        None => read_value,
+        Some(t) => operators::apply_value_transform(&read_value, t)
+            .map_err(LibmagicError::EvaluationError)?,
+    };
+
     let expected_value = types::coerce_value_to_type(&rule.value, &rule.typ);
     let expected_ref: &crate::parser::ast::Value = expected_value.as_ref();
 
     let matched = match &rule.op {
-        crate::parser::ast::Operator::BitwiseNot => {
-            operators::apply_bitwise_not_with_width(&read_value, expected_ref, rule.typ.bit_width())
-        }
-        op => operators::apply_operator(op, &read_value, expected_ref),
+        crate::parser::ast::Operator::BitwiseNot => operators::apply_bitwise_not_with_width(
+            &transformed_value,
+            expected_ref,
+            rule.typ.bit_width(),
+        ),
+        op => operators::apply_operator(op, &transformed_value, expected_ref),
     };
-    Ok((matched, read_value))
+    Ok((matched, transformed_value))
 }
 
 /// Evaluate a rule's children under the standard recursion-guard/graceful-skip discipline.
@@ -491,6 +506,7 @@ fn evaluate_children_or_warn(
             e @ (LibmagicError::EvaluationError(
                 crate::error::EvaluationError::BufferOverrun { .. }
                 | crate::error::EvaluationError::InvalidOffset { .. }
+                | crate::error::EvaluationError::InvalidValueTransform { .. }
                 | crate::error::EvaluationError::TypeReadError(
                     crate::evaluator::types::TypeReadError::BufferOverrun { .. }
                     | crate::evaluator::types::TypeReadError::InvalidPStringLength { .. },
@@ -573,10 +589,12 @@ fn evaluate_children_or_warn(
 ///             children: vec![],
 ///             level: 1,
 ///             strength_modifier: None,
+///         value_transform: None,
 ///         }
 ///     ],
 ///     level: 0,
 ///     strength_modifier: None,
+/// value_transform: None,
 /// };
 ///
 /// let rules = vec![parent_rule];
@@ -1006,6 +1024,7 @@ pub fn evaluate_rules(
                 e @ (LibmagicError::EvaluationError(
                     crate::error::EvaluationError::BufferOverrun { .. }
                     | crate::error::EvaluationError::InvalidOffset { .. }
+                    | crate::error::EvaluationError::InvalidValueTransform { .. }
                     | crate::error::EvaluationError::TypeReadError(
                         crate::evaluator::types::TypeReadError::BufferOverrun { .. }
                         | crate::evaluator::types::TypeReadError::InvalidPStringLength { .. },
@@ -1075,6 +1094,7 @@ pub fn evaluate_rules(
                         e @ (LibmagicError::EvaluationError(
                             crate::error::EvaluationError::BufferOverrun { .. }
                             | crate::error::EvaluationError::InvalidOffset { .. }
+                            | crate::error::EvaluationError::InvalidValueTransform { .. }
                             | crate::error::EvaluationError::TypeReadError(
                                 crate::evaluator::types::TypeReadError::BufferOverrun { .. }
                                 | crate::evaluator::types::TypeReadError::InvalidPStringLength {
@@ -1149,6 +1169,7 @@ pub fn evaluate_rules(
 ///     children: vec![],
 ///     level: 0,
 ///     strength_modifier: None,
+/// value_transform: None,
 /// };
 ///
 /// let rules = vec![rule];
