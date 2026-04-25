@@ -70,11 +70,9 @@ let result = db.evaluate_file("sample.bin")?;
 println!("Type: {}", result.description);
 
 // With custom configuration
-let config = EvaluationConfig {
-    timeout_ms: Some(5000),
-    enable_mime_types: true,
-    ..Default::default()
-};
+let config = EvaluationConfig::default()
+    .with_timeout_ms(Some(5000))
+    .with_mime_types(true);
 let db = MagicDatabase::with_builtin_rules_and_config(config)?;
 
 // From file
@@ -123,14 +121,14 @@ let config = EvaluationConfig::comprehensive();
 // - timeout_ms: Some(30000)
 ```
 
-#### Validation
+#### Builder Methods
+
+`EvaluationConfig` is `#[non_exhaustive]` (as of v0.6.0); use builder-style setters:
 
 ```rust
-let config = EvaluationConfig {
-    max_recursion_depth: 25,
-    max_string_length: 16384,
-    ..Default::default()
-};
+let config = EvaluationConfig::default()
+    .with_max_recursion_depth(25)
+    .with_max_string_length(16384);
 
 // Validate configuration
 config.validate()?;
@@ -340,6 +338,7 @@ use libmagic_rs::MagicRule;
 | `children`          | `Vec<MagicRule>`           | Nested rules                                           |
 | `level`             | `u32`                      | Indentation level                                      |
 | `strength_modifier` | `Option<StrengthModifier>` | Optional strength modifier from `!:strength` directive |
+| `value_transform`   | `Option<ValueTransform>`   | Optional value transformation (v0.6.0)                 |
 
 #### OffsetSpec
 
@@ -349,12 +348,14 @@ Offset specification for locating data.
 use libmagic_rs::OffsetSpec;
 ```
 
-| Variant                                                      | Description                     |
-| ------------------------------------------------------------ | ------------------------------- |
-| `Absolute(i64)`                                              | Absolute offset from file start |
-| `Indirect { base_offset, pointer_type, adjustment, endian }` | Indirect through pointer        |
-| `Relative(i64)`                                              | Relative to previous match      |
-| `FromEnd(i64)`                                               | Offset from end of file         |
+| Variant                                                                                                            | Description                     |
+| ------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
+| `Absolute(i64)`                                                                                                    | Absolute offset from file start |
+| `Indirect { base_offset, pointer_type, adjustment, endian, base_relative, adjustment_op, result_relative }`       | Indirect through pointer        |
+| `Relative(i64)`                                                                                                    | Relative to previous match      |
+| `FromEnd(i64)`                                                                                                     | Offset from end of file         |
+
+**v0.6.0 Changes:** The `Indirect` variant added three fields: `base_relative: bool`, `adjustment_op: Option<AdjustmentOp>`, and `result_relative: bool` to support advanced indirect offset resolution.
 
 #### TypeKind
 
@@ -505,19 +506,19 @@ use libmagic_rs::EvaluationContext;
 
 #### Methods
 
-| Method                         | Description                        |
-| ------------------------------ | ---------------------------------- |
-| `new(config)`                  | Create new context                 |
-| `current_offset()`             | Get current position               |
-| `set_current_offset(offset)`   | Set current position               |
-| `recursion_depth()`            | Get recursion depth                |
-| `increment_recursion_depth()`  | Increment depth (with limit check) |
-| `decrement_recursion_depth()`  | Decrement depth                    |
+| Method                        | Description                        |
+| ----------------------------- | ---------------------------------- |
+| `new(config)`                 | Create new context                 |
+| `current_offset()`            | Get current position               |
+| `set_current_offset(offset)`  | Set current position               |
+| `recursion_depth()`           | Get recursion depth                |
 | `should_stop_at_first_match()` | Check stop behavior                |
-| `max_string_length()`          | Get max string length              |
-| `enable_mime_types()`          | Check MIME type setting            |
-| `timeout_ms()`                 | Get timeout value                  |
-| `reset()`                      | Reset to initial state             |
+| `max_string_length()`         | Get max string length              |
+| `enable_mime_types()`         | Check MIME type setting            |
+| `timeout_ms()`                | Get timeout value                  |
+| `reset()`                     | Reset to initial state             |
+
+**v0.6.0 Changes:** The `increment_recursion_depth()` and `decrement_recursion_depth()` methods were removed.
 
 ### MatchResult (Evaluator)
 
@@ -633,9 +634,9 @@ Currently, libmagic-rs does not have optional feature flags. All functionality i
 
 ## Thread Safety
 
-- `MagicDatabase` is **not** `Send` or `Sync` by default due to internal state
+- `MagicDatabase` implements `Send + Sync` as of v0.6.0 and can be shared across threads
 - `EvaluationConfig` is `Send + Sync` (plain data)
-- For multi-threaded use, create separate `MagicDatabase` instances per thread or use appropriate synchronization
+- For optimal performance in multi-threaded scenarios, consider cloning the database or using `Arc<MagicDatabase>`
 
 ---
 
@@ -648,6 +649,37 @@ Currently, libmagic-rs does not have optional feature flags. All functionality i
 ---
 
 ## Breaking Changes
+
+### v0.6.0
+
+**EvaluationConfig is now #[non_exhaustive]**:
+
+- Struct literal construction (`EvaluationConfig { field: value, .. }`) is no longer supported outside the crate
+- Use builder-style setters: `EvaluationConfig::default().with_max_recursion_depth(25).with_timeout_ms(Some(5000))`
+- Available setters: `with_max_recursion_depth()`, `with_max_string_length()`, `with_stop_at_first_match()`, `with_mime_types()`, `with_timeout_ms()`
+
+**MagicRule gains value_transform field**:
+
+- The `MagicRule` struct has a new `value_transform: Option<ValueTransform>` field
+- Existing code constructing `MagicRule` with struct literals must add this field
+
+**OffsetSpec::Indirect gains new fields**:
+
+- The `Indirect` variant added: `base_relative: bool`, `adjustment_op: Option<AdjustmentOp>`, `result_relative: bool`
+- Existing pattern matches on `Indirect` must account for these fields or use wildcard patterns
+
+**Multiple enums marked #[non_exhaustive]**:
+
+- `OffsetSpec`, `LibmagicError`, `IoError`, `Operator`, `TypeReadError`, `ParseError`, `Value`, `TypeKind`, `EvaluationError`
+- External match arms on these enums must include a wildcard pattern (`_ =>`)
+
+**EvaluationContext method removals**:
+
+- `increment_recursion_depth()` and `decrement_recursion_depth()` removed (internal recursion tracking changed)
+
+**MagicDatabase now implements Send + Sync**:
+
+- `MagicDatabase` can now be shared across threads safely
 
 ### v0.5.0
 

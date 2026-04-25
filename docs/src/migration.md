@@ -576,6 +576,312 @@ let discriminant = type_kind as isize;  // Returns 6
 
 **Recommendation:** Avoid relying on enum discriminant values. Use pattern matching or the `std::mem::discriminant` function instead.
 
+
+## Migrating from v0.5.x to v0.6.0
+
+Version 0.6.0 introduces breaking changes to support indirect and relative offset resolution, meta-type directives, and enhanced thread safety. Several core types are now marked `#[non_exhaustive]`, requiring wildcard patterns in exhaustive matches.
+
+### MagicRule struct changes
+
+The `MagicRule` struct gained a new `value_transform` field for tracking value transformations. Code constructing `MagicRule` with struct literals must add this field.
+
+**Before (v0.5.x):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::MagicRule;
+
+let rule = MagicRule {
+    offset: OffsetSpec::Absolute(0),
+    type_kind: TypeKind::Byte { signed: false },
+    operator: Operator::Equal,
+    test_value: Value::Uint(0x7f),
+    message: "ELF magic".to_string(),
+    level: 0,
+    strength_modifier: None,
+    children: vec![],
+};
+```
+
+**After (v0.6.0):**
+
+```rust,ignore
+use libmagic_rs::parser::ast::MagicRule;
+
+let rule = MagicRule {
+    offset: OffsetSpec::Absolute(0),
+    type_kind: TypeKind::Byte { signed: false },
+    operator: Operator::Equal,
+    test_value: Value::Uint(0x7f),
+    message: "ELF magic".to_string(),
+    level: 0,
+    strength_modifier: None,
+    children: vec![],
+    value_transform: None,
+};
+```
+
+Alternatively, use the new builder-style API:
+
+```rust,ignore
+let rule = MagicRule::new(
+    OffsetSpec::Absolute(0),
+    TypeKind::Byte { signed: false },
+    Operator::Equal,
+    Value::Uint(0x7f),
+    "ELF magic".to_string(),
+)?;
+```
+
+### Non-exhaustive enums
+
+Multiple enums are now marked `#[non_exhaustive]`. Exhaustive match statements must use a wildcard pattern to handle future variants.
+
+**Affected enums:**
+
+- `OffsetSpec`
+- `LibmagicError`
+- `IoError`
+- `Operator`
+- `TypeReadError`
+- `ParseError`
+- `Value`
+- `TypeKind`
+- `EvaluationError`
+
+**Before (v0.5.x):**
+
+```rust,ignore
+match error {
+    LibmagicError::IoError(e) => { /* handle I/O */ }
+    LibmagicError::ParseError(e) => { /* handle parse */ }
+    LibmagicError::EvaluationError(e) => { /* handle eval */ }
+    LibmagicError::ConfigError(e) => { /* handle config */ }
+    LibmagicError::Timeout => { /* handle timeout */ }
+}
+```
+
+**After (v0.6.0):**
+
+```rust,ignore
+match error {
+    LibmagicError::IoError(e) => { /* handle I/O */ }
+    LibmagicError::ParseError(e) => { /* handle parse */ }
+    LibmagicError::EvaluationError(e) => { /* handle eval */ }
+    LibmagicError::ConfigError(e) => { /* handle config */ }
+    LibmagicError::Timeout => { /* handle timeout */ }
+    _ => { /* handle unknown future variants */ }
+}
+```
+
+### EvaluationConfig changes
+
+`EvaluationConfig` is now marked `#[non_exhaustive]`. Use builder-style setters or the struct update syntax with `Default::default()` instead of struct literal construction.
+
+**Before (v0.5.x):**
+
+```rust,ignore
+use libmagic_rs::EvaluationConfig;
+
+let config = EvaluationConfig {
+    max_recursion_depth: 10,
+    max_string_length: 1024,
+    stop_at_first_match: false,
+    enable_mime_types: false,
+    timeout_ms: None,
+};
+```
+
+**After (v0.6.0):**
+
+```rust,ignore
+use libmagic_rs::EvaluationConfig;
+
+// Using builder methods
+let config = EvaluationConfig::default()
+    .with_max_recursion_depth(10)
+    .with_max_string_length(1024)
+    .with_stop_at_first_match(false)
+    .with_mime_types(false)
+    .with_timeout_ms(None);
+
+// Or using struct update syntax
+let config = EvaluationConfig {
+    max_recursion_depth: 10,
+    max_string_length: 1024,
+    ..Default::default()
+};
+```
+
+### OffsetSpec::Indirect changes
+
+The `Indirect` variant gained three new fields for relative offset support: `base_relative`, `adjustment_op`, and `result_relative`.
+
+**Before (v0.5.x):**
+
+```rust,ignore
+match offset_spec {
+    OffsetSpec::Indirect {
+        base_offset,
+        offset_type,
+        endian,
+    } => {
+        // Handle indirect offset
+    }
+    _ => {}
+}
+```
+
+**After (v0.6.0):**
+
+```rust,ignore
+match offset_spec {
+    OffsetSpec::Indirect {
+        base_offset,
+        offset_type,
+        endian,
+        base_relative,
+        adjustment_op,
+        result_relative,
+    } => {
+        // Handle indirect offset with relative flags
+        if base_relative {
+            // Base is relative to last match
+        }
+        if result_relative {
+            // Result is relative to last match
+        }
+    }
+    _ => {}
+}
+```
+
+### MagicDatabase thread safety
+
+`MagicDatabase` now implements `Send + Sync`, enabling safe concurrent access across threads. You can share a single database instance using `Arc` for parallel file scanning.
+
+**Before (v0.5.x):**
+
+```rust,ignore
+use std::thread;
+
+// Each thread needed its own MagicDatabase
+let db1 = MagicDatabase::with_builtin_rules()?;
+let db2 = MagicDatabase::with_builtin_rules()?;
+
+let handle1 = thread::spawn(move || db1.evaluate_file("file1.bin"));
+let handle2 = thread::spawn(move || db2.evaluate_file("file2.bin"));
+```
+
+**After (v0.6.0):**
+
+```rust,ignore
+use std::sync::Arc;
+use std::thread;
+
+// Share a single database across threads
+let db = Arc::new(MagicDatabase::with_builtin_rules()?);
+
+let db_clone1 = Arc::clone(&db);
+let handle1 = thread::spawn(move || db_clone1.evaluate_file("file1.bin"));
+
+let db_clone2 = Arc::clone(&db);
+let handle2 = thread::spawn(move || db_clone2.evaluate_file("file2.bin"));
+```
+
+### Removed methods from EvaluationContext
+
+The `increment_recursion_depth()` and `decrement_recursion_depth()` methods were removed. Recursion depth is now managed internally by the evaluator.
+
+**Before (v0.5.x):**
+
+```rust,ignore
+use libmagic_rs::evaluator::EvaluationContext;
+
+let mut context = EvaluationContext::new(&config);
+context.increment_recursion_depth();
+// ... evaluation logic
+context.decrement_recursion_depth();
+```
+
+**After (v0.6.0):**
+
+```rust,ignore
+// Recursion depth is managed automatically by the evaluator.
+// External code no longer needs to track it.
+let context = EvaluationContext::new(&config);
+```
+
+### Removed parser module
+
+The `libmagic_rs::parser::grammar` module and its public functions were removed. Use the higher-level API instead.
+
+**Before (v0.5.x):**
+
+```rust,ignore
+use libmagic_rs::parser::grammar::parse_magic_rule;
+use libmagic_rs::parser::{parse_offset, parse_number};
+
+let rule = parse_magic_rule("0 string ELF ELF executable")?;
+let offset = parse_offset("0x10")?;
+let number = parse_number("42")?;
+```
+
+**After (v0.6.0):**
+
+```rust,ignore
+use libmagic_rs::parser::parse_text_magic_file;
+
+// Use the high-level parser API
+let parsed = parse_text_magic_file("path/to/magic.txt")?;
+let rules = parsed.rules;
+let name_table = parsed.name_table;
+```
+
+### Function signature changes
+
+Several functions changed their parameter count or return type.
+
+**evaluate_single_rule parameter count changed:**
+
+**Before (v0.5.x):**
+
+```rust,ignore
+use libmagic_rs::evaluator::evaluate_single_rule;
+
+let match_result = evaluate_single_rule(&rule, buffer)?;
+```
+
+**After (v0.6.0):**
+
+```rust,ignore
+use libmagic_rs::evaluator::evaluate_single_rule;
+
+// Now requires an EvaluationContext parameter
+let match_result = evaluate_single_rule(&rule, buffer, &mut context)?;
+```
+
+**parse_text_magic_file return type changed:**
+
+**Before (v0.5.x):**
+
+```rust,ignore
+use libmagic_rs::parser::parse_text_magic_file;
+
+let rules: Vec<MagicRule> = parse_text_magic_file("magic.txt")?;
+```
+
+**After (v0.6.0):**
+
+```rust,ignore
+use libmagic_rs::parser::parse_text_magic_file;
+
+let parsed = parse_text_magic_file("magic.txt")?;
+let rules = parsed.rules;
+let name_table = parsed.name_table;
+```
+
+The new `ParsedMagic` struct contains both the rules and a name table for named subroutines introduced in meta-type directive support.
+
 ## Getting Help
 
 If you encounter migration issues:

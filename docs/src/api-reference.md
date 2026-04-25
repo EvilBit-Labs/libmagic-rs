@@ -45,12 +45,10 @@ let db = MagicDatabase::with_builtin_rules()?;
 let result = db.evaluate_file("sample.bin")?;
 println!("Type: {}", result.description);
 
-// With custom configuration
-let config = EvaluationConfig {
-    timeout_ms: Some(5000),
-    enable_mime_types: true,
-    ..Default::default()
-};
+// With custom configuration using builder methods (required since v0.6.0)
+let config = EvaluationConfig::default()
+    .with_timeout_ms(Some(5000))
+    .with_mime_types(true);
 let db = MagicDatabase::with_builtin_rules_and_config(config)?;
 
 // From file
@@ -130,6 +128,19 @@ let config = EvaluationConfig::comprehensive();
 // - timeout_ms: Some(30000)
 ```
 
+#### Builder Methods
+
+Since v0.6.0, `EvaluationConfig` is `#[non_exhaustive]`. Use builder-style setters to construct configurations:
+
+```rust
+let config = EvaluationConfig::default()
+    .with_max_recursion_depth(25)
+    .with_max_string_length(16384)
+    .with_stop_at_first_match(false)
+    .with_mime_types(true)
+    .with_timeout_ms(Some(5000));
+```
+
 #### Validation
 
 ```rust
@@ -181,6 +192,7 @@ use libmagic_rs::MagicRule;
 | `children`          | `Vec<MagicRule>`           | Nested rules                                           |
 | `level`             | `u32`                      | Indentation level                                      |
 | `strength_modifier` | `Option<StrengthModifier>` | Optional strength modifier from `!:strength` directive |
+| `value_transform`   | (type unspecified)         | Value transformation (added in v0.6.0)                 |
 
 ### StrengthModifier
 
@@ -206,12 +218,19 @@ Offset specification for locating data.
 use libmagic_rs::OffsetSpec;
 ```
 
-| Variant                                                      | Description                     |
-| ------------------------------------------------------------ | ------------------------------- |
-| `Absolute(i64)`                                              | Absolute offset from file start |
-| `Indirect { base_offset, pointer_type, adjustment, endian }` | Indirect through pointer        |
-| `Relative(i64)`                                              | Relative to previous match      |
-| `FromEnd(i64)`                                               | Offset from end of file         |
+| Variant                                                                                                     | Description                     |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `Absolute(i64)`                                                                                             | Absolute offset from file start |
+| `Indirect { base_offset, pointer_type, adjustment, endian, base_relative, adjustment_op, result_relative }` | Indirect through pointer        |
+| `Relative(i64)`                                                                                             | Relative to previous match      |
+| `FromEnd(i64)`                                                                                              | Offset from end of file         |
+
+#### Changes in v0.6.0
+
+`OffsetSpec::Indirect` added three fields:
+- `base_relative: bool` - whether `base_offset` is relative to the previous match
+- `adjustment_op: Option<AdjustmentOp>` - operation to apply between pointer value and adjustment
+- `result_relative: bool` - whether the final computed offset is relative to the previous match
 
 ### TypeKind
 
@@ -296,27 +315,22 @@ use libmagic_rs::Operator;
 
 ```rust
 use libmagic_rs::{MagicDatabase, Operator};
-use libmagic_rs::parser::grammar::parse_magic_rule;
 
 // Equal operator (default)
-let (_, rule) = parse_magic_rule("0 byte =0x7f").unwrap();
-assert_eq!(rule.op, Operator::Equal);
+// Note: parse_magic_rule and parser::grammar module removed in v0.6.0
+// This example is for conceptual reference only
 
 // Bitwise AND - check if bit is set
-let (_, rule) = parse_magic_rule("0 byte &0x80").unwrap();
-assert_eq!(rule.op, Operator::BitwiseAnd);
+// 0 byte &0x80
 
 // Bitwise XOR - check for difference
-let (_, rule) = parse_magic_rule("0 byte ^0xFF").unwrap();
-assert_eq!(rule.op, Operator::BitwiseXor);
+// 0 byte ^0xFF
 
 // Bitwise NOT - check complement
-let (_, rule) = parse_magic_rule("0 byte ~0xFF").unwrap();
-assert_eq!(rule.op, Operator::BitwiseNot);
+// 0 byte ~0xFF
 
 // Any value - always matches
-let (_, rule) = parse_magic_rule("0 byte x").unwrap();
-assert_eq!(rule.op, Operator::AnyValue);
+// 0 byte x
 ```
 
 ### Value
@@ -429,19 +443,22 @@ use libmagic_rs::EvaluationContext;
 
 #### Methods
 
-| Method                         | Description                        |
-| ------------------------------ | ---------------------------------- |
-| `new(config)`                  | Create new context                 |
-| `current_offset()`             | Get current position               |
-| `set_current_offset(offset)`   | Set current position               |
-| `recursion_depth()`            | Get recursion depth                |
-| `increment_recursion_depth()`  | Increment depth (with limit check) |
-| `decrement_recursion_depth()`  | Decrement depth                    |
-| `should_stop_at_first_match()` | Check stop behavior                |
-| `max_string_length()`          | Get max string length              |
-| `enable_mime_types()`          | Check MIME type setting            |
-| `timeout_ms()`                 | Get timeout value                  |
-| `reset()`                      | Reset to initial state             |
+| Method                        | Description                   |
+| ----------------------------- | ----------------------------- |
+| `new(config)`                 | Create new context            |
+| `current_offset()`            | Get current position          |
+| `set_current_offset(offset)`  | Set current position          |
+| `recursion_depth()`           | Get recursion depth           |
+| `should_stop_at_first_match()` | Check stop behavior           |
+| `max_string_length()`         | Get max string length         |
+| `enable_mime_types()`         | Check MIME type setting       |
+| `timeout_ms()`                | Get timeout value             |
+| `reset()`                     | Reset to initial state        |
+
+#### Removed in v0.6.0
+
+- `increment_recursion_depth()` - removed
+- `decrement_recursion_depth()` - removed
 
 ### MatchResult (Evaluator)
 
@@ -544,16 +561,28 @@ pub use error::{EvaluationError, LibmagicError, ParseError};
 
 ## Thread Safety
 
-- `MagicDatabase` is **not** `Send` or `Sync` by default due to internal state
+- `MagicDatabase` is `Send + Sync` (since v0.6.0) and can be shared across threads with appropriate synchronization
 - `EvaluationConfig` is `Send + Sync` (plain data)
-- For multi-threaded use, create separate `MagicDatabase` instances per thread or use appropriate synchronization
+- For multi-threaded use, wrap `MagicDatabase` in `Arc<MagicDatabase>` to share a single instance, or create separate instances per thread
 
 ## Version Compatibility
 
 - **Minimum Rust Version**: 1.85
 - **Edition**: 2024
 - **License**: Apache-2.0
-- **Current Version**: 0.5.0
+- **Current Version**: 0.6.0
+
+### Breaking Changes in v0.6.0
+
+- `EvaluationConfig` is now `#[non_exhaustive]` - struct literal construction is no longer supported for external crates; use builder methods (`with_max_recursion_depth`, `with_max_string_length`, `with_stop_at_first_match`, `with_mime_types`, `with_timeout_ms`) or `..Default::default()`
+- `MagicRule` has a new `value_transform` field
+- `MagicDatabase` now implements `Send + Sync` (see Thread Safety section)
+- Multiple enums are now `#[non_exhaustive]`: `OffsetSpec`, `LibmagicError`, `IoError`, `Operator`, `TypeReadError`, `ParseError`, `Value`, `TypeKind`, `EvaluationError` - pattern matching must include wildcard arms
+- `OffsetSpec::Indirect` has new fields: `base_relative`, `adjustment_op`, `result_relative`
+- `EvaluationContext` methods `increment_recursion_depth()` and `decrement_recursion_depth()` removed
+- `parser::grammar` module removed along with functions like `parse_magic_rule`, `parse_offset`, `parse_number`, `parse_value`, `parse_operator`, `parse_type`, `parse_type_and_operator`, `parse_message`, `parse_comment`, `is_empty_line`, `is_comment_line`, `has_continuation`, `is_strength_directive`, `parse_strength_directive`, `parse_rule_offset`
+- `parse_text_magic_file` return type changed from `Result<Vec<MagicRule>, ParseError>` to `Result<ParsedMagic, ParseError>`; callers must destructure `ParsedMagic { rules, name_table }`. `load_magic_file` and `load_magic_directory` return the same new type
+- `evaluate_single_rule` parameter count changed from 2 to 3
 
 ### Breaking Changes in v0.5.0
 
@@ -563,7 +592,7 @@ pub use error::{EvaluationError, LibmagicError, ParseError};
 - `Value` enum: No longer derives `Eq` trait (only `PartialEq` is available due to floating-point values)
 - `RuleMatch` struct: Added `type_kind: TypeKind` field to indicate the type used for matching
 
-### Breaking Changes (post-0.5.0)
+### Breaking Changes (post-0.5.0, pre-0.6.0)
 
 - Parser functions (`parse_text_magic_file`, `load_magic_file`, `load_magic_directory`) now return `ParsedMagic { rules, name_table }` instead of `Vec<MagicRule>`. External consumers can only access the public `rules` field — `name_table` is `pub(crate)` and managed internally by `MagicDatabase`. Typical usage: `let parsed = parse_text_magic_file(&source)?; /* use parsed.rules */`. The library wires `name_table` through `MagicDatabase::load_from_file` automatically; direct access is not required (or supported) for external code.
 - Rule messages are now rendered through printf-style format substitution: specifiers like `%d`, `%x`, `%02x`, `%s`, `%lld` are replaced with the rule's read value at output time. **Literal `%` in rule messages must be escaped as `%%`.** Messages that were previously emitted verbatim with bare `%` characters will now be interpreted as format specifiers — this is a visible behavior change for existing magic files that used `%` for non-formatting purposes.
