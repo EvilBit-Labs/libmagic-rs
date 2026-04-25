@@ -6,7 +6,7 @@
 //! Handles comment removal, empty line filtering, line continuations,
 //! and strength directive parsing during magic file preprocessing.
 
-use log::debug;
+use log::{info, warn};
 
 use crate::error::ParseError;
 use crate::parser::ast::{MagicRule, StrengthModifier};
@@ -24,6 +24,25 @@ use crate::parser::grammar::{
 fn is_unknown_metadata_directive(line: &str) -> bool {
     let trimmed = line.trim_start();
     trimmed.starts_with("!:") && !is_strength_directive(line)
+}
+
+/// magic(5)-defined directive names whose payload we recognise but do not
+/// yet evaluate. Listing them here distinguishes "known but unimplemented"
+/// (logged at `info!`) from "unknown / probably a typo" (logged at `warn!`)
+/// so users see typos like `!:mim` (vs. `!:mime`) at default log levels
+/// instead of having to bump to debug. magic(5) defines a small fixed set;
+/// keep this list in sync with libmagic's `apprentice.c` directive parser.
+const KNOWN_UNIMPLEMENTED_DIRECTIVES: &[&str] = &["mime", "ext", "apple"];
+
+/// Extract the directive name from a `!:foo ...` line for classification.
+/// Returns the bare name (no `!:` prefix, no trailing whitespace/payload).
+fn directive_name(line: &str) -> &str {
+    line.trim_start()
+        .strip_prefix("!:")
+        .unwrap_or("")
+        .split_ascii_whitespace()
+        .next()
+        .unwrap_or("")
 }
 
 /// Internal structure to track line metadata during preprocessing.
@@ -111,16 +130,31 @@ pub(crate) fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError>
         }
         // Skip unknown `!:` metadata directives (mime, ext, apple, ...).
         // We do not yet evaluate them, but they must not block parsing.
+        // Distinguish known-but-unimplemented (info!) from unknown / probable
+        // typos (warn!) so users see misspellings like `!:mim` at default
+        // log levels without having to bump to debug.
         if is_unknown_metadata_directive(line) {
             if !line_buf.is_empty() {
                 line_buf.clear();
                 start_line_number = None;
             }
-            debug!(
-                "Skipping unsupported magic directive at line {}: {}",
-                i + 1,
-                line.trim()
-            );
+            let name = directive_name(line);
+            let trimmed = line.trim();
+            if KNOWN_UNIMPLEMENTED_DIRECTIVES.contains(&name) {
+                info!(
+                    "Skipping unimplemented magic directive `!:{}` at line {} (parsed but not yet evaluated): {}",
+                    name,
+                    i + 1,
+                    trimmed
+                );
+            } else {
+                warn!(
+                    "Unknown magic directive `!:{}` at line {} (probable typo, dropped): {}",
+                    name,
+                    i + 1,
+                    trimmed
+                );
+            }
             continue;
         }
         // Handle strength directives (!:strength ...)

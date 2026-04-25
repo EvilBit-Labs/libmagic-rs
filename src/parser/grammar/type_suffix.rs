@@ -12,6 +12,7 @@
 //! `parse_type_and_operator` orchestrates these helpers after
 //! `parse_type_keyword` identifies the type name.
 
+use log::warn;
 use nom::error::{Error, ErrorKind};
 use nom::{Err as NomErr, IResult};
 use std::num::{NonZeroU32, NonZeroUsize};
@@ -339,6 +340,18 @@ pub(super) fn parse_search_suffix<'a>(
             }
         }
         if consumed > 0 {
+            // Surface the parse-and-drop: search flag letters (`/s`,
+            // `/c`, `/w`, etc.) are consumed but scan/match semantics
+            // do NOT yet honor them. The `/s` flag is particularly
+            // load-bearing -- it controls anchor-advance to match-START
+            // instead of match-END, so dropping it silently produces
+            // wrong relative-offset child resolution. Tracked in issue
+            // #235.
+            warn!(
+                "search flag suffix `/{flags}` parsed but not yet evaluated \
+                 (issue #235); scan and anchor-advance use default semantics",
+                flags = &after_slash[..consumed]
+            );
             rest = &after_slash[consumed..];
         } else {
             // `/` not followed by a known flag letter is a parse error

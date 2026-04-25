@@ -394,9 +394,9 @@ mod tests {
         assert!(err.to_string().contains("Mul"));
     }
 
-    /// Regression: errors from apply_value_transform must be classified as
-    /// EvaluationError::InvalidValueTransform so the engine's graceful-skip
-    /// arm catches them. Previously the helper used internal_error, which is
+    /// Regression: errors from `apply_value_transform` must be classified as
+    /// `EvaluationError::InvalidValueTransform` so the engine's graceful-skip
+    /// arm catches them. Previously the helper used `internal_error`, which is
     /// NOT in the graceful-skip list -- a single rule with `lequad*N` against
     /// an overflow-prone buffer would abort the entire evaluation instead of
     /// dropping the rule and continuing.

@@ -17,6 +17,8 @@ use nom::{
     sequence::preceded,
 };
 
+use log::warn;
+
 use crate::parser::ast::{
     Endianness, IndirectAdjustmentOp, MagicRule, MetaType, OffsetSpec, Operator, StrengthModifier,
     TypeKind, Value,
@@ -223,8 +225,16 @@ fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
     // magic(5) canonical separator is `.`. `/usr/share/file/magic/msdos`
     // line 638 uses `,` -- a known typo that GNU `file` warns about
     // but tolerates ("No current entry for continuation"). Accept
-    // either character so the magic file loads.
-    let (input, _) = one_of(".,").parse(input)?;
+    // either character so the magic file loads, but emit a warn! when
+    // the comma path is taken so users see the typo at default log
+    // levels (matching GNU `file`'s diagnostic posture).
+    let (input, sep) = one_of(".,").parse(input)?;
+    if sep == ',' {
+        warn!(
+            "Indirect offset uses ',' as separator (magic(5) requires '.'); \
+             accepting for GNU `file` typo-tolerance compatibility"
+        );
+    }
     let (input, spec_char) = one_of("bBsSlLqQiI")(input)?;
 
     let (pointer_type, endian) = pointer_specifier_to_type(spec_char)
@@ -503,12 +513,24 @@ fn parse_name_or_use_meta<'a>(
 
     // magic(5) allows a `\^` prefix on a `use` identifier to mean "invoke
     // the named subroutine but flip the endianness of every read inside
-    // it". We do not yet implement the endian flip semantically, but the
-    // file must still load: consume the prefix and treat the rest of the
-    // identifier as a normal `use` reference. Tracked as a separate
-    // limitation in AGENTS.md.
+    // it". We do not yet implement the endian flip semantically (tracked
+    // as issue #236), but the file must still load: consume the prefix
+    // and treat the rest of the identifier as a normal `use` reference.
+    // Emit a warn! so users see why their LE/BE detection paired with
+    // `use \^name` produces wrong metadata at default log levels.
     let input = if type_name == "use" {
-        input.strip_prefix("\\^").unwrap_or(input)
+        if let Some(rest) = input.strip_prefix("\\^") {
+            warn!(
+                "use directive with `\\^` prefix: endian-flip semantics \
+                 are not yet implemented (issue #236). Subroutine reads \
+                 will use their declared endianness; metadata fields may \
+                 be incorrect. Identifier: {:?}",
+                rest.split_whitespace().next().unwrap_or("")
+            );
+            rest
+        } else {
+            input
+        }
     } else {
         input
     };
@@ -688,6 +710,17 @@ pub fn parse_type_and_operator(
             }
         }
         if consumed > 0 {
+            // Surface the parse-and-drop: the user's `/c`/`/w`/etc.
+            // flag was consumed but the comparison still uses byte-exact
+            // semantics. Without this warning, users debugging "why
+            // doesn't my `string/c FOO` match `foo`?" have no breadcrumb
+            // pointing at the implementation gap (issue #234). Logged
+            // once per rule, not once per char.
+            warn!(
+                "string flag suffix `/{flags}` parsed but not yet evaluated \
+                 (issue #234); comparison uses byte-exact semantics regardless of flags",
+                flags = &suffix_rest[..consumed]
+            );
             input = &suffix_rest[consumed..];
         } else {
             // `/` not followed by a known flag letter -- restore the
@@ -1120,6 +1153,7 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
     let is_string_family_type = matches!(
         typ,
         TypeKind::String { .. }
+            | TypeKind::String16 { .. }
             | TypeKind::PString { .. }
             | TypeKind::Regex { .. }
             | TypeKind::Search { .. }
