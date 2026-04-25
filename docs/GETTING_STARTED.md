@@ -21,10 +21,12 @@ Add libmagic-rs to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-libmagic-rs = "0.5.0"
+libmagic-rs = "0.6.0"
 ```
 
-**Note:** Version 0.5.0 introduces breaking changes. If upgrading from 0.4.x, the `RuleMatch` struct has a new `type_kind` field that must be included in struct literals, the `Value` enum no longer derives the `Eq` trait (affecting comparison operations), and the `TypeKind` enum gained two new variants (`Float`, `Double`) for floating-point types with endian variants, causing the `TypeKind::String` variant discriminant to change from 4 to 6. Exhaustive pattern matching on `TypeKind` and struct literals for `RuleMatch` require updates.
+**Note:** Version 0.6.0 introduces breaking changes. `EvaluationConfig` is now `#[non_exhaustive]` and cannot be constructed with struct literals. Use builder methods (`with_timeout_ms`, `with_max_recursion_depth`, `with_max_string_length`, `with_stop_at_first_match`, `with_mime_types`) or `..Default::default()` syntax. `MagicRule` gained a `value_transform` field. Several enums (`OffsetSpec`, `LibmagicError`, `IoError`, `Operator`, `TypeReadError`, `ParseError`, `Value`, `TypeKind`, `EvaluationError`) are now `#[non_exhaustive]` and require a wildcard `_` in pattern matching. `parse_text_magic_file` returns `ParsedMagic { rules, name_table }` instead of `Vec<MagicRule>`. Many parser grammar functions moved from public to internal API. `evaluate_single_rule` signature changed. `MimeMapper` now implements `Copy`.
+
+Version 0.5.0 introduces breaking changes. If upgrading from 0.4.x, the `RuleMatch` struct has a new `type_kind` field that must be included in struct literals, the `Value` enum no longer derives the `Eq` trait (affecting comparison operations), and the `TypeKind` enum gained two new variants (`Float`, `Double`) for floating-point types with endian variants, causing the `TypeKind::String` variant discriminant to change from 4 to 6. Exhaustive pattern matching on `TypeKind` and struct literals for `RuleMatch` require updates.
 
 Version 0.4.0 introduces breaking changes. If upgrading from 0.3.x, the `Operator` enum gained three new variants (`BitwiseXor`, `BitwiseNot`, `AnyValue`) for bitwise and any-value operations. Exhaustive pattern matching on `Operator` requires updates.
 
@@ -69,7 +71,7 @@ Edit `Cargo.toml`:
 
 ```toml
 [dependencies]
-libmagic-rs = "0.5.0"
+libmagic-rs = "0.6.0"
 ```
 
 #### Step 3: Write Code
@@ -141,12 +143,10 @@ let db = MagicDatabase::load_from_file("/usr/share/file/magic")?;
 ```rust
 use libmagic_rs::{MagicDatabase, EvaluationConfig};
 
-let config = EvaluationConfig {
-    timeout_ms: Some(5000),        // 5 second timeout
-    enable_mime_types: true,        // Get MIME types
-    max_string_length: 16384,       // Larger string buffer
-    ..Default::default()
-};
+let config = EvaluationConfig::default()
+    .with_timeout_ms(Some(5000))        // 5 second timeout
+    .with_mime_types(true)              // Get MIME types
+    .with_max_string_length(16384);     // Larger string buffer
 
 let db = MagicDatabase::with_builtin_rules_and_config(config)?;
 ```
@@ -351,10 +351,8 @@ fn is_image(path: &str) -> bool {
 use libmagic_rs::{MagicDatabase, EvaluationConfig};
 
 fn validate_upload(data: &[u8], allowed_types: &[&str]) -> Result<bool, String> {
-    let config = EvaluationConfig {
-        timeout_ms: Some(1000),  // Short timeout for uploads
-        ..Default::default()
-    };
+    let config = EvaluationConfig::default()
+        .with_timeout_ms(Some(1000));  // Short timeout for uploads
 
     let db = MagicDatabase::with_builtin_rules_and_config(config)
         .map_err(|e| e.to_string())?;
@@ -421,10 +419,8 @@ struct FileInfo {
 }
 
 fn get_file_info(path: &str) -> Result<FileInfo, String> {
-    let config = libmagic_rs::EvaluationConfig {
-        enable_mime_types: true,
-        ..Default::default()
-    };
+    let config = libmagic_rs::EvaluationConfig::default()
+        .with_mime_types(true);
 
     let db = MagicDatabase::with_builtin_rules_and_config(config)
         .map_err(|e| e.to_string())?;

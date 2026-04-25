@@ -12,7 +12,7 @@ This guide will help you get up and running with libmagic-rs, whether you want t
 
 ### From Source
 
-libmagic-rs is published on [crates.io](https://crates.io/crates/libmagic-rs) at version 0.5.0. You can also build from source:
+libmagic-rs is published on [crates.io](https://crates.io/crates/libmagic-rs) at version 0.6.0. You can also build from source:
 
 ```bash
 # Clone the repository
@@ -85,7 +85,7 @@ Add libmagic-rs to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-libmagic-rs = "0.5.0"
+libmagic-rs = "0.6.0"
 ```
 
 For the latest development version:
@@ -94,6 +94,8 @@ For the latest development version:
 [dependencies]
 libmagic-rs = { git = "https://github.com/EvilBit-Labs/libmagic-rs.git" }
 ```
+
+**Note**: Version 0.6.0 includes breaking API changes from 0.5.x. If you are upgrading from 0.5.x, see the [migration guide](#migration-from-05x) for details on updating your code.
 
 Basic usage with built-in rules (no external files needed):
 
@@ -238,9 +240,9 @@ let magic_content = r#"
 >4 byte 2 64-bit
 "#;
 
-let rules = parse_text_magic_file(magic_content)?;
-assert_eq!(rules.len(), 1);
-assert_eq!(rules[0].children.len(), 2);
+let parsed = parse_text_magic_file(magic_content)?;
+assert_eq!(parsed.rules.len(), 1);
+assert_eq!(parsed.rules[0].children.len(), 2);
 ```
 
 ### Working with AST Directly
@@ -248,16 +250,14 @@ assert_eq!(rules[0].children.len(), 2);
 ```rust
 use libmagic_rs::parser::ast::*;
 
-// Create a simple ELF detection rule
-let elf_rule = MagicRule {
-    offset: OffsetSpec::Absolute(0),
-    typ: TypeKind::Byte,
-    op: Operator::Equal,
-    value: Value::Uint(0x7f), // First byte of ELF magic
-    message: "ELF executable".to_string(),
-    children: vec![],
-    level: 0,
-};
+// Create a simple ELF detection rule using builder methods
+let elf_rule = MagicRule::new(
+    OffsetSpec::Absolute(0),
+    TypeKind::Byte,
+    Operator::Equal,
+    Value::Uint(0x7f), // First byte of ELF magic
+    "ELF executable".to_string(),
+).with_level(0);
 
 // Serialize to JSON for inspection
 let json = serde_json::to_string_pretty(&elf_rule)?;
@@ -271,16 +271,14 @@ use libmagic_rs::evaluator::{evaluate_rules_with_config, EvaluationContext};
 use libmagic_rs::parser::ast::*;
 use libmagic_rs::EvaluationConfig;
 
-// Create a rule to detect ELF files
-let rule = MagicRule {
-    offset: OffsetSpec::Absolute(0),
-    typ: TypeKind::Byte,
-    op: Operator::Equal,
-    value: Value::Uint(0x7f),
-    message: "ELF magic".to_string(),
-    children: vec![],
-    level: 0,
-};
+// Create a rule to detect ELF files using builder methods
+let rule = MagicRule::new(
+    OffsetSpec::Absolute(0),
+    TypeKind::Byte,
+    Operator::Equal,
+    Value::Uint(0x7f),
+    "ELF magic".to_string(),
+).with_level(0);
 
 // Evaluate against a buffer
 let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
@@ -327,3 +325,93 @@ cargo run -- README.md
 - **Discussions**: [Ask questions or share ideas](https://github.com/EvilBit-Labs/libmagic-rs/discussions)
 
 The project is in active development, so check back regularly for new features and capabilities!
+
+## Migration from 0.5.x
+
+Version 0.6.0 includes breaking API changes. Key changes to be aware of:
+
+### `parse_text_magic_file` Return Type
+
+The parser now returns `ParsedMagic { rules, name_table }` instead of `Vec<MagicRule>`:
+
+```rust
+// Before (0.5.x)
+let rules = parse_text_magic_file(content)?;
+
+// After (0.6.0)
+let parsed = parse_text_magic_file(content)?;
+let rules = parsed.rules;
+```
+
+### `MagicRule` Construction
+
+`MagicRule` is now non-exhaustive and has new fields. Use builder methods instead of struct literals:
+
+```rust
+// Before (0.5.x)
+let rule = MagicRule {
+    offset: OffsetSpec::Absolute(0),
+    typ: TypeKind::Byte,
+    op: Operator::Equal,
+    value: Value::Uint(0x7f),
+    message: "ELF magic".to_string(),
+    children: vec![],
+    level: 0,
+};
+
+// After (0.6.0)
+let rule = MagicRule::new(
+    OffsetSpec::Absolute(0),
+    TypeKind::Byte,
+    Operator::Equal,
+    Value::Uint(0x7f),
+    "ELF magic".to_string(),
+).with_level(0);
+```
+
+### `EvaluationConfig` Construction
+
+`EvaluationConfig` is now non-exhaustive. Use builder methods:
+
+```rust
+// Before (0.5.x)
+let config = EvaluationConfig {
+    max_recursion_depth: 20,
+    max_string_length: 1024,
+    stop_at_first_match: true,
+    mime_types: false,
+    timeout_ms: Some(5000),
+};
+
+// After (0.6.0)
+let config = EvaluationConfig::default()
+    .with_max_recursion_depth(20)
+    .with_max_string_length(1024)
+    .with_stop_at_first_match(true)
+    .with_mime_types(false)
+    .with_timeout_ms(Some(5000));
+```
+
+### Enum Exhaustiveness
+
+Many enums are now marked `#[non_exhaustive]`. Add wildcard patterns in match expressions:
+
+```rust
+// Before (0.5.x)
+match error {
+    LibmagicError::Io(_) => { /* ... */ }
+    LibmagicError::Parse(_) => { /* ... */ }
+    LibmagicError::Evaluation(_) => { /* ... */ }
+}
+
+// After (0.6.0)
+match error {
+    LibmagicError::Io(_) => { /* ... */ }
+    LibmagicError::Parse(_) => { /* ... */ }
+    LibmagicError::Evaluation(_) => { /* ... */ }
+    _ => { /* handle other cases */ }
+}
+```
+
+See the [CHANGELOG](https://github.com/EvilBit-Labs/libmagic-rs/blob/main/CHANGELOG.md) for the complete list of changes.
+
