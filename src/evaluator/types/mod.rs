@@ -492,6 +492,21 @@ pub(crate) fn bytes_consumed_with_pattern(
                         }
                     }
                 }
+                // `Value::Bytes` patterns reach this arm for backslash-escape
+                // values like `\177ELF` (parsed via `parse_mixed_hex_ascii`).
+                // The read path uses `read_string_exact(buffer, offset,
+                // b.len())`, so the consume side must match -- otherwise the
+                // relative-offset anchor mis-advances by the NUL-scan length
+                // (which on a NUL-free ELF header is hundreds of bytes past
+                // the actual match end). This is the dual-purpose-helper-
+                // sync rule documented in GOTCHAS S6.4 / docs/solutions/
+                // logic-errors/magic-string-rule-matching-3-bug-fix.
+                (None, Some(Value::Bytes(b))) => {
+                    let blen = b.len();
+                    offset
+                        .checked_add(blen)
+                        .map_or(0, |end| if end > buffer.len() { 0 } else { blen })
+                }
                 (None, _) => string_bytes_consumed(buffer, offset, None),
             }
         }
