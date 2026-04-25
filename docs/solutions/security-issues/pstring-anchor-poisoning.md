@@ -90,10 +90,20 @@ The general principle: **when advancing internal state by an attacker-controlled
 ## Prevention
 
 - **Document the invariant.** `GOTCHAS.md` S3.8 now notes that "Pascal-string consumption is also clamped against the remaining buffer to prevent attacker-controlled length prefixes from poisoning the anchor to `usize::MAX`." Future contributors editing `bytes_consumed` see the constraint without needing to rediscover it from the security review.
+
 - **Match read function consumption exactly.** If a helper function re-derives a value the corresponding read function already computed (here: payload length), make the helper apply *all* the same bounds checks — not a subset. Diverging contracts between two functions that the engine assumes are equivalent are a recurring class of subtle bugs.
+
 - **Test with adversarial byte patterns.** Unit tests for variable-width type helpers should include `0xFF...FF` length prefixes, `usize::MAX` boundary cases, and `/J` flag underflow — not just typical inputs. The integration test suite should also exercise an attacker-controlled chain (e.g., a parent with an oversized prefix followed by a `Relative` child) end-to-end through `evaluate_rules` to confirm graceful skip rather than silent misclassification.
+
 - **Treat `pub(crate)` boundaries as hints, not guarantees.** `bytes_consumed` was made `pub(crate)` in the same review pass, narrowing it to engine use only. But the visibility narrowing alone doesn't eliminate the bug — it only reduces the blast radius. Defensive bounds checking is still required because future internal callers may not respect the read-then-call invariant.
-- **Keep dual-purpose helpers in sync.** When `read_pstring`/`read_string` change their bounds enforcement, `pstring_bytes_consumed`/`string_bytes_consumed` must change too. Add the file pair to `GOTCHAS.md` S2.1 (or similar) as a known coupling so refactors don't silently break the anchor.
+
+- **Keep dual-purpose helpers in sync.** When `read_pstring`/`read_string`/`read_string_exact`/`read_string16` change their bounds enforcement or dispatch arms, the corresponding `pstring_bytes_consumed`/`string_bytes_consumed`/`string16_bytes_consumed` partners must change too. Each new pattern arm in `read_typed_value_with_pattern` (e.g., the `Value::Bytes` arm added in PR #233) needs a matching arm in `bytes_consumed_with_pattern` or the relative-offset anchor mis-advances silently. The rule has now caught three incidents:
+
+  1. PR #211 — pstring anchor poisoning (this doc)
+  2. PR #233 original — `string` `read_string_exact` introduction needed matching consume-side updates (see [`docs/solutions/logic-errors/magic-string-rule-matching-3-bug-fix-2026-04-25.md`](../logic-errors/magic-string-rule-matching-3-bug-fix-2026-04-25.md))
+  3. PR #233 follow-on — `Value::Bytes` arm in read path missing from consume path, anchor mis-advance on NUL-free ELF headers (see [`docs/solutions/design-patterns/multi-agent-review-surfaces-cross-cutting-consistency-gaps-2026-04-25.md`](../design-patterns/multi-agent-review-surfaces-cross-cutting-consistency-gaps-2026-04-25.md) Gap 2)
+
+  Each new variable-width string-family read function added must have a matching consume function; new pattern-handling arms must mirror across both. GOTCHAS S2.1 documents the per-variant update sites; this is the dual-helper extension of the same rule.
 
 ## Related Issues
 
