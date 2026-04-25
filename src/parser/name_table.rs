@@ -155,6 +155,7 @@ mod tests {
             children,
             level,
             strength_modifier: None,
+            value_transform: None,
         }
     }
 

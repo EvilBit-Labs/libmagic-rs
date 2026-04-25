@@ -32,7 +32,18 @@ pub const MAX_MAGIC_FILE_SIZE: u64 = 1024 * 1024 * 1024;
 /// exceed [`MAX_MAGIC_FILE_SIZE`].
 ///
 /// Returns a `ParseError` if metadata cannot be read, the file exceeds the
-/// size limit, or the file contents cannot be read / decoded as UTF-8.
+/// size limit, or the file contents cannot be read.
+///
+/// # Encoding
+///
+/// Magic files are parsed as byte streams (matching GNU `file`/libmagic
+/// behavior). Real-world magic files frequently contain non-UTF-8 bytes in
+/// comments and attribution lines (e.g., Latin-1 author names). Rather than
+/// rejecting such files, invalid UTF-8 sequences are replaced with U+FFFD
+/// via [`String::from_utf8_lossy`] and a warning is logged. ASCII rule
+/// syntax is preserved byte-for-byte; replacements only affect non-ASCII
+/// text which, in practice, appears almost exclusively inside comments
+/// that are stripped before tokenization.
 fn read_magic_file_bounded(path: &Path) -> Result<String, ParseError> {
     let metadata = std::fs::metadata(path).map_err(|e| {
         ParseError::IoError(std::io::Error::new(
@@ -53,7 +64,19 @@ fn read_magic_file_bounded(path: &Path) -> Result<String, ParseError> {
         ));
     }
 
-    std::fs::read_to_string(path).map_err(ParseError::from)
+    let bytes = std::fs::read(path).map_err(ParseError::from)?;
+
+    match String::from_utf8(bytes) {
+        Ok(s) => Ok(s),
+        Err(e) => {
+            warn!(
+                "Magic file '{}' contains non-UTF-8 bytes; they were replaced with U+FFFD. \
+                 Rule parsing proceeds, but replacements inside rule bodies may alter matching.",
+                path.display()
+            );
+            Ok(String::from_utf8_lossy(&e.into_bytes()).into_owned())
+        }
+    }
 }
 
 /// Loads and parses all magic files from a directory, merging them into a single rule set.
@@ -435,7 +458,10 @@ mod tests {
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
-        // Create a binary file (invalid UTF-8)
+        // Create a binary file (invalid UTF-8). Lossy conversion turns this
+        // into U+FFFD characters that the grammar parser cannot interpret as
+        // a rule; the directory loader treats that as a non-critical parse
+        // failure and skips the file.
         let binary_path = temp_dir.path().join("binary.dat");
         fs::write(&binary_path, [0xFF, 0xFE, 0xFF, 0xFE]).expect("Failed to write binary file");
 
@@ -443,14 +469,15 @@ mod tests {
         let valid_path = temp_dir.path().join("valid.magic");
         fs::write(&valid_path, "0 string \\x01\\x02 valid\n").expect("Failed to write valid file");
 
-        // Binary file should cause a critical error (invalid UTF-8)
-        let result = load_magic_directory(temp_dir.path());
+        let parsed = load_magic_directory(temp_dir.path())
+            .expect("Directory with a binary file alongside a valid file should still load");
 
-        // The function should fail when encountering binary files (critical I/O error)
-        assert!(
-            result.is_err(),
-            "Binary files should cause critical error due to invalid UTF-8"
+        assert_eq!(
+            parsed.rules.len(),
+            1,
+            "Only the valid magic file should contribute rules"
         );
+        assert_eq!(parsed.rules[0].message, "valid");
     }
 
     #[test]
@@ -688,6 +715,38 @@ mod tests {
             err_msg.contains(&MAX_MAGIC_FILE_SIZE.to_string()),
             "Error should mention the maximum allowed size, got: {err_msg}"
         );
+    }
+
+    #[test]
+    fn test_load_magic_file_tolerates_non_utf8_in_comment() {
+        // Regression: /usr/share/file/magic/filesystems on macOS contains a
+        // Latin-1 `ß` (0xdf) in a contributor attribution comment. Previously
+        // this was rejected by `fs::read_to_string` with an opaque "stream
+        // did not contain valid UTF-8" error. The loader must now tolerate
+        // non-UTF-8 bytes in comments (and anywhere else they appear) by
+        // lossily replacing them.
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let magic_path = temp_dir.path().join("with-latin1-comment.magic");
+
+        let mut bytes: Vec<u8> = Vec::new();
+        bytes.extend_from_slice(b"# From: Thomas Wei");
+        bytes.push(0xdf); // invalid UTF-8 (Latin-1 encoding of `ß`)
+        bytes.extend_from_slice(b"schuh <thomas@example.invalid>\n");
+        bytes.extend_from_slice(b"0 string \\x7fELF ELF executable\n");
+        fs::write(&magic_path, &bytes).expect("Failed to write magic file with non-UTF-8 byte");
+
+        let parsed = load_magic_file(&magic_path)
+            .expect("Magic file with non-UTF-8 bytes in a comment must still load");
+
+        assert_eq!(
+            parsed.rules.len(),
+            1,
+            "The ELF rule should be parsed; the comment is stripped"
+        );
+        assert_eq!(parsed.rules[0].message, "ELF executable");
     }
 
     #[test]

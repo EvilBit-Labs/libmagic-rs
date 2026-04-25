@@ -17,8 +17,11 @@ use nom::{
     sequence::preceded,
 };
 
+use log::warn;
+
 use crate::parser::ast::{
-    Endianness, MagicRule, MetaType, OffsetSpec, Operator, StrengthModifier, TypeKind, Value,
+    Endianness, IndirectAdjustmentOp, MagicRule, MetaType, OffsetSpec, Operator, StrengthModifier,
+    TypeKind, Value,
 };
 
 mod numbers;
@@ -33,6 +36,7 @@ use numbers::parse_decimal_number;
 use numbers::parse_hex_number;
 use type_suffix::{
     parse_attached_operator, parse_pstring_suffix, parse_regex_suffix, parse_search_suffix,
+    parse_value_transform,
 };
 #[cfg(test)]
 use value::{parse_escape_sequence, parse_hex_bytes, parse_numeric_value, parse_quoted_string};
@@ -98,42 +102,164 @@ fn pointer_specifier_to_type(spec: char) -> Option<(TypeKind, Endianness)> {
             },
             Endianness::Big,
         )),
+        // `i` and `I` are magic(5) "ID3 variable-byte int" pointer
+        // specifiers used in audio:308 for ID3 frame size decoding.
+        // We parse them so the magic file loads, but for now treat
+        // them as plain 32-bit longs with the corresponding endianness
+        // -- real ID3 7-bit-per-byte decoding is a follow-up. Tracked
+        // separately as a parsing-vs-semantics gap. The bodies match
+        // `l`/`L` exactly today; clippy::match_same_arms is allowed
+        // because the arms are intentionally distinct entry points
+        // that future ID3-decoding work will diverge.
+        #[allow(clippy::match_same_arms)]
+        'i' => Some((
+            TypeKind::Long {
+                endian: Endianness::Little,
+                signed: true,
+            },
+            Endianness::Little,
+        )),
+        #[allow(clippy::match_same_arms)]
+        'I' => Some((
+            TypeKind::Long {
+                endian: Endianness::Big,
+                signed: true,
+            },
+            Endianness::Big,
+        )),
         _ => None,
     }
 }
 
-/// Parse an indirect offset specification: `(base.type)` or `(base.type)+/-adj`
+/// Parse an indirect offset specification with optional arithmetic.
 ///
-/// Reads a pointer specifier after the dot, closes the parenthesized expression,
-/// then optionally parses `+N` or `-N` adjustment after the `)`.
+/// Accepts these forms:
+///
+/// - `(base.type)` — no adjustment
+/// - `(base.type+N)` / `(base.type-N)` — additive (canonical magic(5))
+/// - `(base.type*N)` / `(base.type/N)` / `(base.type%N)` — multiplicative
+/// - `(base.type&N)` / `(base.type|N)` / `(base.type^N)` — bitwise
+/// - `(base.type)+N` / `(base.type)-N` — additive outside the parens
+///   (backwards-compatible alternate form; only `+`/`-` are accepted here)
+///
+/// Only one adjustment form may be used per rule; combinations like
+/// `(19.b-1)+2` or `(0x200.s*2)+4` are not permitted. Subtraction is
+/// represented as [`IndirectAdjustmentOp::Add`] with a negative
+/// `adjustment`.
 fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
+    // Inside-paren adjustment supports the full magic(5) operator set.
+    // Returns `Some((op, value))` when an operator+operand was consumed.
+    //
+    // Operands may optionally be wrapped in their own parentheses, e.g.
+    // `(0x10.l+(-4))` is equivalent to `(0x10.l-4)`. GNU `file` magic
+    // files use this form when a sign character would otherwise be
+    // ambiguous with the operator (e.g., `+-4`); the parens make the
+    // grouping explicit.
+    fn parse_operand(input: &str) -> IResult<&str, i64> {
+        if let Some(rest) = input.strip_prefix('(') {
+            let (rest, n) = parse_number(rest)?;
+            let (rest, _) = char(')')(rest)?;
+            Ok((rest, n))
+        } else {
+            parse_number(input)
+        }
+    }
+    fn parse_inside_adjustment(input: &str) -> IResult<&str, Option<(IndirectAdjustmentOp, i64)>> {
+        // Subtraction is folded into Add with a negated operand so the
+        // evaluator does not need a dedicated Sub variant.
+        if let Some(rest) = input.strip_prefix('+') {
+            let (rest, n) = parse_operand(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Add, n))))
+        } else if input.starts_with('-') {
+            let (rest, n) = parse_number(input)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Add, n))))
+        } else if let Some(rest) = input.strip_prefix('*') {
+            let (rest, n) = parse_operand(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Mul, n))))
+        } else if let Some(rest) = input.strip_prefix('/') {
+            let (rest, n) = parse_operand(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Div, n))))
+        } else if let Some(rest) = input.strip_prefix('%') {
+            let (rest, n) = parse_operand(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Mod, n))))
+        } else if let Some(rest) = input.strip_prefix('&') {
+            let (rest, n) = parse_operand(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::And, n))))
+        } else if let Some(rest) = input.strip_prefix('|') {
+            let (rest, n) = parse_operand(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Or, n))))
+        } else if let Some(rest) = input.strip_prefix('^') {
+            let (rest, n) = parse_operand(rest)?;
+            Ok((rest, Some((IndirectAdjustmentOp::Xor, n))))
+        } else {
+            Ok((input, None))
+        }
+    }
+
+    // Outside-paren adjustment: only `+`/`-` are accepted (legacy form).
+    fn parse_outside_adjustment(input: &str) -> IResult<&str, Option<i64>> {
+        if let Some(rest) = input.strip_prefix('+') {
+            let (rest, n) = parse_number(rest)?;
+            Ok((rest, Some(n)))
+        } else if input.starts_with('-') {
+            let (rest, n) = parse_number(input)?;
+            Ok((rest, Some(n)))
+        } else {
+            Ok((input, None))
+        }
+    }
+
     let (input, _) = char('(')(input)?;
+
+    // magic(5) lets the indirect base itself be relative to the current
+    // anchor: `(&N.X)` means "read pointer at anchor + N". Detect the
+    // optional leading `&` and record the flag; the rest of the parser
+    // handles the numeric base offset uniformly.
+    let (input, base_relative) = if let Some(rest) = input.strip_prefix('&') {
+        (rest, true)
+    } else {
+        (input, false)
+    };
+
     let (input, base_offset) = parse_number(input)?;
-    let (input, _) = char('.')(input)?;
-    let (input, spec_char) = one_of("bBsSlLqQ")(input)?;
+    // magic(5) canonical separator is `.`. `/usr/share/file/magic/msdos`
+    // line 638 uses `,` -- a known typo that GNU `file` warns about
+    // but tolerates ("No current entry for continuation"). Accept
+    // either character so the magic file loads, but emit a warn! when
+    // the comma path is taken so users see the typo at default log
+    // levels (matching GNU `file`'s diagnostic posture).
+    let (input, sep) = one_of(".,").parse(input)?;
+    if sep == ',' {
+        warn!(
+            "Indirect offset uses ',' as separator (magic(5) requires '.'); \
+             accepting for GNU `file` typo-tolerance compatibility"
+        );
+    }
+    let (input, spec_char) = one_of("bBsSlLqQiI")(input)?;
 
     let (pointer_type, endian) = pointer_specifier_to_type(spec_char)
         .ok_or_else(|| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::OneOf)))?;
 
+    let (input, inside) = parse_inside_adjustment(input)?;
     let (input, _) = char(')')(input)?;
 
-    // Optional adjustment AFTER closing paren: (base.type)+N or (base.type)-N
-    // parse_number handles '-' but not '+', so consume '+' manually
-    let (input, adjustment) = if input.starts_with('+') {
-        let (input, _) = char('+')(input)?;
-        parse_number(input)?
-    } else if input.starts_with('-') {
-        parse_number(input)?
+    // Fall back to outside-paren adjustment if no inside form was present.
+    let (input, adjustment_op, adjustment) = if let Some((op, n)) = inside {
+        (input, op, n)
     } else {
-        (input, 0)
+        let (input, outside) = parse_outside_adjustment(input)?;
+        (input, IndirectAdjustmentOp::Add, outside.unwrap_or(0))
     };
 
     Ok((
         input,
         OffsetSpec::Indirect {
             base_offset,
+            base_relative,
             pointer_type,
             adjustment,
+            adjustment_op,
+            result_relative: false,
             endian,
         },
     ))
@@ -195,6 +321,24 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
         let (input, spec) = parse_indirect_offset(input)?;
         let (input, _) = multispace0(input)?;
         Ok((input, spec))
+    } else if let Some(rest) = input.strip_prefix('&')
+        && rest.starts_with('(')
+    {
+        // `&(...)`: relative wrapper around an indirect spec. Parse the
+        // inner indirect normally, then mark its result as relative so the
+        // evaluator adds it to the current anchor instead of treating it
+        // as an absolute file position. magic(5) uses this in rules like
+        // `&(&0.b+8)` to chain anchor-relative pointer reads.
+        let (rest, mut spec) = parse_indirect_offset(rest)?;
+        if let OffsetSpec::Indirect {
+            ref mut result_relative,
+            ..
+        } = spec
+        {
+            *result_relative = true;
+        }
+        let (rest, _) = multispace0(rest)?;
+        Ok((rest, spec))
     } else if let Some(rest) = input.strip_prefix('&') {
         // Relative offset: `&N`, `&+N`, or `&-N`. `parse_number` handles the
         // bare and `-`-prefixed cases natively; `+` is consumed manually
@@ -274,11 +418,17 @@ pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
                 (Operator::Equal, 1)
             }
         }
-        // Only "!=" is valid; bare "!" is an error. Express this as a
-        // match arm with a guard so clippy's `collapsible_match` lint is
-        // satisfied -- a guard-false fallthrough lands on the final `_`
-        // arm below, which returns the same parse error.
-        Some(b'!') if bytes.get(1).copied() == Some(b'=') => (Operator::NotEqual, 2),
+        // "!=" or bare "!" -- both map to NotEqual. magic(5) uses the bare
+        // form (e.g., `!0xb8c0078e` means "not equal to 0xb8c0078e"); the
+        // `!=` form is accepted as a convenience and matches operators in
+        // other parts of this parser.
+        Some(b'!') => {
+            if bytes.get(1).copied() == Some(b'=') {
+                (Operator::NotEqual, 2)
+            } else {
+                (Operator::NotEqual, 1)
+            }
+        }
         Some(b'<') => {
             // "<=", "<>", or bare "<"
             match bytes.get(1).copied() {
@@ -346,13 +496,45 @@ pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
 fn parse_name_or_use_meta<'a>(
     type_name: &str,
     input: &'a str,
-) -> IResult<&'a str, (TypeKind, Option<Operator>)> {
+) -> IResult<
+    &'a str,
+    (
+        TypeKind,
+        Option<Operator>,
+        Option<crate::parser::ast::ValueTransform>,
+    ),
+> {
     use nom::character::complete::space1;
 
     // Require at least one whitespace character between the keyword and
     // the identifier. `space1` rejects an empty gap, which enforces
     // "bare `name` / `use` with no identifier" as a parse error.
     let (input, _) = space1(input)?;
+
+    // magic(5) allows a `\^` prefix on a `use` identifier to mean "invoke
+    // the named subroutine but flip the endianness of every read inside
+    // it". We do not yet implement the endian flip semantically (tracked
+    // as issue #236), but the file must still load: consume the prefix
+    // and treat the rest of the identifier as a normal `use` reference.
+    // Emit a warn! so users see why their LE/BE detection paired with
+    // `use \^name` produces wrong metadata at default log levels.
+    let input = if type_name == "use" {
+        if let Some(rest) = input.strip_prefix("\\^") {
+            warn!(
+                "use directive with `\\^` prefix: endian-flip semantics \
+                 are not yet implemented (issue #236). Subroutine reads \
+                 will use their declared endianness; metadata fields may \
+                 be incorrect. Identifier: {:?}",
+                rest.split_whitespace().next().unwrap_or("")
+            );
+            rest
+        } else {
+            input
+        }
+    } else {
+        input
+    };
+
     let (after_id, id) =
         take_while(|c: char| c.is_alphanumeric() || c == '_' || c == '-').parse(input)?;
     if id.is_empty() {
@@ -376,22 +558,31 @@ fn parse_name_or_use_meta<'a>(
         )));
     }
 
-    // Consume horizontal whitespace after the identifier; the remaining
-    // text on this line must then be empty or terminated by a newline.
-    // `parse_text_magic_file` splits input into lines before parsing,
-    // so "empty" means no trailing content at all. Anything else
-    // (like `part 2`) is a split identifier and must fail.
+    // Consume horizontal whitespace after the identifier. Real-world
+    // magic files sometimes append a descriptive message after a
+    // `name`/`use` directive (e.g. `0 name xbase-prf dBase Printer
+    // Form`). magic(5) does not officially document this, but GNU
+    // `file` tolerates it -- the trailing text is silently ignored
+    // because `name`/`use` rules don't have a message slot in the
+    // softmagic struct. We do the same: consume horizontal whitespace
+    // and a single optional trailing token, stopping at end-of-line.
+    // We deliberately do NOT reject embedded whitespace inside the
+    // identifier itself (which would be a real malformed rule like
+    // `part 2`); that's enforced earlier when `take_while` truncates
+    // the identifier on the first non-id character.
     let mut tail = after_id;
     while let Some(rest) = tail.strip_prefix(' ').or_else(|| tail.strip_prefix('\t')) {
         tail = rest;
     }
+    // Skip any trailing text (descriptive label) up to end-of-line.
     if let Some(next_char) = tail.chars().next()
         && !matches!(next_char, '\n' | '\r')
     {
-        return Err(nom::Err::Error(NomError::new(
-            tail,
-            nom::error::ErrorKind::AlphaNumeric,
-        )));
+        // Drop the rest of the line silently. magic(5)'s `name`/`use`
+        // directives have no message slot, so anything after the
+        // identifier is informational only.
+        let line_end = tail.find(['\n', '\r']).unwrap_or(tail.len());
+        tail = &tail[line_end..];
     }
 
     let meta = if type_name == "name" {
@@ -400,13 +591,15 @@ fn parse_name_or_use_meta<'a>(
         MetaType::Use(id.to_string())
     };
     let (input, _) = multispace0(tail)?;
-    Ok((input, (TypeKind::Meta(meta), None)))
+    Ok((input, (TypeKind::Meta(meta), None, None)))
 }
 
 /// Parse a type specification with an optional attached bitwise-AND mask operator
 /// (e.g., `lelong&0xf0000000`).
 ///
-/// Returns the `TypeKind` and an optional `Operator`.
+/// Returns the `TypeKind`, an optional attached `Operator` (`&MASK`), and an
+/// optional pre-comparison `ValueTransform` (`+N`, `-N`, `*N`, `/N`, `%N`,
+/// `|N`, `^N`).
 ///
 /// # Examples
 ///
@@ -414,19 +607,34 @@ fn parse_name_or_use_meta<'a>(
 /// use libmagic_rs::parser::grammar::parse_type_and_operator;
 /// use libmagic_rs::parser::ast::{TypeKind, Operator, Endianness};
 ///
-/// // Type without operator
-/// let (_, (kind, op)) = parse_type_and_operator("lelong").unwrap();
+/// // Type without operator or transform
+/// let (_, (kind, op, transform)) = parse_type_and_operator("lelong").unwrap();
 /// assert_eq!(kind, TypeKind::Long { endian: Endianness::Little, signed: true });
 /// assert_eq!(op, None);
+/// assert_eq!(transform, None);
 ///
 /// // Type with mask operator
-/// let (_, (kind, op)) = parse_type_and_operator("lelong&0xf0000000").unwrap();
+/// let (_, (kind, op, _)) = parse_type_and_operator("lelong&0xf0000000").unwrap();
 /// assert!(matches!(op, Some(Operator::BitwiseAndMask(_))));
+///
+/// // Type with arithmetic transform
+/// let (_, (kind, op, transform)) = parse_type_and_operator("lelong+1").unwrap();
+/// assert_eq!(op, None);
+/// assert!(transform.is_some());
 /// ```
 ///
 /// # Errors
 /// Returns a nom parsing error if the input doesn't match the expected format
-pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<Operator>)> {
+pub fn parse_type_and_operator(
+    input: &str,
+) -> IResult<
+    &str,
+    (
+        TypeKind,
+        Option<Operator>,
+        Option<crate::parser::ast::ValueTransform>,
+    ),
+> {
     use crate::parser::ast::{PStringLengthWidth, RegexCount, RegexFlags};
 
     let (input, _) = multispace0(input)?;
@@ -481,9 +689,60 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
         input = rest;
     }
 
+    // Handle string flag suffixes (e.g., `string/w`, `string/cW`,
+    // `string/Bb`). magic(5) defines: `/W` compact-whitespace, `/w`
+    // whitespace-optional, `/c`/`/C` case-insensitive lower/upper,
+    // `/t`/`/T` force-text/binary, `/B`/`/b` blank-handling. Real-world
+    // magic files use these heavily (the system filesystems database
+    // uses `string/w` for ExFAT detection). Full semantic support is
+    // not yet implemented; for now the suffix is parsed and discarded
+    // so the file loads, leaving the comparison to behave as a plain
+    // `string` match. Tracked separately from this branch.
+    if type_name == "string"
+        && let Some(suffix_rest) = input.strip_prefix('/')
+    {
+        let mut consumed = 0usize;
+        for ch in suffix_rest.chars() {
+            if matches!(ch, 'W' | 'w' | 'c' | 'C' | 't' | 'T' | 'B' | 'b') {
+                consumed += ch.len_utf8();
+            } else {
+                break;
+            }
+        }
+        if consumed > 0 {
+            // Surface the parse-and-drop: the user's `/c`/`/w`/etc.
+            // flag was consumed but the comparison still uses byte-exact
+            // semantics. Without this warning, users debugging "why
+            // doesn't my `string/c FOO` match `foo`?" have no breadcrumb
+            // pointing at the implementation gap (issue #234). Logged
+            // once per rule, not once per char.
+            warn!(
+                "string flag suffix `/{flags}` parsed but not yet evaluated \
+                 (issue #234); comparison uses byte-exact semantics regardless of flags",
+                flags = &suffix_rest[..consumed]
+            );
+            input = &suffix_rest[consumed..];
+        } else {
+            // `/` not followed by a known flag letter -- restore the
+            // `/` for the value parser to handle (or fail meaningfully
+            // on an unrecognised suffix).
+            // No-op: input was not advanced past the `/`.
+        }
+    }
+
+    // Check for a pre-comparison value transform (e.g., `lelong+1` or
+    // `ulequad/1073741824`). magic(5) supports `+`, `-`, `*`, `/`, `%`,
+    // `|`, and `^` between the type keyword and the comparison value;
+    // the transform runs on the read value before the comparison
+    // operator and before printf-style format substitution.
+    let (input, value_transform) = parse_value_transform(input)?;
+
     // Check for an attached bitwise operator with optional mask (e.g.,
     // `&0xf0000000` or bare `&`). See `type_suffix::parse_attached_operator`
-    // for the recognized forms and their error behavior.
+    // for the recognized forms and their error behavior. magic(5) does
+    // not allow combining `&MASK` with another value transform on the
+    // same rule, so the parsers are sequential and either-or in
+    // practice.
     let (input, attached_op) = parse_attached_operator(input)?;
 
     let (input, _) = multispace0(input)?;
@@ -539,7 +798,7 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
         }
     };
 
-    Ok((input, (type_kind, attached_op)))
+    Ok((input, (type_kind, attached_op, value_transform)))
 }
 
 /// Parse a type specification (byte, short, long, quad, string, etc.)
@@ -574,7 +833,7 @@ pub fn parse_type_and_operator(input: &str) -> IResult<&str, (TypeKind, Option<O
 /// Returns a nom parsing error if the input doesn't match any known type
 #[allow(dead_code)] // Standalone helper exercised by grammar unit tests.
 pub fn parse_type(input: &str) -> IResult<&str, TypeKind> {
-    let (input, (type_kind, _)) = parse_type_and_operator(input)?;
+    let (input, (type_kind, _, _)) = parse_type_and_operator(input)?;
     Ok((input, type_kind))
 }
 
@@ -686,24 +945,35 @@ pub fn parse_strength_directive(input: &str) -> IResult<&str, StrengthModifier> 
     let (input, _) = multispace0(input)?;
 
     // Parse the operator: +, -, *, /, = or bare number (implies =).
+    // Optional whitespace is permitted between the operator character and
+    // the operand to match GNU `file` magic(5) parsers, which accept forms
+    // like `!:strength / 2` in real-world magic files (e.g., the Minix
+    // entries in /usr/share/file/magic/filesystems).
+    //
     // Use `preceded` + `Parser::map` (nom 8 idiom) rather than
     // `map(pair(..), |(_, n)| ..)` so the throwaway `_` goes away and
     // the composition matches the rest of this file's `.parse(input)?`
-    // style.
+    // style. Tuples implement `Parser` in nom 8 and are used as the first
+    // element of `preceded` to consume the operator char plus any trailing
+    // whitespace.
     let (input, modifier) = alt((
         // +N -> Add
-        preceded(char('+'), parse_number).map(|n| StrengthModifier::Add(clamp_to_i32(n))),
+        preceded((char('+'), multispace0), parse_number)
+            .map(|n| StrengthModifier::Add(clamp_to_i32(n))),
         // -N -> Subtract (parse_number handles negative directly; we
         // need parse_decimal_number after the explicit `-` consumer
         // so the sign is applied exactly once).
-        preceded(char('-'), parse_decimal_number)
+        preceded((char('-'), multispace0), parse_decimal_number)
             .map(|n| StrengthModifier::Subtract(clamp_to_i32(n))),
         // *N -> Multiply
-        preceded(char('*'), parse_number).map(|n| StrengthModifier::Multiply(clamp_to_i32(n))),
+        preceded((char('*'), multispace0), parse_number)
+            .map(|n| StrengthModifier::Multiply(clamp_to_i32(n))),
         // /N -> Divide
-        preceded(char('/'), parse_number).map(|n| StrengthModifier::Divide(clamp_to_i32(n))),
+        preceded((char('/'), multispace0), parse_number)
+            .map(|n| StrengthModifier::Divide(clamp_to_i32(n))),
         // =N -> Set
-        preceded(char('='), parse_number).map(|n| StrengthModifier::Set(clamp_to_i32(n))),
+        preceded((char('='), multispace0), parse_number)
+            .map(|n| StrengthModifier::Set(clamp_to_i32(n))),
         // Bare number -> Set
         parse_number.map(|n| StrengthModifier::Set(clamp_to_i32(n))),
     ))
@@ -791,8 +1061,9 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
     // Parse the offset with nesting level
     let (input, (level, offset)) = parse_rule_offset(input)?;
 
-    // Parse the type and any attached operator
-    let (input, (typ, attached_op)) = parse_type_and_operator(input)?;
+    // Parse the type, any attached operator (`&MASK`), and any
+    // pre-comparison value transform (`+N`/`-N`/`*N`/`/N`/`%N`/`|N`/`^N`).
+    let (input, (typ, attached_op, value_transform)) = parse_type_and_operator(input)?;
 
     // Meta-type directives (default, clear, name, use, indirect, offset)
     // conceptually have no operator/value operand, but magic(5) source
@@ -832,13 +1103,45 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
             children: vec![],
             level,
             strength_modifier: None,
+            value_transform: None,
         };
         return Ok((input, rule));
     }
 
     // Try to parse a separate operator (optional - use attached operator if present)
     let (input, separate_op) = opt(parse_operator).parse(input)?;
-    let op = attached_op.or(separate_op).unwrap_or(Operator::Equal);
+
+    // When the type carried `&MASK` (encoded as `BitwiseAndMask`) AND a
+    // separate operator (`x`, `>`, `!=`, ...) was parsed, magic(5)
+    // semantics require treating the mask as a pre-comparison transform
+    // rather than a fused mask-and-equal operator. Promote the mask to
+    // a `ValueTransform { BitAnd, mask }` so the read value is masked
+    // before the comparison runs and before printf-style format
+    // substitution sees the value. The legacy `&MASK VALUE` form (no
+    // separate op) keeps using `Operator::BitwiseAndMask` for backwards
+    // compatibility with existing tests/built-in rules.
+    let (op, value_transform) = match (attached_op, separate_op) {
+        (Some(Operator::BitwiseAndMask(mask)), Some(separate)) => {
+            // Mixing `&MASK` with the existing `+N`/`-N` value-transform
+            // syntax on the same rule is not allowed: only one transform
+            // per rule. Reject at parse time with a clean error.
+            if value_transform.is_some() {
+                return Err(nom::Err::Error(NomError::new(
+                    input,
+                    nom::error::ErrorKind::Tag,
+                )));
+            }
+            #[allow(clippy::cast_possible_wrap)]
+            let promoted = crate::parser::ast::ValueTransform {
+                op: crate::parser::ast::ValueTransformOp::BitAnd,
+                operand: mask as i64,
+            };
+            (separate, Some(promoted))
+        }
+        (Some(attached), _) => (attached, value_transform),
+        (None, Some(separate)) => (separate, value_transform),
+        (None, None) => (Operator::Equal, value_transform),
+    };
 
     // For AnyValue (`x`), no operand is needed -- treat remaining text as message.
     // For string-family types, fall back to a bare (unquoted) single-token
@@ -850,6 +1153,7 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
     let is_string_family_type = matches!(
         typ,
         TypeKind::String { .. }
+            | TypeKind::String16 { .. }
             | TypeKind::PString { .. }
             | TypeKind::Regex { .. }
             | TypeKind::Search { .. }
@@ -881,6 +1185,7 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
         children: vec![], // Children will be added during hierarchical parsing
         level,
         strength_modifier: None, // Will be set during directive parsing
+        value_transform,
     };
 
     Ok((input, rule))
@@ -891,23 +1196,94 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
 /// Used only as a fallback for string-family types (`string`, `pstring`,
 /// `regex`, `search`) when the strict [`parse_value`] alternatives all
 /// fail. Consumes leading whitespace, then reads a run of non-whitespace
-/// characters as the literal value. This supports the magic(5) syntax
-/// `string TEST` where the value is not surrounded by quotes.
+/// characters as the literal value, **interpreting magic(5) escape
+/// sequences** along the way: `\0`, `\n`, `\r`, `\t`, `\\`, `\"`, `\'`,
+/// `\NNN` (3-digit octal), and `\xNN` (hex). This supports magic-file
+/// rules like `0 string PNCIHISK\0 ...` where the trailing `\0` denotes
+/// a literal NUL byte that must be present in the file.
+///
+/// Without escape interpretation, the comparison value stored in the
+/// AST is the literal six-byte string `\` + `0` instead of `\x00`, and
+/// the rule never matches against a real on-disk byte sequence ending
+/// in NUL. This was a regression that prevented even simple top-level
+/// rules from matching when loaded from a magic file.
 ///
 /// # Errors
 /// Returns a nom parsing error if the input contains no non-whitespace
 /// token (e.g. it is empty or consists entirely of whitespace).
 fn parse_bare_string_value(input: &str) -> IResult<&str, Value> {
     let (input, _) = multispace0(input)?;
-    let (input, token) =
-        take_while(|c: char| !c.is_whitespace() && c != '\n' && c != '\r').parse(input)?;
-    if token.is_empty() {
+    if input.is_empty() || input.starts_with(|c: char| c.is_whitespace() || c == '\n' || c == '\r')
+    {
         return Err(nom::Err::Error(NomError::new(
             input,
             nom::error::ErrorKind::TakeWhile1,
         )));
     }
-    Ok((input, Value::String(token.to_string())))
+
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut remaining = input;
+    while let Some(ch) = remaining.chars().next() {
+        if ch.is_whitespace() || ch == '\n' || ch == '\r' {
+            break;
+        }
+        if ch == '\\' {
+            // Try a hex byte (`\xNN`) first since `parse_escape_sequence`
+            // doesn't recognise it.
+            if let Ok((rest, b)) = value::parse_hex_byte_with_prefix(remaining) {
+                bytes.push(b);
+                remaining = rest;
+                continue;
+            }
+            if let Ok((rest, esc)) = value::parse_escape_sequence(remaining) {
+                // `parse_escape_sequence` returns a `char`, but the
+                // escape table covers single-byte values (NUL, control
+                // chars, octal `\NNN` clamped to a `u8`). Cast back to
+                // `u8` so the buffer stays byte-accurate when the
+                // value is later compared against file bytes.
+                let code = esc as u32;
+                if let Ok(byte) = u8::try_from(code) {
+                    bytes.push(byte);
+                } else {
+                    // Escape produced a non-byte char (shouldn't happen
+                    // with the current escape grammar, but guard
+                    // anyway). Encode as UTF-8 so we never lose data
+                    // silently.
+                    let mut buf = [0u8; 4];
+                    bytes.extend_from_slice(esc.encode_utf8(&mut buf).as_bytes());
+                }
+                remaining = rest;
+                continue;
+            }
+            // Lone `\` not followed by a recognised escape -- treat as
+            // a literal backslash and continue. This matches GNU `file`
+            // tolerance for malformed escapes.
+            bytes.push(b'\\');
+            remaining = &remaining[1..];
+            continue;
+        }
+        // Plain character: encode as UTF-8 (ASCII is one byte; non-ASCII
+        // is 2-4 bytes which matches how the file would store the same
+        // characters in a UTF-8 magic file).
+        let mut buf = [0u8; 4];
+        let utf8 = ch.encode_utf8(&mut buf).as_bytes();
+        bytes.extend_from_slice(utf8);
+        remaining = &remaining[ch.len_utf8()..];
+    }
+
+    if bytes.is_empty() {
+        return Err(nom::Err::Error(NomError::new(
+            input,
+            nom::error::ErrorKind::TakeWhile1,
+        )));
+    }
+
+    // The downstream comparison is `Value::String` against the buffer's
+    // bytes. Use `from_utf8_lossy` so non-UTF-8 byte sequences (like
+    // `\xff`) round-trip as best they can; the buffer-side read uses
+    // the same lossy conversion, so equality still holds.
+    let value = String::from_utf8_lossy(&bytes).into_owned();
+    Ok((remaining, Value::String(value)))
 }
 
 /// Parse a comment line (starts with #)

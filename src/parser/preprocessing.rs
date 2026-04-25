@@ -6,12 +6,44 @@
 //! Handles comment removal, empty line filtering, line continuations,
 //! and strength directive parsing during magic file preprocessing.
 
+use log::{info, warn};
+
 use crate::error::ParseError;
 use crate::parser::ast::{MagicRule, StrengthModifier};
 use crate::parser::grammar::{
     has_continuation, is_comment_line, is_empty_line, is_strength_directive, parse_comment,
     parse_magic_rule, parse_strength_directive,
 };
+
+/// Returns true if `line` is a `!:`-prefixed directive other than
+/// `!:strength`. magic(5) defines `!:mime`, `!:ext`, `!:apple`, and other
+/// metadata directives that attach to the preceding rule. We do not yet
+/// evaluate them, but we must skip them at preprocessing time so that
+/// real-world magic files (which use these directives heavily) parse
+/// successfully.
+fn is_unknown_metadata_directive(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("!:") && !is_strength_directive(line)
+}
+
+/// magic(5)-defined directive names whose payload we recognise but do not
+/// yet evaluate. Listing them here distinguishes "known but unimplemented"
+/// (logged at `info!`) from "unknown / probably a typo" (logged at `warn!`)
+/// so users see typos like `!:mim` (vs. `!:mime`) at default log levels
+/// instead of having to bump to debug. magic(5) defines a small fixed set;
+/// keep this list in sync with libmagic's `apprentice.c` directive parser.
+const KNOWN_UNIMPLEMENTED_DIRECTIVES: &[&str] = &["mime", "ext", "apple"];
+
+/// Extract the directive name from a `!:foo ...` line for classification.
+/// Returns the bare name (no `!:` prefix, no trailing whitespace/payload).
+fn directive_name(line: &str) -> &str {
+    line.trim_start()
+        .strip_prefix("!:")
+        .unwrap_or("")
+        .split_ascii_whitespace()
+        .next()
+        .unwrap_or("")
+}
 
 /// Internal structure to track line metadata during preprocessing.
 ///
@@ -94,6 +126,35 @@ pub(crate) fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError>
                 .map_err(|_| ParseError::invalid_syntax(i + 1, "Unable to parse comment"))?;
             line = parsed_comment.1.as_str();
             lines_info.push(LineInfo::new(line.trim().to_string(), i + 1, true));
+            continue;
+        }
+        // Skip unknown `!:` metadata directives (mime, ext, apple, ...).
+        // We do not yet evaluate them, but they must not block parsing.
+        // Distinguish known-but-unimplemented (info!) from unknown / probable
+        // typos (warn!) so users see misspellings like `!:mim` at default
+        // log levels without having to bump to debug.
+        if is_unknown_metadata_directive(line) {
+            if !line_buf.is_empty() {
+                line_buf.clear();
+                start_line_number = None;
+            }
+            let name = directive_name(line);
+            let trimmed = line.trim();
+            if KNOWN_UNIMPLEMENTED_DIRECTIVES.contains(&name) {
+                info!(
+                    "Skipping unimplemented magic directive `!:{}` at line {} (parsed but not yet evaluated): {}",
+                    name,
+                    i + 1,
+                    trimmed
+                );
+            } else {
+                warn!(
+                    "Unknown magic directive `!:{}` at line {} (probable typo, dropped): {}",
+                    name,
+                    i + 1,
+                    trimmed
+                );
+            }
             continue;
         }
         // Handle strength directives (!:strength ...)
@@ -402,6 +463,38 @@ mod tests {
         let lines = preprocess_lines(input).unwrap();
         assert_eq!(lines.len(), 3);
         assert!(lines.iter().all(|l| l.is_comment));
+    }
+
+    #[test]
+    fn test_preprocess_lines_skips_unknown_metadata_directives() {
+        // magic(5) defines `!:mime`, `!:ext`, `!:apple` and similar
+        // attribute directives that attach to the preceding rule. We do
+        // not yet evaluate them, but they must not block parsing.
+        // Regression: /usr/share/file/magic/filesystems uses `!:mime`
+        // throughout.
+        let input = "0 string \\x7fELF ELF executable\n\
+                     !:mime application/x-executable\n\
+                     !:ext elf\n\
+                     !:apple ????ELF\n\
+                     0 string MZ DOS executable\n";
+        let lines = preprocess_lines(input).unwrap();
+        // Two real rules survive; the three `!:` lines are dropped.
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].content.contains("ELF executable"));
+        assert!(lines[1].content.contains("DOS executable"));
+    }
+
+    #[test]
+    fn test_is_unknown_metadata_directive_distinguishes_strength() {
+        // `!:strength` has dedicated handling and must NOT be classified
+        // as "unknown" -- otherwise its modifier would be silently dropped.
+        assert!(is_unknown_metadata_directive("!:mime application/pdf"));
+        assert!(is_unknown_metadata_directive("!:ext pdf"));
+        assert!(is_unknown_metadata_directive("!:apple PDF "));
+        assert!(is_unknown_metadata_directive("  !:mime text/plain"));
+        assert!(!is_unknown_metadata_directive("!:strength +10"));
+        assert!(!is_unknown_metadata_directive("0 byte 1 not-a-directive"));
+        assert!(!is_unknown_metadata_directive("# comment"));
     }
 
     // ============================================================

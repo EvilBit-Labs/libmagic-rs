@@ -102,20 +102,32 @@ fn test_parse_magic_rule_meta_name_use_reject_malformed_identifiers() {
         );
     }
 
-    // Split identifiers with embedded whitespace (`part 2`) must also fail:
-    // the phase requires that `name`/`use` identifiers are terminated by
-    // whitespace followed only by EOL/EOF, with no trailing content.
-    let split_cases = [
-        "0 name part 2",
-        "0 use part2 extra",
-        "0 name my id",
-        "0 use foo bar",
+    // Identifiers followed by whitespace + descriptive text are accepted:
+    // real-world magic files use this for human-readable annotations
+    // (e.g. `/usr/share/file/magic/database` line 588 has
+    // `0 name xbase-prf dBase Printer Form`, where "dBase Printer Form"
+    // is a comment, not part of the identifier). The identifier ends at
+    // the first non-id character (space, tab) and any trailing text on
+    // the same line is discarded. Verify that this dropping happens
+    // cleanly: the parsed identifier is just the first id-token.
+    let trailing_text_cases = [
+        ("0 name part 2", "part"),
+        ("0 use part2 extra", "part2"),
+        ("0 name my id", "my"),
+        ("0 use foo bar", "foo"),
     ];
-    for input in split_cases {
-        assert!(
-            parse_magic_rule(input).is_err(),
-            "split identifier must fail: {input:?}"
-        );
+    for (input, expected_id) in trailing_text_cases {
+        let (_, rule) = parse_magic_rule(input)
+            .unwrap_or_else(|e| panic!("trailing text after id should parse {input:?}: {e:?}"));
+        match &rule.typ {
+            TypeKind::Meta(MetaType::Name(id) | MetaType::Use(id)) => {
+                assert_eq!(
+                    id, expected_id,
+                    "identifier should stop at first whitespace for {input:?}"
+                );
+            }
+            other => panic!("expected Name/Use meta, got {other:?}"),
+        }
     }
 
     // Sanity check: an identifier followed only by trailing whitespace still parses.

@@ -38,6 +38,7 @@ fn test_evaluate_single_rule_relative_resolves_against_anchor_zero() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     // Anchor=0 + delta 3 -> reads at absolute offset 3.
@@ -77,6 +78,7 @@ fn test_evaluate_rules_anchor_near_saturation_skips_relative_child_gracefully() 
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let matches = evaluate_rules(&[rule_zero], &buffer, &mut ctx).unwrap();
     assert!(
@@ -95,6 +97,7 @@ fn test_evaluate_rules_anchor_near_saturation_skips_relative_child_gracefully() 
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let matches = evaluate_rules(&[rule_pos], &buffer, &mut ctx).unwrap();
     assert!(
@@ -113,6 +116,7 @@ fn test_evaluate_rules_anchor_near_saturation_skips_relative_child_gracefully() 
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let matches = evaluate_rules(&[rule_neg], &buffer, &mut ctx).unwrap();
     assert!(
@@ -140,6 +144,7 @@ fn test_evaluate_single_rule_relative_negative_with_zero_anchor_errors() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let buffer = &[0xAA, 0xBB];
     let err = evaluate_single_rule_legacy(&rule, buffer).unwrap_err();
@@ -164,6 +169,7 @@ fn test_evaluate_single_rule_relative_zero_resolves_to_buffer_start() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0xAA, 0xBB];
@@ -182,6 +188,7 @@ fn test_evaluate_single_rule_byte_equal_match() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
@@ -200,6 +207,7 @@ fn test_evaluate_single_rule_byte_equal_no_match() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x50, 0x4b, 0x03, 0x04]; // ZIP magic bytes
@@ -218,6 +226,7 @@ fn test_evaluate_single_rule_byte_not_equal_match() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -236,6 +245,7 @@ fn test_evaluate_single_rule_byte_not_equal_no_match() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -254,6 +264,7 @@ fn test_evaluate_single_rule_byte_bitwise_and_match() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0xff, 0x45, 0x4c, 0x46]; // 0xff has high bit set
@@ -272,6 +283,7 @@ fn test_evaluate_single_rule_byte_bitwise_and_no_match() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46]; // 0x7f has high bit clear
@@ -293,6 +305,7 @@ fn test_evaluate_single_rule_short_little_endian() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x34, 0x12, 0x56, 0x78]; // 0x1234 in little-endian
@@ -314,6 +327,7 @@ fn test_evaluate_single_rule_short_big_endian() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x12, 0x34, 0x56, 0x78]; // 0x1234 in big-endian
@@ -335,6 +349,7 @@ fn test_evaluate_single_rule_short_signed_positive() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0xff, 0x7f, 0x00, 0x00]; // 0x7fff in little-endian
@@ -356,6 +371,7 @@ fn test_evaluate_single_rule_short_signed_negative() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0xff, 0xff, 0x00, 0x00]; // 0xffff in little-endian
@@ -377,6 +393,7 @@ fn test_evaluate_single_rule_long_little_endian() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x78, 0x56, 0x34, 0x12, 0x00]; // 0x12345678 in little-endian
@@ -398,6 +415,7 @@ fn test_evaluate_single_rule_long_big_endian() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x12, 0x34, 0x56, 0x78, 0x00]; // 0x12345678 in big-endian
@@ -419,6 +437,7 @@ fn test_evaluate_single_rule_long_signed_positive() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0xff, 0xff, 0xff, 0x7f, 0x00]; // 0x7fffffff in little-endian
@@ -440,6 +459,7 @@ fn test_evaluate_single_rule_long_signed_negative() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0xff, 0xff, 0xff, 0xff, 0x00]; // 0xffffffff in little-endian
@@ -458,6 +478,7 @@ fn test_evaluate_single_rule_different_offsets() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -476,6 +497,7 @@ fn test_evaluate_single_rule_negative_offset() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -494,6 +516,7 @@ fn test_evaluate_single_rule_from_end_offset() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -512,6 +535,7 @@ fn test_evaluate_single_rule_offset_out_of_bounds() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -541,6 +565,7 @@ fn test_evaluate_single_rule_short_insufficient_bytes() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -570,6 +595,7 @@ fn test_evaluate_single_rule_long_insufficient_bytes() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -596,6 +622,7 @@ fn test_evaluate_single_rule_empty_buffer() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[];
@@ -622,6 +649,7 @@ fn test_evaluate_single_rule_string_type_supported() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = b"test\x00 data";
@@ -639,6 +667,7 @@ fn test_evaluate_single_rule_string_type_supported() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let result = evaluate_single_rule_legacy(&rule_no_match, buffer);
@@ -658,6 +687,7 @@ fn test_evaluate_single_rule_cross_type_comparison() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[42];
@@ -679,6 +709,7 @@ fn test_evaluate_single_rule_bitwise_and_with_shorts() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x34, 0x12];
@@ -700,6 +731,7 @@ fn test_evaluate_single_rule_bitwise_and_with_longs() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x12, 0x34, 0x56, 0x78];
@@ -721,6 +753,7 @@ fn test_evaluate_single_rule_comprehensive_elf_check() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01];
@@ -746,6 +779,7 @@ fn test_evaluate_single_rule_native_endianness() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x01, 0x02];
@@ -766,6 +800,7 @@ fn test_evaluate_single_rule_all_operators() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     assert!(
         evaluate_single_rule_legacy(&equal_rule, buffer)
@@ -782,6 +817,7 @@ fn test_evaluate_single_rule_all_operators() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     assert!(
         evaluate_single_rule_legacy(&not_equal_rule, buffer)
@@ -798,6 +834,7 @@ fn test_evaluate_single_rule_all_operators() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     assert!(
         evaluate_single_rule_legacy(&bitwise_and_rule, buffer)
@@ -819,6 +856,7 @@ fn test_evaluate_single_rule_comparison_operators() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     assert!(
         evaluate_single_rule_legacy(&less_than_rule, buffer)
@@ -835,6 +873,7 @@ fn test_evaluate_single_rule_comparison_operators() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     assert!(
         evaluate_single_rule_legacy(&greater_than_rule, buffer)
@@ -851,6 +890,7 @@ fn test_evaluate_single_rule_comparison_operators() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     assert!(
         evaluate_single_rule_legacy(&less_equal_rule, buffer)
@@ -867,6 +907,7 @@ fn test_evaluate_single_rule_comparison_operators() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     assert!(
         evaluate_single_rule_legacy(&greater_equal_rule, buffer)
@@ -888,6 +929,7 @@ fn test_evaluate_comparison_with_signed_byte() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     assert!(
         evaluate_single_rule_legacy(&signed_rule, buffer)
@@ -904,6 +946,7 @@ fn test_evaluate_comparison_with_signed_byte() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     assert!(
         evaluate_single_rule_legacy(&unsigned_rule, buffer)
@@ -937,6 +980,7 @@ fn test_evaluate_comparison_operators_negative_cases() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         };
         let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
         assert_eq!(
@@ -961,6 +1005,7 @@ fn test_evaluate_single_rule_edge_case_values() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let max_buffer = &[0xff, 0xff, 0xff, 0xff];
@@ -979,6 +1024,7 @@ fn test_evaluate_single_rule_edge_case_values() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let min_buffer = &[0x00, 0x00, 0x00, 0x80];
@@ -997,6 +1043,7 @@ fn test_evaluate_single_rule_various_buffer_sizes() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let single_buffer = &[0xaa];
@@ -1014,6 +1061,7 @@ fn test_evaluate_single_rule_various_buffer_sizes() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let result = evaluate_single_rule_legacy(&large_rule, &large_buffer).unwrap();
@@ -1042,6 +1090,7 @@ fn test_evaluate_rules_single_matching_rule() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rules = vec![rule];
@@ -1068,6 +1117,7 @@ fn test_evaluate_rules_single_non_matching_rule() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rules = vec![rule];
@@ -1090,6 +1140,7 @@ fn test_evaluate_rules_multiple_rules_stop_at_first() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rule2 = MagicRule {
@@ -1101,6 +1152,7 @@ fn test_evaluate_rules_multiple_rules_stop_at_first() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rule_list = vec![rule1, rule2];
@@ -1127,6 +1179,7 @@ fn test_evaluate_rules_multiple_rules_find_all() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rule2 = MagicRule {
@@ -1138,6 +1191,7 @@ fn test_evaluate_rules_multiple_rules_find_all() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rule_set = vec![rule1, rule2];
@@ -1165,6 +1219,7 @@ fn test_evaluate_rules_hierarchical_parent_child() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let parent_rule = MagicRule {
@@ -1176,6 +1231,7 @@ fn test_evaluate_rules_hierarchical_parent_child() {
         children: vec![child_rule],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rules = vec![parent_rule];
@@ -1202,6 +1258,7 @@ fn test_evaluate_rules_hierarchical_parent_no_match() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let parent_rule = MagicRule {
@@ -1213,6 +1270,7 @@ fn test_evaluate_rules_hierarchical_parent_no_match() {
         children: vec![child_rule],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rules = vec![parent_rule];
@@ -1235,6 +1293,7 @@ fn test_evaluate_rules_hierarchical_parent_match_child_no_match() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let parent_rule = MagicRule {
@@ -1246,6 +1305,7 @@ fn test_evaluate_rules_hierarchical_parent_match_child_no_match() {
         children: vec![child_rule],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rules = vec![parent_rule];
@@ -1270,6 +1330,7 @@ fn test_evaluate_rules_deep_hierarchy() {
         children: vec![],
         level: 2,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let child_rule = MagicRule {
@@ -1281,6 +1342,7 @@ fn test_evaluate_rules_deep_hierarchy() {
         children: vec![grandchild_rule],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let parent_rule = MagicRule {
@@ -1292,6 +1354,7 @@ fn test_evaluate_rules_deep_hierarchy() {
         children: vec![child_rule],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rules = vec![parent_rule];
@@ -1320,6 +1383,7 @@ fn test_evaluate_rules_multiple_children() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let child2 = MagicRule {
@@ -1331,6 +1395,7 @@ fn test_evaluate_rules_multiple_children() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let parent_rule = MagicRule {
@@ -1342,6 +1407,7 @@ fn test_evaluate_rules_multiple_children() {
         children: vec![child1, child2],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rules = vec![parent_rule];
@@ -1370,6 +1436,7 @@ fn test_evaluate_rules_recursion_depth_limit() {
         children: vec![],
         level: 10,
         strength_modifier: None,
+        value_transform: None,
     };
 
     for i in (0u32..10u32).rev() {
@@ -1382,6 +1449,7 @@ fn test_evaluate_rules_recursion_depth_limit() {
             children: vec![current_rule],
             level: i,
             strength_modifier: None,
+            value_transform: None,
         };
     }
 
@@ -1416,6 +1484,7 @@ fn test_evaluate_rules_with_config_convenience() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rules = vec![rule];
@@ -1438,6 +1507,7 @@ fn test_evaluate_rules_timeout() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rules = vec![rule];
@@ -1466,6 +1536,7 @@ fn test_evaluate_rules_empty_buffer() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rules = vec![rule];
@@ -1491,6 +1562,7 @@ fn test_evaluate_rules_mixed_matching_non_matching() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rule2 = MagicRule {
@@ -1502,6 +1574,7 @@ fn test_evaluate_rules_mixed_matching_non_matching() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rule3 = MagicRule {
@@ -1513,6 +1586,7 @@ fn test_evaluate_rules_mixed_matching_non_matching() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rule_collection = vec![rule1, rule2, rule3];
@@ -1540,6 +1614,7 @@ fn test_evaluate_rules_context_state_preservation() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let rules = vec![rule];
@@ -1570,6 +1645,7 @@ fn test_error_recovery_skip_problematic_rules() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
         MagicRule {
             offset: OffsetSpec::Absolute(100),
@@ -1580,6 +1656,7 @@ fn test_error_recovery_skip_problematic_rules() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
         MagicRule {
             offset: OffsetSpec::Absolute(1),
@@ -1590,6 +1667,7 @@ fn test_error_recovery_skip_problematic_rules() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
     ];
 
@@ -1628,6 +1706,7 @@ fn test_error_recovery_child_rule_failures() {
                 children: vec![],
                 level: 1,
                 strength_modifier: None,
+                value_transform: None,
             },
             MagicRule {
                 offset: OffsetSpec::Absolute(100),
@@ -1638,10 +1717,12 @@ fn test_error_recovery_child_rule_failures() {
                 children: vec![],
                 level: 1,
                 strength_modifier: None,
+                value_transform: None,
             },
         ],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     }];
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -1667,6 +1748,7 @@ fn test_error_recovery_mixed_rule_types() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
         MagicRule {
             offset: OffsetSpec::Absolute(3),
@@ -1680,6 +1762,7 @@ fn test_error_recovery_mixed_rule_types() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
         MagicRule {
             offset: OffsetSpec::Absolute(1),
@@ -1692,6 +1775,7 @@ fn test_error_recovery_mixed_rule_types() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
     ];
 
@@ -1724,6 +1808,7 @@ fn test_error_recovery_all_rules_fail() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
         MagicRule {
             offset: OffsetSpec::Absolute(2),
@@ -1737,6 +1822,7 @@ fn test_error_recovery_all_rules_fail() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
     ];
 
@@ -1759,6 +1845,7 @@ fn test_error_recovery_timeout_propagation() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     }];
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -1796,9 +1883,11 @@ fn test_error_recovery_recursion_limit_propagation() {
             children: vec![],
             level: 1,
             strength_modifier: None,
+            value_transform: None,
         }],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     }];
 
     let buffer = &[0x7f, 0x45, 0x4c, 0x46];
@@ -1834,6 +1923,7 @@ fn test_error_recovery_preserves_context_state() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
         MagicRule {
             offset: OffsetSpec::Absolute(100),
@@ -1844,6 +1934,7 @@ fn test_error_recovery_preserves_context_state() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
     ];
 
@@ -1989,6 +2080,7 @@ fn test_evaluate_rules_skips_out_of_bounds_rule() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[0x7f, 0x45];
@@ -2016,6 +2108,7 @@ fn test_mixed_valid_and_invalid_rules_yield_valid_matches() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
         MagicRule {
             offset: OffsetSpec::Absolute(100),
@@ -2026,6 +2119,7 @@ fn test_mixed_valid_and_invalid_rules_yield_valid_matches() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
         MagicRule {
             offset: OffsetSpec::Absolute(1),
@@ -2036,6 +2130,7 @@ fn test_mixed_valid_and_invalid_rules_yield_valid_matches() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
     ];
 
@@ -2071,6 +2166,7 @@ fn test_evaluate_single_rule_pstring_match() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[5, b'H', b'e', b'l', b'l', b'o'];
@@ -2097,6 +2193,7 @@ fn test_evaluate_single_rule_pstring_no_match() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer = &[5, b'H', b'e', b'l', b'l', b'o'];
@@ -2130,9 +2227,11 @@ fn test_evaluate_single_rule_pstring_with_child_rule() {
             children: vec![],
             level: 1,
             strength_modifier: None,
+            value_transform: None,
         }],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     // Buffer: length=3, "ELF", then 0x02 at offset 4
@@ -2169,6 +2268,7 @@ fn build_linear_nested_chain(depth: u32) -> (MagicRule, Vec<u8>) {
         children: vec![],
         level: last,
         strength_modifier: None,
+        value_transform: None,
     };
 
     for i in (0..last).rev() {
@@ -2181,6 +2281,7 @@ fn build_linear_nested_chain(depth: u32) -> (MagicRule, Vec<u8>) {
             children: vec![current],
             level: i,
             strength_modifier: None,
+            value_transform: None,
         };
     }
 
@@ -2260,6 +2361,7 @@ fn test_resource_exhaustion_large_rule_count_completes_or_times_out() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         })
         .collect();
 
@@ -2319,6 +2421,7 @@ fn test_resource_exhaustion_large_buffer_completes_without_panic() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
         MagicRule {
             offset: OffsetSpec::Absolute(0),
@@ -2332,6 +2435,7 @@ fn test_resource_exhaustion_large_buffer_completes_without_panic() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
         MagicRule {
             offset: OffsetSpec::Absolute(512 * 1024),
@@ -2342,6 +2446,7 @@ fn test_resource_exhaustion_large_buffer_completes_without_panic() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
         // Out-of-bounds rule should fail gracefully, not panic.
         MagicRule {
@@ -2353,6 +2458,7 @@ fn test_resource_exhaustion_large_buffer_completes_without_panic() {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         },
     ];
 
@@ -2403,6 +2509,7 @@ fn test_regex_rule_with_metacharacters_matches() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut context = EvaluationContext::new(EvaluationConfig::default());
@@ -2427,6 +2534,7 @@ fn test_regex_rule_with_metacharacters_no_match() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut context = EvaluationContext::new(EvaluationConfig::default());
@@ -2449,6 +2557,7 @@ fn test_search_rule_not_equal_succeeds_when_pattern_absent() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut context = EvaluationContext::new(EvaluationConfig::default());
@@ -2475,6 +2584,7 @@ fn test_regex_rule_with_ordering_operator_is_rejected() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut context = EvaluationContext::new(EvaluationConfig::default());
@@ -2498,6 +2608,7 @@ fn test_search_rule_with_bitwise_operator_is_rejected() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut context = EvaluationContext::new(EvaluationConfig::default());
@@ -2528,6 +2639,7 @@ fn test_regex_parent_advances_anchor_for_relative_child() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
     let parent = MagicRule {
         offset: OffsetSpec::Absolute(0),
@@ -2541,6 +2653,7 @@ fn test_regex_parent_advances_anchor_for_relative_child() {
         children: vec![child],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut context = EvaluationContext::new(EvaluationConfig::default());
@@ -2574,6 +2687,7 @@ fn test_search_parent_advances_anchor_to_match_end_not_window_end() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
     let parent = MagicRule {
         offset: OffsetSpec::Absolute(0),
@@ -2586,6 +2700,7 @@ fn test_search_parent_advances_anchor_to_match_end_not_window_end() {
         children: vec![child],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut context = EvaluationContext::new(EvaluationConfig::default());
@@ -2611,6 +2726,7 @@ fn test_search_parent_relative_child_at_positive_offset() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
     let parent = MagicRule {
         offset: OffsetSpec::Absolute(0),
@@ -2623,6 +2739,7 @@ fn test_search_parent_relative_child_at_positive_offset() {
         children: vec![child],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let mut context = EvaluationContext::new(EvaluationConfig::default());

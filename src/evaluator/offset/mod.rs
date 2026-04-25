@@ -166,7 +166,9 @@ pub(crate) fn resolve_offset_with_base(
             };
             resolve_absolute_offset(effective, buffer).map_err(|e| map_offset_error(&e, effective))
         }
-        OffsetSpec::Indirect { .. } => indirect::resolve_indirect_offset(spec, buffer),
+        OffsetSpec::Indirect { .. } => {
+            indirect::resolve_indirect_offset_with_anchor(spec, buffer, Some(last_match_end))
+        }
         OffsetSpec::Relative(_) => relative::resolve_relative_offset(spec, buffer, last_match_end),
         OffsetSpec::FromEnd(offset) => {
             // FromEnd is handled the same as negative Absolute offsets.
@@ -232,8 +234,11 @@ mod tests {
         let buffer = b"\x05TestXdata";
         let spec = OffsetSpec::Indirect {
             base_offset: 0,
+            base_relative: false,
             pointer_type: crate::parser::ast::TypeKind::Byte { signed: false },
             adjustment: 0,
+            adjustment_op: crate::parser::ast::IndirectAdjustmentOp::Add,
+            result_relative: false,
             endian: crate::parser::ast::Endianness::Little,
         };
 
@@ -280,8 +285,11 @@ mod tests {
         let buffer = b"\x05TestXdata";
         let spec = OffsetSpec::Indirect {
             base_offset: 0,
+            base_relative: false,
             pointer_type: crate::parser::ast::TypeKind::Byte { signed: false },
             adjustment: 0,
+            adjustment_op: crate::parser::ast::IndirectAdjustmentOp::Add,
+            result_relative: false,
             endian: crate::parser::ast::Endianness::Little,
         };
         assert_eq!(resolve_offset_with_context(&spec, buffer, 42).unwrap(), 5);
@@ -358,8 +366,11 @@ mod tests {
         let buffer = b"\x05TestXdata";
         let spec = OffsetSpec::Indirect {
             base_offset: 0,
+            base_relative: false,
             pointer_type: crate::parser::ast::TypeKind::Byte { signed: false },
             adjustment: 0,
+            adjustment_op: crate::parser::ast::IndirectAdjustmentOp::Add,
+            result_relative: false,
             endian: crate::parser::ast::Endianness::Little,
         };
         assert_eq!(
