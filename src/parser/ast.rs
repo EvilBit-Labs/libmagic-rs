@@ -229,9 +229,11 @@ pub enum OffsetSpec {
     ///
     /// let indirect = OffsetSpec::Indirect {
     ///     base_offset: 0x20,
+    ///     base_relative: false,
     ///     pointer_type: TypeKind::Long { endian: Endianness::Little, signed: false },
     ///     adjustment: 4,
     ///     adjustment_op: IndirectAdjustmentOp::Add,
+    ///     result_relative: false,
     ///     endian: Endianness::Little,
     /// };
     /// ```

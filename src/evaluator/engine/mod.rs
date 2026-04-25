@@ -171,6 +171,7 @@ static INDIRECT_WITHOUT_RULE_ENV_WARNED: AtomicBool = AtomicBool::new(false);
 ///     children: vec![],
 ///     level: 0,
 ///     strength_modifier: None,
+/// value_transform: None,
 /// };
 ///
 /// let mut context = EvaluationContext::new(EvaluationConfig::default());
@@ -588,10 +589,12 @@ fn evaluate_children_or_warn(
 ///             children: vec![],
 ///             level: 1,
 ///             strength_modifier: None,
+///         value_transform: None,
 ///         }
 ///     ],
 ///     level: 0,
 ///     strength_modifier: None,
+/// value_transform: None,
 /// };
 ///
 /// let rules = vec![parent_rule];
@@ -1166,6 +1169,7 @@ pub fn evaluate_rules(
 ///     children: vec![],
 ///     level: 0,
 ///     strength_modifier: None,
+/// value_transform: None,
 /// };
 ///
 /// let rules = vec![rule];

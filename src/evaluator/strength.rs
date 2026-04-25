@@ -59,6 +59,7 @@ pub const MIN_STRENGTH: i32 = 0;
 ///     children: vec![],
 ///     level: 0,
 ///     strength_modifier: None,
+/// value_transform: None,
 /// };
 ///
 /// let strength = calculate_default_strength(&rule);
@@ -283,6 +284,7 @@ pub fn apply_strength_modifier(base_strength: i32, modifier: &StrengthModifier) 
 ///     children: vec![],
 ///     level: 0,
 ///     strength_modifier: Some(StrengthModifier::Add(20)),
+/// value_transform: None,
 /// };
 ///
 /// let strength = calculate_rule_strength(&rule);
@@ -326,6 +328,7 @@ pub fn calculate_rule_strength(rule: &MagicRule) -> i32 {
 ///         children: vec![],
 ///         level: 0,
 ///         strength_modifier: None,
+///     value_transform: None,
 ///     },
 ///     MagicRule {
 ///         offset: OffsetSpec::Absolute(0),
@@ -336,6 +339,7 @@ pub fn calculate_rule_strength(rule: &MagicRule) -> i32 {
 ///         children: vec![],
 ///         level: 0,
 ///         strength_modifier: None,
+///     value_transform: None,
 ///     },
 /// ];
 ///
@@ -415,6 +419,7 @@ pub fn sort_rules_by_strength_recursive(rules: &mut [MagicRule]) {
 ///         children: vec![],
 ///         level: 0,
 ///         strength_modifier: None,
+///     value_transform: None,
 ///     },
 ///     MagicRule {
 ///         offset: OffsetSpec::Absolute(0),
@@ -425,6 +430,7 @@ pub fn sort_rules_by_strength_recursive(rules: &mut [MagicRule]) {
 ///         children: vec![],
 ///         level: 0,
 ///         strength_modifier: None,
+///     value_transform: None,
 ///     },
 /// ];
 ///
