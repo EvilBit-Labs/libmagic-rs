@@ -31,19 +31,48 @@ use super::{map_offset_error, resolve_absolute_offset};
 /// * `EvaluationError::InvalidOffset` - If `base_offset` is out of bounds or arithmetic overflows
 /// * `EvaluationError::BufferOverrun` - If the pointer read or final offset exceeds buffer bounds
 /// * `EvaluationError::UnsupportedType` - If `pointer_type` is not a numeric type
+#[cfg(test)]
 pub fn resolve_indirect_offset(spec: &OffsetSpec, buffer: &[u8]) -> Result<usize, LibmagicError> {
-    let (base_offset, pointer_type, adjustment, adjustment_op, endian) = match spec {
+    resolve_indirect_offset_with_anchor(spec, buffer, None)
+}
+
+/// Resolve an indirect offset with an optional anchor for the
+/// `base_relative` / `result_relative` flags.
+///
+/// `base_relative` is `(&N.X)` syntax: the pointer-read base is
+/// `anchor + base_offset` rather than absolute. `result_relative` is
+/// `&(N.X)` syntax: the resolved pointer value is added to the anchor
+/// instead of being treated as an absolute file position. Both fall
+/// back to absolute behavior when `anchor` is `None`.
+pub fn resolve_indirect_offset_with_anchor(
+    spec: &OffsetSpec,
+    buffer: &[u8],
+    anchor: Option<usize>,
+) -> Result<usize, LibmagicError> {
+    let (
+        base_offset,
+        base_relative,
+        pointer_type,
+        adjustment,
+        adjustment_op,
+        result_relative,
+        endian,
+    ) = match spec {
         OffsetSpec::Indirect {
             base_offset,
+            base_relative,
             pointer_type,
             adjustment,
             adjustment_op,
+            result_relative,
             endian,
         } => (
             *base_offset,
+            *base_relative,
             pointer_type,
             *adjustment,
             *adjustment_op,
+            *result_relative,
             *endian,
         ),
         _ => {
@@ -70,15 +99,50 @@ pub fn resolve_indirect_offset(spec: &OffsetSpec, buffer: &[u8]) -> Result<usize
         _ => {}
     }
 
-    // Step 1: Resolve base_offset to an absolute position
-    let abs_base = resolve_absolute_offset(base_offset, buffer)
-        .map_err(|e| map_offset_error(&e, base_offset))?;
+    // Step 1: Resolve base_offset to an absolute position. When the
+    // `base_relative` flag is set, the base is `anchor + base_offset`
+    // (matching magic(5) `(&N.X)` syntax). If no anchor is supplied,
+    // fall back to absolute resolution.
+    let abs_base = if base_relative {
+        let anchor_pos = anchor.unwrap_or(0);
+        let signed_anchor = i64::try_from(anchor_pos).map_err(|_| {
+            LibmagicError::EvaluationError(EvaluationError::InvalidOffset {
+                offset: base_offset,
+            })
+        })?;
+        let combined =
+            signed_anchor
+                .checked_add(base_offset)
+                .ok_or(LibmagicError::EvaluationError(
+                    EvaluationError::InvalidOffset {
+                        offset: base_offset,
+                    },
+                ))?;
+        resolve_absolute_offset(combined, buffer).map_err(|e| map_offset_error(&e, combined))?
+    } else {
+        resolve_absolute_offset(base_offset, buffer)
+            .map_err(|e| map_offset_error(&e, base_offset))?
+    };
 
     // Step 2: Read pointer value using the appropriate numeric reader
     let pointer_value = read_pointer(buffer, abs_base, pointer_type, endian)?;
 
     // Step 3: Apply adjustment with checked arithmetic
-    let final_offset = apply_adjustment(pointer_value, adjustment, adjustment_op)?;
+    let mut final_offset = apply_adjustment(pointer_value, adjustment, adjustment_op)?;
+
+    // Step 3b: When `result_relative` is set (`&(...)` syntax), add the
+    // anchor so the final offset is anchor-relative.
+    if result_relative {
+        let anchor_pos = anchor.unwrap_or(0);
+        final_offset =
+            final_offset
+                .checked_add(anchor_pos)
+                .ok_or(LibmagicError::EvaluationError(
+                    EvaluationError::InvalidOffset {
+                        offset: base_offset,
+                    },
+                ))?;
+    }
 
     // Step 4: Validate final offset against buffer length
     if final_offset >= buffer.len() {
@@ -209,9 +273,11 @@ mod tests {
     ) -> OffsetSpec {
         OffsetSpec::Indirect {
             base_offset,
+            base_relative: false,
             pointer_type,
             adjustment,
             adjustment_op: IndirectAdjustmentOp::Add,
+            result_relative: false,
             endian,
         }
     }
@@ -227,9 +293,11 @@ mod tests {
     ) -> OffsetSpec {
         OffsetSpec::Indirect {
             base_offset,
+            base_relative: false,
             pointer_type,
             adjustment,
             adjustment_op,
+            result_relative: false,
             endian,
         }
     }

@@ -21,7 +21,157 @@ pub use comparison::{
 };
 pub use equality::{apply_equal, apply_not_equal};
 
-use crate::parser::ast::{Operator, Value};
+use crate::error::EvaluationError;
+use crate::parser::ast::{Operator, Value, ValueTransform, ValueTransformOp};
+
+/// Apply a magic-file pre-comparison `ValueTransform` to a numeric value
+/// read from the file. The result is what the rule's comparison operator
+/// sees, and what printf-style format specifiers (`%d`, `%x`, ...) render
+/// into the message.
+///
+/// Magic file usage examples:
+/// - `lelong+1 x volume %d` -- read a long, add 1, format as `%d`
+/// - `ulequad/1073741824 x size %lluGB` -- read a quad, divide by 1 GiB
+///
+/// # Numeric promotion
+///
+/// Both `Value::Uint` and `Value::Int` operands are supported. The
+/// transform is computed in the value's existing type:
+/// - `Uint` op `i64` -> the `i64` operand is reinterpreted bitwise as
+///   `u64` for `Mul`/`Or`/`Xor` and as `i64` for the others (matching
+///   libmagic's `apprentice.c::mconvert`, which treats the operand as a
+///   raw machine word for bitwise ops and a signed integer for
+///   arithmetic). `Sub` on a `Uint` is rejected if it would underflow;
+///   `Add` clamps a negative operand to subtraction.
+/// - `Int` uses signed arithmetic throughout.
+///
+/// `Float`, `String`, and `Bytes` values are left unchanged because
+/// magic-file arithmetic transforms are only meaningful on integer
+/// reads. Returning the value unchanged keeps the comparison flow
+/// well-defined while preserving the GOTCHAS S2.3 catch-all discipline
+/// for unknown `Value` variants.
+///
+/// # Errors
+///
+/// Returns `EvaluationError::InvalidValueTransform` when:
+/// - `Div` or `Mod` is applied with a zero operand;
+/// - any arithmetic op overflows the natural integer range.
+pub fn apply_value_transform(
+    value: &Value,
+    transform: ValueTransform,
+) -> Result<Value, EvaluationError> {
+    let signed_operand = transform.operand;
+    // For bitwise ops on a `Uint`, reinterpret the i64 operand bit-for-bit
+    // as u64. For arithmetic ops, use unsigned_abs / sign-aware
+    // checked_{add,sub}.
+    #[allow(clippy::cast_sign_loss)]
+    let bitwise_operand = signed_operand as u64;
+
+    match (value, transform.op) {
+        (Value::Uint(v), ValueTransformOp::Add) => {
+            let lhs = *v;
+            // Allow negative operand to mean subtraction (consistent with
+            // how `Sub` is encoded as `Add(-N)` on the parser side, but
+            // the parser actually emits an explicit `Sub` op -- this
+            // branch handles AST values constructed programmatically).
+            let result = if signed_operand >= 0 {
+                lhs.checked_add(signed_operand.unsigned_abs())
+            } else {
+                lhs.checked_sub(signed_operand.unsigned_abs())
+            };
+            result
+                .map(Value::Uint)
+                .ok_or_else(|| invalid_transform("Add", value, signed_operand))
+        }
+        (Value::Uint(v), ValueTransformOp::Sub) => {
+            let lhs = *v;
+            // Sub on a Uint with a positive operand subtracts; with a
+            // negative operand it adds. Either way, reject overflow.
+            let result = if signed_operand >= 0 {
+                lhs.checked_sub(signed_operand.unsigned_abs())
+            } else {
+                lhs.checked_add(signed_operand.unsigned_abs())
+            };
+            result
+                .map(Value::Uint)
+                .ok_or_else(|| invalid_transform("Sub", value, signed_operand))
+        }
+        (Value::Uint(v), ValueTransformOp::Mul) => v
+            .checked_mul(bitwise_operand)
+            .map(Value::Uint)
+            .ok_or_else(|| invalid_transform("Mul", value, signed_operand)),
+        (Value::Uint(v), ValueTransformOp::Div) => {
+            if signed_operand == 0 {
+                return Err(invalid_transform("Div", value, signed_operand));
+            }
+            v.checked_div(bitwise_operand)
+                .map(Value::Uint)
+                .ok_or_else(|| invalid_transform("Div", value, signed_operand))
+        }
+        (Value::Uint(v), ValueTransformOp::Mod) => {
+            if signed_operand == 0 {
+                return Err(invalid_transform("Mod", value, signed_operand));
+            }
+            v.checked_rem(bitwise_operand)
+                .map(Value::Uint)
+                .ok_or_else(|| invalid_transform("Mod", value, signed_operand))
+        }
+        (Value::Uint(v), ValueTransformOp::Or) => Ok(Value::Uint(v | bitwise_operand)),
+        (Value::Uint(v), ValueTransformOp::Xor) => Ok(Value::Uint(v ^ bitwise_operand)),
+
+        (Value::Int(v), ValueTransformOp::Add) => v
+            .checked_add(signed_operand)
+            .map(Value::Int)
+            .ok_or_else(|| invalid_transform("Add", value, signed_operand)),
+        (Value::Int(v), ValueTransformOp::Sub) => v
+            .checked_sub(signed_operand)
+            .map(Value::Int)
+            .ok_or_else(|| invalid_transform("Sub", value, signed_operand)),
+        (Value::Int(v), ValueTransformOp::Mul) => v
+            .checked_mul(signed_operand)
+            .map(Value::Int)
+            .ok_or_else(|| invalid_transform("Mul", value, signed_operand)),
+        (Value::Int(v), ValueTransformOp::Div) => {
+            if signed_operand == 0 {
+                return Err(invalid_transform("Div", value, signed_operand));
+            }
+            v.checked_div(signed_operand)
+                .map(Value::Int)
+                .ok_or_else(|| invalid_transform("Div", value, signed_operand))
+        }
+        (Value::Int(v), ValueTransformOp::Mod) => {
+            if signed_operand == 0 {
+                return Err(invalid_transform("Mod", value, signed_operand));
+            }
+            v.checked_rem(signed_operand)
+                .map(Value::Int)
+                .ok_or_else(|| invalid_transform("Mod", value, signed_operand))
+        }
+        (Value::Int(v), ValueTransformOp::Or) => {
+            // Bitwise OR on i64 view of the integer.
+            #[allow(clippy::cast_possible_wrap)]
+            let result = *v | (bitwise_operand as i64);
+            Ok(Value::Int(result))
+        }
+        (Value::Int(v), ValueTransformOp::Xor) => {
+            #[allow(clippy::cast_possible_wrap)]
+            let result = *v ^ (bitwise_operand as i64);
+            Ok(Value::Int(result))
+        }
+
+        // Non-numeric values are returned unchanged. Magic-file
+        // arithmetic transforms on a string-valued read are not
+        // well-defined; libmagic-compatible behavior is to skip the
+        // transform rather than fail the whole rule.
+        _ => Ok(value.clone()),
+    }
+}
+
+fn invalid_transform(op: &str, value: &Value, operand: i64) -> EvaluationError {
+    EvaluationError::internal_error(format!(
+        "value transform {op}({operand}) failed on {value:?} (overflow or div-by-zero)"
+    ))
+}
 
 /// Apply any-value operator: always returns true (unconditional match).
 ///
@@ -167,6 +317,100 @@ pub fn apply_operator(operator: &Operator, left: &Value, right: &Value) -> bool 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ========================================================================
+    // apply_value_transform tests
+    // ========================================================================
+
+    fn t(op: ValueTransformOp, operand: i64) -> ValueTransform {
+        ValueTransform { op, operand }
+    }
+
+    #[test]
+    fn test_apply_value_transform_uint_arithmetic() {
+        // Add: 100 + 1 = 101 (regression for `lelong+1` in filesystems)
+        assert_eq!(
+            apply_value_transform(&Value::Uint(100), t(ValueTransformOp::Add, 1)).unwrap(),
+            Value::Uint(101)
+        );
+        // Sub: 100 - 25 = 75
+        assert_eq!(
+            apply_value_transform(&Value::Uint(100), t(ValueTransformOp::Sub, 25)).unwrap(),
+            Value::Uint(75)
+        );
+        // Mul: 4 * 8 = 32
+        assert_eq!(
+            apply_value_transform(&Value::Uint(4), t(ValueTransformOp::Mul, 8)).unwrap(),
+            Value::Uint(32)
+        );
+        // Div: 16 GiB / 1 GiB = 16 (regression for `ulequad/1073741824`)
+        let sixteen_gib = 16u64 * 1024 * 1024 * 1024;
+        assert_eq!(
+            apply_value_transform(
+                &Value::Uint(sixteen_gib),
+                t(ValueTransformOp::Div, 1_073_741_824)
+            )
+            .unwrap(),
+            Value::Uint(16)
+        );
+        // Mod: 17 % 5 = 2
+        assert_eq!(
+            apply_value_transform(&Value::Uint(17), t(ValueTransformOp::Mod, 5)).unwrap(),
+            Value::Uint(2)
+        );
+        // Or:  0xF0 | 0x0F = 0xFF
+        assert_eq!(
+            apply_value_transform(&Value::Uint(0xF0), t(ValueTransformOp::Or, 0x0F)).unwrap(),
+            Value::Uint(0xFF)
+        );
+        // Xor: 0xFF ^ 0x0F = 0xF0
+        assert_eq!(
+            apply_value_transform(&Value::Uint(0xFF), t(ValueTransformOp::Xor, 0x0F)).unwrap(),
+            Value::Uint(0xF0)
+        );
+    }
+
+    #[test]
+    fn test_apply_value_transform_div_or_mod_by_zero_errors() {
+        let err = apply_value_transform(&Value::Uint(10), t(ValueTransformOp::Div, 0)).unwrap_err();
+        assert!(err.to_string().contains("Div"));
+        let err = apply_value_transform(&Value::Uint(10), t(ValueTransformOp::Mod, 0)).unwrap_err();
+        assert!(err.to_string().contains("Mod"));
+    }
+
+    #[test]
+    fn test_apply_value_transform_overflow_errors() {
+        let err =
+            apply_value_transform(&Value::Uint(u64::MAX), t(ValueTransformOp::Add, 1)).unwrap_err();
+        assert!(err.to_string().contains("Add"));
+        let err =
+            apply_value_transform(&Value::Uint(u64::MAX), t(ValueTransformOp::Mul, 2)).unwrap_err();
+        assert!(err.to_string().contains("Mul"));
+    }
+
+    #[test]
+    fn test_apply_value_transform_int_arithmetic() {
+        assert_eq!(
+            apply_value_transform(&Value::Int(-5), t(ValueTransformOp::Add, 10)).unwrap(),
+            Value::Int(5)
+        );
+        assert_eq!(
+            apply_value_transform(&Value::Int(-3), t(ValueTransformOp::Mul, -2)).unwrap(),
+            Value::Int(6)
+        );
+    }
+
+    #[test]
+    fn test_apply_value_transform_non_numeric_passthrough() {
+        // String/Bytes/Float values are returned unchanged because
+        // magic-file arithmetic transforms only make sense on integer
+        // reads.
+        let s = Value::String("abc".to_string());
+        assert_eq!(
+            apply_value_transform(&s, t(ValueTransformOp::Add, 1)).unwrap(),
+            s
+        );
+    }
 
     #[test]
     fn test_apply_operator_equal() {

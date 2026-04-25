@@ -152,6 +152,7 @@ fn arb_magic_rule() -> impl Strategy<Value = MagicRule> {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         })
 }
 
@@ -191,6 +192,7 @@ fn arb_meta_rule() -> impl Strategy<Value = MagicRule> {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         })
 }
 
@@ -307,9 +309,11 @@ proptest! {
         let rule = MagicRule {
             offset: OffsetSpec::Indirect {
                 base_offset: base,
+                base_relative: false,
                 pointer_type,
                 adjustment: adjust,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian,
             },
             typ: TypeKind::Byte { signed: false },
@@ -319,6 +323,7 @@ proptest! {
             children: vec![],
             level: 0,
             strength_modifier: None,
+        value_transform: None,
         };
         let config = EvaluationConfig::default().with_timeout_ms(Some(500));
         let mut context = EvaluationContext::new(config);
@@ -353,6 +358,7 @@ proptest! {
             children: vec![],
             level: 0,
             strength_modifier: None,
+        value_transform: None,
         };
         let config = EvaluationConfig::default().with_timeout_ms(Some(500));
         let mut context = EvaluationContext::new(config);
@@ -405,6 +411,7 @@ proptest! {
             children: vec![],
             level: 0,
             strength_modifier: None,
+        value_transform: None,
         };
         let config = EvaluationConfig::default().with_timeout_ms(Some(500));
         let mut context = EvaluationContext::new(config);

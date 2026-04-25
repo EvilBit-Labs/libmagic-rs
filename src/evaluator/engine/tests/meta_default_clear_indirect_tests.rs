@@ -157,6 +157,7 @@ fn test_default_clear_per_level_isolation() {
         ],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let mut context = EvaluationContext::new(config);
     let buffer = [0xAAu8, 0xBB];

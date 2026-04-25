@@ -236,8 +236,17 @@ pub enum OffsetSpec {
     /// };
     /// ```
     Indirect {
-        /// Base offset to read pointer from
+        /// Base offset to read pointer from. When `base_relative` is
+        /// `true`, this value is added to the current anchor (last-match
+        /// position) rather than being treated as an absolute file
+        /// position.
         base_offset: i64,
+        /// If `true`, `base_offset` is relative to the current anchor
+        /// (i.e., `(&N.X)` syntax in magic files). Defaults to `false`
+        /// for backwards compatibility with existing AST snapshots; the
+        /// serde `default` attribute lets older serialized AST round-trip.
+        #[serde(default)]
+        base_relative: bool,
         /// Type of pointer value
         pointer_type: TypeKind,
         /// Operand combined with the pointer value via `adjustment_op`.
@@ -253,6 +262,12 @@ pub enum OffsetSpec {
         /// serde's `default` attribute.
         #[serde(default)]
         adjustment_op: IndirectAdjustmentOp,
+        /// If `true`, the resolved offset is added to the current anchor
+        /// instead of being treated as an absolute file position. This
+        /// corresponds to magic-file `&(...)` syntax wrapping an indirect
+        /// spec, e.g., `&(0x10.l)`.
+        #[serde(default)]
+        result_relative: bool,
         /// Endianness for pointer reading
         endian: Endianness,
     },
@@ -1071,6 +1086,61 @@ pub enum StrengthModifier {
     Set(i32),
 }
 
+/// Arithmetic operation applied to a value read from the file *before* the
+/// rule's comparison operator is evaluated.
+///
+/// magic(5) supports `+`, `-`, `*`, `/`, `%`, `|`, and `^` between the type
+/// keyword and the comparison value (e.g., `lelong+1 x volume %d` reads a
+/// long, adds 1, and formats the transformed value into the message).
+/// Bitwise AND (`&MASK`) is *not* part of this enum because it is already
+/// represented at the operator level via [`Operator::BitwiseAndMask`].
+///
+/// The operand is signed (`i64`) so that subtraction and negative multipliers
+/// round-trip cleanly. Bitwise ops reinterpret the operand as a `u64` bit
+/// pattern at evaluation time, matching libmagic's `apprentice.c::mconvert`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum ValueTransformOp {
+    /// Addition (`type+N`).
+    Add,
+    /// Subtraction (`type-N`).
+    Sub,
+    /// Multiplication (`type*N`).
+    Mul,
+    /// Truncating integer division (`type/N`). Division by zero is rejected
+    /// at evaluation time.
+    Div,
+    /// Remainder (`type%N`). Modulo by zero is rejected at evaluation time.
+    Mod,
+    /// Bitwise OR (`type|N`).
+    Or,
+    /// Bitwise XOR (`type^N`).
+    Xor,
+}
+
+/// A pre-comparison value transform: `(op, operand)`.
+///
+/// Applied to the value read from the file before the rule's comparison
+/// operator runs. See [`ValueTransformOp`] for the supported operations.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::{ValueTransform, ValueTransformOp};
+///
+/// // `lelong+1` -> add 1 to the read value
+/// let t = ValueTransform { op: ValueTransformOp::Add, operand: 1 };
+/// assert_eq!(t.op, ValueTransformOp::Add);
+/// assert_eq!(t.operand, 1);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValueTransform {
+    /// Operation to apply.
+    pub op: ValueTransformOp,
+    /// Operand to combine with the read value.
+    pub operand: i64,
+}
+
 /// Magic rule representation in the AST
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MagicRule {
@@ -1090,6 +1160,18 @@ pub struct MagicRule {
     pub level: u32,
     /// Optional strength modifier from `!:strength` directive
     pub strength_modifier: Option<StrengthModifier>,
+    /// Optional pre-comparison value transform from a magic-file
+    /// type-suffix like `lelong+1` or `ulequad/1073741824`. When set,
+    /// the read value is transformed *before* `op` is evaluated and
+    /// before the message's `%`-format substitution, so format
+    /// specifiers see the post-transform number.
+    ///
+    /// `#[serde(default)]` keeps existing serialized AST snapshots
+    /// (which never had this field) round-tripping correctly: missing
+    /// fields deserialize to `None`, which means "no transform" --
+    /// the historical behavior.
+    #[serde(default)]
+    pub value_transform: Option<ValueTransform>,
 }
 
 /// Validation errors returned by [`MagicRule::validate`].
@@ -1192,6 +1274,7 @@ impl MagicRule {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         }
     }
 
@@ -1393,12 +1476,14 @@ mod tests {
     fn test_offset_spec_indirect() {
         let indirect = OffsetSpec::Indirect {
             base_offset: 0x20,
+            base_relative: false,
             pointer_type: TypeKind::Long {
                 endian: Endianness::Little,
                 signed: false,
             },
             adjustment: 4,
             adjustment_op: IndirectAdjustmentOp::Add,
+            result_relative: false,
             endian: Endianness::Little,
         };
 
@@ -1447,12 +1532,14 @@ mod tests {
     fn test_offset_spec_clone() {
         let original = OffsetSpec::Indirect {
             base_offset: 0x10,
+            base_relative: false,
             pointer_type: TypeKind::Short {
                 endian: Endianness::Big,
                 signed: true,
             },
             adjustment: -2,
             adjustment_op: IndirectAdjustmentOp::Add,
+            result_relative: false,
             endian: Endianness::Big,
         };
 
@@ -1475,12 +1562,14 @@ mod tests {
     fn test_offset_spec_indirect_serialization() {
         let indirect = OffsetSpec::Indirect {
             base_offset: 0x100,
+            base_relative: false,
             pointer_type: TypeKind::Long {
                 endian: Endianness::Native,
                 signed: false,
             },
             adjustment: 12,
             adjustment_op: IndirectAdjustmentOp::Add,
+            result_relative: false,
             endian: Endianness::Native,
         };
 
@@ -1498,9 +1587,11 @@ mod tests {
             OffsetSpec::Absolute(-100),
             OffsetSpec::Indirect {
                 base_offset: 0x20,
+                base_relative: false,
                 pointer_type: TypeKind::Byte { signed: true },
                 adjustment: 0,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian: Endianness::Little,
             },
             OffsetSpec::Relative(50),
@@ -1529,12 +1620,14 @@ mod tests {
         for endian in endianness_values {
             let indirect = OffsetSpec::Indirect {
                 base_offset: 0,
+                base_relative: false,
                 pointer_type: TypeKind::Long {
                     endian,
                     signed: false,
                 },
                 adjustment: 0,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian,
             };
 
@@ -1898,6 +1991,7 @@ mod tests {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         };
 
         assert_eq!(rule.message, "ELF magic");
@@ -1916,6 +2010,7 @@ mod tests {
             children: vec![],
             level: 1,
             strength_modifier: None,
+            value_transform: None,
         };
 
         let parent_rule = MagicRule {
@@ -1930,6 +2025,7 @@ mod tests {
             children: vec![child_rule],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         };
 
         assert_eq!(parent_rule.children.len(), 1);
@@ -1951,6 +2047,7 @@ mod tests {
             children: vec![],
             level: 2,
             strength_modifier: None,
+            value_transform: None,
         };
 
         let json = serde_json::to_string(&rule).expect("Failed to serialize MagicRule");
@@ -2040,6 +2137,7 @@ mod tests {
             children: vec![],
             level: 0,
             strength_modifier: Some(StrengthModifier::Add(20)),
+            value_transform: None,
         };
 
         assert_eq!(rule.strength_modifier, Some(StrengthModifier::Add(20)));
@@ -2062,6 +2160,7 @@ mod tests {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         };
 
         assert_eq!(rule.strength_modifier, None);

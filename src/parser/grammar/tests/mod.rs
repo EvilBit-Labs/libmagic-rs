@@ -321,12 +321,14 @@ fn test_parse_rule_offset_indirect_child() {
                 1,
                 OffsetSpec::Indirect {
                     base_offset: 0x3c,
+                    base_relative: false,
                     pointer_type: TypeKind::Long {
                         endian: Endianness::Little,
                         signed: true
                     },
                     adjustment: 0,
                     adjustment_op: IndirectAdjustmentOp::Add,
+                    result_relative: false,
                     endian: Endianness::Little,
                 }
             )
@@ -341,12 +343,14 @@ fn test_parse_rule_offset_indirect_child() {
                 2,
                 OffsetSpec::Indirect {
                     base_offset: 0x3c,
+                    base_relative: false,
                     pointer_type: TypeKind::Long {
                         endian: Endianness::Little,
                         signed: true
                     },
                     adjustment: 4,
                     adjustment_op: IndirectAdjustmentOp::Add,
+                    result_relative: false,
                     endian: Endianness::Little,
                 }
             )
@@ -365,12 +369,14 @@ fn test_parse_rule_offset_indirect_with_remaining() {
                 1,
                 OffsetSpec::Indirect {
                     base_offset: 0x3c,
+                    base_relative: false,
                     pointer_type: TypeKind::Long {
                         endian: Endianness::Little,
                         signed: true
                     },
                     adjustment: 0,
                     adjustment_op: IndirectAdjustmentOp::Add,
+                    result_relative: false,
                     endian: Endianness::Little,
                 }
             )
@@ -385,12 +391,14 @@ fn test_parse_rule_offset_indirect_with_remaining() {
                 1,
                 OffsetSpec::Indirect {
                     base_offset: 0x3c,
+                    base_relative: false,
                     pointer_type: TypeKind::Long {
                         endian: Endianness::Little,
                         signed: true
                     },
                     adjustment: 4,
                     adjustment_op: IndirectAdjustmentOp::Add,
+                    result_relative: false,
                     endian: Endianness::Little,
                 }
             )
@@ -2243,7 +2251,7 @@ fn test_parse_magic_rule_pstring_child_rule() {
 
 #[test]
 fn test_parse_type_and_operator_pstring_standalone_and() {
-    let (remaining, (typ, op)) = parse_type_and_operator("pstring& ").unwrap();
+    let (remaining, (typ, op, _)) = parse_type_and_operator("pstring& ").unwrap();
     assert_eq!(remaining, "");
     assert_eq!(
         typ,
@@ -2260,7 +2268,7 @@ fn test_parse_type_and_operator_pstring_standalone_and() {
 fn test_parse_type_and_operator_quad_full_width_mask() {
     // Full u64 mask (0xffffffffffffffff) must parse successfully, not silently
     // fall back to standalone '&' leaving the mask as leftover input.
-    let (remaining, (typ, op)) = parse_type_and_operator("uquad&0xffffffffffffffff").unwrap();
+    let (remaining, (typ, op, _)) = parse_type_and_operator("uquad&0xffffffffffffffff").unwrap();
     assert_eq!(remaining, "");
     assert_eq!(
         typ,
@@ -2275,17 +2283,17 @@ fn test_parse_type_and_operator_quad_full_width_mask() {
 #[test]
 fn test_parse_type_and_operator_quad_mask_various() {
     // Hex mask within i64 range
-    let (remaining, (_, op)) = parse_type_and_operator("quad&0x7fffffffffffffff").unwrap();
+    let (remaining, (_, op, _)) = parse_type_and_operator("quad&0x7fffffffffffffff").unwrap();
     assert_eq!(remaining, "");
     assert_eq!(op, Some(Operator::BitwiseAndMask(i64::MAX as u64)));
 
     // Decimal mask
-    let (remaining, (_, op)) = parse_type_and_operator("uquad&255").unwrap();
+    let (remaining, (_, op, _)) = parse_type_and_operator("uquad&255").unwrap();
     assert_eq!(remaining, "");
     assert_eq!(op, Some(Operator::BitwiseAndMask(255)));
 
     // Standalone '&' (no digits following) still works
-    let (remaining, (_, op)) = parse_type_and_operator("uquad& ").unwrap();
+    let (remaining, (_, op, _)) = parse_type_and_operator("uquad& ").unwrap();
     assert_eq!(remaining, "");
     assert_eq!(op, Some(Operator::BitwiseAnd));
 }
@@ -2326,7 +2334,7 @@ fn test_parse_type_and_operator_pstring_suffixes() {
         ("pstring/lJ", PStringLengthWidth::FourByteLE, true, ""),
     ];
     for &(input, expected_width, expected_j, expected_rest) in cases {
-        let (rest, (kind, op)) = parse_type_and_operator(input).expect(input);
+        let (rest, (kind, op, _)) = parse_type_and_operator(input).expect(input);
         assert_eq!(rest, expected_rest, "rest for input: {input}");
         assert!(op.is_none(), "operator for input: {input}");
         match kind {
@@ -2404,7 +2412,7 @@ fn test_parse_type_and_operator_regex_and_search_suffixes() {
         ("search/256 =", sr(256), "="),
     ];
     for &(input, ref expected_kind, expected_rest) in cases {
-        let (rest, (kind, op)) = parse_type_and_operator(input).expect(input);
+        let (rest, (kind, op, _)) = parse_type_and_operator(input).expect(input);
         assert_eq!(rest, expected_rest, "rest for input: {input}");
         assert!(op.is_none(), "operator for input: {input}");
         assert_eq!(&kind, expected_kind, "kind for input: {input}");
@@ -2463,7 +2471,7 @@ fn test_parse_type_and_operator_regex_operator_adjacent() {
 
     // `regex/c=` should leave `=` for parse_operator, matching the `regex/c =`
     // (space-separated) behavior and mirroring `search/256=`.
-    let (rest, (kind, op)) = parse_type_and_operator("regex/c=").expect("regex/c=");
+    let (rest, (kind, op, _)) = parse_type_and_operator("regex/c=").expect("regex/c=");
     assert_eq!(rest, "=");
     assert!(op.is_none());
     assert_eq!(
@@ -2478,7 +2486,7 @@ fn test_parse_type_and_operator_regex_operator_adjacent() {
     );
 
     // `regex/l!=` should leave `!=` for parse_operator.
-    let (rest, (kind, op)) = parse_type_and_operator("regex/l!=").expect("regex/l!=");
+    let (rest, (kind, op, _)) = parse_type_and_operator("regex/l!=").expect("regex/l!=");
     assert_eq!(rest, "!=");
     assert!(op.is_none());
     assert_eq!(
@@ -2491,7 +2499,7 @@ fn test_parse_type_and_operator_regex_operator_adjacent() {
 
     // Confirm the full pipeline parses the operator correctly through
     // parse_type_and_operator + parse_operator chaining.
-    let (rest, (_, _)) = parse_type_and_operator("regex/c=foo").expect("regex/c=foo");
+    let (rest, (_, _, _)) = parse_type_and_operator("regex/c=foo").expect("regex/c=foo");
     let (rest_after_op, op) = crate::parser::grammar::parse_operator(rest).expect("operator");
     assert_eq!(op, Operator::Equal);
     assert_eq!(rest_after_op, "foo");

@@ -453,6 +453,7 @@ mod tests {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         }
     }
 
@@ -676,12 +677,14 @@ mod tests {
                         Operator::Equal,
                         OffsetSpec::Indirect {
                             base_offset: 0,
+                            base_relative: false,
                             pointer_type: TypeKind::Long {
                                 endian: Endianness::Little,
                                 signed: false,
                             },
                             adjustment: 0,
                             adjustment_op: IndirectAdjustmentOp::Add,
+                            result_relative: false,
                             endian: Endianness::Little,
                         },
                         Value::Uint(0),

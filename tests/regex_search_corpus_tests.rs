@@ -58,6 +58,7 @@ fn regex_rule(
         children,
         level,
         strength_modifier: None,
+        value_transform: None,
     }
 }
 
@@ -80,6 +81,7 @@ fn search_rule(
         children,
         level,
         strength_modifier: None,
+        value_transform: None,
     }
 }
 
@@ -109,6 +111,7 @@ fn test_searchbug_corpus_search_with_relative_child() {
         children: vec![],
         level: 2,
         strength_modifier: None,
+        value_transform: None,
     };
 
     // search/12 "ABC" with Relative(0) child.
@@ -133,6 +136,7 @@ fn test_searchbug_corpus_search_with_relative_child() {
         children: vec![search_abc],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let matches = run_rules(&[root], &buffer);
@@ -165,6 +169,7 @@ fn test_searchbug_search_anchor_advance_not_window_end() {
         children: vec![],
         level: 2,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let search_abc = search_rule(
@@ -187,6 +192,7 @@ fn test_searchbug_search_anchor_advance_not_window_end() {
         children: vec![search_abc],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let matches = run_rules(&[root], &buffer);

@@ -77,9 +77,11 @@ fn test_parse_offset_indirect_all_specifiers() {
                 "",
                 OffsetSpec::Indirect {
                     base_offset: base,
+                    base_relative: false,
                     pointer_type: expected_type.clone(),
                     adjustment: 0,
                     adjustment_op: IndirectAdjustmentOp::Add,
+                    result_relative: false,
                     endian: *expected_endian,
                 }
             )),
@@ -97,12 +99,14 @@ fn test_parse_offset_indirect_with_positive_adjustment() {
             "",
             OffsetSpec::Indirect {
                 base_offset: 0x3c,
+                base_relative: false,
                 pointer_type: TypeKind::Long {
                     endian: Endianness::Little,
                     signed: true
                 },
                 adjustment: 4,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian: Endianness::Little,
             }
         ))
@@ -113,9 +117,11 @@ fn test_parse_offset_indirect_with_positive_adjustment() {
             "",
             OffsetSpec::Indirect {
                 base_offset: 0,
+                base_relative: false,
                 pointer_type: TypeKind::Byte { signed: true },
                 adjustment: 255,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian: Endianness::Little,
             }
         ))
@@ -130,12 +136,14 @@ fn test_parse_offset_indirect_with_negative_adjustment() {
             "",
             OffsetSpec::Indirect {
                 base_offset: 0x3c,
+                base_relative: false,
                 pointer_type: TypeKind::Long {
                     endian: Endianness::Little,
                     signed: true
                 },
                 adjustment: -8,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian: Endianness::Little,
             }
         ))
@@ -146,12 +154,14 @@ fn test_parse_offset_indirect_with_negative_adjustment() {
             "",
             OffsetSpec::Indirect {
                 base_offset: 100,
+                base_relative: false,
                 pointer_type: TypeKind::Short {
                     endian: Endianness::Little,
                     signed: true
                 },
                 adjustment: -16,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian: Endianness::Little,
             }
         ))
@@ -169,9 +179,11 @@ fn test_parse_offset_indirect_adjustment_inside_parens() {
             "",
             OffsetSpec::Indirect {
                 base_offset: 19,
+                base_relative: false,
                 pointer_type: TypeKind::Byte { signed: true },
                 adjustment: -1,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian: Endianness::Little,
             }
         ))
@@ -182,12 +194,14 @@ fn test_parse_offset_indirect_adjustment_inside_parens() {
             "",
             OffsetSpec::Indirect {
                 base_offset: 0x3c,
+                base_relative: false,
                 pointer_type: TypeKind::Long {
                     endian: Endianness::Little,
                     signed: true
                 },
                 adjustment: 4,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian: Endianness::Little,
             }
         ))
@@ -198,12 +212,14 @@ fn test_parse_offset_indirect_adjustment_inside_parens() {
             "",
             OffsetSpec::Indirect {
                 base_offset: 100,
+                base_relative: false,
                 pointer_type: TypeKind::Short {
                     endian: Endianness::Big,
                     signed: true
                 },
                 adjustment: 255,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian: Endianness::Big,
             }
         ))
@@ -252,12 +268,14 @@ fn test_parse_offset_indirect_negative_base() {
             "",
             OffsetSpec::Indirect {
                 base_offset: -4,
+                base_relative: false,
                 pointer_type: TypeKind::Long {
                     endian: Endianness::Little,
                     signed: true
                 },
                 adjustment: 0,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian: Endianness::Little,
             }
         ))
@@ -269,12 +287,14 @@ fn test_parse_offset_indirect_negative_base() {
             "",
             OffsetSpec::Indirect {
                 base_offset: -16,
+                base_relative: false,
                 pointer_type: TypeKind::Short {
                     endian: Endianness::Little,
                     signed: true
                 },
                 adjustment: 2,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian: Endianness::Little,
             }
         ))
@@ -289,12 +309,14 @@ fn test_parse_offset_indirect_hex_base() {
             "",
             OffsetSpec::Indirect {
                 base_offset: 0xFF,
+                base_relative: false,
                 pointer_type: TypeKind::Long {
                     endian: Endianness::Little,
                     signed: true
                 },
                 adjustment: 0,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian: Endianness::Little,
             }
         ))
@@ -310,12 +332,14 @@ fn test_parse_offset_indirect_with_whitespace() {
             "",
             OffsetSpec::Indirect {
                 base_offset: 0x3c,
+                base_relative: false,
                 pointer_type: TypeKind::Long {
                     endian: Endianness::Little,
                     signed: true
                 },
                 adjustment: 0,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian: Endianness::Little,
             }
         ))
@@ -327,12 +351,14 @@ fn test_parse_offset_indirect_with_whitespace() {
             "string",
             OffsetSpec::Indirect {
                 base_offset: 0x3c,
+                base_relative: false,
                 pointer_type: TypeKind::Long {
                     endian: Endianness::Little,
                     signed: true
                 },
                 adjustment: 0,
                 adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
                 endian: Endianness::Little,
             }
         ))
@@ -364,12 +390,14 @@ fn test_parse_rule_offset_indirect() {
                 0,
                 OffsetSpec::Indirect {
                     base_offset: 0x3c,
+                    base_relative: false,
                     pointer_type: TypeKind::Long {
                         endian: Endianness::Little,
                         signed: true
                     },
                     adjustment: 0,
                     adjustment_op: IndirectAdjustmentOp::Add,
+                    result_relative: false,
                     endian: Endianness::Little,
                 }
             )
