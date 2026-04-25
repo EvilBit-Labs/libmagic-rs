@@ -384,6 +384,7 @@ pub fn serialize_value_transform_op(op: ValueTransformOp) -> &'static str {
         ValueTransformOp::Mul => "ValueTransformOp::Mul",
         ValueTransformOp::Div => "ValueTransformOp::Div",
         ValueTransformOp::Mod => "ValueTransformOp::Mod",
+        ValueTransformOp::BitAnd => "ValueTransformOp::BitAnd",
         ValueTransformOp::Or => "ValueTransformOp::Or",
         ValueTransformOp::Xor => "ValueTransformOp::Xor",
     }

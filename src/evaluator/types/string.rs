@@ -90,6 +90,41 @@ pub fn read_string(
     Ok(Value::String(string_value))
 }
 
+/// Read exactly `length` bytes from the buffer at `offset`, with NO NUL
+/// truncation. Used for libmagic-compatible `string PATTERN` comparison
+/// where the magic value's full byte length must be compared byte-for-byte
+/// against the file (including any embedded NULs in the pattern).
+///
+/// Differs from [`read_string`]: that function stops at the first NUL it
+/// finds in the buffer, which is wrong for patterns that legitimately
+/// contain NUL bytes (e.g., `0 string PNCIHISK\0 ...`). magic(5)'s
+/// comparison semantic is "do the first len(pattern) bytes of the file
+/// equal these bytes?", regardless of whether either side contains NULs.
+///
+/// # Errors
+///
+/// Returns `TypeReadError::BufferOverrun` when `offset + length` exceeds
+/// the buffer.
+pub fn read_string_exact(
+    buffer: &[u8],
+    offset: usize,
+    length: usize,
+) -> Result<Value, TypeReadError> {
+    let end = offset
+        .checked_add(length)
+        .ok_or(TypeReadError::BufferOverrun {
+            offset,
+            buffer_len: buffer.len(),
+        })?;
+    let slice = buffer
+        .get(offset..end)
+        .ok_or(TypeReadError::BufferOverrun {
+            offset,
+            buffer_len: buffer.len(),
+        })?;
+    Ok(Value::String(bytes_to_string_fast(slice)))
+}
+
 /// Convert bytes to an owned `String`, avoiding a double allocation on the
 /// common valid-UTF-8 path.
 ///

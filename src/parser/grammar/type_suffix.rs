@@ -283,25 +283,32 @@ pub(super) fn parse_attached_operator(input: &str) -> IResult<&str, Option<Opera
     }
 }
 
-/// Parse a `search` suffix `/N` where `N` is a non-zero decimal count.
+/// Parse a `search` suffix `/N[/<flags>]` where `N` is a non-zero count.
 ///
 /// Per GNU `file` magic(5), the range is mandatory; bare `search` and
-/// `search/0` are parse errors, enforced here via `NonZeroUsize`.
+/// `search/0` are parse errors, enforced here via `NonZeroUsize`. The
+/// range accepts both decimal (`search/256`) and hexadecimal
+/// (`search/0xffff`, `search/0x93e4f`) literals -- many real magic files
+/// use hex for large search windows (e.g., archive:254 scans up to
+/// 0x93e4f bytes for the third tar archive in a Debian package).
 ///
-/// Trailing non-operator characters after the digits are rejected as
-/// a hard parse error so that `search/256foo` fails at parse time
-/// instead of being silently re-interpreted as `search/256` followed
-/// by a value string `foo`. This mirrors the same check in
-/// [`parse_regex_suffix`] and matches the GNU `file` convention that
-/// the character after the count must be whitespace or an operator
-/// boundary.
+/// magic(5) also allows trailing flag letters (`/w` whitespace-optional,
+/// `/b` blank-handling, `/B` compact-blanks, `/W` compact-whitespace,
+/// `/c`/`/C` case-insensitive lower/upper, `/t`/`/T` text/binary). Flag
+/// semantics are not yet implemented at evaluation time, but the parser
+/// must accept them so real-world magic files load.
+///
+/// Trailing non-operator characters after the count and flags are
+/// rejected as a hard parse error so that `search/256foo` fails at parse
+/// time instead of being silently re-interpreted as `search/256`
+/// followed by a value string `foo`.
 ///
 /// # Arguments
 ///
 /// * `input` - The full parser input *before* the `/`; used for error
 ///   positioning.
 /// * `suffix_rest` - The slice after consuming the leading `/`, i.e.,
-///   the decimal count itself.
+///   the count itself.
 ///
 /// # Errors
 ///
@@ -311,8 +318,37 @@ pub(super) fn parse_search_suffix<'a>(
     input: &'a str,
     suffix_rest: &'a str,
 ) -> IResult<&'a str, NonZeroUsize> {
-    let (rest, n) = parse_decimal_number(suffix_rest)
+    let (mut rest, n) = parse_unsigned_number(suffix_rest)
         .map_err(|_| NomErr::Error(Error::new(input, ErrorKind::Digit)))?;
+
+    // Optional `/<flags>` after the count (e.g., `search/256/w`,
+    // `search/4261301/s`). magic(5) flag letters are the same set as
+    // for `string`. Parse and discard for now.
+    if let Some(after_slash) = rest.strip_prefix('/') {
+        let mut consumed = 0usize;
+        for ch in after_slash.chars() {
+            // `s` is a search-specific "search-start" flag (the start of
+            // the match becomes the new offset rather than the end). The
+            // others are the same set as `string` flags. We accept them
+            // all to load real magic files; semantic implementation is
+            // tracked separately.
+            if matches!(ch, 'W' | 'w' | 'c' | 'C' | 't' | 'T' | 'B' | 'b' | 's') {
+                consumed += ch.len_utf8();
+            } else {
+                break;
+            }
+        }
+        if consumed > 0 {
+            rest = &after_slash[consumed..];
+        } else {
+            // `/` not followed by a known flag letter is a parse error
+            // (matches the strictness of the existing trailing-junk check
+            // below). Leave `rest` pointing at the `/` so the caller's
+            // error position is meaningful.
+            return Err(NomErr::Error(Error::new(input, ErrorKind::Tag)));
+        }
+    }
+
     // Reject trailing junk so `search/256foo` fails hard instead of
     // silently becoming `search/256` + value string `foo`. Same
     // operator-boundary set as parse_regex_suffix.

@@ -116,6 +116,7 @@ pub fn apply_value_transform(
                 .map(Value::Uint)
                 .ok_or_else(|| invalid_transform("Mod", value, signed_operand))
         }
+        (Value::Uint(v), ValueTransformOp::BitAnd) => Ok(Value::Uint(v & bitwise_operand)),
         (Value::Uint(v), ValueTransformOp::Or) => Ok(Value::Uint(v | bitwise_operand)),
         (Value::Uint(v), ValueTransformOp::Xor) => Ok(Value::Uint(v ^ bitwise_operand)),
 
@@ -146,6 +147,11 @@ pub fn apply_value_transform(
             v.checked_rem(signed_operand)
                 .map(Value::Int)
                 .ok_or_else(|| invalid_transform("Mod", value, signed_operand))
+        }
+        (Value::Int(v), ValueTransformOp::BitAnd) => {
+            #[allow(clippy::cast_possible_wrap)]
+            let result = *v & (bitwise_operand as i64);
+            Ok(Value::Int(result))
         }
         (Value::Int(v), ValueTransformOp::Or) => {
             // Bitwise OR on i64 view of the integer.
@@ -797,8 +803,10 @@ mod tests {
             &empty_string,
             &empty_string
         ));
+        // Cross-type empty Bytes vs empty String now compare equal (libmagic
+        // policy: same byte sequence wins). NotEqual flips accordingly.
         assert!(apply_operator(
-            &Operator::NotEqual,
+            &Operator::Equal,
             &empty_bytes,
             &empty_string
         ));

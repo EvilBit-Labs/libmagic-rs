@@ -1112,6 +1112,19 @@ pub enum ValueTransformOp {
     Div,
     /// Remainder (`type%N`). Modulo by zero is rejected at evaluation time.
     Mod,
+    /// Bitwise AND (`type&N`).
+    ///
+    /// magic(5) `&MASK` was historically encoded at the operator level
+    /// via [`Operator::BitwiseAndMask`] (which combines mask+equal in
+    /// one step). That encoding cannot represent rules like `lelong&0xff
+    /// x %d` (mask + any-value, with the masked value used in format
+    /// substitution). The parser promotes `&MASK` to this `BitAnd`
+    /// transform when followed by another operator (`x`, `>`, `!=`, ...)
+    /// so the read value is masked before comparison and before printf
+    /// substitution. The legacy `&MASK VALUE` form (mask + implicit
+    /// equal) keeps using `Operator::BitwiseAndMask` for backwards
+    /// compatibility.
+    BitAnd,
     /// Bitwise OR (`type|N`).
     Or,
     /// Bitwise XOR (`type^N`).

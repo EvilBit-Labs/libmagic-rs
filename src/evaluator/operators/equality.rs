@@ -82,6 +82,18 @@ pub fn apply_equal(left: &Value, right: &Value) -> bool {
     if let (Value::Float(a), Value::Float(b)) = (left, right) {
         return floats_equal(*a, *b);
     }
+    // String/Bytes cross-type equality: when the parser ingests a magic
+    // value like `\177ELF` it produces `Value::Bytes([0x7f, 'E', 'L',
+    // 'F'])`, but `read_string_exact` returns `Value::String("\x7fELF")`.
+    // The two represent the same byte sequence and must compare equal so
+    // that real-world rules with backslash-escaped values match. Compare
+    // by underlying byte sequence in both directions.
+    match (left, right) {
+        (Value::String(s), Value::Bytes(b)) | (Value::Bytes(b), Value::String(s)) => {
+            return s.as_bytes() == b.as_slice();
+        }
+        _ => {}
+    }
     compare_values(left, right) == Some(Ordering::Equal)
 }
 
@@ -339,9 +351,18 @@ mod tests {
 
     #[test]
     fn test_apply_equal_bytes_vs_string() {
+        // libmagic-compatible policy (since the `\177ELF`-style escape fix):
+        // `Value::Bytes` and `Value::String` compare equal when their
+        // underlying byte sequences match. The parser produces
+        // `Value::Bytes` for backslash-escape patterns like `\177ELF`,
+        // while `read_string_exact` returns `Value::String` -- the
+        // comparison must succeed for the rule to match.
         let left = Value::Bytes(vec![104, 101, 108, 108, 111]); // "hello" as bytes
         let right = Value::String("hello".to_string());
-        assert!(!apply_equal(&left, &right));
+        assert!(apply_equal(&left, &right));
+        // Different byte sequences still don't compare equal.
+        let other = Value::String("world".to_string());
+        assert!(!apply_equal(&left, &other));
     }
 
     #[test]
@@ -451,7 +472,10 @@ mod tests {
 
         assert!(apply_equal(&empty_bytes, &empty_bytes));
         assert!(apply_equal(&empty_string, &empty_string));
-        assert!(!apply_equal(&empty_bytes, &empty_string));
+        // Cross-type empty Bytes vs empty String: their underlying byte
+        // sequences are both zero-length, so the libmagic-compatible
+        // policy says they compare equal (see test_apply_equal_bytes_vs_string).
+        assert!(apply_equal(&empty_bytes, &empty_string));
     }
 
     // Tests for apply_not_equal function
