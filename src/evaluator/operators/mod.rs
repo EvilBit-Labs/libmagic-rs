@@ -174,9 +174,9 @@ pub fn apply_value_transform(
 }
 
 fn invalid_transform(op: &str, value: &Value, operand: i64) -> EvaluationError {
-    EvaluationError::internal_error(format!(
-        "value transform {op}({operand}) failed on {value:?} (overflow or div-by-zero)"
-    ))
+    EvaluationError::InvalidValueTransform {
+        reason: format!("{op}({operand}) failed on {value:?} (overflow or div-by-zero)"),
+    }
 }
 
 /// Apply any-value operator: always returns true (unconditional match).
@@ -392,6 +392,35 @@ mod tests {
         let err =
             apply_value_transform(&Value::Uint(u64::MAX), t(ValueTransformOp::Mul, 2)).unwrap_err();
         assert!(err.to_string().contains("Mul"));
+    }
+
+    /// Regression: errors from apply_value_transform must be classified as
+    /// EvaluationError::InvalidValueTransform so the engine's graceful-skip
+    /// arm catches them. Previously the helper used internal_error, which is
+    /// NOT in the graceful-skip list -- a single rule with `lequad*N` against
+    /// an overflow-prone buffer would abort the entire evaluation instead of
+    /// dropping the rule and continuing.
+    #[test]
+    fn test_apply_value_transform_errors_use_invalid_value_transform_variant() {
+        let err = apply_value_transform(&Value::Uint(10), t(ValueTransformOp::Div, 0)).unwrap_err();
+        assert!(
+            matches!(err, EvaluationError::InvalidValueTransform { .. }),
+            "Div-by-zero must produce InvalidValueTransform, got {err:?}"
+        );
+
+        let err =
+            apply_value_transform(&Value::Uint(u64::MAX), t(ValueTransformOp::Mul, 2)).unwrap_err();
+        assert!(
+            matches!(err, EvaluationError::InvalidValueTransform { .. }),
+            "Overflow must produce InvalidValueTransform, got {err:?}"
+        );
+
+        let err =
+            apply_value_transform(&Value::Int(i64::MIN), t(ValueTransformOp::Sub, 1)).unwrap_err();
+        assert!(
+            matches!(err, EvaluationError::InvalidValueTransform { .. }),
+            "Int underflow must produce InvalidValueTransform, got {err:?}"
+        );
     }
 
     #[test]

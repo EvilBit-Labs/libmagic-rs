@@ -505,6 +505,7 @@ fn evaluate_children_or_warn(
             e @ (LibmagicError::EvaluationError(
                 crate::error::EvaluationError::BufferOverrun { .. }
                 | crate::error::EvaluationError::InvalidOffset { .. }
+                | crate::error::EvaluationError::InvalidValueTransform { .. }
                 | crate::error::EvaluationError::TypeReadError(
                     crate::evaluator::types::TypeReadError::BufferOverrun { .. }
                     | crate::evaluator::types::TypeReadError::InvalidPStringLength { .. },
@@ -1020,6 +1021,7 @@ pub fn evaluate_rules(
                 e @ (LibmagicError::EvaluationError(
                     crate::error::EvaluationError::BufferOverrun { .. }
                     | crate::error::EvaluationError::InvalidOffset { .. }
+                    | crate::error::EvaluationError::InvalidValueTransform { .. }
                     | crate::error::EvaluationError::TypeReadError(
                         crate::evaluator::types::TypeReadError::BufferOverrun { .. }
                         | crate::evaluator::types::TypeReadError::InvalidPStringLength { .. },
@@ -1089,6 +1091,7 @@ pub fn evaluate_rules(
                         e @ (LibmagicError::EvaluationError(
                             crate::error::EvaluationError::BufferOverrun { .. }
                             | crate::error::EvaluationError::InvalidOffset { .. }
+                            | crate::error::EvaluationError::InvalidValueTransform { .. }
                             | crate::error::EvaluationError::TypeReadError(
                                 crate::evaluator::types::TypeReadError::BufferOverrun { .. }
                                 | crate::evaluator::types::TypeReadError::InvalidPStringLength {
