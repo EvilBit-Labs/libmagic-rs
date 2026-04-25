@@ -23,6 +23,7 @@ fn test_use_known_name_evaluates_subroutine() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     }];
     let table = build_name_table(vec![("part2", subroutine)]);
     let mut context = make_context_with_env(table, &[]);
@@ -114,6 +115,7 @@ fn test_use_child_rules_evaluated_after_subroutine() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     }];
     let table = build_name_table(vec![("sub", subroutine)]);
     let env = std::sync::Arc::new(RuleEnvironment {
@@ -132,6 +134,7 @@ fn test_use_child_rules_evaluated_after_subroutine() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let rules = vec![use_rule("sub"), sibling];
     let matches = evaluate_rules(&rules, &buffer, &mut context).unwrap();
@@ -155,6 +158,7 @@ fn test_use_stop_at_first_match_short_circuits_siblings() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     }];
     let table = build_name_table(vec![("sub", subroutine)]);
     let mut context = make_context_with_env(table, &[]);
@@ -169,6 +173,7 @@ fn test_use_stop_at_first_match_short_circuits_siblings() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let rules = vec![use_rule("sub"), sibling];
     let matches = evaluate_rules(&rules, &buffer, &mut context).unwrap();
@@ -195,6 +200,7 @@ fn test_use_rule_children_are_evaluated() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     }];
     let table = build_name_table(vec![("sub", subroutine)]);
     // Disable stop-at-first-match so both the subroutine and the child
@@ -218,6 +224,7 @@ fn test_use_rule_children_are_evaluated() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
     let mut use_with_child = use_rule("sub");
     use_with_child.children = vec![child];
@@ -247,6 +254,7 @@ fn test_name_rule_leaked_is_noop() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
     let mut context = EvaluationContext::new(EvaluationConfig::default());
     let matches = evaluate_rules(&[leaked], &[0u8; 4], &mut context).unwrap();
@@ -363,6 +371,7 @@ fn test_continuation_sibling_reset_after_bytes_consumed() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
     let byte_sibling = MagicRule {
         offset: OffsetSpec::Relative(0),
@@ -375,6 +384,7 @@ fn test_continuation_sibling_reset_after_bytes_consumed() {
         children: vec![],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
     let parent = MagicRule {
         offset: OffsetSpec::Absolute(0),
@@ -385,6 +395,7 @@ fn test_continuation_sibling_reset_after_bytes_consumed() {
         children: vec![long_sibling, byte_sibling],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     // buffer[0]=0x01 parent; buffer[1..5]=0x01,0x02,0x03,0x04 long

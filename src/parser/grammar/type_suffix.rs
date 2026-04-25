@@ -16,8 +16,10 @@ use nom::error::{Error, ErrorKind};
 use nom::{Err as NomErr, IResult};
 use std::num::{NonZeroU32, NonZeroUsize};
 
-use super::numbers::{parse_decimal_number, parse_unsigned_number};
-use crate::parser::ast::{Operator, PStringLengthWidth, RegexCount, RegexFlags};
+use super::numbers::{parse_decimal_number, parse_number, parse_unsigned_number};
+use crate::parser::ast::{
+    Operator, PStringLengthWidth, RegexCount, RegexFlags, ValueTransform, ValueTransformOp,
+};
 
 /// Parse a `pstring` suffix `/[BHhLl][J]?` or bare `/J`.
 ///
@@ -165,6 +167,80 @@ pub(super) fn parse_regex_suffix<'a>(
     Ok((rest, (flags, count)))
 }
 
+/// Parse an optional pre-comparison value transform after a type specifier.
+///
+/// magic(5) allows `+`, `-`, `*`, `/`, `%`, `|`, and `^` between the type
+/// keyword and the comparison value. The transform is applied to the value
+/// read from the file before the rule's comparison operator runs (and
+/// before printf-style format substitution, so `%d` reflects the
+/// post-transform number).
+///
+/// Bitwise AND (`&MASK`) is handled separately by [`parse_attached_operator`]
+/// because it predates this enum and is encoded at the operator layer via
+/// [`Operator::BitwiseAndMask`].
+///
+/// Returns `Ok((rest, None))` when the next character is not one of the
+/// recognized transform operators -- the caller continues parsing the rest
+/// of the rule normally.
+///
+/// # Examples
+///
+/// - `+1` -> `Some(ValueTransform { Add, 1 })`
+/// - `-3` -> `Some(ValueTransform { Sub, 3 })`
+/// - `*2` -> `Some(ValueTransform { Mul, 2 })`
+/// - `/1073741824` -> `Some(ValueTransform { Div, 1073741824 })`
+/// - bare `=foo` -> `None` (no transform; caller handles the operator)
+///
+/// # Errors
+///
+/// Returns a nom parse error if a recognized transform operator is followed
+/// by something that does not parse as a signed number (e.g., `+abc`).
+pub(super) fn parse_value_transform(input: &str) -> IResult<&str, Option<ValueTransform>> {
+    // Single-byte lookahead to dispatch on the operator. We deliberately
+    // do not consume `&` here -- `parse_attached_operator` handles that
+    // case via `Operator::BitwiseAndMask`. We also reject `--` and
+    // `++` etc. by parsing exactly one operator byte, then a single
+    // signed number.
+    let bytes = input.as_bytes();
+    let op = match bytes.first().copied() {
+        Some(b'+') => ValueTransformOp::Add,
+        Some(b'-') => {
+            // `-` must be followed by a digit/0x to count as a transform.
+            // A bare `-` is not a transform; let the caller handle it
+            // (no other parser path uses bare `-` at this position, but
+            // this guard keeps the grammar future-proof).
+            if !matches!(bytes.get(1).copied(), Some(c) if c.is_ascii_digit()) {
+                return Ok((input, None));
+            }
+            ValueTransformOp::Sub
+        }
+        Some(b'*') => ValueTransformOp::Mul,
+        Some(b'/') => ValueTransformOp::Div,
+        Some(b'%') => ValueTransformOp::Mod,
+        Some(b'|') => ValueTransformOp::Or,
+        Some(b'^') => {
+            // Reject `^^` (defensive; matches the `^^` rejection in
+            // parse_operator).
+            if matches!(bytes.get(1).copied(), Some(b'^')) {
+                return Ok((input, None));
+            }
+            ValueTransformOp::Xor
+        }
+        _ => return Ok((input, None)),
+    };
+
+    // Consume the operator byte and parse the operand. `parse_number`
+    // accepts decimal and hex (`0x...`) plus signs, so `+0xff` and
+    // `*0x10` work alongside the common decimal forms. The op byte
+    // already encoded the sign for `Sub`, but `parse_number` is fine
+    // with a leading digit -- it does not require a sign character.
+    let after_op = &input[1..];
+    let (rest, operand) =
+        parse_number(after_op).map_err(|_| NomErr::Error(Error::new(input, ErrorKind::Digit)))?;
+
+    Ok((rest, Some(ValueTransform { op, operand })))
+}
+
 /// Parse an optional attached bitwise operator after a type specifier
 /// (e.g., `lelong&0xf0000000` or bare `lelong&`).
 ///
@@ -207,25 +283,32 @@ pub(super) fn parse_attached_operator(input: &str) -> IResult<&str, Option<Opera
     }
 }
 
-/// Parse a `search` suffix `/N` where `N` is a non-zero decimal count.
+/// Parse a `search` suffix `/N[/<flags>]` where `N` is a non-zero count.
 ///
 /// Per GNU `file` magic(5), the range is mandatory; bare `search` and
-/// `search/0` are parse errors, enforced here via `NonZeroUsize`.
+/// `search/0` are parse errors, enforced here via `NonZeroUsize`. The
+/// range accepts both decimal (`search/256`) and hexadecimal
+/// (`search/0xffff`, `search/0x93e4f`) literals -- many real magic files
+/// use hex for large search windows (e.g., archive:254 scans up to
+/// 0x93e4f bytes for the third tar archive in a Debian package).
 ///
-/// Trailing non-operator characters after the digits are rejected as
-/// a hard parse error so that `search/256foo` fails at parse time
-/// instead of being silently re-interpreted as `search/256` followed
-/// by a value string `foo`. This mirrors the same check in
-/// [`parse_regex_suffix`] and matches the GNU `file` convention that
-/// the character after the count must be whitespace or an operator
-/// boundary.
+/// magic(5) also allows trailing flag letters (`/w` whitespace-optional,
+/// `/b` blank-handling, `/B` compact-blanks, `/W` compact-whitespace,
+/// `/c`/`/C` case-insensitive lower/upper, `/t`/`/T` text/binary). Flag
+/// semantics are not yet implemented at evaluation time, but the parser
+/// must accept them so real-world magic files load.
+///
+/// Trailing non-operator characters after the count and flags are
+/// rejected as a hard parse error so that `search/256foo` fails at parse
+/// time instead of being silently re-interpreted as `search/256`
+/// followed by a value string `foo`.
 ///
 /// # Arguments
 ///
 /// * `input` - The full parser input *before* the `/`; used for error
 ///   positioning.
 /// * `suffix_rest` - The slice after consuming the leading `/`, i.e.,
-///   the decimal count itself.
+///   the count itself.
 ///
 /// # Errors
 ///
@@ -235,8 +318,37 @@ pub(super) fn parse_search_suffix<'a>(
     input: &'a str,
     suffix_rest: &'a str,
 ) -> IResult<&'a str, NonZeroUsize> {
-    let (rest, n) = parse_decimal_number(suffix_rest)
+    let (mut rest, n) = parse_unsigned_number(suffix_rest)
         .map_err(|_| NomErr::Error(Error::new(input, ErrorKind::Digit)))?;
+
+    // Optional `/<flags>` after the count (e.g., `search/256/w`,
+    // `search/4261301/s`). magic(5) flag letters are the same set as
+    // for `string`. Parse and discard for now.
+    if let Some(after_slash) = rest.strip_prefix('/') {
+        let mut consumed = 0usize;
+        for ch in after_slash.chars() {
+            // `s` is a search-specific "search-start" flag (the start of
+            // the match becomes the new offset rather than the end). The
+            // others are the same set as `string` flags. We accept them
+            // all to load real magic files; semantic implementation is
+            // tracked separately.
+            if matches!(ch, 'W' | 'w' | 'c' | 'C' | 't' | 'T' | 'B' | 'b' | 's') {
+                consumed += ch.len_utf8();
+            } else {
+                break;
+            }
+        }
+        if consumed > 0 {
+            rest = &after_slash[consumed..];
+        } else {
+            // `/` not followed by a known flag letter is a parse error
+            // (matches the strictness of the existing trailing-junk check
+            // below). Leave `rest` pointing at the `/` so the caller's
+            // error position is meaningful.
+            return Err(NomErr::Error(Error::new(input, ErrorKind::Tag)));
+        }
+    }
+
     // Reject trailing junk so `search/256foo` fails hard instead of
     // silently becoming `search/256` + value string `foo`. Same
     // operator-boundary set as parse_regex_suffix.
@@ -490,5 +602,68 @@ mod tests {
     #[test]
     fn test_parse_pstring_suffix_unknown_letter_rejected() {
         assert!(parse_pstring_suffix("Z").is_err());
+    }
+
+    // ========================================================================
+    // parse_value_transform tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_value_transform_add() {
+        let (rest, t) = parse_value_transform("+1 rest").unwrap();
+        assert_eq!(rest, " rest");
+        assert_eq!(
+            t,
+            Some(ValueTransform {
+                op: ValueTransformOp::Add,
+                operand: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn test_parse_value_transform_div_with_decimal() {
+        // Regression: filesystems uses `ulequad/1073741824` to convert
+        // sectors to GiB.
+        let (rest, t) = parse_value_transform("/1073741824 rest").unwrap();
+        assert_eq!(rest, " rest");
+        assert_eq!(
+            t,
+            Some(ValueTransform {
+                op: ValueTransformOp::Div,
+                operand: 1_073_741_824,
+            })
+        );
+    }
+
+    #[test]
+    fn test_parse_value_transform_all_ops() {
+        let cases: &[(&str, ValueTransformOp, i64)] = &[
+            ("+5", ValueTransformOp::Add, 5),
+            ("-3", ValueTransformOp::Sub, 3),
+            ("*7", ValueTransformOp::Mul, 7),
+            ("/2", ValueTransformOp::Div, 2),
+            ("%4", ValueTransformOp::Mod, 4),
+            ("|0xff", ValueTransformOp::Or, 0xff),
+            ("^0x80", ValueTransformOp::Xor, 0x80),
+        ];
+        for (input, expected_op, expected_value) in cases {
+            let (_, parsed) =
+                parse_value_transform(input).unwrap_or_else(|_| panic!("Failed to parse {input}"));
+            let t = parsed.unwrap_or_else(|| panic!("No transform parsed for {input}"));
+            assert_eq!(t.op, *expected_op, "wrong op for {input}");
+            assert_eq!(t.operand, *expected_value, "wrong operand for {input}");
+        }
+    }
+
+    #[test]
+    fn test_parse_value_transform_no_match_returns_none() {
+        // Bare `=` is not a value transform -- caller handles it as the
+        // comparison operator.
+        assert_eq!(parse_value_transform("=42").unwrap(), ("=42", None));
+        // Bare `&` falls through to the operator parser, NOT this one.
+        assert_eq!(parse_value_transform("&0xff").unwrap(), ("&0xff", None));
+        // Bare `-` without a digit is not a transform either.
+        assert_eq!(parse_value_transform("-foo").unwrap(), ("-foo", None));
     }
 }

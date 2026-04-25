@@ -77,6 +77,11 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
             // Add bonus for limited-length strings (more constrained match)
             if max_length.is_some() { base + 5 } else { base }
         }
+        // UCS-2 strings (`lestring16`/`bestring16`) match byte sequences too,
+        // but each character is two bytes wide. Treat them like an unbounded
+        // `string` -- no `max_length` knob exists at the magic-file level, so
+        // the "constrained" bonus does not apply.
+        TypeKind::String16 { .. } => 20,
         // Regex matches a pattern -- treat similarly to an unbounded string.
         // A rule with an EXPLICIT count (byte count, or line count with a
         // specific N) is more constrained than a plain `regex` default, so
@@ -435,7 +440,7 @@ pub fn into_sorted_by_strength(mut rules: Vec<MagicRule>) -> Vec<MagicRule> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::ast::Endianness;
+    use crate::parser::ast::{Endianness, IndirectAdjustmentOp};
 
     // Helper to create a basic test rule
     fn make_rule(typ: TypeKind, op: Operator, offset: OffsetSpec, value: Value) -> MagicRule {
@@ -448,6 +453,7 @@ mod tests {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         }
     }
 
@@ -671,11 +677,14 @@ mod tests {
                         Operator::Equal,
                         OffsetSpec::Indirect {
                             base_offset: 0,
+                            base_relative: false,
                             pointer_type: TypeKind::Long {
                                 endian: Endianness::Little,
                                 signed: false,
                             },
                             adjustment: 0,
+                            adjustment_op: IndirectAdjustmentOp::Add,
+                            result_relative: false,
                             endian: Endianness::Little,
                         },
                         Value::Uint(0),

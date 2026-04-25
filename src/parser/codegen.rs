@@ -12,8 +12,8 @@
 //! binary as built-in rules.
 
 use super::ast::{
-    Endianness, MagicRule, MetaType, OffsetSpec, Operator, PStringLengthWidth, StrengthModifier,
-    TypeKind, Value,
+    Endianness, IndirectAdjustmentOp, MagicRule, MetaType, OffsetSpec, Operator,
+    PStringLengthWidth, StrengthModifier, TypeKind, Value, ValueTransform, ValueTransformOp,
 };
 
 const INDENT_WIDTH: usize = 4;
@@ -29,7 +29,7 @@ pub fn generate_builtin_rules(rules: &[MagicRule]) -> String {
     push_line(&mut output, "#[allow(unused_imports)]");
     push_line(
         &mut output,
-        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness, StrengthModifier, PStringLengthWidth, MetaType};",
+        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness, IndirectAdjustmentOp, StrengthModifier, PStringLengthWidth, MetaType, ValueTransform, ValueTransformOp};",
     );
     push_line(&mut output, "use std::sync::LazyLock;");
     push_line(&mut output, "");
@@ -126,6 +126,13 @@ pub fn serialize_magic_rule(rule: &MagicRule, indent: usize) -> String {
         &serialize_strength_modifier(rule.strength_modifier),
     );
 
+    push_field(
+        &mut output,
+        indent + INDENT_WIDTH,
+        "value_transform",
+        &serialize_value_transform(rule.value_transform),
+    );
+
     push_indent(&mut output, indent);
     output.push('}');
 
@@ -158,12 +165,16 @@ pub fn serialize_offset_spec(offset: &OffsetSpec) -> String {
         OffsetSpec::Absolute(value) => format!("OffsetSpec::Absolute({value})"),
         OffsetSpec::Indirect {
             base_offset,
+            base_relative,
             pointer_type,
             adjustment,
+            adjustment_op,
+            result_relative,
             endian,
         } => format!(
-            "OffsetSpec::Indirect {{ base_offset: {base_offset}, pointer_type: {}, adjustment: {adjustment}, endian: {} }}",
+            "OffsetSpec::Indirect {{ base_offset: {base_offset}, base_relative: {base_relative}, pointer_type: {}, adjustment: {adjustment}, adjustment_op: {}, result_relative: {result_relative}, endian: {} }}",
             serialize_type_kind(pointer_type),
+            serialize_indirect_adjustment_op(*adjustment_op),
             serialize_endianness(*endian)
         ),
         OffsetSpec::Relative(value) => format!("OffsetSpec::Relative({value})"),
@@ -172,6 +183,7 @@ pub fn serialize_offset_spec(offset: &OffsetSpec) -> String {
 }
 
 /// Serialize a type kind as a Rust expression
+#[allow(clippy::too_many_lines)]
 pub fn serialize_type_kind(typ: &TypeKind) -> String {
     match typ {
         TypeKind::Byte { signed } => format!("TypeKind::Byte {{ signed: {signed} }}"),
@@ -214,6 +226,10 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
             }
             None => "TypeKind::String { max_length: None }".to_string(),
         },
+        TypeKind::String16 { endian } => format!(
+            "TypeKind::String16 {{ endian: {} }}",
+            serialize_endianness(*endian)
+        ),
         TypeKind::PString {
             max_length,
             length_width,
@@ -347,6 +363,45 @@ pub fn serialize_endianness(endian: Endianness) -> String {
     }
 }
 
+/// Serialize an indirect-offset adjustment operation as a Rust expression
+pub fn serialize_indirect_adjustment_op(op: IndirectAdjustmentOp) -> &'static str {
+    match op {
+        IndirectAdjustmentOp::Add => "IndirectAdjustmentOp::Add",
+        IndirectAdjustmentOp::Mul => "IndirectAdjustmentOp::Mul",
+        IndirectAdjustmentOp::Div => "IndirectAdjustmentOp::Div",
+        IndirectAdjustmentOp::Mod => "IndirectAdjustmentOp::Mod",
+        IndirectAdjustmentOp::And => "IndirectAdjustmentOp::And",
+        IndirectAdjustmentOp::Or => "IndirectAdjustmentOp::Or",
+        IndirectAdjustmentOp::Xor => "IndirectAdjustmentOp::Xor",
+    }
+}
+
+/// Serialize a value-transform-op as a Rust expression
+pub fn serialize_value_transform_op(op: ValueTransformOp) -> &'static str {
+    match op {
+        ValueTransformOp::Add => "ValueTransformOp::Add",
+        ValueTransformOp::Sub => "ValueTransformOp::Sub",
+        ValueTransformOp::Mul => "ValueTransformOp::Mul",
+        ValueTransformOp::Div => "ValueTransformOp::Div",
+        ValueTransformOp::Mod => "ValueTransformOp::Mod",
+        ValueTransformOp::BitAnd => "ValueTransformOp::BitAnd",
+        ValueTransformOp::Or => "ValueTransformOp::Or",
+        ValueTransformOp::Xor => "ValueTransformOp::Xor",
+    }
+}
+
+/// Serialize an optional value transform as a Rust expression
+pub fn serialize_value_transform(transform: Option<ValueTransform>) -> String {
+    match transform {
+        None => "None".to_string(),
+        Some(t) => format!(
+            "Some(ValueTransform {{ op: {}, operand: {} }})",
+            serialize_value_transform_op(t.op),
+            t.operand
+        ),
+    }
+}
+
 /// Serialize a strength modifier as a Rust expression
 pub fn serialize_strength_modifier(modifier: Option<StrengthModifier>) -> String {
     match modifier {
@@ -464,6 +519,7 @@ mod tests {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         };
 
         let generated = serialize_magic_rule(&rule, 0);
@@ -499,6 +555,7 @@ mod tests {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         };
 
         let generated = serialize_magic_rule(&rule, 0);
@@ -537,6 +594,7 @@ mod tests {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         };
 
         let generated = serialize_magic_rule(&rule, 0);
@@ -567,6 +625,7 @@ mod tests {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         };
 
         let generated = serialize_magic_rule(&rule, 0);

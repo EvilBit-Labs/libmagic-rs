@@ -42,6 +42,7 @@ fn regex_rule(pattern: &str) -> MagicRule {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     }
 }
 

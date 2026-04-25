@@ -39,6 +39,7 @@ Adding a variant to `Operator` requires updating: `ast`, `grammar`, `codegen`, `
 Adding a variant to `Value` requires updating: `ast`, `codegen`, `strength`, `property_tests`, `output/mod.rs` (2 length matches), `output/json.rs` (`format_value_as_hex`), `evaluator/operators/comparison.rs` (`compare_values`). Bitwise/equality operators use catch-all `_ =>` so they are safe.
 
 - **Note:** `Value` no longer derives `Eq` (removed when `Value::Float(f64)` was added) -- no production code depends on `Value: Eq`.
+- **Cross-type `String`/`Bytes` equality is policy, not accident.** `apply_equal` deliberately compares `Value::String(s)` against `Value::Bytes(b)` by underlying byte sequence (`s.as_bytes() == b.as_slice()`) -- this is libmagic-compatible behavior. The parser produces `Value::Bytes` for backslash-escape patterns like `\177ELF` (via `parse_mixed_hex_ascii`), while `read_string_exact` returns `Value::String`; both must compare equal when their bytes match or rules with hex/octal escapes silently fail to match. Any new `Value` variant that can hold the same byte sequence as `Value::String` should extend this cross-equality, not lock into strict-variant comparison. See `docs/solutions/logic-errors/magic-string-rule-matching-3-bug-fix-2026-04-25.md` for the worked example.
 
 ### 2.4 Pattern-Bearing Types Bypass `apply_operator` in the Engine
 
@@ -117,7 +118,16 @@ The nom `tuple` combinator is deprecated. Use bare tuple syntax `(a, b, c)` dire
 
 ### 3.7 Indirect Offset Pointer Specifiers Follow GNU `file` Semantics
 
-Lowercase pointer specifiers (`.s`, `.l`, `.q`) map to **little-endian**, not native endian. Uppercase (`.S`, `.L`, `.Q`) map to big-endian. All numeric pointer types are **signed by default** (per S6.3). The adjustment is parsed **after** the closing paren: `(base.type)+adj`, not `(base.type+adj)`.
+Lowercase pointer specifiers (`.s`, `.l`, `.q`) map to **little-endian**, not native endian. Uppercase (`.S`, `.L`, `.Q`) map to big-endian. All numeric pointer types are **signed by default** (per S6.3).
+
+Adjustment is accepted in two forms:
+
+- **Inside the parens** (canonical magic(5)): `(base.type+N)`, `(base.type-N)`, `(base.type*N)`, `(base.type/N)`, `(base.type%N)`, `(base.type&N)`, `(base.type|N)`, `(base.type^N)`. The full magic(5) operator set is supported here.
+- **After the closing paren** (legacy/alternate): `(base.type)+N`, `(base.type)-N`. Only `+`/`-` are accepted in this form.
+
+Only one form may be used per rule; combinations like `(19.b-1)+2` are not permitted. The operator selection is stored on `OffsetSpec::Indirect.adjustment_op` (`IndirectAdjustmentOp` enum). Subtraction is folded into `IndirectAdjustmentOp::Add` with a negative `adjustment` so the evaluator does not need a dedicated `Sub` variant.
+
+The evaluator (`evaluator/offset/indirect.rs::apply_adjustment`) treats the operand as `i64` for `Add` (signed addition) and reinterprets it as `u64` for `Mul`/`Div`/`Mod`/`And`/`Or`/`Xor` to match libmagic's `apprentice.c::do_offset` raw-machine-word semantics. `Div`/`Mod` reject a zero operand with `EvaluationError::InvalidOffset`; `Mul` rejects integer overflow the same way. `IndirectAdjustmentOp` derives `Default = Add` so a missing field round-trips correctly through serde for older AST snapshots.
 
 ### 3.8 Relative Offsets: Global Anchor, No Save/Restore
 
@@ -199,9 +209,16 @@ Middle-endian date keywords are NOT supported. They were removed until real midd
 
 libmagic types are signed by default (`byte`, `short`, `long`, `quad`). Unsigned variants use `u` prefix (`ubyte`, `ushort`, `ulong`, `uquad`, etc.).
 
-### 6.4 `TypeKind::String { max_length: None }` Against Buffers Without NUL
+### 6.4 `TypeKind::String` Has Two Read Modes -- Pick Consciously
 
-`read_string` with `max_length: None` reads until the first NUL or end of buffer. On NUL-free buffers (raw ASCII text, JSON, log lines, etc.) it reads the *entire remaining buffer*, and equality comparison against a short target value then fails. Programmatic rules built against such buffers must set `max_length: Some(target_len)` explicitly. Text magic rules (`string "MZ"`) typically work anyway because real executable headers contain NULs within the first few bytes.
+`src/evaluator/types/string.rs` exposes **two** read functions and the dispatcher in `src/evaluator/types/mod.rs::read_typed_value_with_pattern` picks between them based on `(max_length, pattern)`:
+
+- `read_string_exact(buffer, offset, length)` reads **exactly** `length` bytes with NO NUL truncation. Used for libmagic-compatible `string PATTERN` byte-for-byte comparison whenever a comparison value is supplied -- including patterns that legitimately contain embedded NULs (e.g. `0 string PNCIHISK\0 Norton Utilities disc image data`). Selecting this path is critical: a 9-byte pattern ending in `\0` compared against a 9-byte buffer ending in `\0` must read 9 bytes, not stop at 8.
+- `read_string(buffer, offset, max_length)` reads until the **first NUL** or end of buffer, capped by `max_length` if set. Used for the `x` (any-value) operator path where the read is for printable-prefix output rather than equality comparison. Adding a new code path that needs string bytes must pick consciously: pattern comparison -> `read_string_exact`; printable scan -> `read_string`.
+
+Historical note (NUL-free buffer behavior): when `read_string` runs with `max_length: None` on a NUL-free buffer (raw ASCII text, JSON, log lines), it reads the *entire remaining buffer*, which historically broke equality comparison against short target values. The pattern-aware dispatcher now routes those comparisons through `read_string_exact` so that failure mode no longer applies; programmatic rules constructed by hand without going through the dispatcher should still set `max_length: Some(target_len)` explicitly when targeting NUL-free buffers.
+
+The full backstory of why both functions exist (and why the previous single-function design silently broke `0 string PNCIHISK\0 ...` and similar rules) is documented in `docs/solutions/logic-errors/magic-string-rule-matching-3-bug-fix-2026-04-25.md`.
 
 ## 7. Testing
 

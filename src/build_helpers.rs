@@ -478,6 +478,7 @@ mod tests {
             children: vec![],
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         };
 
         let generated = generate_builtin_rules(&[rule]);
@@ -507,6 +508,7 @@ mod tests {
             children: vec![],
             level: 1,
             strength_modifier: None,
+            value_transform: None,
         };
 
         let result = serialize_children(&[child], 4);

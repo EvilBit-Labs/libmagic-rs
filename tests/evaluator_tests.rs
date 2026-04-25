@@ -261,6 +261,7 @@ fn test_evaluate_float_rule_equal() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer: &[u8] = &[0x00, 0x00, 0x80, 0x3f];
@@ -284,6 +285,7 @@ fn test_evaluate_double_rule_equal() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer: &[u8] = &[0x3f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
@@ -307,6 +309,7 @@ fn test_evaluate_float_rule_not_equal() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer: &[u8] = &[0x00, 0x00, 0x80, 0x3f]; // 1.0f32 LE
@@ -334,6 +337,7 @@ fn test_evaluate_float_rule_less_than() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer: &[u8] = &[0x00, 0x00, 0x80, 0x3f]; // 1.0f32 LE
@@ -363,6 +367,7 @@ fn test_evaluate_pstring_rule_match() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer: &[u8] = &[3, b'P', b'D', b'F', 0x00, 0x00];
@@ -388,6 +393,7 @@ fn test_evaluate_pstring_rule_no_match() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer: &[u8] = &[3, b'P', b'D', b'F'];
@@ -416,6 +422,7 @@ fn test_evaluate_pstring_with_max_length() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer: &[u8] = &[
@@ -447,6 +454,7 @@ fn test_evaluate_pstring_two_byte_be_with_j_flag() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     // Big-endian length 7 = [0x00, 0x07], minus 2-byte prefix = 5 bytes of "Hello"
@@ -475,6 +483,7 @@ fn test_evaluate_float_rule_no_match() {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let buffer: &[u8] = &[0x00, 0x00, 0x80, 0x3f]; // 1.0f32 LE
@@ -547,6 +556,7 @@ fn test_regex_eol_corpus() {
         children: vec![],
         level: 2,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let version_regex = MagicRule {
@@ -561,6 +571,7 @@ fn test_regex_eol_corpus() {
         children: vec![inner_regex],
         level: 1,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let ansible_vault = MagicRule {
@@ -574,6 +585,7 @@ fn test_regex_eol_corpus() {
         children: vec![version_regex],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     };
 
     let config = EvaluationConfig::default();

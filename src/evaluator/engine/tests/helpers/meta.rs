@@ -40,6 +40,7 @@ pub fn use_rule_at(name: &str, offset: i64) -> MagicRule {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     }
 }
 
@@ -59,6 +60,7 @@ pub fn build_name_table(entries: Vec<(&str, Vec<MagicRule>)>) -> NameTable {
             children: body,
             level: 0,
             strength_modifier: None,
+            value_transform: None,
         });
     }
     let (_rules, table) = crate::parser::name_table::extract_name_table(top);
@@ -76,6 +78,7 @@ pub fn default_rule(message: &str, children: Vec<MagicRule>) -> MagicRule {
         children,
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     }
 }
 
@@ -91,6 +94,7 @@ pub fn clear_rule() -> MagicRule {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     }
 }
 
@@ -105,6 +109,7 @@ pub fn byte_eq_rule(offset: i64, value: u64, message: &str) -> MagicRule {
         children: vec![],
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     }
 }
 
@@ -119,6 +124,7 @@ pub fn indirect_rule(offset: i64, message: &str, children: Vec<MagicRule>) -> Ma
         children,
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     }
 }
 
@@ -134,5 +140,6 @@ pub fn offset_rule(offset: i64, message: &str, children: Vec<MagicRule>) -> Magi
         children,
         level: 0,
         strength_modifier: None,
+        value_transform: None,
     }
 }

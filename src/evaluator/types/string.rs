@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::TypeReadError;
-use crate::parser::ast::{PStringLengthWidth, Value};
+use crate::parser::ast::{Endianness, PStringLengthWidth, Value};
+
+/// Maximum number of UCS-2 code units consumed by a single `string16` read.
+///
+/// Caps the worst-case scan so a buffer with no `0x00 0x00` terminator does
+/// not allocate megabytes of decoded `String`. Mirrors libmagic's implicit
+/// cap for `lestring16` / `bestring16` (`MAXstring` in `softmagic.c`).
+const STRING16_MAX_UNITS: usize = 8192;
 
 /// Safely reads a null-terminated string from the buffer at the specified offset.
 ///
@@ -83,6 +90,41 @@ pub fn read_string(
     Ok(Value::String(string_value))
 }
 
+/// Read exactly `length` bytes from the buffer at `offset`, with NO NUL
+/// truncation. Used for libmagic-compatible `string PATTERN` comparison
+/// where the magic value's full byte length must be compared byte-for-byte
+/// against the file (including any embedded NULs in the pattern).
+///
+/// Differs from [`read_string`]: that function stops at the first NUL it
+/// finds in the buffer, which is wrong for patterns that legitimately
+/// contain NUL bytes (e.g., `0 string PNCIHISK\0 ...`). magic(5)'s
+/// comparison semantic is "do the first len(pattern) bytes of the file
+/// equal these bytes?", regardless of whether either side contains NULs.
+///
+/// # Errors
+///
+/// Returns `TypeReadError::BufferOverrun` when `offset + length` exceeds
+/// the buffer.
+pub fn read_string_exact(
+    buffer: &[u8],
+    offset: usize,
+    length: usize,
+) -> Result<Value, TypeReadError> {
+    let end = offset
+        .checked_add(length)
+        .ok_or(TypeReadError::BufferOverrun {
+            offset,
+            buffer_len: buffer.len(),
+        })?;
+    let slice = buffer
+        .get(offset..end)
+        .ok_or(TypeReadError::BufferOverrun {
+            offset,
+            buffer_len: buffer.len(),
+        })?;
+    Ok(Value::String(bytes_to_string_fast(slice)))
+}
+
 /// Convert bytes to an owned `String`, avoiding a double allocation on the
 /// common valid-UTF-8 path.
 ///
@@ -96,6 +138,121 @@ fn bytes_to_string_fast(bytes: &[u8]) -> String {
         Ok(valid) => String::from(valid),
         Err(_) => String::from_utf8_lossy(bytes).into_owned(),
     }
+}
+
+/// Reads a UCS-2 string from the buffer with the given endianness.
+///
+/// Each character is encoded as a 16-bit code unit; the reader consumes
+/// pairs of bytes until it encounters a U+0000 terminator (the 2-byte
+/// sequence `0x00 0x00`), runs out of buffer, or hits the
+/// `STRING16_MAX_UNITS` cap. A trailing odd byte (when the remaining
+/// buffer length is not even) is ignored.
+///
+/// Surrogate-pair (D800-DFFF) code units are emitted as the Unicode
+/// replacement character (U+FFFD) -- libmagic's UCS-2 path does not
+/// resolve surrogates, and emitting a placeholder keeps the comparison
+/// length stable for ASCII rules.
+///
+/// # Arguments
+///
+/// * `buffer` -- The byte buffer to read from.
+/// * `offset` -- Absolute byte offset to start reading at.
+/// * `endian` -- Byte order of the 16-bit code units.
+///
+/// # Returns
+///
+/// `Ok(Value::String(decoded))` on success. The decoded string is empty
+/// when the offset is exactly at the start of a NUL terminator.
+///
+/// # Errors
+///
+/// Returns `TypeReadError::BufferOverrun` when `offset >= buffer.len()`.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::evaluator::types::read_string16;
+/// use libmagic_rs::parser::ast::{Endianness, Value};
+///
+/// // "MZ" in UCS-2 little-endian, NUL-terminated
+/// let buffer = b"M\x00Z\x00\x00\x00";
+/// let result = read_string16(buffer, 0, Endianness::Little).unwrap();
+/// assert_eq!(result, Value::String("MZ".to_string()));
+///
+/// // "MZ" in UCS-2 big-endian, NUL-terminated
+/// let buffer = b"\x00M\x00Z\x00\x00";
+/// let result = read_string16(buffer, 0, Endianness::Big).unwrap();
+/// assert_eq!(result, Value::String("MZ".to_string()));
+/// ```
+pub fn read_string16(
+    buffer: &[u8],
+    offset: usize,
+    endian: Endianness,
+) -> Result<Value, TypeReadError> {
+    if offset >= buffer.len() {
+        return Err(TypeReadError::BufferOverrun {
+            offset,
+            buffer_len: buffer.len(),
+        });
+    }
+
+    let remaining = &buffer[offset..];
+    let mut decoded = String::new();
+    let mut chunks = remaining.chunks_exact(2);
+    let mut units_read = 0usize;
+    for pair in chunks.by_ref() {
+        if units_read >= STRING16_MAX_UNITS {
+            break;
+        }
+        let code_unit = match endian {
+            Endianness::Little | Endianness::Native => u16::from_le_bytes([pair[0], pair[1]]),
+            Endianness::Big => u16::from_be_bytes([pair[0], pair[1]]),
+        };
+        if code_unit == 0 {
+            break;
+        }
+        // UCS-2 only covers the BMP; surrogate halves are not a valid
+        // standalone code point, so substitute U+FFFD.
+        let ch = char::from_u32(u32::from(code_unit)).unwrap_or('\u{FFFD}');
+        decoded.push(ch);
+        units_read = units_read.saturating_add(1);
+    }
+
+    Ok(Value::String(decoded))
+}
+
+/// Compute the bytes consumed by a successful `read_string16` call.
+///
+/// Mirrors [`read_string16`]: walks 16-bit code units and stops at the
+/// terminator, the buffer end, or the [`STRING16_MAX_UNITS`] cap. Returns
+/// the byte count (always a multiple of 2, except when a NUL terminator is
+/// included -- in which case the count is still even because the
+/// terminator itself is two bytes). A successful read with zero bytes
+/// returns `0`.
+pub(crate) fn string16_bytes_consumed(buffer: &[u8], offset: usize, endian: Endianness) -> usize {
+    let Some(remaining) = buffer.get(offset..) else {
+        return 0;
+    };
+    let mut units_read = 0usize;
+    let mut consumed = 0usize;
+    for pair in remaining.chunks_exact(2) {
+        if units_read >= STRING16_MAX_UNITS {
+            return consumed;
+        }
+        let code_unit = match endian {
+            Endianness::Little | Endianness::Native => u16::from_le_bytes([pair[0], pair[1]]),
+            Endianness::Big => u16::from_be_bytes([pair[0], pair[1]]),
+        };
+        if code_unit == 0 {
+            // Include the NUL terminator in the consumed byte count so the
+            // relative-offset anchor advances past it (matching the
+            // string/pstring conventions).
+            return consumed.saturating_add(2);
+        }
+        consumed = consumed.saturating_add(2);
+        units_read = units_read.saturating_add(1);
+    }
+    consumed
 }
 
 /// Reads a Pascal-style length-prefixed string from the buffer.
@@ -890,5 +1047,90 @@ mod tests {
                 "Expected empty string for /J with width {width:?}"
             );
         }
+    }
+
+    // ========================================================================
+    // read_string16 tests
+    // ========================================================================
+
+    #[test]
+    fn test_read_string16_le_ascii() {
+        // "NTLDR" in UCS-2 little-endian, NUL-terminated
+        let buffer = b"N\x00T\x00L\x00D\x00R\x00\x00\x00";
+        let result = read_string16(buffer, 0, Endianness::Little).unwrap();
+        assert_eq!(result, Value::String("NTLDR".to_string()));
+    }
+
+    #[test]
+    fn test_read_string16_be_ascii() {
+        // "NTLDR" in UCS-2 big-endian, NUL-terminated
+        let buffer = b"\x00N\x00T\x00L\x00D\x00R\x00\x00";
+        let result = read_string16(buffer, 0, Endianness::Big).unwrap();
+        assert_eq!(result, Value::String("NTLDR".to_string()));
+    }
+
+    #[test]
+    fn test_read_string16_no_terminator_runs_to_buffer_end() {
+        // 3 LE-encoded UCS-2 chars and no terminator -- read all of them.
+        let buffer = b"A\x00B\x00C\x00";
+        let result = read_string16(buffer, 0, Endianness::Little).unwrap();
+        assert_eq!(result, Value::String("ABC".to_string()));
+    }
+
+    #[test]
+    fn test_read_string16_empty_at_terminator() {
+        // Offset directly on a NUL pair -> zero-length string.
+        let buffer = b"\x00\x00rest";
+        let result = read_string16(buffer, 0, Endianness::Little).unwrap();
+        assert_eq!(result, Value::String(String::new()));
+    }
+
+    #[test]
+    fn test_read_string16_offset_past_end() {
+        let buffer = b"\x00\x00";
+        let err = read_string16(buffer, 5, Endianness::Little).unwrap_err();
+        assert!(matches!(err, TypeReadError::BufferOverrun { .. }));
+    }
+
+    #[test]
+    fn test_read_string16_trailing_odd_byte_is_ignored() {
+        // 4 LE bytes for "AB" + a single trailing byte that cannot form a
+        // 16-bit unit: the reader stops cleanly without panicking.
+        let buffer = b"A\x00B\x00\x42";
+        let result = read_string16(buffer, 0, Endianness::Little).unwrap();
+        assert_eq!(result, Value::String("AB".to_string()));
+    }
+
+    #[test]
+    fn test_read_string16_le_non_ascii() {
+        // Greek capital alpha (U+0391) in UCS-2 LE: 0x91 0x03
+        let buffer = b"\x91\x03\x00\x00";
+        let result = read_string16(buffer, 0, Endianness::Little).unwrap();
+        assert_eq!(result, Value::String("\u{0391}".to_string()));
+    }
+
+    #[test]
+    fn test_read_string16_be_surrogate_replaced_with_fffd() {
+        // 0xD800 is a high surrogate -- not a valid standalone scalar value
+        // in UCS-2 / Rust char. The reader must substitute U+FFFD instead
+        // of crashing.
+        let buffer = b"\xD8\x00\x00\x00";
+        let result = read_string16(buffer, 0, Endianness::Big).unwrap();
+        assert_eq!(result, Value::String("\u{FFFD}".to_string()));
+    }
+
+    #[test]
+    fn test_string16_bytes_consumed_matches_read() {
+        // 3 LE chars + NUL terminator -> 8 bytes consumed (incl. terminator).
+        let buffer = b"A\x00B\x00C\x00\x00\x00trail";
+        assert_eq!(string16_bytes_consumed(buffer, 0, Endianness::Little), 8);
+
+        // Same 3 chars, no terminator -> 6 bytes consumed (chars only).
+        let buffer = b"A\x00B\x00C\x00";
+        assert_eq!(string16_bytes_consumed(buffer, 0, Endianness::Little), 6);
+
+        // BE encoding: same expected lengths.
+        let buffer = b"\x00A\x00B\x00\x00rest";
+        assert_eq!(string16_bytes_consumed(buffer, 0, Endianness::Big), 6);
     }
 }
