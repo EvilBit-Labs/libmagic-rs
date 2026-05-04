@@ -120,4 +120,4 @@ merge_protections:
       - "#commits-behind <= 10"
 merge_protections_settings:
   reporting_method: check-runs
-  auto_merge: true
+  auto_merge_conditions: true
