@@ -113,6 +113,18 @@
           "zeroize-audit"
         ]
       }
+    },
+    "tessl-labs/devops-essentials": {
+      "version": "0.1.1"
+    },
+    "pantheon-ai/github-actions-validator": {
+      "version": "0.1.1"
+    },
+    "pantheon-ai/acceptance-criteria": {
+      "version": "0.1.1"
+    },
+    "pantheon-ai/agents-md": {
+      "version": "0.1.3"
     }
   }
 }
