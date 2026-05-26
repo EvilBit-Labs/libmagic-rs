@@ -544,7 +544,7 @@ This guide ensures consistent, high-quality development practices for the libmag
 - In justfile recipes, never wrap `just` in `{{ mise_exec }}` -- it's redundant
 - Changelog: `just changelog`, `just changelog-version <tag>`, `just changelog-unreleased`
 - Security contact: <support@evilbitlabs.io> (matches PGP key in SECURITY.md)
-- `docs/solutions/` — documented solutions to past problems, organized by category (logic-errors/, integration-issues/, security-issues/, developer-experience/) with YAML frontmatter (`tags`, `severity`, `components`). Relevant when implementing or debugging in documented areas.
+- `docs/solutions/` — documented solutions to past problems and reusable design patterns, organized into per-category subdirectories (see `ls docs/solutions/` for the current set; bug-track categories like `logic-errors/`, knowledge-track categories like `design-patterns/` and `developer-experience/`). Each doc has YAML frontmatter keyed on `module`, `problem_type`, `component`, `severity`, and `tags`. Relevant when implementing or debugging in documented areas.
 
 ## Open Source Quality Standards (OSSF Best Practices)
 
