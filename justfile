@@ -99,6 +99,9 @@ pre-commit-run:
 format-files +FILES:
     @{{ mise_exec }} prettier --write --config .prettierrc.json {{ FILES }}
 
+# Refresh all dev-time dependency pins: mise tools (>= 7d old), cargo
+# Cargo.lock, and pre-commit hook revisions. Run before opening a deps
+# PR; expect Cargo.lock to change and require a `just ci-check` pass.
 update-deps:
     mise upgrade --bump --local --before 7d
     @{{ mise_exec }} cargo update
