@@ -348,12 +348,12 @@ Offset specification for locating data.
 use libmagic_rs::OffsetSpec;
 ```
 
-| Variant                                                                                                            | Description                     |
-| ------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
-| `Absolute(i64)`                                                                                                    | Absolute offset from file start |
-| `Indirect { base_offset, pointer_type, adjustment, endian, base_relative, adjustment_op, result_relative }`       | Indirect through pointer        |
-| `Relative(i64)`                                                                                                    | Relative to previous match      |
-| `FromEnd(i64)`                                                                                                     | Offset from end of file         |
+| Variant                                                                                                     | Description                     |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `Absolute(i64)`                                                                                             | Absolute offset from file start |
+| `Indirect { base_offset, pointer_type, adjustment, endian, base_relative, adjustment_op, result_relative }` | Indirect through pointer        |
+| `Relative(i64)`                                                                                             | Relative to previous match      |
+| `FromEnd(i64)`                                                                                              | Offset from end of file         |
 
 **v0.6.0 Changes:** The `Indirect` variant added three fields: `base_relative: bool`, `adjustment_op: Option<AdjustmentOp>`, and `result_relative: bool` to support advanced indirect offset resolution.
 
@@ -506,17 +506,17 @@ use libmagic_rs::EvaluationContext;
 
 #### Methods
 
-| Method                        | Description                        |
-| ----------------------------- | ---------------------------------- |
-| `new(config)`                 | Create new context                 |
-| `current_offset()`            | Get current position               |
-| `set_current_offset(offset)`  | Set current position               |
-| `recursion_depth()`           | Get recursion depth                |
-| `should_stop_at_first_match()` | Check stop behavior                |
-| `max_string_length()`         | Get max string length              |
-| `enable_mime_types()`         | Check MIME type setting            |
-| `timeout_ms()`                | Get timeout value                  |
-| `reset()`                     | Reset to initial state             |
+| Method                         | Description             |
+| ------------------------------ | ----------------------- |
+| `new(config)`                  | Create new context      |
+| `current_offset()`             | Get current position    |
+| `set_current_offset(offset)`   | Set current position    |
+| `recursion_depth()`            | Get recursion depth     |
+| `should_stop_at_first_match()` | Check stop behavior     |
+| `max_string_length()`          | Get max string length   |
+| `enable_mime_types()`          | Check MIME type setting |
+| `timeout_ms()`                 | Get timeout value       |
+| `reset()`                      | Reset to initial state  |
 
 **v0.6.0 Changes:** The `increment_recursion_depth()` and `decrement_recursion_depth()` methods were removed.
 

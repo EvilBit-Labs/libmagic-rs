@@ -228,6 +228,7 @@ use libmagic_rs::OffsetSpec;
 #### Changes in v0.6.0
 
 `OffsetSpec::Indirect` added three fields:
+
 - `base_relative: bool` - whether `base_offset` is relative to the previous match
 - `adjustment_op: Option<AdjustmentOp>` - operation to apply between pointer value and adjustment
 - `result_relative: bool` - whether the final computed offset is relative to the previous match
@@ -443,17 +444,17 @@ use libmagic_rs::EvaluationContext;
 
 #### Methods
 
-| Method                        | Description                   |
-| ----------------------------- | ----------------------------- |
-| `new(config)`                 | Create new context            |
-| `current_offset()`            | Get current position          |
-| `set_current_offset(offset)`  | Set current position          |
-| `recursion_depth()`           | Get recursion depth           |
-| `should_stop_at_first_match()` | Check stop behavior           |
-| `max_string_length()`         | Get max string length         |
-| `enable_mime_types()`         | Check MIME type setting       |
-| `timeout_ms()`                | Get timeout value             |
-| `reset()`                     | Reset to initial state        |
+| Method                         | Description             |
+| ------------------------------ | ----------------------- |
+| `new(config)`                  | Create new context      |
+| `current_offset()`             | Get current position    |
+| `set_current_offset(offset)`   | Set current position    |
+| `recursion_depth()`            | Get recursion depth     |
+| `should_stop_at_first_match()` | Check stop behavior     |
+| `max_string_length()`          | Get max string length   |
+| `enable_mime_types()`          | Check MIME type setting |
+| `timeout_ms()`                 | Get timeout value       |
+| `reset()`                      | Reset to initial state  |
 
 #### Removed in v0.6.0
 

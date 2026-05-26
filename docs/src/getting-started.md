@@ -414,4 +414,3 @@ match error {
 ```
 
 See the [CHANGELOG](https://github.com/EvilBit-Labs/libmagic-rs/blob/main/CHANGELOG.md) for the complete list of changes.
-

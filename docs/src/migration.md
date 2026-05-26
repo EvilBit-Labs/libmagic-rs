@@ -576,7 +576,6 @@ let discriminant = type_kind as isize;  // Returns 6
 
 **Recommendation:** Avoid relying on enum discriminant values. Use pattern matching or the `std::mem::discriminant` function instead.
 
-
 ## Migrating from v0.5.x to v0.6.0
 
 Version 0.6.0 introduces breaking changes to support indirect and relative offset resolution, meta-type directives, and enhanced thread safety. Several core types are now marked `#[non_exhaustive]`, requiring wildcard patterns in exhaustive matches.
