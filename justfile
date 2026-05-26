@@ -99,6 +99,11 @@ pre-commit-run:
 format-files +FILES:
     @{{ mise_exec }} prettier --write --config .prettierrc.json {{ FILES }}
 
+update-deps:
+    mise upgrade --bump --local --before 7d
+    @{{ mise_exec }} cargo update
+    {{ mise_exec }} pre-commit autoupdate
+
 # =============================================================================
 # BUILDING AND TESTING
 # =============================================================================

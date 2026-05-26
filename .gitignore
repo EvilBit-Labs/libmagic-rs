@@ -140,7 +140,6 @@ docs/plans/
 .agent/
 .agents/
 .augment/
-.claude/
 .context/
 .cursor/
 .roo/
@@ -150,3 +149,4 @@ todos/
 **/tessl__*
 .tessl/tiles/
 .tessl/RULES.md
+.claude/instincts/
