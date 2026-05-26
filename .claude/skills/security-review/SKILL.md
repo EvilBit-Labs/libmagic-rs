@@ -5,6 +5,12 @@ description: Security review for Rust systems code. Covers memory safety, buffer
 
 # Security Review (Rust Systems Code)
 
+> Examples use placeholder error variants (`SomeError::OutOfBounds`,
+> `::InvalidOffset`, etc.) to illustrate patterns. The actual error type
+> hierarchy is `LibmagicError` / `ParseError` / `EvaluationError` in
+> `src/error.rs` -- check the source for the real variants. AGENTS.md and
+> GOTCHAS.md are authoritative for project-specific policy.
+
 ## When to Activate
 
 - Adding new buffer access or offset resolution code
@@ -24,10 +30,10 @@ description: Security review for Rust systems code. Covers memory safety, buffer
 let byte = buffer[offset];
 
 // CORRECT: Bounds-checked access
-let byte = buffer.get(offset).ok_or(MagicError::OutOfBounds)?;
+let byte = *buffer.get(offset).ok_or(EvaluationError::out_of_bounds(offset))?;
 
 // CORRECT: Slice with bounds check
-let slice = buffer.get(start..end).ok_or(MagicError::OutOfBounds)?;
+let slice = buffer.get(start..end).ok_or(EvaluationError::out_of_bounds(start))?;
 ```
 
 #### Safe String Operations
@@ -36,7 +42,7 @@ let slice = buffer.get(start..end).ok_or(MagicError::OutOfBounds)?;
 // WRONG: Direct slicing can panic on non-UTF-8 boundaries
 let rest = &input[2..];
 
-// CORRECT: Use strip_prefix/strip_suffix
+// CORRECT: Use strip_prefix / strip_suffix
 let rest = input.strip_prefix("0x").unwrap_or(input);
 ```
 
@@ -44,23 +50,27 @@ let rest = input.strip_prefix("0x").unwrap_or(input);
 
 - [ ] All buffer access uses `.get()` with bounds checking
 - [ ] No direct indexing (`buffer[i]`) on untrusted data
-- [ ] String operations use `strip_prefix`/`strip_suffix` instead of slicing
-- [ ] No panicking operations (`.unwrap()`, `.expect()`, `panic!()`) in library code
+- [ ] String operations use `strip_prefix` / `strip_suffix` instead of
+      slicing
+- [ ] No panicking operations (`.unwrap()`, `.expect()`, `panic!()`) in
+      library code (test code is exempt -- see
+      `.claude/hookify.warn-panic-in-lib.md`)
 
 ### 2. Unsafe Code Policy
 
 #### Zero Tolerance
 
-```rust
-// This is enforced project-wide
-#![forbid(unsafe_code)]
-```
+`unsafe_code = "forbid"` is configured as a workspace lint in
+`Cargo.toml [workspace.lints]`. This is enforced at compile time across
+the workspace; there is no `#![forbid(unsafe_code)]` attribute in
+`lib.rs`. Either grep for `unsafe_code = "forbid"` in `Cargo.toml`, or
+attempt to add an `unsafe { }` block and verify the build fails.
 
 #### Verification Steps
 
-- [ ] `#![forbid(unsafe_code)]` present in `lib.rs`
-- [ ] No `unsafe` blocks anywhere in project source
-- [ ] Dependencies with `unsafe` are vetted (memmap2, byteorder, nom)
+- [ ] `unsafe_code = "forbid"` present in `Cargo.toml [workspace.lints]`
+- [ ] No `unsafe` blocks in project source (verified by the workspace lint)
+- [ ] Dependencies with `unsafe` are vetted (memmap2, byteorder, nom, etc.)
 - [ ] `cargo audit` passes with no vulnerabilities
 
 ### 3. Integer Safety
@@ -73,7 +83,7 @@ let offset = base + adjustment;
 
 // CORRECT: Checked arithmetic
 let offset = base.checked_add(adjustment)
-    .ok_or(MagicError::InvalidOffset { offset: format!("{} + {}", base, adjustment) })?;
+    .ok_or_else(|| EvaluationError::invalid_offset(format!("{base} + {adjustment}")))?;
 
 // CORRECT: Saturating for non-critical paths
 let score = base_score.saturating_add(bonus);
@@ -81,9 +91,10 @@ let score = base_score.saturating_add(bonus);
 
 #### Verification Steps
 
-- [ ] Offset calculations use checked arithmetic
+- [ ] Offset calculations use checked arithmetic (GOTCHAS S5.2)
 - [ ] No implicit integer truncation (e.g., `u64 as u32`)
-- [ ] Cast operations use `TryFrom`/`try_into()` where overflow is possible
+- [ ] Cast operations use `TryFrom` / `try_into()` where overflow is
+      possible
 - [ ] Clippy pedantic lints catch suspicious casts
 
 ### 4. Input Validation (Magic Files)
@@ -91,76 +102,79 @@ let score = base_score.saturating_add(bonus);
 #### Parser Robustness
 
 ```rust
-// Magic files are untrusted input -- strict validation required
-fn parse_magic_line(line: &str) -> Result<MagicRule, ParseError> {
-    // Validate line structure before parsing
-    // Return ParseError on invalid syntax, never panic
-    // Skip unrecognized directives gracefully
-}
+// Magic files are untrusted input -- strict validation required.
+// Parser returns Err on invalid syntax, never panics. parse_text_magic_file
+// is fail-fast: a single unparseable rule causes the whole load to fail
+// (GOTCHAS S3.11).
 ```
 
 #### Verification Steps
 
 - [ ] Parser returns `Err` on invalid syntax, never panics
 - [ ] Deeply nested rules have depth limits
-- [ ] Unrecognized directives are skipped with warnings
+      (`EvaluationConfig::max_recursion_depth`)
+- [ ] Unrecognized directives (`!:mime`, `!:ext`, etc.) are skipped at
+      preprocessing time
 - [ ] Malformed offset/type/operator specifications produce clear errors
+      with line numbers
 - [ ] Property tests fuzz the parser with arbitrary input
+      (`tests/property_tests.rs`)
 
 ### 5. Input Validation (Target Files)
 
 #### File Buffer Safety
 
 ```rust
-// All file access through FileBuffer with bounds checking
-let fb = FileBuffer::open(path)?;
+use libmagic_rs::io::FileBuffer;
+use std::path::Path;
 
-// Size limits prevent resource exhaustion
-if fb.len() > MAX_FILE_SIZE {
-    return Err(MagicError::FileTooLarge);
-}
+// Constructor is FileBuffer::new(Path::new(...)) -- see src/io/mod.rs.
+let fb = FileBuffer::new(Path::new(path))?;
 
-// Memory-mapped I/O avoids loading entire file
-// Bounds checking on every access
-let data = fb.get(offset, length)?;
+// Memory-mapped I/O avoids loading entire file.
+// Bounds checking on every access via .get().
+let data = fb.as_bytes().get(offset..offset + length);
 ```
 
 #### Verification Steps
 
-- [ ] File size limits enforced before processing
 - [ ] Memory-mapped I/O used (not reading entire file into memory)
-- [ ] All `FileBuffer` access is bounds-checked
+- [ ] All buffer access bounds-checked via `.get()`
 - [ ] Truncated/corrupted files handled gracefully
 - [ ] Zero-length files handled without errors
+- [ ] Search-path / TOCTOU hardening considered for magic-file discovery
+      (see `docs/src/security-assurance.md`)
 
 ### 6. Resource Exhaustion Prevention
 
 #### CPU Limits
 
 ```rust
-// Evaluation timeout prevents infinite loops
-let config = EvaluationConfig {
-    timeout: Duration::from_secs(5),
-    max_rules: 10_000,
-    ..Default::default()
-};
+use libmagic_rs::EvaluationConfig;
+
+// Use a non-default config when accepting untrusted input -- the default
+// timeout is None (unbounded). See GOTCHAS S13.1.
+let config = EvaluationConfig::performance()  // sets timeout_ms = Some(1000)
+    .with_stop_at_first_match(true);
+
+// Or build explicitly:
+let config = EvaluationConfig::default()
+    .with_timeout_ms(Some(1000))
+    .with_max_recursion_depth(50);
 ```
 
-#### Memory Limits
-
-```rust
-// Limit collected results to prevent unbounded growth
-const MAX_MATCHES: usize = 100;
-if matches.len() >= MAX_MATCHES {
-    break;
-}
-```
+Actual fields on `EvaluationConfig` (per `src/config.rs`): `timeout_ms:
+Option<u64>` (milliseconds, clamped to `MAX_SAFE_TIMEOUT_MS = 5 minutes`),
+`max_recursion_depth: u32`, `stop_at_first_match: bool`. The type is
+`#[non_exhaustive]` -- check the source for the current full field set.
 
 #### Verification Steps
 
-- [ ] Evaluation has configurable timeout
-- [ ] Maximum rule evaluation count enforced
-- [ ] Match results bounded
+- [ ] Library consumers handling untrusted input set a non-`None`
+      `timeout_ms` (do NOT rely on `EvaluationConfig::default()` for that)
+- [ ] `max_recursion_depth` set appropriately for the workload
+- [ ] Regex scans are capped (`REGEX_MAX_BYTES = 8192`, GOTCHAS S2.8 --
+      do not add bypass paths)
 - [ ] No unbounded recursion in rule evaluation
 - [ ] Stack depth limited for nested rules
 
@@ -169,38 +183,33 @@ if matches.len() >= MAX_MATCHES {
 #### Dependency Audit
 
 ```bash
-# Check for known vulnerabilities
-cargo audit
-
-# Check license compliance
-cargo deny check
-
-# Review dependency tree
-cargo tree --depth 2
+mise exec -- cargo audit                  # known vulnerabilities
+mise exec -- cargo deny check             # license + advisory + bans
+mise exec -- cargo tree --depth 2         # dependency surface
 ```
 
 #### Verification Steps
 
 - [ ] `cargo audit` clean (no known vulnerabilities)
-- [ ] `cargo deny` passes (license compliance)
+- [ ] `cargo deny check` passes (license + bans + advisories)
 - [ ] Minimal dependency surface
-- [ ] `Cargo.lock` committed for reproducible builds
+- [ ] `Cargo.lock` and `mise.lock` committed for reproducible builds
 - [ ] All GitHub Actions pinned to SHA hashes
-- [ ] Dependabot enabled for automated updates
+- [ ] Dependabot / release-plz enabled for automated updates
 
 ### 8. Error Information Leakage
 
 #### Safe Error Messages
 
 ```rust
-// WRONG: Exposes internal paths or system info
-Err(format!("Failed to read {}: {}", full_path, system_error))
+// WRONG: Exposes internal paths or system info verbatim
+return Err(format!("Failed to read {full_path}: {system_error}").into());
 
-// CORRECT: Actionable but not leaking
-Err(MagicError::IoError(std::io::Error::new(
-    std::io::ErrorKind::NotFound,
-    "magic file not found"
-)))
+// CORRECT: Wrap external errors and surface only what's actionable.
+// ParseError::IoError(String) wraps I/O errors as strings because
+// error.rs is shared with build.rs and cannot reference lib-only types
+// (GOTCHAS S1.1).
+return Err(ParseError::IoError(format!("magic file not found: {name}")));
 ```
 
 #### Verification Steps
@@ -214,8 +223,8 @@ Err(MagicError::IoError(std::io::Error::new(
 #### Path Handling
 
 ```rust
-// clap validates arguments before they reach application code
-// No shell expansion or command injection possible
+// clap validates arguments before they reach application code.
+// No shell expansion or command injection possible.
 #[derive(Parser)]
 struct Args {
     /// File to identify
@@ -236,17 +245,19 @@ struct Args {
 
 ## Pre-Release Security Checklist
 
-- [ ] `#![forbid(unsafe_code)]` enforced
-- [ ] `cargo clippy -- -D warnings` passes
+- [ ] `unsafe_code = "forbid"` enforced in workspace lints
+- [ ] `cargo clippy -- -D warnings` passes (run via `just ci-check`)
 - [ ] `cargo audit` clean
 - [ ] `cargo deny check` passes
 - [ ] All buffer access bounds-checked
 - [ ] Integer arithmetic overflow-safe
 - [ ] Property tests cover parser and evaluator
-- [ ] Resource limits configured
+- [ ] Resource limits configured (`EvaluationConfig::timeout_ms`,
+      `max_recursion_depth`)
 - [ ] Error messages reviewed for information leakage
-- [ ] Dependencies minimized and pinned
-- [ ] Sigstore attestations configured for release artifacts
+- [ ] Dependencies minimized and pinned (`Cargo.lock`, `mise.lock`)
+- [ ] Sigstore attestations configured for release artifacts (see
+      `docs/src/release-verification.md`)
 
 ## References
 
@@ -254,3 +265,5 @@ struct Args {
 - [RustSec Advisory Database](https://rustsec.org/)
 - Project [Security Assurance Case](../../docs/src/security-assurance.md)
 - Project [SECURITY.md](../../SECURITY.md)
+- Project [AGENTS.md](../../AGENTS.md) and
+  [GOTCHAS.md](../../GOTCHAS.md) -- authoritative policy

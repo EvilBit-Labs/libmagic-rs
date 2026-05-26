@@ -10,8 +10,8 @@ conditions:
 
 **Emoji detected in code or documentation.**
 
-Project guidelines prohibit emojis and non-ASCII characters in code, comments, and documentation.
+Project guidelines (AGENTS.md "Emoji Usage") prohibit emojis and non-ASCII characters in code, comments, and documentation -- **except** for typographic symbols like em-dash (`--`, U+2014), en-dash (U+2013), and similar punctuation, which are allowed. The regex above intentionally targets the pictographic-emoji ranges and does not match em-dash / en-dash.
 
-**Exception:** If this code is specifically handling or processing emoji/non-ASCII characters (e.g., test cases for Unicode handling), this warning can be disregarded.
+**Exception:** If this code is specifically handling or processing emoji/non-ASCII characters (e.g., test cases for Unicode handling, regex byte-match fixtures), this warning can be disregarded.
 
 If this is not emoji-processing code, remove the emoji and use plain text instead.

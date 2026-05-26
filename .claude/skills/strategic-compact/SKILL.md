@@ -46,6 +46,6 @@ Suggests manual `/compact` at strategic points in your workflow rather than rely
 
 ## Rust-Specific Considerations
 
-- After reading large source files (evaluator/mod.rs at 2,638 lines), compact before implementation
-- After running `cargo test` with verbose output, compact if moving to different module
+- After reading large source modules (the evaluator and parser submodule trees can pull hundreds of lines into context across many files), compact before implementing
+- After running `cargo test` / `cargo nextest run` with verbose output, compact if moving to a different module
 - After architecture review or exploration, compact before starting refactoring work
