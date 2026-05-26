@@ -36,7 +36,7 @@ repos:
 
     # GitHub Actions validation
     - repo: https://github.com/rhysd/actionlint
-      rev: v1.7.11
+      rev: v1.7.12
       hooks:
           - id: actionlint
             files: ".github/workflows/"
@@ -53,7 +53,7 @@ repos:
             types: [shell]
 
     - repo: https://github.com/bnjbvr/cargo-machete
-      rev: v0.9.1
+      rev: v0.9.2
       hooks:
           - id: cargo-machete
 
@@ -86,7 +86,7 @@ repos:
             types: [cargo, cargo-lock]
 
     - repo: https://github.com/DevinR528/cargo-sort
-      rev: v2.1.0
+      rev: v2.1.3
       hooks:
           - id: cargo-sort
             types: [cargo]
