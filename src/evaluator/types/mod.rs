@@ -199,7 +199,10 @@ pub fn read_typed_value_with_pattern(
         TypeKind::Double { endian } => read_double(buffer, offset, *endian),
         TypeKind::Date { endian, utc } => read_date(buffer, offset, *endian, *utc),
         TypeKind::QDate { endian, utc } => read_qdate(buffer, offset, *endian, *utc),
-        TypeKind::String { max_length } => {
+        TypeKind::String {
+            max_length,
+            flags: _,
+        } => {
             // libmagic semantics: `string PATTERN` compares the first
             // `len(PATTERN)` bytes of the buffer against the literal
             // pattern -- byte-for-byte, with NO NUL truncation. This
@@ -218,6 +221,13 @@ pub fn read_typed_value_with_pattern(
             //   `x` (any-value) operator, format substitution like
             //   `string x %s`, and any caller that wants the printable
             //   prefix rather than a fixed-length buffer slice.
+            //
+            // Note: `flags` is bound and ignored here. Flagged-string
+            // dispatch is handled separately via the pattern-bearing-type
+            // branch in `read_pattern_match` (see GOTCHAS S2.4 for the
+            // contract). When the flags are non-default, the engine
+            // bypasses this read path and calls
+            // `compare_string_with_flags` directly.
             match (max_length, pattern) {
                 (Some(n), _) => read_string_exact(buffer, offset, *n),
                 (None, Some(Value::String(p))) => read_string_exact(buffer, offset, p.len()),
@@ -321,6 +331,61 @@ pub(crate) fn read_pattern_match(
             };
             read_search(buffer, offset, pattern_bytes, *range)
         }
+        // Flagged `string` rules go through the pattern-bearing-type
+        // contract (GOTCHAS S2.4): on hit return `Some(Value::String(
+        // matched_bytes))`, on miss return `None`. The engine dispatcher
+        // (`evaluate_pattern_rule`) translates Some/None into Equal/NotEqual
+        // and rejects other operators on the rule.
+        //
+        // Pattern can be `Value::String` (the common case) or `Value::Bytes`
+        // (parser-emitted for backslash-escape literals like `\177ELF`).
+        // The trim flag (`/T`) is honored here at evaluation time so the AST
+        // construction stays unchanged.
+        TypeKind::String { flags, .. } if !flags.is_empty() => {
+            let pattern_bytes: &[u8] = match pattern {
+                Some(Value::String(s)) => s.as_bytes(),
+                Some(Value::Bytes(b)) => b.as_slice(),
+                _ => {
+                    return Err(TypeReadError::UnsupportedType {
+                        type_name: "string with flags requires string/bytes pattern".to_string(),
+                    });
+                }
+            };
+            let trimmed: &[u8] = if flags.trim {
+                trim_ascii_whitespace(pattern_bytes)
+            } else {
+                pattern_bytes
+            };
+            // An empty (post-trim) pattern would silently match *any* file
+            // because `compare_string_with_flags(b"", ...)` returns
+            // `Some(0)` -- the same hazard documented in GOTCHAS S2.5 for
+            // regex. Treat it as "no match" with a `warn!` so the
+            // malformed rule surfaces in logs without breaking evaluation
+            // of subsequent rules. Most commonly hit by `string/T "   "`
+            // where the pattern is pure whitespace.
+            if trimmed.is_empty() {
+                log::warn!(
+                    "flagged string rule has empty pattern (after /T trim); \
+                     treating as no-match to avoid catastrophic over-matching"
+                );
+                return Ok(None);
+            }
+            match string::compare_string_with_flags(trimmed, buffer, offset, *flags) {
+                Some(consumed) => {
+                    let matched = buffer
+                        .get(offset..offset.saturating_add(consumed))
+                        .unwrap_or(&[]);
+                    // libmagic byte-exact semantics: return the matched bytes
+                    // verbatim. `from_utf8_lossy` would silently replace
+                    // non-UTF-8 sequences with U+FFFD and produce a different
+                    // byte sequence than the file actually contains, breaking
+                    // `%s` substitution and the cross-type `String`/`Bytes`
+                    // equality policy (GOTCHAS S2.3) for downstream consumers.
+                    Ok(Some(Value::Bytes(matched.to_vec())))
+                }
+                None => Ok(None),
+            }
+        }
         TypeKind::Meta(meta) => Err(TypeReadError::UnsupportedType {
             type_name: format!("meta-type {meta:?} cannot be read as a pattern match"),
         }),
@@ -328,6 +393,68 @@ pub(crate) fn read_pattern_match(
             type_name: format!("read_pattern_match called on non-pattern type: {type_kind:?}"),
         }),
     }
+}
+
+/// Anchor-advance count for a flagged `string` rule.
+///
+/// Flagged string rules go through the pattern-bearing-type contract (see
+/// `read_pattern_match`), so their anchor advance is whatever
+/// `compare_string_with_flags` consumed -- which can exceed `pattern.len()`
+/// when `/w` or `/W` let the file have additional whitespace. Re-running
+/// the comparison here recovers the consumed-bytes count without storing
+/// it on the match value, matching the regex/search precedent.
+fn flagged_string_bytes_consumed(
+    buffer: &[u8],
+    offset: usize,
+    flags: crate::parser::ast::StringFlags,
+    pattern: Option<&Value>,
+) -> usize {
+    let pattern_bytes: &[u8] = match pattern {
+        Some(Value::String(s)) => s.as_bytes(),
+        Some(Value::Bytes(b)) => b.as_slice(),
+        _ => {
+            // Invariant: the engine only calls `bytes_consumed_with_pattern`
+            // after a successful `read_pattern_match`, which validated the
+            // pattern shape. If we reach this arm, a future caller violated
+            // the contract. Fire the debug-only assert for test/dev builds
+            // AND a release-time `warn!` so production runs surface the
+            // anchor-corruption signature (relative-offset child rules
+            // would read from the un-advanced anchor) rather than going
+            // silent. Returns 0 to preserve buffer safety.
+            debug_assert!(
+                false,
+                "flagged_string_bytes_consumed: missing string/bytes pattern ({pattern:?}) -- read_pattern_match should have rejected this"
+            );
+            log::warn!(
+                "flagged_string_bytes_consumed: missing string/bytes pattern ({pattern:?}); \
+                 relative-offset anchor will not advance for this rule"
+            );
+            return 0;
+        }
+    };
+    let effective: &[u8] = if flags.trim {
+        trim_ascii_whitespace(pattern_bytes)
+    } else {
+        pattern_bytes
+    };
+    string::compare_string_with_flags(effective, buffer, offset, flags).unwrap_or(0)
+}
+
+/// Trim leading and trailing ASCII whitespace from a byte slice.
+///
+/// Used for the `/T` (`STRING_TRIM`) flag on `string` rules. ASCII-only
+/// trim matches libmagic's `isspace`-based contract; full Unicode
+/// whitespace handling is out of scope.
+fn trim_ascii_whitespace(s: &[u8]) -> &[u8] {
+    let start = s
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .unwrap_or(s.len());
+    let end = s
+        .iter()
+        .rposition(|b| !b.is_ascii_whitespace())
+        .map_or(start, |i| i + 1);
+    &s[start..end]
 }
 
 /// Coerces a rule value to the signed width implied by `type_kind`.
@@ -466,7 +593,10 @@ pub(crate) fn bytes_consumed_with_pattern(
     }
 
     match type_kind {
-        TypeKind::String { max_length } => {
+        TypeKind::String { max_length, flags } => {
+            if !flags.is_empty() {
+                return flagged_string_bytes_consumed(buffer, offset, *flags, pattern);
+            }
             // For the (`max_length: None`, string literal pattern)
             // combination we now compare exactly `pattern.len()` bytes
             // in `read_typed_value_with_pattern` (libmagic semantics).

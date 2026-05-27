@@ -263,6 +263,14 @@ fn evaluate_single_rule_with_anchor(
         TypeKind::Regex { .. } | TypeKind::Search { .. } => {
             evaluate_pattern_rule(rule, buffer, absolute_offset)?
         }
+        // Flagged `string` rules route through the pattern-bearing path
+        // (see GOTCHAS S2.4 for the contract) so `compare_string_with_flags`
+        // can do the case-fold / whitespace-flexible match in one pass.
+        // Default-flag strings (the common case) take the existing
+        // value-rule fast path with byte-exact `apply_equal`.
+        TypeKind::String { flags, .. } if !flags.is_empty() => {
+            evaluate_pattern_rule(rule, buffer, absolute_offset)?
+        }
         _ => evaluate_value_rule(rule, buffer, absolute_offset)?,
     };
     Ok(matched.then_some((absolute_offset, read_value)))

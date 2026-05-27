@@ -18,7 +18,7 @@
 //! This pattern is documented in GOTCHAS 3.9.
 
 use libmagic_rs::evaluator::evaluate_rules;
-use libmagic_rs::parser::ast::{RegexCount, RegexFlags};
+use libmagic_rs::parser::ast::{RegexCount, RegexFlags, StringFlags};
 use libmagic_rs::parser::{ParsedMagic, parse_text_magic_file};
 use libmagic_rs::{
     EvaluationConfig, EvaluationContext, MagicRule, OffsetSpec, Operator, TypeKind, Value,
@@ -129,6 +129,7 @@ fn test_searchbug_corpus_search_with_relative_child() {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::String {
             max_length: Some(4),
+            flags: StringFlags::default(),
         },
         op: Operator::Equal,
         value: Value::String("TEST".to_string()),
@@ -185,6 +186,7 @@ fn test_searchbug_search_anchor_advance_not_window_end() {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::String {
             max_length: Some(4),
+            flags: StringFlags::default(),
         },
         op: Operator::Equal,
         value: Value::String("TEST".to_string()),

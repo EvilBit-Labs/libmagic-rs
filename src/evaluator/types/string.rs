@@ -125,6 +125,126 @@ pub fn read_string_exact(
     Ok(Value::String(bytes_to_string_fast(slice)))
 }
 
+/// Compare a magic-rule `pattern` against `buffer[offset..]` using libmagic
+/// `string`-flag semantics.
+///
+/// Returns `Some(consumed_bytes)` when the pattern matches under the given
+/// flags, where `consumed_bytes` is the count of *buffer* bytes consumed by
+/// the match (which can exceed `pattern.len()` when `/w` or `/W` allowed the
+/// file to have additional whitespace). Returns `None` on miss.
+///
+/// **Buffer bytes consumed is load-bearing for relative-offset child rules.**
+/// `&N` offsets resolve against the previous match's end position
+/// (GOTCHAS S3.8). When `/w` or `/W` lets the file consume more bytes than
+/// the pattern, that count is what advances the anchor, NOT `pattern.len()`.
+/// Returning the consumed count here keeps `bytes_consumed_with_pattern`
+/// honest without re-scanning the buffer at anchor-advance time.
+///
+/// **Trim is applied by the caller, not here.** `read_pattern_match` (in
+/// the parent module) trims the pattern before invoking this function
+/// when `flags.trim` is set; this function ignores the `trim` field on
+/// the assumption that the caller has already normalized the pattern.
+/// Likewise `flags.text_test` and `flags.bin_test` are MIME-output hints
+/// with no effect on comparison and are not consulted here.
+///
+/// **`/c` vs `/C` is asymmetric and pattern-controlled** -- see [`StringFlags`]
+/// and GOTCHAS S6.5 for the canonical contract. This function implements the
+/// libmagic `src/softmagic.c` contract using `u8::to_ascii_lowercase` /
+/// `to_ascii_uppercase` for the fold so the comparison stays ASCII-only and
+/// locale-independent.
+///
+/// # Arguments
+///
+/// * `pattern` -- The magic rule's pattern bytes, already trimmed when
+///   `/T` was set (the caller is responsible for the trim).
+/// * `buffer` -- The file slice (full buffer; this function indexes from
+///   `offset` internally).
+/// * `offset` -- Absolute byte offset in `buffer` to start matching.
+/// * `flags` -- The parsed flag set from the magic rule.
+///
+/// # Returns
+///
+/// `Some(consumed_bytes)` on match, `None` on miss or when `offset` is past
+/// the end of the buffer.
+///
+/// [`StringFlags`]: crate::parser::ast::StringFlags
+#[must_use]
+pub fn compare_string_with_flags(
+    pattern: &[u8],
+    buffer: &[u8],
+    offset: usize,
+    flags: crate::parser::ast::StringFlags,
+) -> Option<usize> {
+    let file = buffer.get(offset..)?;
+    let mut a = 0usize; // pattern cursor
+    let mut b = 0usize; // file cursor
+
+    while a < pattern.len() {
+        let pc = pattern[a];
+
+        // Whitespace flags fire on pattern whitespace and consume runs in
+        // the file independently of the case-fold flags.
+        if flags.compact_whitespace && pc.is_ascii_whitespace() {
+            // `/W` -- file MUST have at least one whitespace byte here;
+            // additional whitespace is consumed greedily.
+            let fc = *file.get(b)?;
+            if !fc.is_ascii_whitespace() {
+                return None;
+            }
+            a += 1;
+            b += 1;
+            while file.get(b).is_some_and(u8::is_ascii_whitespace) {
+                b += 1;
+            }
+            continue;
+        }
+        if flags.compact_optional_whitespace && pc.is_ascii_whitespace() {
+            // `/w` -- file MAY have zero or more whitespace bytes here.
+            a += 1;
+            while file.get(b).is_some_and(u8::is_ascii_whitespace) {
+                b += 1;
+            }
+            continue;
+        }
+
+        // Non-whitespace path: need a byte in the file to compare.
+        let fc = *file.get(b)?;
+
+        // Case-fold direction is controlled by the pattern character per
+        // libmagic softmagic.c. Lowercase pattern + `/c` => fold file to
+        // lower; uppercase pattern + `/C` => fold file to upper. Anything
+        // else is literal byte comparison (including mixed-case patterns
+        // where the "wrong" case position stays literal).
+        if flags.ignore_lowercase && pc.is_ascii_lowercase() {
+            if fc.to_ascii_lowercase() != pc {
+                return None;
+            }
+        } else if flags.ignore_uppercase && pc.is_ascii_uppercase() {
+            if fc.to_ascii_uppercase() != pc {
+                return None;
+            }
+        } else if pc != fc {
+            return None;
+        }
+
+        a += 1;
+        b += 1;
+    }
+
+    // Post-match word-boundary check for `/f`. The byte after the matched
+    // region must be either end-of-file (returned by `get(b).is_none()`)
+    // or a non-word character. "Word char" = ASCII alphanumeric or `_`,
+    // matching libmagic `softmagic.c`'s `isalpha || isdigit || == '_'`.
+    if flags.full_word
+        && let Some(&boundary) = file.get(b)
+        && (boundary.is_ascii_alphanumeric() || boundary == b'_')
+    {
+        return None;
+    }
+
+    Some(b)
+}
+
 /// Convert bytes to an owned `String`, avoiding a double allocation on the
 /// common valid-UTF-8 path.
 ///
@@ -413,7 +533,8 @@ pub fn read_pstring(
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::ast::PStringLengthWidth;
+    use super::*;
+    use crate::parser::ast::{PStringLengthWidth, StringFlags, TypeKind};
     #[test]
     fn test_read_pstring_one_byte_width() {
         let result = read_pstring(b"\x03abc", 0, None, PStringLengthWidth::OneByte, false).unwrap();
@@ -504,9 +625,7 @@ mod tests {
             );
         }
     }
-    use super::*;
     use crate::evaluator::types::read_typed_value;
-    use crate::parser::ast::TypeKind;
 
     #[test]
     fn test_read_string_null_terminated() {
@@ -695,7 +814,10 @@ mod tests {
         let buffer = b"Test\x00String";
         let direct_result = read_string(buffer, 0, None).unwrap();
 
-        let type_kind = TypeKind::String { max_length: None };
+        let type_kind = TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default(),
+        };
         let typed_result = read_typed_value(buffer, 0, &type_kind).unwrap();
 
         assert_eq!(direct_result, typed_result);
@@ -709,6 +831,7 @@ mod tests {
 
         let type_kind = TypeKind::String {
             max_length: Some(4),
+            flags: StringFlags::default(),
         };
         let typed_result = read_typed_value(buffer, 0, &type_kind).unwrap();
 
@@ -1132,5 +1255,238 @@ mod tests {
         // BE encoding: same expected lengths.
         let buffer = b"\x00A\x00B\x00\x00rest";
         assert_eq!(string16_bytes_consumed(buffer, 0, Endianness::Big), 6);
+    }
+
+    // -- compare_string_with_flags --------------------------------------
+    //
+    // Each subsection pins one flag (or combination) against the libmagic
+    // contract documented in softmagic.c. The asymmetric /c vs /C cases
+    // (GOTCHAS S6.5) get extra coverage because that is the most likely
+    // future regression vector.
+
+    #[test]
+    fn test_compare_string_with_flags_no_flags_matches_exact_bytes() {
+        let flags = StringFlags::default();
+        assert_eq!(
+            compare_string_with_flags(b"FOO", b"FOObar", 0, flags),
+            Some(3),
+            "exact byte match consumes pattern.len() bytes"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"FOO", b"foobar", 0, flags),
+            None,
+            "case mismatch without /c fails"
+        );
+    }
+
+    #[test]
+    fn test_compare_string_with_flags_c_lowercase_pattern() {
+        // /c with a lowercase pattern matches any case in the file.
+        let flags = StringFlags::default().with_ignore_lowercase(true);
+        assert_eq!(
+            compare_string_with_flags(b"foo", b"FOObar", 0, flags),
+            Some(3)
+        );
+        assert_eq!(
+            compare_string_with_flags(b"foo", b"FoObar", 0, flags),
+            Some(3)
+        );
+        assert_eq!(
+            compare_string_with_flags(b"foo", b"foobar", 0, flags),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn test_compare_string_with_flags_c_mixed_case_pattern() {
+        // Mixed-case pattern with /c: lowercase positions fold; uppercase
+        // positions are literal. This is the asymmetry from GOTCHAS S6.5.
+        let flags = StringFlags::default().with_ignore_lowercase(true);
+        // `FoO`: 'F' literal (must match 'F'); 'o' folds (any case); 'O'
+        // literal (must match 'O').
+        assert_eq!(
+            compare_string_with_flags(b"FoO", b"FoObar", 0, flags),
+            Some(3),
+            "FoO should match FoO"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"FoO", b"FOObar", 0, flags),
+            Some(3),
+            "FoO should match FOO (middle 'o' folds; F and O are literal)"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"FoO", b"fOObar", 0, flags),
+            None,
+            "FoO should NOT match fOO -- uppercase 'F' position is literal"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"FoO", b"Foobar", 0, flags),
+            None,
+            "FoO should NOT match Foo -- uppercase 'O' position is literal"
+        );
+    }
+
+    #[test]
+    fn test_compare_string_with_flags_capital_c_uppercase_pattern() {
+        // /C with an uppercase pattern matches any case in the file.
+        let flags = StringFlags::default().with_ignore_uppercase(true);
+        assert_eq!(
+            compare_string_with_flags(b"FOO", b"foobar", 0, flags),
+            Some(3)
+        );
+        assert_eq!(
+            compare_string_with_flags(b"FOO", b"FooBar", 0, flags),
+            Some(3)
+        );
+        // Lowercase pattern with /C should be literal -- /C only fires on
+        // uppercase pattern chars.
+        assert_eq!(
+            compare_string_with_flags(b"foo", b"FOObar", 0, flags),
+            None,
+            "/C does not fire on lowercase pattern chars"
+        );
+    }
+
+    #[test]
+    fn test_compare_string_with_flags_w_optional_whitespace() {
+        // /w: pattern whitespace allows zero or more file whitespace.
+        let flags = StringFlags::default().with_compact_optional_whitespace(true);
+        assert_eq!(
+            compare_string_with_flags(b"a b", b"ab", 0, flags),
+            Some(2),
+            "zero file whitespace accepted"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"a b", b"a b", 0, flags),
+            Some(3),
+            "one file whitespace consumed"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"a b", b"a    b", 0, flags),
+            Some(6),
+            "multiple file whitespace consumed -- consumed_bytes > pattern.len()"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"a b", b"a\tb", 0, flags),
+            Some(3),
+            "tab is ASCII whitespace"
+        );
+    }
+
+    #[test]
+    fn test_compare_string_with_flags_capital_w_compact_whitespace() {
+        // /W: pattern whitespace REQUIRES at least one file whitespace.
+        let flags = StringFlags::default().with_compact_whitespace(true);
+        assert_eq!(
+            compare_string_with_flags(b"a b", b"ab", 0, flags),
+            None,
+            "no file whitespace => no match under /W"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"a b", b"a b", 0, flags),
+            Some(3),
+            "exactly one space"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"a b", b"a    b", 0, flags),
+            Some(6),
+            "multiple spaces collapsed to single match"
+        );
+    }
+
+    #[test]
+    fn test_compare_string_with_flags_combined_cw() {
+        // /cw: lowercase pattern + whitespace-optional applied together.
+        let flags = StringFlags::default()
+            .with_ignore_lowercase(true)
+            .with_compact_optional_whitespace(true);
+        assert_eq!(
+            compare_string_with_flags(b"foo bar", b"FOOBAR", 0, flags),
+            Some(6),
+            "case folded AND zero whitespace consumed"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"foo bar", b"foo   bar", 0, flags),
+            Some(9),
+            "case folded (already lower) + 3 whitespace consumed"
+        );
+    }
+
+    #[test]
+    fn test_compare_string_with_flags_full_word_boundary() {
+        // /f: post-match must be EOF or non-word character.
+        let flags = StringFlags::default().with_full_word(true);
+        assert_eq!(
+            compare_string_with_flags(b"int", b"int ", 0, flags),
+            Some(3),
+            "space boundary OK"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"int", b"int.", 0, flags),
+            Some(3),
+            "punctuation boundary OK"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"int", b"int", 0, flags),
+            Some(3),
+            "EOF boundary OK"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"int", b"integer", 0, flags),
+            None,
+            "followed by alphanumeric => fail"
+        );
+        assert_eq!(
+            compare_string_with_flags(b"int", b"int_x", 0, flags),
+            None,
+            "underscore is a word char per libmagic contract"
+        );
+    }
+
+    #[test]
+    fn test_compare_string_with_flags_pattern_longer_than_buffer() {
+        // No flags: ran-out-of-file produces None, not panic.
+        let flags = StringFlags::default();
+        assert_eq!(
+            compare_string_with_flags(b"FOO", b"FO", 0, flags),
+            None,
+            "early termination on EOF"
+        );
+    }
+
+    #[test]
+    fn test_compare_string_with_flags_empty_pattern_always_matches() {
+        let flags = StringFlags::default();
+        // Empty pattern => zero consumed, vacuously true.
+        assert_eq!(
+            compare_string_with_flags(b"", b"anything", 0, flags),
+            Some(0)
+        );
+        // Even an empty buffer matches an empty pattern.
+        assert_eq!(compare_string_with_flags(b"", b"", 0, flags), Some(0));
+    }
+
+    #[test]
+    fn test_compare_string_with_flags_offset_past_buffer_end() {
+        // Out-of-range offset must not panic; returns None.
+        let flags = StringFlags::default();
+        assert_eq!(compare_string_with_flags(b"FOO", b"abc", 10, flags), None);
+        assert_eq!(compare_string_with_flags(b"FOO", b"", 0, flags), None);
+    }
+
+    #[test]
+    fn test_compare_string_with_flags_consumed_bytes_drives_anchor() {
+        // This is the load-bearing contract from the U4 plan: when /W
+        // consumes more file bytes than pattern bytes, the returned count
+        // is what relative-offset child rules use to advance the anchor.
+        // The regression risk is returning `pattern.len()` instead.
+        let flags = StringFlags::default().with_compact_whitespace(true);
+        // Pattern "a b" (3 bytes) against file "a    b" (6 bytes) ->
+        // anchor must advance by 6, NOT 3.
+        assert_eq!(
+            compare_string_with_flags(b"a b", b"a    b", 0, flags),
+            Some(6),
+            "anchor-advance contract: consumed_bytes reflects file consumption"
+        );
     }
 }

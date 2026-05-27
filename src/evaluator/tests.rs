@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use crate::parser::ast::{TypeKind, Value};
+use crate::parser::ast::{StringFlags, TypeKind, Value};
 
 #[test]
 fn test_evaluation_context_new() {
@@ -395,7 +395,10 @@ fn test_rule_match_clone() {
         offset: 42,
         level: 1,
         value: Value::String("test".to_string()),
-        type_kind: TypeKind::String { max_length: None },
+        type_kind: TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default(),
+        },
         confidence: RuleMatch::calculate_confidence(1),
     };
 

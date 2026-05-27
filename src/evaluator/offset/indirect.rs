@@ -263,7 +263,7 @@ fn overflow_error(_pointer: u64, adjustment: i64) -> LibmagicError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::ast::Endianness;
+    use crate::parser::ast::{Endianness, StringFlags};
 
     fn indirect(
         base_offset: i64,
@@ -680,7 +680,14 @@ mod tests {
     #[test]
     fn test_unsupported_pointer_types() {
         let cases: &[(&str, &[u8], TypeKind)] = &[
-            ("string", &[0x00; 4], TypeKind::String { max_length: None }),
+            (
+                "string",
+                &[0x00; 4],
+                TypeKind::String {
+                    max_length: None,
+                    flags: StringFlags::default(),
+                },
+            ),
             (
                 "float",
                 &[0x00; 4],

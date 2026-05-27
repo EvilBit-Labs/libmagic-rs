@@ -47,19 +47,19 @@ pub const MIN_STRENGTH: i32 = 0;
 /// # Examples
 ///
 /// ```
-/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
+/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, StringFlags, TypeKind, Operator, Value};
 /// use libmagic_rs::evaluator::strength::calculate_default_strength;
 ///
 /// let rule = MagicRule {
 ///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::String { max_length: None },
+///     typ: TypeKind::String { max_length: None, flags: StringFlags::default() },
 ///     op: Operator::Equal,
 ///     value: Value::String("ELF".to_string()),
 ///     message: "ELF file".to_string(),
 ///     children: vec![],
 ///     level: 0,
 ///     strength_modifier: None,
-/// value_transform: None,
+///     value_transform: None,
 /// };
 ///
 /// let strength = calculate_default_strength(&rule);
@@ -71,11 +71,22 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
 
     // Type contribution: more specific types get higher strength
     strength += match &rule.typ {
-        // Strings are most specific (they match exact byte sequences)
-        TypeKind::String { max_length } | TypeKind::PString { max_length, .. } => {
-            // Base string strength
+        // Strings are most specific (they match exact byte sequences).
+        // Flagged strings get a per-flag penalty because the flags broaden
+        // what the rule matches: `string/c FOO` matches both `FOO` and
+        // `foo`, so it should sort BELOW `string FOO` (which only matches
+        // `FOO` exactly) under stop_at_first_match. This mirrors libmagic's
+        // `apprentice.c::apprentice_magic_strength` which subtracts 1 per
+        // `STRING_IGNORE_*` flag bit. We extend the penalty to whitespace
+        // and full-word flags by the same logic: each flag that makes the
+        // pattern fuzzier costs one point.
+        TypeKind::String { max_length, flags } => {
             let base = 20;
-            // Add bonus for limited-length strings (more constrained match)
+            let with_length_bonus = if max_length.is_some() { base + 5 } else { base };
+            with_length_bonus - string_flag_specificity_penalty(*flags)
+        }
+        TypeKind::PString { max_length, .. } => {
+            let base = 20;
             if max_length.is_some() { base + 5 } else { base }
         }
         // UCS-2 strings (`lestring16`/`bestring16`) match byte sequences too,
@@ -199,6 +210,37 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
     strength.clamp(MIN_STRENGTH, MAX_STRENGTH)
 }
 
+/// Count how many `string`-flag bits make a rule's pattern fuzzier.
+///
+/// libmagic `apprentice.c::apprentice_magic_strength` subtracts 1 from the
+/// computed strength for each `STRING_IGNORE_*` bit set. We extend the same
+/// reasoning to whitespace and full-word flags: each flag that broadens
+/// what the rule matches reduces its specificity by one point.
+///
+/// Flags that do NOT affect comparison (`/t` text-test, `/b` bin-test --
+/// MIME hints only) carry no penalty. `/T` (`STRING_TRIM`) is a
+/// pattern-side normalization, not a fuzziness flag, so it does not
+/// penalize either. `/f` (`STRING_FULL_WORD`) tightens the match by
+/// requiring a post-match word boundary, but it does so independently
+/// of any per-byte fuzziness -- it goes the other direction
+/// semantically, so we leave it untouched as well.
+fn string_flag_specificity_penalty(flags: crate::parser::ast::StringFlags) -> i32 {
+    let mut penalty = 0;
+    if flags.ignore_lowercase {
+        penalty += 1;
+    }
+    if flags.ignore_uppercase {
+        penalty += 1;
+    }
+    if flags.compact_whitespace {
+        penalty += 1;
+    }
+    if flags.compact_optional_whitespace {
+        penalty += 1;
+    }
+    penalty
+}
+
 /// Apply a strength modifier to a base strength value.
 ///
 /// This function applies the arithmetic operation specified by the `StrengthModifier`
@@ -315,7 +357,7 @@ pub fn calculate_rule_strength(rule: &MagicRule) -> i32 {
 /// # Examples
 ///
 /// ```
-/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
+/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, StringFlags, TypeKind, Operator, Value};
 /// use libmagic_rs::evaluator::strength::sort_rules_by_strength;
 ///
 /// let mut rules = vec![
@@ -332,7 +374,7 @@ pub fn calculate_rule_strength(rule: &MagicRule) -> i32 {
 ///     },
 ///     MagicRule {
 ///         offset: OffsetSpec::Absolute(0),
-///         typ: TypeKind::String { max_length: None },
+///         typ: TypeKind::String { max_length: None, flags: StringFlags::default() },
 ///         op: Operator::Equal,
 ///         value: Value::String("MAGIC".to_string()),
 ///         message: "string rule".to_string(),
@@ -376,7 +418,7 @@ pub fn sort_rules_by_strength(rules: &mut [MagicRule]) {
 /// # Examples
 ///
 /// ```
-/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
+/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, StringFlags, TypeKind, Operator, Value};
 /// use libmagic_rs::evaluator::strength::sort_rules_by_strength_recursive;
 ///
 /// let mut rules: Vec<MagicRule> = vec![];
@@ -406,7 +448,7 @@ pub fn sort_rules_by_strength_recursive(rules: &mut [MagicRule]) {
 /// # Examples
 ///
 /// ```
-/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
+/// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, StringFlags, TypeKind, Operator, Value};
 /// use libmagic_rs::evaluator::strength::into_sorted_by_strength;
 ///
 /// let rules = vec![
@@ -423,7 +465,7 @@ pub fn sort_rules_by_strength_recursive(rules: &mut [MagicRule]) {
 ///     },
 ///     MagicRule {
 ///         offset: OffsetSpec::Absolute(0),
-///         typ: TypeKind::String { max_length: None },
+///         typ: TypeKind::String { max_length: None, flags: StringFlags::default() },
 ///         op: Operator::Equal,
 ///         value: Value::String("MAGIC".to_string()),
 ///         message: "string rule".to_string(),
@@ -446,7 +488,7 @@ pub fn into_sorted_by_strength(mut rules: Vec<MagicRule>) -> Vec<MagicRule> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::ast::{Endianness, IndirectAdjustmentOp};
+    use crate::parser::ast::{Endianness, IndirectAdjustmentOp, StringFlags};
 
     // Helper to create a basic test rule
     fn make_rule(typ: TypeKind, op: Operator, offset: OffsetSpec, value: Value) -> MagicRule {
@@ -566,7 +608,10 @@ mod tests {
             (
                 || {
                     make_rule(
-                        TypeKind::String { max_length: None },
+                        TypeKind::String {
+                            max_length: None,
+                            flags: StringFlags::default(),
+                        },
                         Operator::Equal,
                         OffsetSpec::Absolute(0),
                         Value::String("ELF".to_string()),
@@ -580,6 +625,7 @@ mod tests {
                     make_rule(
                         TypeKind::String {
                             max_length: Some(10),
+                            flags: StringFlags::default(),
                         },
                         Operator::Equal,
                         OffsetSpec::Absolute(0),
@@ -739,7 +785,10 @@ mod tests {
             (
                 || {
                     make_rule(
-                        TypeKind::String { max_length: None },
+                        TypeKind::String {
+                            max_length: None,
+                            flags: StringFlags::default(),
+                        },
                         Operator::Equal,
                         OffsetSpec::Absolute(0),
                         Value::String(
@@ -928,7 +977,10 @@ mod tests {
             },
             {
                 let mut r = make_rule(
-                    TypeKind::String { max_length: None },
+                    TypeKind::String {
+                        max_length: None,
+                        flags: StringFlags::default(),
+                    },
                     Operator::Equal,
                     OffsetSpec::Absolute(0),
                     Value::String("MAGIC".to_string()),
@@ -950,7 +1002,10 @@ mod tests {
         let mut rules = vec![
             {
                 let mut r = make_rule(
-                    TypeKind::String { max_length: None },
+                    TypeKind::String {
+                        max_length: None,
+                        flags: StringFlags::default(),
+                    },
                     Operator::Equal,
                     OffsetSpec::Absolute(0),
                     Value::String("TEST".to_string()),
@@ -1042,7 +1097,10 @@ mod tests {
     #[test]
     fn test_strength_comparison_string_vs_byte() {
         let string_rule = make_rule(
-            TypeKind::String { max_length: None },
+            TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default(),
+            },
             Operator::Equal,
             OffsetSpec::Absolute(0),
             Value::String("AB".to_string()),
