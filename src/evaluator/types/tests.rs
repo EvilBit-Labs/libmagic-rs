@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use crate::parser::ast::Endianness;
+use crate::parser::ast::{Endianness, StringFlags};
 
 #[test]
 fn test_type_read_error_display() {
@@ -173,7 +173,15 @@ fn test_read_typed_value_native_endian() {
 fn test_read_typed_value_string_dispatch() {
     let buffer = b"Hello\x00World\x00";
 
-    let result = read_typed_value(buffer, 0, &TypeKind::String { max_length: None }).unwrap();
+    let result = read_typed_value(
+        buffer,
+        0,
+        &TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default(),
+        },
+    )
+    .unwrap();
     assert_eq!(result, Value::String("Hello".to_string()));
 
     let result = read_typed_value(
@@ -181,6 +189,7 @@ fn test_read_typed_value_string_dispatch() {
         0,
         &TypeKind::String {
             max_length: Some(4),
+            flags: StringFlags::default(),
         },
     )
     .unwrap();
@@ -604,7 +613,10 @@ fn test_coerce_value_to_type() {
         ),
         (
             Value::Uint(0xff),
-            TypeKind::String { max_length: None },
+            TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default(),
+            },
             Value::Uint(0xff),
         ),
         (
@@ -813,7 +825,10 @@ fn test_bytes_consumed_fixed_width_types() {
 fn test_bytes_consumed_string_with_nul() {
     // "MZ\0" -> matches "MZ" and consumes 3 bytes (2 + NUL).
     let buf = b"MZ\x00rest";
-    let typ = TypeKind::String { max_length: None };
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
     assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 3);
 }
 
@@ -821,7 +836,10 @@ fn test_bytes_consumed_string_with_nul() {
 fn test_bytes_consumed_string_at_offset() {
     // String starting mid-buffer.
     let buf = b"PREFIXabc\x00tail";
-    let typ = TypeKind::String { max_length: None };
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
     assert_eq!(bytes_consumed_with_pattern(buf, 6, &typ, None), 4); // "abc" + NUL
 }
 
@@ -829,7 +847,10 @@ fn test_bytes_consumed_string_at_offset() {
 fn test_bytes_consumed_string_no_nul_in_buffer() {
     // No NUL terminator -- consumes to end of buffer (no extra byte for NUL).
     let buf = b"NoNull";
-    let typ = TypeKind::String { max_length: None };
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
     assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 6);
 }
 
@@ -837,7 +858,10 @@ fn test_bytes_consumed_string_no_nul_in_buffer() {
 fn test_bytes_consumed_string_empty() {
     // Empty string at offset 0 -- just the NUL.
     let buf = b"\x00rest";
-    let typ = TypeKind::String { max_length: None };
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
     assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 1);
 }
 
@@ -847,6 +871,7 @@ fn test_bytes_consumed_string_max_length_caps() {
     let buf = b"VeryLongString\x00rest";
     let typ = TypeKind::String {
         max_length: Some(4),
+        flags: StringFlags::default(),
     };
     assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 4);
 }
@@ -857,6 +882,7 @@ fn test_bytes_consumed_string_max_length_finds_nul() {
     let buf = b"Short\x00LongerSuffix";
     let typ = TypeKind::String {
         max_length: Some(10),
+        flags: StringFlags::default(),
     };
     assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 6);
 }
@@ -997,7 +1023,10 @@ fn test_bytes_consumed_string_at_past_end_returns_zero() {
     // the anchor in place. The engine guarantees this is never called for
     // a successful read, but the path is exercised here for the contract.
     let buf = b"abc";
-    let typ = TypeKind::String { max_length: None };
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
     assert_eq!(bytes_consumed_with_pattern(buf, 10, &typ, None), 0);
 }
 
@@ -1160,7 +1189,10 @@ fn test_bytes_consumed_string_with_bytes_pattern_is_exact_length() {
         0x00, 0x00, 0x00, 0x00, // padding
         0x00, 0x00, 0x00, 0x00, // padding
     ];
-    let typ = TypeKind::String { max_length: None };
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
     let pattern = Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]);
 
     let consumed = bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern));
