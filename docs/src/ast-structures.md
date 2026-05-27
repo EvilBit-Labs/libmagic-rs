@@ -183,7 +183,10 @@ pub enum TypeKind {
     Quad { endian: Endianness, signed: bool },
 
     /// String data
-    String { max_length: Option<usize> },
+    String {
+        max_length: Option<usize>,
+        flags: StringFlags,
+    },
 
     /// Pascal string (length-prefixed)
     PString {
@@ -240,7 +243,8 @@ let quad_be = TypeKind::Quad {
 
 // Null-terminated string, max 256 bytes
 let string_type = TypeKind::String {
-    max_length: Some(256)
+    max_length: Some(256),
+    flags: StringFlags::empty(),
 };
 ```
 
@@ -438,6 +442,71 @@ let case_start = TypeKind::Regex {
     count: RegexCount::Default,
 };
 ```
+
+### StringFlags Struct
+
+The `StringFlags` struct specifies string comparison behavior modifiers. All flags default to `false` via `StringFlags::default()`.
+
+```rust
+pub struct StringFlags {
+    pub compact_whitespace: bool,
+    pub compact_optional_whitespace: bool,
+    pub ignore_lowercase: bool,
+    pub ignore_uppercase: bool,
+    pub text_test: bool,
+    pub trim: bool,
+    pub bin_test: bool,
+    pub full_word: bool,
+}
+```
+
+**Flag meanings:**
+
+- `/W` (`compact_whitespace`) — pattern whitespace requires at least one whitespace byte in the file, then consumes remaining whitespace greedily
+- `/w` (`compact_optional_whitespace`) — pattern whitespace matches zero or more whitespace bytes in the file
+- `/c` (`ignore_lowercase`) — when the pattern character is lowercase, the file byte is compared case-insensitively; uppercase pattern characters require exact match (asymmetric)
+- `/C` (`ignore_uppercase`) — when the pattern character is uppercase, the file byte is compared case-insensitively; lowercase pattern characters require exact match (asymmetric)
+- `/t` (`text_test`) — hint that this rule applies to text files (captured for MIME output integration)
+- `/T` (`trim`) — trim leading and trailing ASCII whitespace from the pattern before comparison
+- `/b` (`bin_test`) — hint that this rule applies to binary files (captured for MIME output integration)
+- `/f` (`full_word`) — post-match check that the byte after the matched region is either end-of-buffer or a non-word character
+
+**Examples:**
+
+```rust
+use libmagic_rs::parser::ast::{StringFlags, TypeKind};
+
+// Plain string with byte-exact comparison
+let plain_string = TypeKind::String {
+    max_length: Some(32),
+    flags: StringFlags::empty(),
+};
+
+// Case-insensitive string matching
+let case_insensitive = TypeKind::String {
+    max_length: Some(32),
+    flags: StringFlags::default().with_ignore_lowercase(true),
+};
+
+// Whitespace-flexible string matching
+let whitespace_flex = TypeKind::String {
+    max_length: Some(64),
+    flags: StringFlags::default()
+        .with_compact_optional_whitespace(true),
+};
+
+// Combined flags (case-insensitive + whitespace-optional)
+let combined = TypeKind::String {
+    max_length: Some(128),
+    flags: StringFlags::default()
+        .with_ignore_lowercase(true)
+        .with_compact_optional_whitespace(true),
+};
+```
+
+`StringFlags::empty()` returns `true` when all flags are `false`, representing unflagged strings that use byte-exact comparison (the fast path).
+
+**Note:** `/B` is NOT a string flag — it is the `pstring` 1-byte length-width letter. `string/B` is rejected at parse time.
 
 ### Meta-types (Control Directives)
 
@@ -714,9 +783,14 @@ let zip_rule = MagicRule {
 ### Script Detection with String Matching
 
 ```rust
+use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, StringFlags};
+
 let script_rule = MagicRule {
     offset: OffsetSpec::Absolute(0),
-    typ: TypeKind::String { max_length: Some(32) },
+    typ: TypeKind::String {
+        max_length: Some(32),
+        flags: StringFlags::empty(),
+    },
     op: Operator::Equal,
     value: Value::String("#!/bin/bash".to_string()),
     message: "Bash script".to_string(),
