@@ -689,45 +689,48 @@ pub fn parse_type_and_operator(
         input = rest;
     }
 
-    // Handle string flag suffixes (e.g., `string/w`, `string/cW`,
-    // `string/Bb`). magic(5) defines: `/W` compact-whitespace, `/w`
-    // whitespace-optional, `/c`/`/C` case-insensitive lower/upper,
-    // `/t`/`/T` force-text/binary, `/B`/`/b` blank-handling. Real-world
-    // magic files use these heavily (the system filesystems database
-    // uses `string/w` for ExFAT detection). Full semantic support is
-    // not yet implemented; for now the suffix is parsed and discarded
-    // so the file loads, leaving the comparison to behave as a plain
-    // `string` match. Tracked separately from this branch.
+    // Handle string flag suffixes (e.g., `string/w`, `string/cW`).
+    // magic(5) flag letters per libmagic `src/file.h`:
+    //   `/W` STRING_COMPACT_WHITESPACE
+    //   `/w` STRING_COMPACT_OPTIONAL_WHITESPACE
+    //   `/c` STRING_IGNORE_LOWERCASE  (pattern lowercase => file folded)
+    //   `/C` STRING_IGNORE_UPPERCASE  (pattern uppercase => file folded)
+    //   `/t` STRING_TEXTTEST          (text-mode hint)
+    //   `/T` STRING_TRIM              (trim pattern leading/trailing ws)
+    //   `/b` STRING_BINTEST           (binary-mode hint)
+    //   `/f` STRING_FULL_WORD         (post-match word-boundary check)
+    //
+    // `/B` is deliberately NOT accepted here -- it is the pstring
+    // 1-byte length-width letter (`CHAR_PSTRING_1_BE`) and is not a
+    // string flag in libmagic. An earlier draft of this loop
+    // accepted `'B'`; that was wrong and is now rejected. See
+    // GOTCHAS S6.6.
+    let mut string_flags = crate::parser::ast::StringFlags::default();
     if type_name == "string"
         && let Some(suffix_rest) = input.strip_prefix('/')
     {
         let mut consumed = 0usize;
         for ch in suffix_rest.chars() {
-            if matches!(ch, 'W' | 'w' | 'c' | 'C' | 't' | 'T' | 'B' | 'b') {
-                consumed += ch.len_utf8();
-            } else {
-                break;
+            match ch {
+                'W' => string_flags.compact_whitespace = true,
+                'w' => string_flags.compact_optional_whitespace = true,
+                'c' => string_flags.ignore_lowercase = true,
+                'C' => string_flags.ignore_uppercase = true,
+                't' => string_flags.text_test = true,
+                'T' => string_flags.trim = true,
+                'b' => string_flags.bin_test = true,
+                'f' => string_flags.full_word = true,
+                _ => break,
             }
+            consumed += ch.len_utf8();
         }
         if consumed > 0 {
-            // Surface the parse-and-drop: the user's `/c`/`/w`/etc.
-            // flag was consumed but the comparison still uses byte-exact
-            // semantics. Without this warning, users debugging "why
-            // doesn't my `string/c FOO` match `foo`?" have no breadcrumb
-            // pointing at the implementation gap (issue #234). Logged
-            // once per rule, not once per char.
-            warn!(
-                "string flag suffix `/{flags}` parsed but not yet evaluated \
-                 (issue #234); comparison uses byte-exact semantics regardless of flags",
-                flags = &suffix_rest[..consumed]
-            );
             input = &suffix_rest[consumed..];
-        } else {
-            // `/` not followed by a known flag letter -- restore the
-            // `/` for the value parser to handle (or fail meaningfully
-            // on an unrecognised suffix).
-            // No-op: input was not advanced past the `/`.
         }
+        // If `consumed == 0`, the `/` is not followed by a known flag
+        // letter. Leave `input` pointing at the `/` so the value
+        // parser (or the trailing-junk check) fails meaningfully. This
+        // is the path that rejects `string/B` and `string/x`.
     }
 
     // Check for a pre-comparison value transform (e.g., `lelong+1` or
@@ -794,6 +797,16 @@ pub fn parse_type_and_operator(
                     length_includes_itself: pstring_length_includes_itself,
                 };
             }
+            // Stamp the parsed string flags onto the `string` variant.
+            // `type_keyword_to_kind` returns `flags: StringFlags::default()`
+            // because the flag-bearing suffix is grammar-layer only; the
+            // type-keyword layer never sees it.
+            if let TypeKind::String { max_length, .. } = kind {
+                kind = TypeKind::String {
+                    max_length,
+                    flags: string_flags,
+                };
+            }
             kind
         }
     };
@@ -826,7 +839,7 @@ pub fn parse_type_and_operator(
 /// assert_eq!(parse_type("byte"), Ok(("", TypeKind::Byte { signed: true })));
 /// assert_eq!(parse_type("leshort"), Ok(("", TypeKind::Short { endian: Endianness::Little, signed: true })));
 /// assert_eq!(parse_type("bequad"), Ok(("", TypeKind::Quad { endian: Endianness::Big, signed: true })));
-/// assert_eq!(parse_type("string"), Ok(("", TypeKind::String { max_length: None })));
+/// assert_eq!(parse_type("string"), Ok(("", TypeKind::String { max_length: None, flags: StringFlags::default() })));
 /// ```
 ///
 /// # Errors

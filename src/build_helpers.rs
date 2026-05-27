@@ -74,7 +74,9 @@ pub fn format_parse_error(error: &ParseError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::ast::{Endianness, MagicRule, OffsetSpec, Operator, TypeKind, Value};
+    use crate::parser::ast::{
+        Endianness, MagicRule, OffsetSpec, Operator, StringFlags, TypeKind, Value,
+    };
     use crate::parser::codegen::format_string_literal;
 
     #[test]
@@ -305,15 +307,36 @@ mod tests {
 
     #[test]
     fn test_serialize_type_kind_string() {
-        let typ1 = TypeKind::String { max_length: None };
+        let typ1 = TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default(),
+        };
         let serialized1 = serialize_type_kind(&typ1);
-        assert_eq!(serialized1, "TypeKind::String { max_length: None }");
+        assert_eq!(
+            serialized1,
+            "TypeKind::String { max_length: None, flags: crate::parser::ast::StringFlags::default() }"
+        );
 
         let typ2 = TypeKind::String {
             max_length: Some(256),
+            flags: StringFlags::default(),
         };
         let serialized2 = serialize_type_kind(&typ2);
-        assert_eq!(serialized2, "TypeKind::String { max_length: Some(256) }");
+        assert_eq!(
+            serialized2,
+            "TypeKind::String { max_length: Some(256), flags: crate::parser::ast::StringFlags::default() }"
+        );
+
+        // Non-default flags emit the builder chain.
+        let typ3 = TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default().with_ignore_lowercase(true),
+        };
+        let serialized3 = serialize_type_kind(&typ3);
+        assert_eq!(
+            serialized3,
+            "TypeKind::String { max_length: None, flags: crate::parser::ast::StringFlags::default().with_ignore_lowercase(true) }"
+        );
     }
 
     #[test]

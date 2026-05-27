@@ -14,14 +14,14 @@
 
 ---
 
-A pure-Rust implementation of libmagic, the library that powers the `file` command for identifying file types. This project provides a memory-safe, efficient alternative to the C-based libmagic library.
+A pure-Rust reimplementation of libmagic -- the library behind the `file` command. No `unsafe`, no C dependency.
 
 > [!NOTE]
-> This is a clean-room implementation inspired by the original [libmagic](https://www.darwinsys.com/file/) project. We respect and acknowledge the original work by Ian Darwin and the current maintainers led by Christos Zoulas.
+> Clean-room implementation. Original libmagic by Ian Darwin; current maintenance by Christos Zoulas -- see [darwinsys.com/file](https://www.darwinsys.com/file/).
 
 ## Project Status
 
-**v0.5.0** -- The core file identification pipeline is functional. Common file types can be identified using text magic files today.
+**v0.5.0** -- usable for identifying common file types from a text magic file. Pre-1.0, expect API churn.
 
 > [!WARNING]
 > **Pre-1.0 API.** libmagic-rs is a pre-1.0 crate and the public API may change between minor versions until v1.0.0 is cut. Pin an exact version in `Cargo.toml` if you need reproducible builds, and read `CHANGELOG.md` before upgrading. See issue #52 for the v1.0 stability roadmap.
@@ -163,7 +163,7 @@ pub enum OffsetSpec {
 
 ## Compatibility
 
-libmagic-rs follows the **OpenBSD approach**: parse text magic files directly, prioritizing simplicity and correctness. Text magic files are stable across libmagic versions and work unchanged from system installations (`/usr/share/misc/magic`).
+libmagic-rs takes the OpenBSD route: parse text magic files directly. No compiled `.mgc` format, no binary cache. Text magic files are stable across libmagic versions, so a system `/usr/share/misc/magic` works unchanged.
 
 Compatibility is validated against the [original file project](https://github.com/file/file) test suite.
 

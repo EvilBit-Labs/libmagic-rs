@@ -251,7 +251,7 @@ version = "2.13.1"
 backend = "cargo:git-cliff"
 
 [[tools."cargo:mdbook"]]
-version = "0.5.2"
+version = "0.5.3"
 backend = "cargo:mdbook"
 
 [[tools."cargo:mdbook-admonish"]]

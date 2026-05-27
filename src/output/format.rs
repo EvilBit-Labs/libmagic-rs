@@ -471,6 +471,7 @@ fn pad_numeric(body: &str, spec: &Spec) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::ast::StringFlags;
 
     fn byte_t() -> TypeKind {
         TypeKind::Byte { signed: false }
@@ -560,7 +561,10 @@ mod tests {
         let out = format_magic_message(
             "hello %s",
             &Value::String("world".to_string()),
-            &TypeKind::String { max_length: None },
+            &TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default(),
+            },
         );
         assert_eq!(out, "hello world");
 
@@ -568,7 +572,10 @@ mod tests {
         let out = format_magic_message(
             "data=%s",
             &Value::Bytes(b"abc".to_vec()),
-            &TypeKind::String { max_length: None },
+            &TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default(),
+            },
         );
         assert_eq!(out, "data=abc");
     }
@@ -759,7 +766,10 @@ mod tests {
         let out = format_magic_message(
             "v=%d",
             &Value::String("hi".to_string()),
-            &TypeKind::String { max_length: None },
+            &TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default(),
+            },
         );
         assert_eq!(out, "v=%d");
     }
