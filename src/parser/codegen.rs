@@ -13,7 +13,8 @@
 
 use super::ast::{
     Endianness, IndirectAdjustmentOp, MagicRule, MetaType, OffsetSpec, Operator,
-    PStringLengthWidth, StrengthModifier, TypeKind, Value, ValueTransform, ValueTransformOp,
+    PStringLengthWidth, StrengthModifier, StringFlags, TypeKind, Value, ValueTransform,
+    ValueTransformOp,
 };
 
 const INDENT_WIDTH: usize = 4;
@@ -29,7 +30,7 @@ pub fn generate_builtin_rules(rules: &[MagicRule]) -> String {
     push_line(&mut output, "#[allow(unused_imports)]");
     push_line(
         &mut output,
-        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness, IndirectAdjustmentOp, StrengthModifier, PStringLengthWidth, MetaType, ValueTransform, ValueTransformOp};",
+        "use crate::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, Endianness, IndirectAdjustmentOp, StrengthModifier, PStringLengthWidth, StringFlags, MetaType, ValueTransform, ValueTransformOp};",
     );
     push_line(&mut output, "use std::sync::LazyLock;");
     push_line(&mut output, "");
@@ -220,12 +221,16 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
             serialize_endianness(*endian),
             utc
         ),
-        TypeKind::String { max_length } => match max_length {
-            Some(value) => {
-                format!("TypeKind::String {{ max_length: Some({value}) }}")
-            }
-            None => "TypeKind::String { max_length: None }".to_string(),
-        },
+        TypeKind::String { max_length, flags } => {
+            let max_length_expr = match max_length {
+                Some(value) => format!("Some({value})"),
+                None => "None".to_string(),
+            };
+            format!(
+                "TypeKind::String {{ max_length: {max_length_expr}, flags: {} }}",
+                serialize_string_flags(*flags)
+            )
+        }
         TypeKind::String16 { endian } => format!(
             "TypeKind::String16 {{ endian: {} }}",
             serialize_endianness(*endian)
@@ -300,6 +305,44 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
             ),
         },
     }
+}
+
+/// Serialize a `StringFlags` value as a Rust builder-chain expression.
+///
+/// Default flags produce `StringFlags::default()`. Non-default flags chain
+/// each set field via `with_*` setters so adding a future flag does not
+/// break previously-generated code (the same builder-pattern argument that
+/// motivates `RegexFlags` serialization).
+pub fn serialize_string_flags(flags: StringFlags) -> String {
+    if flags.is_empty() {
+        return "crate::parser::ast::StringFlags::default()".to_string();
+    }
+    let mut s = String::from("crate::parser::ast::StringFlags::default()");
+    if flags.compact_whitespace {
+        s.push_str(".with_compact_whitespace(true)");
+    }
+    if flags.compact_optional_whitespace {
+        s.push_str(".with_compact_optional_whitespace(true)");
+    }
+    if flags.ignore_lowercase {
+        s.push_str(".with_ignore_lowercase(true)");
+    }
+    if flags.ignore_uppercase {
+        s.push_str(".with_ignore_uppercase(true)");
+    }
+    if flags.text_test {
+        s.push_str(".with_text_test(true)");
+    }
+    if flags.trim {
+        s.push_str(".with_trim(true)");
+    }
+    if flags.bin_test {
+        s.push_str(".with_bin_test(true)");
+    }
+    if flags.full_word {
+        s.push_str(".with_full_word(true)");
+    }
+    s
 }
 
 /// Serialize a `PStringLengthWidth` as a Rust path

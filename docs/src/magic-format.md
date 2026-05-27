@@ -283,20 +283,37 @@ The optional max_length parameter caps the length value:
 0       pstring   x         \b, name: %s
 ```
 
-### String Flags (Not Yet Implemented)
+### String Flags
 
-> **Note:** String flags are documented for libmagic compatibility reference but are not yet implemented in libmagic-rs.
+String flags are now implemented as of PR #234, providing libmagic-compatible string comparison semantics.
 
-| Flag | Description            |
-| ---- | ---------------------- |
-| `/c` | Case-insensitive match |
-| `/w` | Whitespace-insensitive |
-| `/b` | Match at word boundary |
+| Flag | Description                                                        |
+| ---- | ------------------------------------------------------------------ |
+| `/c` | Case-insensitive (lowercase pattern chars trigger fold)           |
+| `/C` | Case-insensitive (uppercase pattern chars trigger fold)           |
+| `/w` | Whitespace-optional (pattern whitespace matches zero or more)     |
+| `/W` | Whitespace-required-compact (at least one, greedy consume)        |
+| `/T` | Trim leading/trailing ASCII whitespace from pattern                |
+| `/f` | Full-word match (post-match word boundary check)                   |
+| `/b` | Force binary test (hint for MIME output)                           |
+| `/t` | Force text test (hint for MIME output)                             |
 
-Example:
+**Note:** `/c` and `/C` are asymmetric — the pattern character controls fold direction. With `/c`, only lowercase pattern chars cause the file byte to be folded to lowercase. With `/C`, only uppercase pattern chars cause the file byte to be folded to uppercase. See GOTCHAS section S6.5 for details on mixed-case behavior. `/B` (uppercase) is not a string flag; it is reserved for pstring length-width specification and is rejected on string types.
+
+Examples:
 
 ```text
+# Case-insensitive match
 0       string/c  <!doctype  HTML document
+
+# Whitespace-optional (matches "ab", "a b", "a  b")
+0       string/w  a b        Pattern with flexible whitespace
+
+# Combined flags
+0       string/cw <!doctype html>  HTML document (case and space insensitive)
+
+# Full-word boundary check
+0       string/f  int        C int keyword (not "integer")
 ```
 
 ## Operators

@@ -11,7 +11,7 @@
 
 use nom::{IResult, Parser, branch::alt, bytes::complete::tag};
 
-use crate::parser::ast::{Endianness, MetaType, PStringLengthWidth, TypeKind};
+use crate::parser::ast::{Endianness, MetaType, PStringLengthWidth, StringFlags, TypeKind};
 
 /// Error returned by [`type_keyword_to_kind`] when the supplied keyword is
 /// not a recognized magic type keyword.
@@ -372,7 +372,10 @@ fn qdate_family(name: &str) -> Option<TypeKind> {
 /// trailing `/B`/`/H`/`/h`/`/L`/`/l`/`/J` suffix.
 fn string_family(name: &str) -> Option<TypeKind> {
     match name {
-        "string" => Some(TypeKind::String { max_length: None }),
+        "string" => Some(TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default(),
+        }),
         "pstring" => Some(TypeKind::PString {
             max_length: None,
             length_width: PStringLengthWidth::OneByte,
@@ -557,7 +560,10 @@ mod tests {
     fn test_type_keyword_to_kind_string() {
         assert_eq!(
             type_keyword_to_kind("string"),
-            Ok(Some(TypeKind::String { max_length: None }))
+            Ok(Some(TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default()
+            }))
         );
     }
 
