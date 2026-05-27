@@ -14,7 +14,7 @@
 //! `evaluate_rules` directly.
 
 use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
-use libmagic_rs::parser::ast::PStringLengthWidth;
+use libmagic_rs::parser::ast::{PStringLengthWidth, StringFlags};
 use libmagic_rs::{Endianness, EvaluationConfig, MagicRule, OffsetSpec, Operator, TypeKind, Value};
 
 fn cfg() -> EvaluationConfig {
@@ -195,7 +195,10 @@ fn relative_after_string_parent_includes_nul_terminator() {
 
     let parent = MagicRule {
         offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::String { max_length: None },
+        typ: TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default(),
+        },
         op: Operator::Equal,
         value: Value::String("MZ".to_string()),
         message: "mz".to_string(),

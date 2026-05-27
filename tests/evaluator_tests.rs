@@ -8,7 +8,7 @@
 //! function for type-specific evaluation scenarios.
 
 use libmagic_rs::evaluator::evaluate_rules;
-use libmagic_rs::parser::ast::PStringLengthWidth;
+use libmagic_rs::parser::ast::{PStringLengthWidth, StringFlags};
 use libmagic_rs::{
     Endianness, EvaluationConfig, EvaluationContext, MagicDatabase, MagicRule, OffsetSpec,
     Operator, TypeKind, Value,
@@ -578,6 +578,7 @@ fn test_regex_eol_corpus() {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::String {
             max_length: Some("$ANSIBLE_VAULT".len()),
+            flags: StringFlags::default(),
         },
         op: Operator::Equal,
         value: Value::String("$ANSIBLE_VAULT".to_string()),

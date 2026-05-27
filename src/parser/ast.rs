@@ -520,20 +520,32 @@ pub enum TypeKind {
     },
     /// String data
     ///
+    /// The `flags` field carries the modifier flags parsed from the
+    /// `/[cCwWtTbf]` suffix on a `string` rule. Default flags (all
+    /// `false`) preserve the existing byte-exact comparison path; any
+    /// non-default flag routes the rule through
+    /// `compare_string_with_flags` in `src/evaluator/types/string.rs`.
+    /// See [`StringFlags`] for per-flag semantics.
+    ///
     /// # Examples
     ///
     /// ```
-    /// use libmagic_rs::parser::ast::TypeKind;
+    /// use libmagic_rs::parser::ast::{StringFlags, TypeKind};
     ///
-    /// let s = TypeKind::String { max_length: None };
-    /// assert_eq!(s, TypeKind::String { max_length: None });
+    /// let s = TypeKind::String { max_length: None, flags: StringFlags::default() };
+    /// assert_eq!(s, TypeKind::String { max_length: None, flags: StringFlags::default() });
     ///
-    /// let capped = TypeKind::String { max_length: Some(32) };
-    /// assert_eq!(capped, TypeKind::String { max_length: Some(32) });
+    /// let case_insensitive = TypeKind::String {
+    ///     max_length: None,
+    ///     flags: StringFlags::default().with_ignore_lowercase(true),
+    /// };
+    /// assert!(matches!(case_insensitive, TypeKind::String { flags, .. } if flags.ignore_lowercase));
     /// ```
     String {
         /// Maximum length to read
         max_length: Option<usize>,
+        /// Modifier flags from the `/[cCwWtTbf]` suffix
+        flags: StringFlags,
     },
     /// UCS-2 (16-bit Unicode) string with explicit byte order.
     ///
@@ -749,6 +761,160 @@ impl RegexFlags {
     }
 }
 
+/// String modifier flags parsed from the `/[cCwWtTbf]` suffix on a `string`
+/// rule.
+///
+/// Mirrors libmagic's `STRING_*` flag bits from `src/file.h`. Each flag
+/// alters how `compare_string_with_flags` walks the pattern and buffer in
+/// parallel. The default (all `false`) preserves byte-exact comparison.
+///
+/// **`/c` vs `/C` are asymmetric**: the pattern character controls
+/// direction. With `/c`, only lowercase pattern chars trigger case-folding
+/// (the file byte is `tolower`'d). With `/C`, only uppercase pattern chars
+/// trigger folding (the file byte is `toupper`'d). Mixed-case patterns
+/// behave intuitively: `/c FoO` matches `FoO`, `Foo`, `FOO` but not
+/// `fOO` (the uppercase `F` is literal). See GOTCHAS S6.5 for the
+/// rationale and `src/softmagic.c` for the canonical libmagic contract.
+///
+/// **`/B` is NOT a string flag** — it is the `pstring` 1-byte length-width
+/// letter (`PSTRING_1_BE`). `string/B` is rejected at parse time. See
+/// GOTCHAS S6.6.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::StringFlags;
+///
+/// let plain = StringFlags::default();
+/// assert!(!plain.ignore_lowercase);
+///
+/// let case_insensitive = StringFlags::default().with_ignore_lowercase(true);
+/// assert!(case_insensitive.ignore_lowercase);
+///
+/// let compound = StringFlags::default()
+///     .with_ignore_lowercase(true)
+///     .with_compact_optional_whitespace(true);
+/// assert!(compound.ignore_lowercase);
+/// assert!(compound.compact_optional_whitespace);
+/// ```
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+// libmagic's contract is naturally a bitfield: each flag is a distinct
+// magic(5) letter (/c, /C, /w, /W, /t, /T, /b, /f) with its own STRING_*
+// constant in libmagic src/file.h. Flags compose freely (string/cw is
+// /c plus /w; string/wcCtTbf sets all eight). Folding pairs into enums
+// is possible (whitespace: none|optional|required; case: none|lower|upper)
+// but would obscure the libmagic mapping and produce verbose match arms
+// in every consumer. The bool-per-flag layout mirrors `RegexFlags` and
+// the libmagic source -- the clippy lint is overruled by the design.
+#[allow(clippy::struct_excessive_bools)]
+pub struct StringFlags {
+    /// `/W` -- `STRING_COMPACT_WHITESPACE`. Pattern whitespace requires at
+    /// least one whitespace byte in the file, then any further whitespace
+    /// in the file is consumed greedily.
+    pub compact_whitespace: bool,
+    /// `/w` -- `STRING_COMPACT_OPTIONAL_WHITESPACE`. Pattern whitespace
+    /// matches zero or more whitespace bytes in the file.
+    pub compact_optional_whitespace: bool,
+    /// `/c` -- `STRING_IGNORE_LOWERCASE`. When the pattern char is
+    /// lowercase, the file byte is `to_ascii_lowercase`'d before
+    /// comparison. Uppercase pattern chars are compared literally.
+    pub ignore_lowercase: bool,
+    /// `/C` -- `STRING_IGNORE_UPPERCASE`. When the pattern char is
+    /// uppercase, the file byte is `to_ascii_uppercase`'d before
+    /// comparison. Lowercase pattern chars are compared literally.
+    pub ignore_uppercase: bool,
+    /// `/t` -- `STRING_TEXTTEST`. Hint that this rule applies to text
+    /// files. Captured for MIME-output integration; does not currently
+    /// alter comparison.
+    pub text_test: bool,
+    /// `/T` -- `STRING_TRIM`. Trim leading and trailing ASCII whitespace
+    /// from the pattern before comparison. The trim happens at AST
+    /// construction time; the comparison function receives the trimmed
+    /// pattern.
+    pub trim: bool,
+    /// `/b` -- `STRING_BINTEST`. Hint that this rule applies to binary
+    /// files. Captured for MIME-output integration; does not currently
+    /// alter comparison.
+    pub bin_test: bool,
+    /// `/f` -- `STRING_FULL_WORD`. Post-match check that the byte after
+    /// the matched region is either end-of-buffer or a non-word
+    /// character (ASCII alphanumeric or `_`).
+    pub full_word: bool,
+}
+
+impl StringFlags {
+    /// Returns `true` when every flag is `false` (the byte-exact fast
+    /// path). The evaluator dispatcher uses this to skip the
+    /// parallel-walk comparison when no flags are set.
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        !self.compact_whitespace
+            && !self.compact_optional_whitespace
+            && !self.ignore_lowercase
+            && !self.ignore_uppercase
+            && !self.text_test
+            && !self.trim
+            && !self.bin_test
+            && !self.full_word
+    }
+
+    /// Builder-style setter for `compact_whitespace` (`/W`).
+    #[must_use]
+    pub const fn with_compact_whitespace(mut self, value: bool) -> Self {
+        self.compact_whitespace = value;
+        self
+    }
+
+    /// Builder-style setter for `compact_optional_whitespace` (`/w`).
+    #[must_use]
+    pub const fn with_compact_optional_whitespace(mut self, value: bool) -> Self {
+        self.compact_optional_whitespace = value;
+        self
+    }
+
+    /// Builder-style setter for `ignore_lowercase` (`/c`).
+    #[must_use]
+    pub const fn with_ignore_lowercase(mut self, value: bool) -> Self {
+        self.ignore_lowercase = value;
+        self
+    }
+
+    /// Builder-style setter for `ignore_uppercase` (`/C`).
+    #[must_use]
+    pub const fn with_ignore_uppercase(mut self, value: bool) -> Self {
+        self.ignore_uppercase = value;
+        self
+    }
+
+    /// Builder-style setter for `text_test` (`/t`).
+    #[must_use]
+    pub const fn with_text_test(mut self, value: bool) -> Self {
+        self.text_test = value;
+        self
+    }
+
+    /// Builder-style setter for `trim` (`/T`).
+    #[must_use]
+    pub const fn with_trim(mut self, value: bool) -> Self {
+        self.trim = value;
+        self
+    }
+
+    /// Builder-style setter for `bin_test` (`/b`).
+    #[must_use]
+    pub const fn with_bin_test(mut self, value: bool) -> Self {
+        self.bin_test = value;
+        self
+    }
+
+    /// Builder-style setter for `full_word` (`/f`).
+    #[must_use]
+    pub const fn with_full_word(mut self, value: bool) -> Self {
+        self.full_word = value;
+        self
+    }
+}
+
 /// Scan window specifier for a [`TypeKind::Regex`] rule.
 ///
 /// Encodes the three mutually-exclusive scan modes in a single enum so
@@ -805,7 +971,7 @@ impl TypeKind {
     /// # Examples
     ///
     /// ```
-    /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+    /// use libmagic_rs::parser::ast::{Endianness, StringFlags, TypeKind};
     ///
     /// assert_eq!(TypeKind::Byte { signed: false }.bit_width(), Some(8));
     /// assert_eq!(TypeKind::Short { endian: Endianness::Native, signed: true }.bit_width(), Some(16));
@@ -813,7 +979,7 @@ impl TypeKind {
     /// assert_eq!(TypeKind::Quad { endian: Endianness::Native, signed: true }.bit_width(), Some(64));
     /// assert_eq!(TypeKind::Float { endian: Endianness::Native }.bit_width(), Some(32));
     /// assert_eq!(TypeKind::Double { endian: Endianness::Native }.bit_width(), Some(64));
-    /// assert_eq!(TypeKind::String { max_length: None }.bit_width(), None);
+    /// assert_eq!(TypeKind::String { max_length: None, flags: StringFlags::default() }.bit_width(), None);
     /// ```
     #[must_use]
     pub const fn bit_width(&self) -> Option<u32> {
@@ -1861,9 +2027,13 @@ mod tests {
 
     #[test]
     fn test_type_kind_string() {
-        let unlimited_string = TypeKind::String { max_length: None };
+        let unlimited_string = TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default(),
+        };
         let limited_string = TypeKind::String {
             max_length: Some(256),
+            flags: StringFlags::default(),
         };
 
         assert_ne!(unlimited_string, limited_string);
@@ -1918,9 +2088,13 @@ mod tests {
                 endian: Endianness::Big,
                 utc: false,
             },
-            TypeKind::String { max_length: None },
+            TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default(),
+            },
             TypeKind::String {
                 max_length: Some(128),
+                flags: StringFlags::default(),
             },
             TypeKind::PString {
                 max_length: None,

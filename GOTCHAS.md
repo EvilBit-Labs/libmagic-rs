@@ -221,6 +221,21 @@ Historical note (NUL-free buffer behavior): when `read_string` runs with `max_le
 
 The full backstory of why both functions exist (and why the previous single-function design silently broke `0 string PNCIHISK\0 ...` and similar rules) is documented in `docs/solutions/logic-errors/magic-string-rule-matching-3-bug-fix-2026-04-25.md`.
 
+### 6.5 `/c` and `/C` String Flags Are Asymmetric — Pattern Char Controls Fold Direction
+
+Per libmagic `src/softmagic.c`, the case-insensitive string flags are **not** symmetric "both sides fold to lower". They are direction-controlled by the pattern character:
+
+- **`/c` (`STRING_IGNORE_LOWERCASE`)** fires only when the pattern char is lowercase. When it fires, the file byte is `tolower`'d before comparison. Pattern `b"foo"` matches `b"FOO"`, `b"Foo"`, `b"foo"`. Pattern `b"FOO"` is compared literally regardless of `/c`.
+- **`/C` (`STRING_IGNORE_UPPERCASE`)** fires only when the pattern char is uppercase. When it fires, the file byte is `toupper`'d before comparison. Pattern `b"FOO"` matches `b"foo"`, `b"Foo"`, `b"FOO"`. Pattern `b"foo"` is compared literally regardless of `/C`.
+
+Mixed-case patterns work: `/c FoO` matches `b"FoO"`, `b"Foo"`, `b"FOO"` (the lowercase `o` positions accept any case) but **not** `b"fOO"` (the uppercase `F` position is literal and case-folding does not fire). Patterns with the "wrong" case for the flag fall through to literal byte comparison — this is the source of confused "why doesn't my pattern match?" bug reports.
+
+Use `u8::to_ascii_lowercase` / `to_ascii_uppercase`, not full Unicode case-folding — libmagic uses C's `tolower`/`toupper` which are de-facto ASCII for magic-file processing. See `src/evaluator/types/string.rs::compare_string_with_flags` for the implementation and the table-driven tests for the asymmetry coverage.
+
+### 6.6 `/B` Is Pstring-Only, Not a String Flag
+
+magic(5) and libmagic `src/file.h` reserve `/B` (`CHAR_PSTRING_1_BE`) as a `pstring` length-width letter. It is **not** a `string` flag — `string/B` is rejected at parse time. An earlier draft of the grammar (PR #233) included `'B'` in the string-flag set; that was wrong and has been corrected. The pstring suffix parser (`src/parser/grammar/type_suffix.rs::parse_pstring_suffix`) is the only place `/B` should be accepted.
+
 ## 7. Testing
 
 ### 7.1 Doctest Import Paths

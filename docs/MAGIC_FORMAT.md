@@ -214,25 +214,69 @@ Examples:
 0       pstring/HJ =JPEG        JPEG image (2-byte BE, self-inclusive length)
 ```
 
-If `max_length` is specified in the magic file (not shown in the basic syntax), it caps the length value to prevent reading excessive data.
+If `max_length` is specified in the magic file (not shown in the basic syntax), it caps the length value to prevent reading excessive data. This guards against attacker-controlled length-prefix saturation attacks where malicious files specify extreme length values.
+
+**UCS-2 Strings (lestring16 / bestring16)**
+
+Wide-character strings encoded as 2 bytes per character with little-endian (`lestring16`) or big-endian (`bestring16`) byte order. Each string is null-terminated (U+0000) and capped at 8192 characters. Invalid surrogate halves are replaced with U+FFFD.
+
+Examples:
+
+```text
+0       lestring16  =WORD      Word document (UTF-16LE)
+0       bestring16  =WORD      Word document (UTF-16BE)
+```
 
 ### String Flags
 
-Flags for `string` type:
+Flags for `string` type modify comparison behavior per libmagic `src/softmagic.c`:
 
-| Flag | Description            |
-| ---- | ---------------------- |
-| `/c` | Case-insensitive match |
-| `/w` | Whitespace-insensitive |
-| `/b` | Match at word boundary |
+| Flag | Description                                                                                                          |
+| ---- | -------------------------------------------------------------------------------------------------------------------- |
+| `/c` | Case-insensitive match (lowercase pattern chars fold file bytes to lower; uppercase pattern chars are literal)      |
+| `/C` | Case-insensitive match (uppercase pattern chars fold file bytes to upper; lowercase pattern chars are literal)      |
+| `/w` | Whitespace-optional (pattern whitespace matches zero or more file whitespace)                                       |
+| `/W` | Whitespace-required-compact (pattern whitespace requires at least one file whitespace; additional whitespace consumed) |
+| `/T` | Trim leading/trailing ASCII whitespace from pattern before comparison                                               |
+| `/f` | Full-word match (post-match word-boundary check; next byte must be EOF or non-word char)                            |
+| `/b` | Force binary test (MIME-output hint; no effect on comparison)                                                       |
+| `/t` | Force text test (MIME-output hint; no effect on comparison)                                                         |
 
-Example:
+**`/c` vs `/C` asymmetry:** The pattern character controls fold direction. `/c` with lowercase pattern chars folds the file byte to lowercase; uppercase pattern chars in the same pattern are compared literally. Mixed-case patterns work intuitively: `/c FoO` matches `FoO`, `Foo`, `FOO` but not `fOO` (the uppercase `F` is literal). See GOTCHAS S6.5 for details.
+
+**`/B` is not a string flag** — it is the `pstring` 1-byte length-width letter. `string/B` is rejected at parse time. See GOTCHAS S6.6.
+
+Examples:
 
 ```text
 0       string/c  <!doctype  HTML document
+0       string/w  foo bar    whitespace-flexible match
+0       string/T  \tdata     leading/trailing whitespace trimmed
+0       string/f  int        full-word boundary check
+0       string/b  FTCOMP     binary-file hint
 ```
 
 Flags for `pstring` type are documented in the Pascal String section above.
+
+### Floating-Point Types
+
+Match 32-bit (float) or 64-bit (double) IEEE 754 floating-point values.
+
+| Type       | Size    | Endianness    |
+| ---------- | ------- | ------------- |
+| `float`    | 4 bytes | native        |
+| `befloat`  | 4 bytes | big-endian    |
+| `lefloat`  | 4 bytes | little-endian |
+| `double`   | 8 bytes | native        |
+| `bedouble` | 8 bytes | big-endian    |
+| `ledouble` | 8 bytes | little-endian |
+
+Examples:
+
+```text
+0       lefloat   3.14159    (32-bit little-endian float)
+0       bedouble  >1.0       (64-bit big-endian double)
+```
 
 ### Date/Timestamp Types
 
@@ -266,6 +310,65 @@ Example:
 
 ```text
 0       ldate   x   Unix timestamp: %s
+```
+
+### Regex Pattern Type
+
+Match byte patterns using regular expressions. The `regex` type uses `regex::bytes::Regex` for pattern matching.
+
+**Syntax:**
+
+```text
+offset  regex[/count[unit]][flags]  pattern  message
+```
+
+| Component   | Required | Description                                           |
+| ----------- | -------- | ----------------------------------------------------- |
+| `/count`    | No       | Numeric cap: bytes scanned (default)                  |
+| `unit`      | No       | `l` suffix = line count cap instead of byte count     |
+| `/c`        | No       | Case-insensitive matching                             |
+| `/s`        | No       | Anchor advance to match-start (default: match-end)    |
+| `/l`        | No       | Line-bounded scan window (stops at newline)           |
+
+**Flags:**
+
+- `/c` - case-insensitive matching
+- `/s` - anchor advance to match-start (not match-end)
+- `/l` - line-bounded scan window (stops at first newline)
+
+**Count semantics:**
+
+- `regex/100` - scan up to 100 bytes
+- `regex/10l` - scan up to 10 lines
+- Bare `regex` or `regex/0` are parse errors (range is mandatory per GNU `file` magic(5))
+
+Every scan window is capped at 8192 bytes (`FILE_REGEX_MAX`). Multi-line matching is always enabled (matching libmagic's unconditional `REG_NEWLINE`). Anchor advance follows GNU `file` semantics (match-end, not window-end).
+
+Examples:
+
+```text
+0       regex/100      [A-Z]+            Found uppercase letters
+0       regex/10l/c    error             Found "error" (case-insensitive, 10-line cap)
+0       regex/500/s    ^BEGIN            Found BEGIN at start (anchor advances to match-start)
+```
+
+### Search Type
+
+Bounded literal pattern scan. Searches for a literal byte pattern within a specified range using `memchr::memmem::find`.
+
+**Syntax:**
+
+```text
+offset  search/range  pattern  message
+```
+
+The range is MANDATORY (`NonZeroUsize`). Bare `search` and `search/0` are parse errors per GNU `file` magic(5). Anchor advance follows GNU `file` semantics (match-end, not window-end).
+
+Examples:
+
+```text
+0       search/1024   MARKER    Found marker within 1024 bytes
+0       search/4096   \x00\x00  Found null bytes
 ```
 
 ---
@@ -627,7 +730,10 @@ Consider:
 - Relative offsets
 - Indirect offsets (basic)
 - Byte, short, long, quad types (8-bit, 16-bit, 32-bit, 64-bit integers)
-- String types (`string`, `pstring`)
+- Floating-point types (`float`, `befloat`, `lefloat`, `double`, `bedouble`, `ledouble`)
+- String types (`string`, `pstring`, `lestring16`, `bestring16`)
+- Regex patterns (`regex` type with `/c`, `/s`, `/l` flags and byte/line count caps)
+- Search type (`search` bounded literal pattern scan)
 - Date and timestamp types (32-bit and 64-bit Unix timestamps)
 - Comparison operators (`=`, `!`, `<`, `>`, `<=`, `>=`)
 - Bitwise AND operator
@@ -636,17 +742,7 @@ Consider:
 
 ### Not Yet Supported
 
-- Regex patterns
-- Float types
 - 128-bit integer types
-
-### Recently Added
-
-- **Pascal string type**: `pstring` for length-prefixed strings
-- **Date/timestamp types**: `date` (32-bit) and `qdate` (64-bit) Unix timestamp types
-- **Comparison operators**: Full support for `<`, `>`, `<=`, `>=` operators
-- **Strength modifiers**: The `!:strength` directive for adjusting rule priority
-- **64-bit integers**: `quad` type family (`quad`, `uquad`, `lequad`, `ulequad`, `bequad`, `ubequad`)
 
 ---
 

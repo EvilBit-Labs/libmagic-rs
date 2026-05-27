@@ -11,7 +11,7 @@
 
 use proptest::prelude::*;
 
-use libmagic_rs::parser::ast::{IndirectAdjustmentOp, MetaType, PStringLengthWidth};
+use libmagic_rs::parser::ast::{IndirectAdjustmentOp, MetaType, PStringLengthWidth, StringFlags};
 use libmagic_rs::{
     Endianness, EvaluationConfig, MagicDatabase, MagicRule, OffsetSpec, Operator, TypeKind, Value,
 };
@@ -46,8 +46,20 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
             .prop_map(|(endian, signed)| { TypeKind::Quad { endian, signed } }),
         arb_endianness().prop_map(|endian| TypeKind::Float { endian }),
         arb_endianness().prop_map(|endian| TypeKind::Double { endian }),
-        (0usize..256usize).prop_map(|len| TypeKind::String {
+        (0usize..256usize, any::<u8>()).prop_map(|(len, bits)| TypeKind::String {
             max_length: Some(len),
+            // Encode flag presence from the random byte so the proptest
+            // covers non-default `StringFlags` shapes for serde round-trip
+            // and codegen round-trip. Each flag toggled by a distinct bit.
+            flags: StringFlags::default()
+                .with_compact_whitespace(bits & 0b0000_0001 != 0)
+                .with_compact_optional_whitespace(bits & 0b0000_0010 != 0)
+                .with_ignore_lowercase(bits & 0b0000_0100 != 0)
+                .with_ignore_uppercase(bits & 0b0000_1000 != 0)
+                .with_text_test(bits & 0b0001_0000 != 0)
+                .with_trim(bits & 0b0010_0000 != 0)
+                .with_bin_test(bits & 0b0100_0000 != 0)
+                .with_full_word(bits & 0b1000_0000 != 0),
         }),
         arb_endianness().prop_map(|endian| TypeKind::String16 { endian }),
         (

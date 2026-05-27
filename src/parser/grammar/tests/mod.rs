@@ -9,6 +9,7 @@ use crate::parser::ast::Endianness;
 use crate::parser::ast::IndirectAdjustmentOp;
 use crate::parser::ast::MetaType;
 use crate::parser::ast::PStringLengthWidth;
+use crate::parser::ast::StringFlags;
 
 /// Helper function to test parsing with various whitespace patterns
 #[allow(dead_code)] // TODO: Use this helper in future whitespace tests
@@ -1288,7 +1289,107 @@ fn test_parse_type_basic() {
     );
     assert_eq!(
         parse_type("string"),
-        Ok(("", TypeKind::String { max_length: None }))
+        Ok((
+            "",
+            TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default()
+            }
+        ))
+    );
+}
+
+/// Table-driven coverage for the eight magic(5) `string` flag letters.
+///
+/// Each row asserts that parsing `string/<flags>` produces a `TypeKind::String`
+/// whose `flags` field has exactly the expected booleans set. The intent is to
+/// pin both the per-letter mapping AND the combination behavior in a single
+/// place so future regressions on either axis fail loudly. See GOTCHAS S6.5
+/// (asymmetric `/c`/`/C`) and S6.6 (`/B` is pstring-only, not a string flag).
+#[test]
+fn test_parse_type_string_flag_letters() {
+    type FlagBuilder = fn(StringFlags) -> StringFlags;
+    let cases: &[(&str, FlagBuilder)] = &[
+        ("string/W", |f| f.with_compact_whitespace(true)),
+        ("string/w", |f| f.with_compact_optional_whitespace(true)),
+        ("string/c", |f| f.with_ignore_lowercase(true)),
+        ("string/C", |f| f.with_ignore_uppercase(true)),
+        ("string/t", |f| f.with_text_test(true)),
+        ("string/T", |f| f.with_trim(true)),
+        ("string/b", |f| f.with_bin_test(true)),
+        ("string/f", |f| f.with_full_word(true)),
+    ];
+    for (input, build) in cases {
+        let expected = build(StringFlags::default());
+        assert_eq!(
+            parse_type(input),
+            Ok((
+                "",
+                TypeKind::String {
+                    max_length: None,
+                    flags: expected,
+                }
+            )),
+            "parsing {input} produced unexpected flags"
+        );
+    }
+}
+
+/// Flags compose. `/cw` should set both `ignore_lowercase` and
+/// `compact_optional_whitespace`; `/wcCtTbf` should set all eight.
+#[test]
+fn test_parse_type_string_flag_combinations() {
+    let (rest, typ) = parse_type("string/cw").expect("string/cw should parse");
+    assert_eq!(rest, "");
+    let StringFlags {
+        ignore_lowercase,
+        compact_optional_whitespace,
+        ..
+    } = match typ {
+        TypeKind::String { flags, .. } => flags,
+        other => panic!("expected TypeKind::String, got {other:?}"),
+    };
+    assert!(ignore_lowercase, "/c should set ignore_lowercase");
+    assert!(
+        compact_optional_whitespace,
+        "/w should set compact_optional_whitespace"
+    );
+
+    let (rest, typ) = parse_type("string/wcCtTbf").expect("string/wcCtTbf should parse");
+    assert_eq!(rest, "");
+    let flags = match typ {
+        TypeKind::String { flags, .. } => flags,
+        other => panic!("expected TypeKind::String, got {other:?}"),
+    };
+    assert!(flags.compact_optional_whitespace);
+    assert!(flags.ignore_lowercase);
+    assert!(flags.ignore_uppercase);
+    assert!(flags.text_test);
+    assert!(flags.trim);
+    assert!(flags.bin_test);
+    assert!(flags.full_word);
+    // `/W` is not in the combination string above; ensure it stayed off so
+    // the test discriminates between the two whitespace flags.
+    assert!(!flags.compact_whitespace);
+}
+
+/// `/B` is NOT a string flag in libmagic -- it is the pstring 1-byte
+/// length-width letter. The grammar must reject `string/B` rather than
+/// silently accepting it (an earlier PR #233 draft incorrectly included
+/// `'B'` in the string-flag set; this is the regression guard).
+///
+/// Why "rejected" means "the slash and B remain unconsumed": the grammar
+/// layer leaves a `/B` it doesn't recognize in `input`, and the value
+/// parser then fails on it. Asserting the full `parse_type` result is
+/// flaky (the error type from nom is awkward); instead, drive
+/// `parse_magic_rule` and verify the rule load fails.
+#[test]
+fn test_parse_type_string_rejects_b_flag() {
+    use crate::parser::parse_text_magic_file;
+    let result = parse_text_magic_file("0 string/B FOO bar\n");
+    assert!(
+        result.is_err(),
+        "string/B should be a parse error -- /B is a pstring suffix, not a string flag"
     );
 }
 
@@ -1344,7 +1445,13 @@ fn test_parse_type_with_whitespace() {
     );
     assert_eq!(
         parse_type("\tstring\t"),
-        Ok(("", TypeKind::String { max_length: None }))
+        Ok((
+            "",
+            TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default()
+            }
+        ))
     );
     assert_eq!(
         parse_type("  lelong  "),
@@ -1366,7 +1473,13 @@ fn test_parse_type_with_remaining_input() {
     );
     assert_eq!(
         parse_type("string \\x7f"),
-        Ok(("\\x7f", TypeKind::String { max_length: None }))
+        Ok((
+            "\\x7f",
+            TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default()
+            }
+        ))
     );
 }
 
@@ -1664,7 +1777,13 @@ fn test_parse_magic_rule_basic() {
     assert_eq!(remaining, "");
     assert_eq!(rule.level, 0);
     assert_eq!(rule.offset, OffsetSpec::Absolute(0));
-    assert_eq!(rule.typ, TypeKind::String { max_length: None });
+    assert_eq!(
+        rule.typ,
+        TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default()
+        }
+    );
     assert_eq!(rule.op, Operator::Equal);
     assert_eq!(rule.value, Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]));
     assert_eq!(rule.message, "ELF executable");
@@ -1761,7 +1880,13 @@ fn test_parse_magic_rule_string_value() {
     assert_eq!(remaining, "");
     assert_eq!(rule.level, 0);
     assert_eq!(rule.offset, OffsetSpec::Absolute(0));
-    assert_eq!(rule.typ, TypeKind::String { max_length: None });
+    assert_eq!(
+        rule.typ,
+        TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default()
+        }
+    );
     assert_eq!(rule.op, Operator::Equal);
     assert_eq!(rule.value, Value::String("PK".to_string()));
     assert_eq!(rule.message, "ZIP archive");
@@ -1899,7 +2024,10 @@ fn test_parse_magic_rule_edge_cases() {
         (
             ">>>16 string \"\" Empty string",
             3,
-            TypeKind::String { max_length: None },
+            TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default(),
+            },
             Value::String(String::new()),
             "Empty string",
         ),
