@@ -214,7 +214,7 @@ Examples:
 0       pstring/HJ =JPEG        JPEG image (2-byte BE, self-inclusive length)
 ```
 
-If `max_length` is specified in the magic file (not shown in the basic syntax), it caps the length value to prevent reading excessive data. This guards against attacker-controlled length-prefix saturation attacks where malicious files specify extreme length values.
+The `pstring` magic-file surface syntax does not accept a `max_length` value -- only the `/B`, `/H`, `/h`, `/L`, `/l`, and `/J` width/flag suffixes. The AST field `max_length: Option<usize>` is reserved for programmatic rule construction (e.g., callers building `TypeKind::PString { max_length: Some(N), ... }` directly) and for future grammar extensions. When set, it caps the length value to guard against attacker-controlled length-prefix saturation attacks where malicious files specify extreme length values; rules loaded from `.magic` text always have `max_length: None`.
 
 **UCS-2 Strings (lestring16 / bestring16)**
 
@@ -231,16 +231,16 @@ Examples:
 
 Flags for `string` type modify comparison behavior per libmagic `src/softmagic.c`:
 
-| Flag | Description                                                                                                          |
-| ---- | -------------------------------------------------------------------------------------------------------------------- |
-| `/c` | Case-insensitive match (lowercase pattern chars fold file bytes to lower; uppercase pattern chars are literal)      |
-| `/C` | Case-insensitive match (uppercase pattern chars fold file bytes to upper; lowercase pattern chars are literal)      |
-| `/w` | Whitespace-optional (pattern whitespace matches zero or more file whitespace)                                       |
+| Flag | Description                                                                                                            |
+| ---- | ---------------------------------------------------------------------------------------------------------------------- |
+| `/c` | Case-insensitive match (lowercase pattern chars fold file bytes to lower; uppercase pattern chars are literal)         |
+| `/C` | Case-insensitive match (uppercase pattern chars fold file bytes to upper; lowercase pattern chars are literal)         |
+| `/w` | Whitespace-optional (pattern whitespace matches zero or more file whitespace)                                          |
 | `/W` | Whitespace-required-compact (pattern whitespace requires at least one file whitespace; additional whitespace consumed) |
-| `/T` | Trim leading/trailing ASCII whitespace from pattern before comparison                                               |
-| `/f` | Full-word match (post-match word-boundary check; next byte must be EOF or non-word char)                            |
-| `/b` | Force binary test (MIME-output hint; no effect on comparison)                                                       |
-| `/t` | Force text test (MIME-output hint; no effect on comparison)                                                         |
+| `/T` | Trim leading/trailing ASCII whitespace from pattern before comparison                                                  |
+| `/f` | Full-word match (post-match word-boundary check; next byte must be EOF or non-word char)                               |
+| `/b` | Force binary test (MIME-output hint; no effect on comparison)                                                          |
+| `/t` | Force text test (MIME-output hint; no effect on comparison)                                                            |
 
 **`/c` vs `/C` asymmetry:** The pattern character controls fold direction. `/c` with lowercase pattern chars folds the file byte to lowercase; uppercase pattern chars in the same pattern are compared literally. Mixed-case patterns work intuitively: `/c FoO` matches `FoO`, `Foo`, `FOO` but not `fOO` (the uppercase `F` is literal). See GOTCHAS S6.5 for details.
 
@@ -322,13 +322,13 @@ Match byte patterns using regular expressions. The `regex` type uses `regex::byt
 offset  regex[/count[unit]][flags]  pattern  message
 ```
 
-| Component   | Required | Description                                           |
-| ----------- | -------- | ----------------------------------------------------- |
-| `/count`    | No       | Numeric cap: bytes scanned (default)                  |
-| `unit`      | No       | `l` suffix = line count cap instead of byte count     |
-| `/c`        | No       | Case-insensitive matching                             |
-| `/s`        | No       | Anchor advance to match-start (default: match-end)    |
-| `/l`        | No       | Line-bounded scan window (stops at newline)           |
+| Component | Required | Description                                        |
+| --------- | -------- | -------------------------------------------------- |
+| `/count`  | No       | Numeric cap: bytes scanned (default)               |
+| `unit`    | No       | `l` suffix = line count cap instead of byte count  |
+| `/c`      | No       | Case-insensitive matching                          |
+| `/s`      | No       | Anchor advance to match-start (default: match-end) |
+| `/l`      | No       | Line-bounded scan window (stops at newline)        |
 
 **Flags:**
 

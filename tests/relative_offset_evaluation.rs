@@ -219,6 +219,83 @@ fn relative_after_string_parent_includes_nul_terminator() {
     assert_eq!(matches[1].offset, 3);
 }
 
+/// Same shape as `relative_after_string_parent_includes_nul_terminator`,
+/// but the parent rule has a non-default `StringFlags` (`/c`). The
+/// flagged-string anchor-advance path must include the trailing NUL the
+/// same way as the byte-exact path does, otherwise relative-offset
+/// children land on the NUL byte instead of the byte after it.
+/// Pinned by Copilot PR #288 review (thread PRRT_kwDOP5Naes6E-VOX).
+#[test]
+fn relative_after_flagged_string_parent_includes_nul_terminator() {
+    let buffer = b"MZ\x00\x42rest";
+    let parent = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default().with_ignore_lowercase(true),
+        },
+        op: Operator::Equal,
+        // Lowercase pattern: /c folds the file byte to lower, so "mz"
+        // matches "MZ" in the buffer. Same flagged dispatch path.
+        value: Value::String("mz".to_string()),
+        message: "mz-flagged".to_string(),
+        children: vec![child_rule(
+            OffsetSpec::Relative(0),
+            TypeKind::Byte { signed: false },
+            Value::Uint(0x42),
+            "byte-after-mz-flagged",
+        )],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut ctx = EvaluationContext::new(cfg());
+    let matches = evaluate_rules(&[parent], buffer, &mut ctx).unwrap();
+    assert_eq!(
+        matches.len(),
+        2,
+        "flagged-string parent + relative child should both match (NUL consumed)"
+    );
+    assert_eq!(
+        matches[1].offset, 3,
+        "child must land on byte AFTER the NUL terminator, not on it"
+    );
+}
+
+/// Flagged-string `max_length: Some(n)` must cap the scan window.
+/// Without the cap, `/w` could chew through whitespace beyond `n`
+/// bytes. Pinned by Copilot PR #288 review (thread
+/// PRRT_kwDOP5Naes6E-VOe).
+#[test]
+fn flagged_string_respects_max_length_cap() {
+    // Pattern "a b" with /w (whitespace-optional) against a buffer with
+    // long whitespace runs. Without max_length, /w would consume all
+    // the whitespace up through 'b'. With max_length: Some(2), the
+    // scan window is 2 bytes ("a " or just "ab"), which doesn't
+    // contain a 'b' to complete the match.
+    let buffer = b"a              b!";
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::String {
+            max_length: Some(2),
+            flags: StringFlags::default().with_compact_optional_whitespace(true),
+        },
+        op: Operator::Equal,
+        value: Value::String("a b".to_string()),
+        message: "should-not-match".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut ctx = EvaluationContext::new(cfg());
+    let matches = evaluate_rules(&[rule], buffer, &mut ctx).unwrap();
+    assert!(
+        matches.is_empty(),
+        "max_length: Some(2) must cap the scan window before /w can reach 'b'"
+    );
+}
+
 #[test]
 fn relative_after_pstring_parent_consumes_prefix_and_payload() {
     // pstring(/B) at offset 0 with prefix 0x05, payload "Hello" (6 bytes

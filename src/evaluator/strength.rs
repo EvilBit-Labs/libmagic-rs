@@ -72,14 +72,17 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
     // Type contribution: more specific types get higher strength
     strength += match &rule.typ {
         // Strings are most specific (they match exact byte sequences).
-        // Flagged strings get a per-flag penalty because the flags broaden
+        // Flagged strings get a per-flag penalty because some flags broaden
         // what the rule matches: `string/c FOO` matches both `FOO` and
         // `foo`, so it should sort BELOW `string FOO` (which only matches
         // `FOO` exactly) under stop_at_first_match. This mirrors libmagic's
         // `apprentice.c::apprentice_magic_strength` which subtracts 1 per
         // `STRING_IGNORE_*` flag bit. We extend the penalty to whitespace
-        // and full-word flags by the same logic: each flag that makes the
-        // pattern fuzzier costs one point.
+        // flags (`/w` and `/W`) by the same logic. `/f` (full-word) is
+        // NOT penalized because it tightens the match (requires a word
+        // boundary) rather than broadening it; `/T` (trim) and the
+        // MIME-output hints (`/t`, `/b`) carry no penalty either -- see
+        // `string_flag_specificity_penalty` for the canonical list.
         TypeKind::String { max_length, flags } => {
             let base = 20;
             let with_length_bonus = if max_length.is_some() { base + 5 } else { base };
@@ -213,17 +216,22 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
 /// Count how many `string`-flag bits make a rule's pattern fuzzier.
 ///
 /// libmagic `apprentice.c::apprentice_magic_strength` subtracts 1 from the
-/// computed strength for each `STRING_IGNORE_*` bit set. We extend the same
-/// reasoning to whitespace and full-word flags: each flag that broadens
-/// what the rule matches reduces its specificity by one point.
+/// computed strength for each `STRING_IGNORE_*` bit set. We extend the
+/// same reasoning to the whitespace flags (`/w` and `/W`) because they
+/// broaden what the rule matches.
 ///
-/// Flags that do NOT affect comparison (`/t` text-test, `/b` bin-test --
-/// MIME hints only) carry no penalty. `/T` (`STRING_TRIM`) is a
-/// pattern-side normalization, not a fuzziness flag, so it does not
-/// penalize either. `/f` (`STRING_FULL_WORD`) tightens the match by
-/// requiring a post-match word boundary, but it does so independently
-/// of any per-byte fuzziness -- it goes the other direction
-/// semantically, so we leave it untouched as well.
+/// Penalized flags (each costs 1 point):
+/// - `/c` (`ignore_lowercase`) -- ASCII case-fold when pattern is lowercase
+/// - `/C` (`ignore_uppercase`) -- ASCII case-fold when pattern is uppercase
+/// - `/w` (`compact_optional_whitespace`) -- file whitespace optional
+/// - `/W` (`compact_whitespace`) -- file whitespace required but elastic
+///
+/// Non-penalized flags (no specificity change):
+/// - `/t` (`text_test`) and `/b` (`bin_test`) -- MIME-output hints only
+/// - `/T` (`trim`) -- pattern-side normalization, not a fuzziness knob
+/// - `/f` (`full_word`) -- TIGHTENS the match by requiring a post-match
+///   word boundary; opposite direction from fuzziness, so it should not
+///   be penalized.
 fn string_flag_specificity_penalty(flags: crate::parser::ast::StringFlags) -> i32 {
     let mut penalty = 0;
     if flags.ignore_lowercase {
@@ -1228,5 +1236,106 @@ mod tests {
             calculate_default_strength(&default_rule),
             "Name strength should equal Default strength (both type-axis 0)"
         );
+    }
+
+    /// Pin the canonical penalty per flag bit (pinned by request from
+    /// the `CodeRabbit` PR #288 review). Each row asserts which flags
+    /// reduce rule specificity (penalized) versus which do not
+    /// (non-penalized).
+    ///
+    /// **Penalized**: `/c`, `/C`, `/w`, `/W` -- they broaden the match.
+    /// **Non-penalized**: `/T` (pattern-side trim, not fuzziness), `/b`
+    /// and `/t` (MIME-output hints, no comparison effect), `/f`
+    /// (TIGHTENS the match by requiring a word boundary).
+    ///
+    /// Penalties also stack additively across multiple penalized flags
+    /// (e.g., `/cw` = 2 points).
+    #[test]
+    fn string_flag_specificity_penalty_per_flag_table() {
+        let cases: &[(&str, StringFlags, i32)] = &[
+            ("no flags", StringFlags::default(), 0),
+            (
+                "/c only",
+                StringFlags::default().with_ignore_lowercase(true),
+                1,
+            ),
+            (
+                "/C only",
+                StringFlags::default().with_ignore_uppercase(true),
+                1,
+            ),
+            (
+                "/w only",
+                StringFlags::default().with_compact_optional_whitespace(true),
+                1,
+            ),
+            (
+                "/W only",
+                StringFlags::default().with_compact_whitespace(true),
+                1,
+            ),
+            (
+                "/T only (non-penalized)",
+                StringFlags::default().with_trim(true),
+                0,
+            ),
+            (
+                "/t only (non-penalized)",
+                StringFlags::default().with_text_test(true),
+                0,
+            ),
+            (
+                "/b only (non-penalized)",
+                StringFlags::default().with_bin_test(true),
+                0,
+            ),
+            (
+                "/f only (non-penalized)",
+                StringFlags::default().with_full_word(true),
+                0,
+            ),
+            (
+                "/cw stacks (case + whitespace)",
+                StringFlags::default()
+                    .with_ignore_lowercase(true)
+                    .with_compact_optional_whitespace(true),
+                2,
+            ),
+            (
+                "/cC stacks (both case folds)",
+                StringFlags::default()
+                    .with_ignore_lowercase(true)
+                    .with_ignore_uppercase(true),
+                2,
+            ),
+            (
+                "all four penalized flags",
+                StringFlags::default()
+                    .with_ignore_lowercase(true)
+                    .with_ignore_uppercase(true)
+                    .with_compact_whitespace(true)
+                    .with_compact_optional_whitespace(true),
+                4,
+            ),
+            (
+                "mixed: 2 penalized + 4 non-penalized",
+                StringFlags::default()
+                    .with_ignore_lowercase(true)
+                    .with_compact_whitespace(true)
+                    .with_trim(true)
+                    .with_text_test(true)
+                    .with_bin_test(true)
+                    .with_full_word(true),
+                2,
+            ),
+        ];
+
+        for (label, flags, expected) in cases {
+            let actual = string_flag_specificity_penalty(*flags);
+            assert_eq!(
+                actual, *expected,
+                "case {label}: expected penalty {expected}, got {actual}"
+            );
+        }
     }
 }
