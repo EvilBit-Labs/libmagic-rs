@@ -356,14 +356,32 @@ pub(crate) fn read_pattern_match(
             } else {
                 pattern_bytes
             };
+            // An empty (post-trim) pattern would silently match *any* file
+            // because `compare_string_with_flags(b"", ...)` returns
+            // `Some(0)` -- the same hazard documented in GOTCHAS S2.5 for
+            // regex. Treat it as "no match" with a `warn!` so the
+            // malformed rule surfaces in logs without breaking evaluation
+            // of subsequent rules. Most commonly hit by `string/T "   "`
+            // where the pattern is pure whitespace.
+            if trimmed.is_empty() {
+                log::warn!(
+                    "flagged string rule has empty pattern (after /T trim); \
+                     treating as no-match to avoid catastrophic over-matching"
+                );
+                return Ok(None);
+            }
             match string::compare_string_with_flags(trimmed, buffer, offset, *flags) {
                 Some(consumed) => {
                     let matched = buffer
                         .get(offset..offset.saturating_add(consumed))
                         .unwrap_or(&[]);
-                    Ok(Some(Value::String(
-                        String::from_utf8_lossy(matched).into_owned(),
-                    )))
+                    // libmagic byte-exact semantics: return the matched bytes
+                    // verbatim. `from_utf8_lossy` would silently replace
+                    // non-UTF-8 sequences with U+FFFD and produce a different
+                    // byte sequence than the file actually contains, breaking
+                    // `%s` substitution and the cross-type `String`/`Bytes`
+                    // equality policy (GOTCHAS S2.3) for downstream consumers.
+                    Ok(Some(Value::Bytes(matched.to_vec())))
                 }
                 None => Ok(None),
             }
@@ -377,11 +395,6 @@ pub(crate) fn read_pattern_match(
     }
 }
 
-/// Trim leading and trailing ASCII whitespace from a byte slice.
-///
-/// Used for the `/T` (`STRING_TRIM`) flag on `string` rules. ASCII-only
-/// trim matches libmagic's `isspace`-based contract; full Unicode
-/// whitespace handling is out of scope.
 /// Anchor-advance count for a flagged `string` rule.
 ///
 /// Flagged string rules go through the pattern-bearing-type contract (see
@@ -403,10 +416,18 @@ fn flagged_string_bytes_consumed(
             // Invariant: the engine only calls `bytes_consumed_with_pattern`
             // after a successful `read_pattern_match`, which validated the
             // pattern shape. If we reach this arm, a future caller violated
-            // the contract; surface it in dev/test builds.
+            // the contract. Fire the debug-only assert for test/dev builds
+            // AND a release-time `warn!` so production runs surface the
+            // anchor-corruption signature (relative-offset child rules
+            // would read from the un-advanced anchor) rather than going
+            // silent. Returns 0 to preserve buffer safety.
             debug_assert!(
                 false,
-                "flagged_string_bytes_consumed: missing string/bytes pattern ({pattern:?}) -- engine invariant violated"
+                "flagged_string_bytes_consumed: missing string/bytes pattern ({pattern:?}) -- read_pattern_match should have rejected this"
+            );
+            log::warn!(
+                "flagged_string_bytes_consumed: missing string/bytes pattern ({pattern:?}); \
+                 relative-offset anchor will not advance for this rule"
             );
             return 0;
         }
@@ -419,6 +440,11 @@ fn flagged_string_bytes_consumed(
     string::compare_string_with_flags(effective, buffer, offset, flags).unwrap_or(0)
 }
 
+/// Trim leading and trailing ASCII whitespace from a byte slice.
+///
+/// Used for the `/T` (`STRING_TRIM`) flag on `string` rules. ASCII-only
+/// trim matches libmagic's `isspace`-based contract; full Unicode
+/// whitespace handling is out of scope.
 fn trim_ascii_whitespace(s: &[u8]) -> &[u8] {
     let start = s
         .iter()

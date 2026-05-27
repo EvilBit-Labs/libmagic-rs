@@ -287,16 +287,16 @@ The optional max_length parameter caps the length value:
 
 String flags are now implemented as of PR #234, providing libmagic-compatible string comparison semantics.
 
-| Flag | Description                                                        |
-| ---- | ------------------------------------------------------------------ |
-| `/c` | Case-insensitive (lowercase pattern chars trigger fold)           |
-| `/C` | Case-insensitive (uppercase pattern chars trigger fold)           |
-| `/w` | Whitespace-optional (pattern whitespace matches zero or more)     |
-| `/W` | Whitespace-required-compact (at least one, greedy consume)        |
-| `/T` | Trim leading/trailing ASCII whitespace from pattern                |
-| `/f` | Full-word match (post-match word boundary check)                   |
-| `/b` | Force binary test (hint for MIME output)                           |
-| `/t` | Force text test (hint for MIME output)                             |
+| Flag | Description                                                   |
+| ---- | ------------------------------------------------------------- |
+| `/c` | Case-insensitive (lowercase pattern chars trigger fold)       |
+| `/C` | Case-insensitive (uppercase pattern chars trigger fold)       |
+| `/w` | Whitespace-optional (pattern whitespace matches zero or more) |
+| `/W` | Whitespace-required-compact (at least one, greedy consume)    |
+| `/T` | Trim leading/trailing ASCII whitespace from pattern           |
+| `/f` | Full-word match (post-match word boundary check)              |
+| `/b` | Force binary test (hint for MIME output)                      |
+| `/t` | Force text test (hint for MIME output)                        |
 
 **Note:** `/c` and `/C` are asymmetric — the pattern character controls fold direction. With `/c`, only lowercase pattern chars cause the file byte to be folded to lowercase. With `/C`, only uppercase pattern chars cause the file byte to be folded to uppercase. See GOTCHAS section S6.5 for details on mixed-case behavior. `/B` (uppercase) is not a string flag; it is reserved for pstring length-width specification and is rejected on string types.
 
@@ -314,7 +314,20 @@ Examples:
 
 # Full-word boundary check
 0       string/f  int        C int keyword (not "integer")
+
+# Trim leading/trailing whitespace from the pattern (`/T` = STRING_TRIM)
+0       string/T  "  hello  "  Hello marker (matches "hello" without surrounding spaces)
+
+# Binary-mode hint (`/b` = STRING_BINTEST) -- parsed and stored; MIME-output
+# wiring deferred to the `!:mime` evaluation work
+24      string/b  FTCOMP      FTCOMP compressed archive
+
+# Text-mode hint (`/t` = STRING_TEXTTEST) -- parsed and stored; MIME-output
+# wiring deferred to the `!:mime` evaluation work
+0       string/t  #!/bin/sh   POSIX shell script text
 ```
+
+**Note on `/T` empty patterns:** `string/T "   "` trims to an empty pattern. The evaluator treats this as no-match (with a `warn!` log) rather than letting it silently match every file. Fix the rule.
 
 ## Operators
 

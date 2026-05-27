@@ -244,7 +244,7 @@ let quad_be = TypeKind::Quad {
 // Null-terminated string, max 256 bytes
 let string_type = TypeKind::String {
     max_length: Some(256),
-    flags: StringFlags::empty(),
+    flags: StringFlags::default(),
 };
 ```
 
@@ -479,7 +479,7 @@ use libmagic_rs::parser::ast::{StringFlags, TypeKind};
 // Plain string with byte-exact comparison
 let plain_string = TypeKind::String {
     max_length: Some(32),
-    flags: StringFlags::empty(),
+    flags: StringFlags::default(),
 };
 
 // Case-insensitive string matching
@@ -504,7 +504,7 @@ let combined = TypeKind::String {
 };
 ```
 
-`StringFlags::empty()` returns `true` when all flags are `false`, representing unflagged strings that use byte-exact comparison (the fast path).
+`StringFlags::default()` constructs a value with every flag set to `false`. The `is_empty(&self) -> bool` method returns `true` for such a value, and the engine uses it as the fast-path predicate: rules with default flags take the byte-exact comparison path, while any non-default flag routes the rule through `compare_string_with_flags`.
 
 **Note:** `/B` is NOT a string flag — it is the `pstring` 1-byte length-width letter. `string/B` is rejected at parse time.
 
@@ -789,7 +789,7 @@ let script_rule = MagicRule {
     offset: OffsetSpec::Absolute(0),
     typ: TypeKind::String {
         max_length: Some(32),
-        flags: StringFlags::empty(),
+        flags: StringFlags::default(),
     },
     op: Operator::Equal,
     value: Value::String("#!/bin/bash".to_string()),

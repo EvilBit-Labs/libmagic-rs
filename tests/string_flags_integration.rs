@@ -233,3 +233,60 @@ fn parse_text_magic_string_b_flag_is_rejected() {
         "string/B should be a parse error -- /B is a pstring suffix, not a string flag"
     );
 }
+
+// ---------- Regression guard: /T with all-whitespace pattern ----------
+
+/// `string/T "   "` would silently match every file if we let the empty
+/// post-trim pattern through to `compare_string_with_flags` (which
+/// returns `Some(0)` for an empty pattern -- the same hazard documented
+/// in GOTCHAS S2.5 for regex). The fix in `read_pattern_match` rejects
+/// the empty-after-trim case explicitly with `TypeReadError::UnsupportedType`,
+/// which the engine surfaces via `evaluate_rules` as no match (rather
+/// than a panic or universal-match).
+#[test]
+fn string_t_with_all_whitespace_pattern_does_not_match_everything() {
+    let r = rule(
+        0,
+        "   ", // pattern is pure whitespace; trim produces empty
+        StringFlags::default().with_trim(true),
+        "should not match",
+    );
+    let mut ctx = EvaluationContext::new(cfg());
+    // Run against a file the rule would catastrophically over-match if
+    // the empty-pattern hazard were unguarded.
+    let matches = evaluate_rules(std::slice::from_ref(&r), b"any file content", &mut ctx).unwrap();
+    assert!(
+        matches.is_empty(),
+        "string/T with all-whitespace pattern must not match every file"
+    );
+}
+
+// ---------- /T + /f interaction ----------
+
+/// Combining `/T` (trim pattern) with `/f` (require word boundary after
+/// match) should work: trim narrows the pattern to its non-whitespace
+/// core, then `/f` checks the byte after the matched core.
+#[test]
+fn string_t_combined_with_f_enforces_boundary_on_trimmed_core() {
+    // Pattern " int " trims to "int"; /f then requires the byte after
+    // "int" to be EOF or non-word.
+    let r = rule(
+        0,
+        " int ",
+        StringFlags::default().with_trim(true).with_full_word(true),
+        "int keyword",
+    );
+    {
+        let mut ctx = EvaluationContext::new(cfg());
+        let m = evaluate_rules(std::slice::from_ref(&r), b"int x = 0", &mut ctx).unwrap();
+        assert_eq!(m.len(), 1, "trimmed 'int' should match with space boundary");
+    }
+    {
+        let mut ctx = EvaluationContext::new(cfg());
+        let m = evaluate_rules(std::slice::from_ref(&r), b"integer x", &mut ctx).unwrap();
+        assert!(
+            m.is_empty(),
+            "trimmed 'int' must not match inside 'integer' (/f boundary check)"
+        );
+    }
+}

@@ -140,21 +140,23 @@ pub fn read_string_exact(
 /// Returning the consumed count here keeps `bytes_consumed_with_pattern`
 /// honest without re-scanning the buffer at anchor-advance time.
 ///
-/// **Trim is applied at AST-construction time, not here.** Callers pass the
-/// already-trimmed pattern when `flags.trim` is set; this function ignores
-/// the `trim` field. Likewise `flags.text_test` and `flags.bin_test` are
-/// MIME-output hints with no effect on comparison and are not consulted.
+/// **Trim is applied by the caller, not here.** `read_pattern_match` (in
+/// the parent module) trims the pattern before invoking this function
+/// when `flags.trim` is set; this function ignores the `trim` field on
+/// the assumption that the caller has already normalized the pattern.
+/// Likewise `flags.text_test` and `flags.bin_test` are MIME-output hints
+/// with no effect on comparison and are not consulted here.
 ///
 /// **`/c` vs `/C` is asymmetric and pattern-controlled** -- see [`StringFlags`]
 /// and GOTCHAS S6.5 for the canonical contract. This function implements the
-/// libmagic `src/softmagic.c` algorithm verbatim (in spirit) using
-/// `u8::to_ascii_lowercase` / `to_ascii_uppercase` for the fold so the
-/// comparison stays ASCII-only and locale-independent.
+/// libmagic `src/softmagic.c` contract using `u8::to_ascii_lowercase` /
+/// `to_ascii_uppercase` for the fold so the comparison stays ASCII-only and
+/// locale-independent.
 ///
 /// # Arguments
 ///
 /// * `pattern` -- The magic rule's pattern bytes, already trimmed when
-///   `/T` was set (the AST-construction step is the trim point).
+///   `/T` was set (the caller is responsible for the trim).
 /// * `buffer` -- The file slice (full buffer; this function indexes from
 ///   `offset` internally).
 /// * `offset` -- Absolute byte offset in `buffer` to start matching.
