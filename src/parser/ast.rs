@@ -776,7 +776,7 @@ impl RegexFlags {
 /// `fOO` (the uppercase `F` is literal). See GOTCHAS S6.5 for the
 /// rationale and `src/softmagic.c` for the canonical libmagic contract.
 ///
-/// **`/B` is NOT a string flag** — it is the `pstring` 1-byte length-width
+/// **`/B` is NOT a string flag** -- it is the `pstring` 1-byte length-width
 /// letter (`PSTRING_1_BE`). `string/B` is rejected at parse time. See
 /// GOTCHAS S6.6.
 ///
@@ -828,9 +828,10 @@ pub struct StringFlags {
     /// alter comparison.
     pub text_test: bool,
     /// `/T` -- `STRING_TRIM`. Trim leading and trailing ASCII whitespace
-    /// from the pattern before comparison. The trim happens at AST
-    /// construction time; the comparison function receives the trimmed
-    /// pattern.
+    /// from the pattern before comparison. The trim is applied at
+    /// evaluation time (in `read_pattern_match`) so the AST keeps the
+    /// original pattern bytes; the comparison function receives the
+    /// trimmed slice.
     pub trim: bool,
     /// `/b` -- `STRING_BINTEST`. Hint that this rule applies to binary
     /// files. Captured for MIME-output integration; does not currently

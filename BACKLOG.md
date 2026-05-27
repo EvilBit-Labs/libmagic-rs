@@ -15,10 +15,11 @@ Type-system expansion, advanced offset resolution, and format-detection breadth.
 
 ### Critical path — flag semantics for archive parity
 
-| Order | Issue                                                          | Title                                                            | Priority | Notes                                                                                         |
-| ----- | -------------------------------------------------------------- | ---------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------- |
-| 1     | [#234](https://github.com/EvilBit-Labs/libmagic-rs/issues/234) | String-type flag semantics (`/c /C /w /W /B /b /t /T`)           | normal   | Parse-and-drop landed in #233; semantics deferred. Blocks `string/b` archive rules under #51. |
-| 2     | [#235](https://github.com/EvilBit-Labs/libmagic-rs/issues/235) | Search-type flag semantics (`/s` start-anchor, `/b` binary, ...) | normal   | Parse-and-drop landed in #233. Blocks EPUB-vs-generic-ZIP discrimination under #51.           |
+| Order | Issue                                                          | Title                                                            | Priority | Notes                                                                               |
+| ----- | -------------------------------------------------------------- | ---------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------- |
+| 1     | [#235](https://github.com/EvilBit-Labs/libmagic-rs/issues/235) | Search-type flag semantics (`/s` start-anchor, `/b` binary, ...) | normal   | Parse-and-drop landed in #233. Blocks EPUB-vs-generic-ZIP discrimination under #51. |
+
+(Issue #234 -- String-type flag semantics `/c /C /w /W /b /t /T /f` -- closed by PR #288. `/B` was removed from the flag list (it is the pstring 1-byte length-width letter, not a string flag).)
 
 ### Parallel — independent feature work
 
