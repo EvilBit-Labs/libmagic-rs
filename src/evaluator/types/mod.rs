@@ -332,16 +332,22 @@ pub(crate) fn read_pattern_match(
             read_search(buffer, offset, pattern_bytes, *range)
         }
         // Flagged `string` rules go through the pattern-bearing-type
-        // contract (GOTCHAS S2.4): on hit return `Some(Value::String(
+        // contract (GOTCHAS S2.4): on hit return `Some(Value::Bytes(
         // matched_bytes))`, on miss return `None`. The engine dispatcher
         // (`evaluate_pattern_rule`) translates Some/None into Equal/NotEqual
         // and rejects other operators on the rule.
+        //
+        // The value variant is `Value::Bytes` (not `Value::String`) because
+        // libmagic semantics are byte-exact -- `from_utf8_lossy` would
+        // silently replace invalid UTF-8 with U+FFFD and break `%s`
+        // substitution. The cross-type String/Bytes equality policy in
+        // GOTCHAS S2.3 keeps downstream comparisons consistent.
         //
         // Pattern can be `Value::String` (the common case) or `Value::Bytes`
         // (parser-emitted for backslash-escape literals like `\177ELF`).
         // The trim flag (`/T`) is honored here at evaluation time so the AST
         // construction stays unchanged.
-        TypeKind::String { flags, .. } if !flags.is_empty() => {
+        TypeKind::String { max_length, flags } if !flags.is_empty() => {
             let pattern_bytes: &[u8] = match pattern {
                 Some(Value::String(s)) => s.as_bytes(),
                 Some(Value::Bytes(b)) => b.as_slice(),
@@ -370,17 +376,24 @@ pub(crate) fn read_pattern_match(
                 );
                 return Ok(None);
             }
-            match string::compare_string_with_flags(trimmed, buffer, offset, *flags) {
+            // `max_length: Some(n)` caps the scan window to `n` bytes from
+            // `offset`, matching the unflagged path's behavior. Without
+            // this, flagged matches can read past the configured window
+            // (e.g., `/w` chewing through whitespace beyond `n`). When the
+            // window is shorter than the pattern, the comparison naturally
+            // produces no match via `compare_string_with_flags`'s EOF
+            // handling -- no special case needed.
+            let scan_buffer: &[u8] = if let Some(n) = max_length {
+                let end = offset.saturating_add(*n).min(buffer.len());
+                buffer.get(..end).unwrap_or(buffer)
+            } else {
+                buffer
+            };
+            match string::compare_string_with_flags(trimmed, scan_buffer, offset, *flags) {
                 Some(consumed) => {
-                    let matched = buffer
+                    let matched = scan_buffer
                         .get(offset..offset.saturating_add(consumed))
                         .unwrap_or(&[]);
-                    // libmagic byte-exact semantics: return the matched bytes
-                    // verbatim. `from_utf8_lossy` would silently replace
-                    // non-UTF-8 sequences with U+FFFD and produce a different
-                    // byte sequence than the file actually contains, breaking
-                    // `%s` substitution and the cross-type `String`/`Bytes`
-                    // equality policy (GOTCHAS S2.3) for downstream consumers.
                     Ok(Some(Value::Bytes(matched.to_vec())))
                 }
                 None => Ok(None),
@@ -403,9 +416,22 @@ pub(crate) fn read_pattern_match(
 /// when `/w` or `/W` let the file have additional whitespace. Re-running
 /// the comparison here recovers the consumed-bytes count without storing
 /// it on the match value, matching the regex/search precedent.
+///
+/// **NUL-terminator inclusion**: when the byte immediately after the
+/// matched region is `0x00`, the consumed count includes that NUL so
+/// relative-offset children land *after* the terminator. This mirrors
+/// the unflagged-string path in `bytes_consumed_with_pattern` and is the
+/// behavior `relative_after_string_parent_includes_nul_terminator` pins
+/// for the byte-exact path.
+///
+/// **`max_length` cap**: when `max_length: Some(n)` is set, the scan is
+/// bounded to `n` bytes from `offset`, matching the unflagged path. The
+/// NUL-terminator inclusion is also clamped to this window so we cannot
+/// advance past the configured boundary.
 fn flagged_string_bytes_consumed(
     buffer: &[u8],
     offset: usize,
+    max_length: Option<usize>,
     flags: crate::parser::ast::StringFlags,
     pattern: Option<&Value>,
 ) -> usize {
@@ -437,7 +463,27 @@ fn flagged_string_bytes_consumed(
     } else {
         pattern_bytes
     };
-    string::compare_string_with_flags(effective, buffer, offset, flags).unwrap_or(0)
+    let scan_buffer: &[u8] = if let Some(n) = max_length {
+        let end = offset.saturating_add(n).min(buffer.len());
+        buffer.get(..end).unwrap_or(buffer)
+    } else {
+        buffer
+    };
+    let consumed =
+        string::compare_string_with_flags(effective, scan_buffer, offset, flags).unwrap_or(0);
+    if consumed == 0 {
+        return 0;
+    }
+    // Mirror the unflagged path: peek the byte immediately after the
+    // matched region. If it is NUL, include it in the anchor advance so
+    // relative-offset children resolve past the terminator. Bounded by
+    // the same scan window, so a `max_length`-clamped match cannot
+    // accidentally cross the cap.
+    let after = offset.saturating_add(consumed);
+    match scan_buffer.get(after) {
+        Some(&0) => consumed.saturating_add(1),
+        _ => consumed,
+    }
 }
 
 /// Trim leading and trailing ASCII whitespace from a byte slice.
@@ -595,7 +641,7 @@ pub(crate) fn bytes_consumed_with_pattern(
     match type_kind {
         TypeKind::String { max_length, flags } => {
             if !flags.is_empty() {
-                return flagged_string_bytes_consumed(buffer, offset, *flags, pattern);
+                return flagged_string_bytes_consumed(buffer, offset, *max_length, *flags, pattern);
             }
             // For the (`max_length: None`, string literal pattern)
             // combination we now compare exactly `pattern.len()` bytes

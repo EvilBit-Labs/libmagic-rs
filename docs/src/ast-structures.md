@@ -504,7 +504,7 @@ let combined = TypeKind::String {
 };
 ```
 
-`StringFlags::default()` constructs a value with every flag set to `false`. The `is_empty(&self) -> bool` method returns `true` for such a value, and the engine uses it as the fast-path predicate: rules with default flags take the byte-exact comparison path, while any non-default flag routes the rule through `compare_string_with_flags`.
+`StringFlags::default()` constructs a value with every flag set to `false`. The `is_empty(self) -> bool` method (takes `self` by value; `StringFlags` is `Copy`) returns `true` for such a value, and the engine uses it as the fast-path predicate: rules with default flags take the byte-exact comparison path, while any non-default flag routes the rule through `compare_string_with_flags`.
 
 **Note:** `/B` is NOT a string flag — it is the `pstring` 1-byte length-width letter. `string/B` is rejected at parse time.
 

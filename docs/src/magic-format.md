@@ -285,7 +285,7 @@ The optional max_length parameter caps the length value:
 
 ### String Flags
 
-String flags are now implemented as of PR #234, providing libmagic-compatible string comparison semantics.
+String flags are now implemented (issue #234, landed in PR #288), providing libmagic-compatible string comparison semantics.
 
 | Flag | Description                                                   |
 | ---- | ------------------------------------------------------------- |

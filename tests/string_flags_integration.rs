@@ -131,7 +131,7 @@ fn string_b_matches_ftcomp_at_offset_24() {
 // ---------- /T: trim leading/trailing whitespace from pattern ----------
 
 #[test]
-fn string_t_trims_pattern_whitespace() {
+fn string_capital_t_trims_pattern_whitespace() {
     // Pattern has leading and trailing spaces; trim should match against
     // a buffer that contains only the inner content. This proves the
     // trim happened at evaluation time before the comparison.
@@ -239,12 +239,12 @@ fn parse_text_magic_string_b_flag_is_rejected() {
 /// `string/T "   "` would silently match every file if we let the empty
 /// post-trim pattern through to `compare_string_with_flags` (which
 /// returns `Some(0)` for an empty pattern -- the same hazard documented
-/// in GOTCHAS S2.5 for regex). The fix in `read_pattern_match` rejects
-/// the empty-after-trim case explicitly with `TypeReadError::UnsupportedType`,
-/// which the engine surfaces via `evaluate_rules` as no match (rather
-/// than a panic or universal-match).
+/// in GOTCHAS S2.5 for regex). The fix in `read_pattern_match` logs a
+/// `warn!` and returns `Ok(None)` (no match) so the malformed rule
+/// surfaces in logs without aborting evaluation of subsequent rules in
+/// the file.
 #[test]
-fn string_t_with_all_whitespace_pattern_does_not_match_everything() {
+fn string_capital_t_with_all_whitespace_pattern_does_not_match_everything() {
     let r = rule(
         0,
         "   ", // pattern is pure whitespace; trim produces empty
@@ -267,7 +267,7 @@ fn string_t_with_all_whitespace_pattern_does_not_match_everything() {
 /// match) should work: trim narrows the pattern to its non-whitespace
 /// core, then `/f` checks the byte after the matched core.
 #[test]
-fn string_t_combined_with_f_enforces_boundary_on_trimmed_core() {
+fn string_capital_t_combined_with_f_enforces_boundary_on_trimmed_core() {
     // Pattern " int " trims to "int"; /f then requires the byte after
     // "int" to be EOF or non-word.
     let r = rule(
