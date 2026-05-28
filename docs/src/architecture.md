@@ -1,6 +1,6 @@
 # Architecture Overview
 
-The libmagic-rs library is designed around a clean separation of concerns, following a parser-evaluator architecture that promotes maintainability, testability, and performance.
+libmagic-rs uses a parser-evaluator split: text magic files become an AST, then a separate engine evaluates that AST against file buffers.
 
 ## High-Level Architecture
 
