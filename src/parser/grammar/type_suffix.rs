@@ -12,14 +12,14 @@
 //! `parse_type_and_operator` orchestrates these helpers after
 //! `parse_type_keyword` identifies the type name.
 
-use log::warn;
 use nom::error::{Error, ErrorKind};
 use nom::{Err as NomErr, IResult};
 use std::num::{NonZeroU32, NonZeroUsize};
 
 use super::numbers::{parse_decimal_number, parse_number, parse_unsigned_number};
 use crate::parser::ast::{
-    Operator, PStringLengthWidth, RegexCount, RegexFlags, ValueTransform, ValueTransformOp,
+    Operator, PStringLengthWidth, RegexCount, RegexFlags, SearchFlags, ValueTransform,
+    ValueTransformOp,
 };
 
 /// Parse a `pstring` suffix `/[BHhLl][J]?` or bare `/J`.
@@ -294,10 +294,13 @@ pub(super) fn parse_attached_operator(input: &str) -> IResult<&str, Option<Opera
 /// 0x93e4f bytes for the third tar archive in a Debian package).
 ///
 /// magic(5) also allows trailing flag letters (`/w` whitespace-optional,
-/// `/b` blank-handling, `/B` compact-blanks, `/W` compact-whitespace,
-/// `/c`/`/C` case-insensitive lower/upper, `/t`/`/T` text/binary). Flag
-/// semantics are not yet implemented at evaluation time, but the parser
-/// must accept them so real-world magic files load.
+/// `/b` blank-handling / binary-hint, `/B` binary-hint, `/W` compact-
+/// whitespace, `/c`/`/C` case-insensitive lower/upper, `/t` text-hint,
+/// `/T` trim, `/s` search-start anchor). Each letter is recorded on the
+/// returned [`SearchFlags`] so the evaluator can dispatch on scan and
+/// anchor-advance semantics. Duplicate letters are idempotent -- setting
+/// the same field twice has no extra side effect, matching libmagic's
+/// per-letter `STRING_*` bitfield accumulation.
 ///
 /// Trailing non-operator characters after the count and flags are
 /// rejected as a hard parse error so that `search/256foo` fails at parse
@@ -318,53 +321,49 @@ pub(super) fn parse_attached_operator(input: &str) -> IResult<&str, Option<Opera
 pub(super) fn parse_search_suffix<'a>(
     input: &'a str,
     suffix_rest: &'a str,
-) -> IResult<&'a str, NonZeroUsize> {
+) -> IResult<&'a str, (NonZeroUsize, SearchFlags)> {
     let (mut rest, n) = parse_unsigned_number(suffix_rest)
         .map_err(|_| NomErr::Error(Error::new(input, ErrorKind::Digit)))?;
 
     // Optional `/<flags>` after the count (e.g., `search/256/w`,
     // `search/4261301/s`). magic(5) flag letters are the same set as
-    // for `string`. Parse and discard for now.
+    // for `string` plus the search-only `/s` "search-start" anchor.
+    let mut flags = SearchFlags::default();
     if let Some(after_slash) = rest.strip_prefix('/') {
         let mut consumed = 0usize;
         for ch in after_slash.chars() {
-            // `s` is a search-specific "search-start" flag (the start of
-            // the match becomes the new offset rather than the end). The
-            // others are the same set as `string` flags. We accept them
-            // all to load real magic files; semantic implementation is
-            // tracked separately.
-            if matches!(ch, 'W' | 'w' | 'c' | 'C' | 't' | 'T' | 'B' | 'b' | 's') {
-                consumed += ch.len_utf8();
-            } else {
-                break;
+            match ch {
+                'W' => flags.compact_whitespace = true,
+                'w' => flags.compact_optional_whitespace = true,
+                'c' => flags.ignore_lowercase = true,
+                'C' => flags.ignore_uppercase = true,
+                'T' => flags.trim = true,
+                't' => flags.text_test = true,
+                // `/b` and `/B` share the binary-hint semantics for
+                // `search`. (`/B` on `pstring` is the 1-byte length-
+                // width letter; that is a separate dispatch path keyed
+                // on the type keyword.)
+                'B' | 'b' => flags.bin_test = true,
+                's' => flags.start_anchor = true,
+                'f' => flags.full_word = true,
+                _ => break,
             }
+            consumed += ch.len_utf8();
         }
         if consumed > 0 {
-            // Surface the parse-and-drop: search flag letters (`/s`,
-            // `/c`, `/w`, etc.) are consumed but scan/match semantics
-            // do NOT yet honor them. The `/s` flag is particularly
-            // load-bearing -- it controls anchor-advance to match-START
-            // instead of match-END, so dropping it silently produces
-            // wrong relative-offset child resolution. Tracked in issue
-            // #235.
-            warn!(
-                "search flag suffix `/{flags}` parsed but not yet evaluated \
-                 (issue #235); scan and anchor-advance use default semantics",
-                flags = &after_slash[..consumed]
-            );
             rest = &after_slash[consumed..];
         } else {
             // `/` not followed by a known flag letter is a parse error
-            // (matches the strictness of the existing trailing-junk check
-            // below). Leave `rest` pointing at the `/` so the caller's
-            // error position is meaningful.
+            // (matches the strictness of the trailing-junk check
+            // below). Leave the error position pointed at `input` so
+            // the caller's diagnostics are meaningful.
             return Err(NomErr::Error(Error::new(input, ErrorKind::Tag)));
         }
     }
 
-    // Reject trailing junk so `search/256foo` fails hard instead of
-    // silently becoming `search/256` + value string `foo`. Same
-    // operator-boundary set as parse_regex_suffix.
+    // Reject trailing junk so `search/256foo` and `search/256/sfoo`
+    // fail hard instead of silently becoming `search/256` + value
+    // string `foo`. Same operator-boundary set as parse_regex_suffix.
     match rest.chars().next() {
         Some(c) if c.is_whitespace() => {}
         None | Some('=' | '!' | '<' | '>' | '&' | '^' | '~' | 'x') => {}
@@ -376,13 +375,13 @@ pub(super) fn parse_search_suffix<'a>(
         .ok()
         .and_then(NonZeroUsize::new)
         .ok_or_else(|| NomErr::Error(Error::new(input, ErrorKind::Digit)))?;
-    Ok((rest, range))
+    Ok((rest, (range, flags)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::ast::{Operator, RegexCount, RegexFlags};
+    use crate::parser::ast::{Operator, RegexCount, RegexFlags, SearchFlags};
 
     // ---------- parse_attached_operator ----------
 
@@ -512,9 +511,10 @@ mod tests {
 
     #[test]
     fn test_parse_search_suffix_decimal_range() {
-        let (rest, range) = parse_search_suffix("search/256", "256").expect("256");
+        let (rest, (range, flags)) = parse_search_suffix("search/256", "256").expect("256");
         assert_eq!(rest, "");
         assert_eq!(range, NonZeroUsize::new(256).unwrap());
+        assert_eq!(flags, SearchFlags::default());
     }
 
     #[test]
@@ -531,9 +531,11 @@ mod tests {
 
     #[test]
     fn test_parse_search_suffix_leaves_trailing_space() {
-        let (rest, range) = parse_search_suffix("search/256 rest", "256 rest").expect("256 rest");
+        let (rest, (range, flags)) =
+            parse_search_suffix("search/256 rest", "256 rest").expect("256 rest");
         assert_eq!(rest, " rest");
         assert_eq!(range.get(), 256);
+        assert_eq!(flags, SearchFlags::default());
     }
 
     /// Regression test for PR #215 review finding (CodeRabbit): trailing
@@ -560,11 +562,240 @@ mod tests {
         for boundary in ['=', '!', '<', '>', '&', '^', '~', 'x'] {
             let suffix = format!("256{boundary}value");
             let input = format!("search/{suffix}");
-            let (rest, range) = parse_search_suffix(&input, &suffix)
+            let (rest, (range, flags)) = parse_search_suffix(&input, &suffix)
                 .unwrap_or_else(|_| panic!("boundary char '{boundary}' should be allowed"));
             assert_eq!(rest, format!("{boundary}value"));
             assert_eq!(range.get(), 256);
+            assert_eq!(flags, SearchFlags::default());
         }
+    }
+
+    // ----- SearchFlags per-letter assignment (issue #235) -----
+
+    #[test]
+    fn test_parse_search_suffix_flag_s_sets_start_anchor() {
+        // `/s` is the search-start anchor flag, the load-bearing flag
+        // motivating this work (TGA footer, sfnt name table, etc.).
+        let (rest, (range, flags)) =
+            parse_search_suffix("search/256/s", "256/s").expect("search/256/s");
+        assert_eq!(rest, "");
+        assert_eq!(range.get(), 256);
+        assert_eq!(
+            flags,
+            SearchFlags {
+                start_anchor: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_flag_lowercase_c_sets_ignore_lowercase() {
+        let (rest, (_range, flags)) =
+            parse_search_suffix("search/256/c", "256/c").expect("search/256/c");
+        assert_eq!(rest, "");
+        assert_eq!(
+            flags,
+            SearchFlags {
+                ignore_lowercase: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_flag_uppercase_c_sets_ignore_uppercase() {
+        let (rest, (_range, flags)) =
+            parse_search_suffix("search/256/C", "256/C").expect("search/256/C");
+        assert_eq!(rest, "");
+        assert_eq!(
+            flags,
+            SearchFlags {
+                ignore_uppercase: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_flag_lowercase_w_sets_compact_optional_whitespace() {
+        let (rest, (_range, flags)) =
+            parse_search_suffix("search/256/w", "256/w").expect("search/256/w");
+        assert_eq!(rest, "");
+        assert_eq!(
+            flags,
+            SearchFlags {
+                compact_optional_whitespace: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_flag_uppercase_w_sets_compact_whitespace() {
+        let (rest, (_range, flags)) =
+            parse_search_suffix("search/256/W", "256/W").expect("search/256/W");
+        assert_eq!(rest, "");
+        assert_eq!(
+            flags,
+            SearchFlags {
+                compact_whitespace: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_flag_lowercase_t_sets_text_test() {
+        let (rest, (_range, flags)) =
+            parse_search_suffix("search/256/t", "256/t").expect("search/256/t");
+        assert_eq!(rest, "");
+        assert_eq!(
+            flags,
+            SearchFlags {
+                text_test: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_flag_uppercase_t_sets_trim() {
+        let (rest, (_range, flags)) =
+            parse_search_suffix("search/256/T", "256/T").expect("search/256/T");
+        assert_eq!(rest, "");
+        assert_eq!(
+            flags,
+            SearchFlags {
+                trim: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_flag_lowercase_b_sets_bin_test() {
+        let (rest, (_range, flags)) =
+            parse_search_suffix("search/256/b", "256/b").expect("search/256/b");
+        assert_eq!(rest, "");
+        assert_eq!(
+            flags,
+            SearchFlags {
+                bin_test: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_flag_uppercase_b_sets_bin_test() {
+        // `/B` shares the binary-hint semantics with `/b` for search.
+        // (`/B` on pstring is the 1-byte length-width letter — a separate
+        // dispatch path on the type keyword.)
+        let (rest, (_range, flags)) =
+            parse_search_suffix("search/256/B", "256/B").expect("search/256/B");
+        assert_eq!(rest, "");
+        assert_eq!(
+            flags,
+            SearchFlags {
+                bin_test: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_flag_combination_cs() {
+        // Both letters set their fields; order does not matter.
+        let (rest, (_range, flags)) =
+            parse_search_suffix("search/256/cs", "256/cs").expect("search/256/cs");
+        assert_eq!(rest, "");
+        assert_eq!(
+            flags,
+            SearchFlags {
+                ignore_lowercase: true,
+                start_anchor: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_flag_combination_s_w_c_t_order_agnostic() {
+        // Four flags across all letter cases; order-agnostic accumulation.
+        let (rest, (_range, flags)) =
+            parse_search_suffix("search/256/sWcT", "256/sWcT").expect("search/256/sWcT");
+        assert_eq!(rest, "");
+        assert_eq!(
+            flags,
+            SearchFlags {
+                start_anchor: true,
+                compact_whitespace: true,
+                ignore_lowercase: true,
+                trim: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_duplicate_letter_is_idempotent() {
+        // `cc` sets `ignore_lowercase` twice with no side effect, matching
+        // libmagic's per-letter STRING_* bitfield accumulation.
+        let (rest, (_range, flags)) =
+            parse_search_suffix("search/256/cc", "256/cc").expect("search/256/cc");
+        assert_eq!(rest, "");
+        assert_eq!(
+            flags,
+            SearchFlags {
+                ignore_lowercase: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_f_sets_full_word() {
+        // `/f` is STRING_FULL_WORD — post-match word-boundary check.
+        let (rest, (range, flags)) =
+            parse_search_suffix("search/256/f", "256/f").expect("search/256/f");
+        assert_eq!(rest, "");
+        assert_eq!(range.get(), 256);
+        assert_eq!(
+            flags,
+            SearchFlags {
+                full_word: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_unknown_flag_letter_rejected_via_trailing_junk() {
+        // `z` is not a search flag letter. The flag loop stops at `z`,
+        // leaving `zoo` as remainder; the trailing-junk gate then rejects.
+        let result = parse_search_suffix("search/256/szoo", "256/szoo");
+        assert!(
+            result.is_err(),
+            "unknown flag letter must be rejected by the trailing-junk gate"
+        );
+    }
+
+    #[test]
+    fn test_parse_search_suffix_flags_then_operator_boundary() {
+        // After consuming `/s`, the `=value` remainder is left for
+        // `parse_operator` to handle.
+        let (rest, (range, flags)) =
+            parse_search_suffix("search/256/s=value", "256/s=value").expect("search/256/s=value");
+        assert_eq!(rest, "=value");
+        assert_eq!(range.get(), 256);
+        assert_eq!(
+            flags,
+            SearchFlags {
+                start_anchor: true,
+                ..Default::default()
+            }
+        );
     }
 
     // ---------- parse_pstring_suffix ----------

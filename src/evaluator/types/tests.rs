@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use crate::parser::ast::{Endianness, StringFlags};
+use crate::parser::ast::{Endianness, SearchFlags, StringFlags};
 
 #[test]
 fn test_type_read_error_display() {
@@ -1099,6 +1099,7 @@ fn test_bytes_consumed_search_with_pattern_is_match_end() {
     let buf = b"abcWorld_xyz";
     let typ = TypeKind::Search {
         range: ::std::num::NonZeroUsize::new(10).unwrap(),
+        flags: SearchFlags::default(),
     };
     let pattern = Value::String("World".to_string());
     // "World" is at index 3, length 5, match-end = 8.
@@ -1114,6 +1115,7 @@ fn test_bytes_consumed_search_no_match_returns_zero() {
     let buf = b"abcdefghij";
     let typ = TypeKind::Search {
         range: ::std::num::NonZeroUsize::new(10).unwrap(),
+        flags: SearchFlags::default(),
     };
     let pattern = Value::String("XYZ".to_string());
     assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 0);
@@ -1127,6 +1129,7 @@ fn test_bytes_consumed_search_bytes_pattern_works() {
     let buf = &[0x00, 0xff, 0xde, 0xad, 0xbe, 0xef, 0x11];
     let typ = TypeKind::Search {
         range: ::std::num::NonZeroUsize::new(7).unwrap(),
+        flags: SearchFlags::default(),
     };
     let pattern = Value::Bytes(vec![0xde, 0xad, 0xbe, 0xef]);
     // 0xde at index 2, length 4, match-end = 6.

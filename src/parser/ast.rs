@@ -665,11 +665,18 @@ pub enum TypeKind {
     /// // `search/256` -- scan up to 256 bytes for the literal pattern.
     /// let bounded = TypeKind::Search {
     ///     range: NonZeroUsize::new(256).unwrap(),
+    ///     flags: libmagic_rs::parser::ast::SearchFlags::default(),
     /// };
     /// ```
     Search {
         /// Scan window width in bytes, starting at the rule's offset.
         range: NonZeroUsize,
+        /// Modifier flags from the `/[sCcWwTtBbf]` suffix on a `search`
+        /// rule. The `/s` flag controls anchor advance (match-START vs
+        /// match-END); the eight `StringFlags`-shared letters alter how
+        /// the literal pattern is compared against the file bytes. See
+        /// [`SearchFlags`] for the per-flag semantics.
+        flags: SearchFlags,
     },
     /// Control-flow directive (`default`, `clear`, `name`, `use`,
     /// `indirect`, `offset`).
@@ -912,6 +919,221 @@ impl StringFlags {
     #[must_use]
     pub const fn with_full_word(mut self, value: bool) -> Self {
         self.full_word = value;
+        self
+    }
+}
+
+/// Search modifier flags parsed from the `/[sCcWwTtBbf]` suffix on a
+/// `search` rule.
+///
+/// Mirrors [`StringFlags`] for the eight `STRING_*` letters that alter
+/// the literal-pattern comparison (`/c`, `/C`, `/w`, `/W`, `/t`, `/T`,
+/// `/b`, `/f`), plus a search-only `start_anchor` field for `/s` which
+/// shifts the GNU `file` previous-match anchor to the START of the
+/// matched region. The default (all `false`) preserves byte-exact
+/// comparison and match-END anchor advance.
+///
+/// `SearchFlags` is structurally parallel to `StringFlags`: when one
+/// struct grows a field, the other gains the same field in lockstep
+/// so that [`SearchFlags::to_string_flags`] can keep handing off to
+/// `compare_string_with_flags` without a generic refactor. The
+/// search-only `start_anchor` field has no analog in `string` rules.
+///
+/// **`/c` vs `/C` are asymmetric** in the same way as [`StringFlags`]:
+/// the pattern character controls fold direction. See [`StringFlags`]
+/// and GOTCHAS S6.5 for the rationale.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::SearchFlags;
+///
+/// let plain = SearchFlags::default();
+/// assert!(!plain.start_anchor);
+/// assert!(plain.is_empty());
+/// assert!(!plain.needs_byte_compare());
+///
+/// let start = SearchFlags::default().with_start_anchor(true);
+/// assert!(start.start_anchor);
+/// assert!(!start.is_empty());
+/// // /s is anchor-only -- does not force the byte-compare slow path.
+/// assert!(!start.needs_byte_compare());
+///
+/// let case = SearchFlags::default().with_ignore_lowercase(true);
+/// assert!(case.needs_byte_compare());
+/// ```
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+// libmagic's contract is naturally a bitfield: each flag is a distinct
+// magic(5) letter with its own STRING_*/SEARCH_* constant in libmagic
+// src/file.h. Flags compose freely (search/cs is /c plus /s; search/sWcT
+// sets four). Folding pairs into enums is possible but would obscure
+// the libmagic mapping and produce verbose match arms in every consumer.
+// The bool-per-flag layout mirrors `StringFlags` and `RegexFlags` and the
+// libmagic source -- the clippy lint is overruled by the design.
+#[allow(clippy::struct_excessive_bools)]
+pub struct SearchFlags {
+    /// `/W` -- `STRING_COMPACT_WHITESPACE`. Pattern whitespace requires at
+    /// least one whitespace byte in the file, then any further whitespace
+    /// in the file is consumed greedily.
+    pub compact_whitespace: bool,
+    /// `/w` -- `STRING_COMPACT_OPTIONAL_WHITESPACE`. Pattern whitespace
+    /// matches zero or more whitespace bytes in the file.
+    pub compact_optional_whitespace: bool,
+    /// `/c` -- `STRING_IGNORE_LOWERCASE`. When the pattern char is
+    /// lowercase, the file byte is `to_ascii_lowercase`'d before
+    /// comparison. Uppercase pattern chars are compared literally.
+    pub ignore_lowercase: bool,
+    /// `/C` -- `STRING_IGNORE_UPPERCASE`. When the pattern char is
+    /// uppercase, the file byte is `to_ascii_uppercase`'d before
+    /// comparison. Lowercase pattern chars are compared literally.
+    pub ignore_uppercase: bool,
+    /// `/t` -- `STRING_TEXTTEST`. Hint that this rule applies to text
+    /// files. Captured for MIME-output integration; does not currently
+    /// alter comparison.
+    pub text_test: bool,
+    /// `/T` -- `STRING_TRIM`. Trim leading and trailing ASCII whitespace
+    /// from the pattern before comparison.
+    pub trim: bool,
+    /// `/b` -- `STRING_BINTEST`. Hint that this rule applies to binary
+    /// files. Captured for MIME-output integration; does not currently
+    /// alter comparison.
+    pub bin_test: bool,
+    /// `/f` -- `STRING_FULL_WORD`. Post-match check that the byte after
+    /// the matched region is either end-of-buffer or a non-word
+    /// character (ASCII alphanumeric or `_`).
+    pub full_word: bool,
+    /// `/s` -- magic(5) "search-start" flag. When `true`, the GNU `file`
+    /// previous-match anchor advance lands on the match-START index
+    /// rather than match-END (the default). Mirrors libmagic's
+    /// `FILE_SEARCH` anchor handling in `src/softmagic.c::moffset`. The
+    /// dispatch happens in
+    /// `src/evaluator/types/search.rs::search_bytes_consumed`.
+    pub start_anchor: bool,
+}
+
+impl SearchFlags {
+    /// Returns `true` when every flag is `false` (default-constructed).
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        !self.compact_whitespace
+            && !self.compact_optional_whitespace
+            && !self.ignore_lowercase
+            && !self.ignore_uppercase
+            && !self.text_test
+            && !self.trim
+            && !self.bin_test
+            && !self.full_word
+            && !self.start_anchor
+    }
+
+    /// Returns `true` when any flag alters the literal-pattern
+    /// comparison, forcing the byte-walk slow path through
+    /// `compare_string_with_flags`. The anchor-only / metadata-only
+    /// flags (`/s`, `/t`, `/b`) do **not** trigger byte-compare;
+    /// they preserve the `memchr::memmem::find` fast path.
+    #[must_use]
+    pub const fn needs_byte_compare(self) -> bool {
+        self.compact_whitespace
+            || self.compact_optional_whitespace
+            || self.ignore_lowercase
+            || self.ignore_uppercase
+            || self.trim
+            || self.full_word
+    }
+
+    /// Project the eight shared flag fields onto a [`StringFlags`] for
+    /// handoff to `compare_string_with_flags`. The search-only
+    /// `start_anchor` field is dropped (it is anchor-advance policy,
+    /// not comparison policy).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::SearchFlags;
+    ///
+    /// let sf = SearchFlags::default()
+    ///     .with_ignore_lowercase(true)
+    ///     .with_trim(true)
+    ///     .with_start_anchor(true);
+    /// let projected = sf.to_string_flags();
+    /// assert!(projected.ignore_lowercase);
+    /// assert!(projected.trim);
+    /// // /s has no analog in StringFlags.
+    /// ```
+    #[must_use]
+    pub const fn to_string_flags(self) -> StringFlags {
+        StringFlags {
+            compact_whitespace: self.compact_whitespace,
+            compact_optional_whitespace: self.compact_optional_whitespace,
+            ignore_lowercase: self.ignore_lowercase,
+            ignore_uppercase: self.ignore_uppercase,
+            text_test: self.text_test,
+            trim: self.trim,
+            bin_test: self.bin_test,
+            full_word: self.full_word,
+        }
+    }
+
+    /// Builder-style setter for `compact_whitespace` (`/W`).
+    #[must_use]
+    pub const fn with_compact_whitespace(mut self, value: bool) -> Self {
+        self.compact_whitespace = value;
+        self
+    }
+
+    /// Builder-style setter for `compact_optional_whitespace` (`/w`).
+    #[must_use]
+    pub const fn with_compact_optional_whitespace(mut self, value: bool) -> Self {
+        self.compact_optional_whitespace = value;
+        self
+    }
+
+    /// Builder-style setter for `ignore_lowercase` (`/c`).
+    #[must_use]
+    pub const fn with_ignore_lowercase(mut self, value: bool) -> Self {
+        self.ignore_lowercase = value;
+        self
+    }
+
+    /// Builder-style setter for `ignore_uppercase` (`/C`).
+    #[must_use]
+    pub const fn with_ignore_uppercase(mut self, value: bool) -> Self {
+        self.ignore_uppercase = value;
+        self
+    }
+
+    /// Builder-style setter for `text_test` (`/t`).
+    #[must_use]
+    pub const fn with_text_test(mut self, value: bool) -> Self {
+        self.text_test = value;
+        self
+    }
+
+    /// Builder-style setter for `trim` (`/T`).
+    #[must_use]
+    pub const fn with_trim(mut self, value: bool) -> Self {
+        self.trim = value;
+        self
+    }
+
+    /// Builder-style setter for `bin_test` (`/b`).
+    #[must_use]
+    pub const fn with_bin_test(mut self, value: bool) -> Self {
+        self.bin_test = value;
+        self
+    }
+
+    /// Builder-style setter for `full_word` (`/f`).
+    #[must_use]
+    pub const fn with_full_word(mut self, value: bool) -> Self {
+        self.full_word = value;
+        self
+    }
+
+    /// Builder-style setter for `start_anchor` (`/s`).
+    #[must_use]
+    pub const fn with_start_anchor(mut self, value: bool) -> Self {
+        self.start_anchor = value;
         self
     }
 }

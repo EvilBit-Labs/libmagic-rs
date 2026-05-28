@@ -11,7 +11,9 @@
 
 use proptest::prelude::*;
 
-use libmagic_rs::parser::ast::{IndirectAdjustmentOp, MetaType, PStringLengthWidth, StringFlags};
+use libmagic_rs::parser::ast::{
+    IndirectAdjustmentOp, MetaType, PStringLengthWidth, SearchFlags, StringFlags,
+};
 use libmagic_rs::{
     Endianness, EvaluationConfig, MagicDatabase, MagicRule, OffsetSpec, Operator, TypeKind, Value,
 };
@@ -32,6 +34,50 @@ fn arb_endianness() -> impl Strategy<Value = Endianness> {
         Just(Endianness::Big),
         Just(Endianness::Native),
     ]
+}
+
+/// Generate a `SearchFlags` value covering every flag combination.
+///
+/// Uses nine independent `bool` strategies (one per flag, including the
+/// search-only `start_anchor`) so proptest samples the full 2^9 = 512
+/// combinations uniformly. Used by the `Search` branch of
+/// [`arb_type_kind`] to exercise the never-panics invariant against
+/// random flag shapes.
+fn arb_search_flags() -> impl Strategy<Value = SearchFlags> {
+    (
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
+    )
+        .prop_map(
+            |(
+                compact_whitespace,
+                compact_optional_whitespace,
+                ignore_lowercase,
+                ignore_uppercase,
+                text_test,
+                trim,
+                bin_test,
+                full_word,
+                start_anchor,
+            )| SearchFlags {
+                compact_whitespace,
+                compact_optional_whitespace,
+                ignore_lowercase,
+                ignore_uppercase,
+                text_test,
+                trim,
+                bin_test,
+                full_word,
+                start_anchor,
+            },
+        )
 }
 
 /// Generate a valid TypeKind for testing
@@ -106,8 +152,9 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
                 },
             )
         },
-        (1usize..=4096usize).prop_map(|range| TypeKind::Search {
+        (1usize..=4096usize, arb_search_flags()).prop_map(|(range, flags)| TypeKind::Search {
             range: ::std::num::NonZeroUsize::new(range).unwrap(),
+            flags,
         }),
         Just(TypeKind::Meta(MetaType::Default)),
         Just(TypeKind::Meta(MetaType::Clear)),

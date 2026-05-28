@@ -75,7 +75,7 @@ pub fn format_parse_error(error: &ParseError) -> String {
 mod tests {
     use super::*;
     use crate::parser::ast::{
-        Endianness, MagicRule, OffsetSpec, Operator, StringFlags, TypeKind, Value,
+        Endianness, MagicRule, OffsetSpec, Operator, SearchFlags, StringFlags, TypeKind, Value,
     };
     use crate::parser::codegen::format_string_literal;
 
@@ -652,6 +652,7 @@ mod tests {
 
         let typ = TypeKind::Search {
             range: NonZeroUsize::new(512).unwrap(),
+            flags: SearchFlags::default(),
         };
         let generated = serialize_type_kind(&typ);
         assert!(
@@ -662,5 +663,149 @@ mod tests {
             generated.contains(".unwrap_or(::std::num::NonZeroUsize::MIN)"),
             "serialize_type_kind must emit .unwrap_or(NonZeroUsize::MIN); got:\n{generated}"
         );
+    }
+
+    /// Round-trip: a `TypeKind::Search` with default flags must emit a
+    /// fully-explicit `SearchFlags { ... }` struct literal in which every
+    /// field is set to `false`. U4 requirement: no `..Default::default()`
+    /// because the generated `builtin_rules.rs` is compiled by a separate
+    /// build-script compilation unit that does not import `Default`.
+    #[test]
+    fn test_serialize_type_kind_search_default_flags() {
+        use std::num::NonZeroUsize;
+
+        let typ = TypeKind::Search {
+            range: NonZeroUsize::new(256).expect("256 is nonzero"),
+            flags: SearchFlags::default(),
+        };
+        let generated = serialize_type_kind(&typ);
+
+        // Every field must appear explicitly with `false`.
+        for field in [
+            "compact_whitespace: false",
+            "compact_optional_whitespace: false",
+            "ignore_lowercase: false",
+            "ignore_uppercase: false",
+            "text_test: false",
+            "trim: false",
+            "bin_test: false",
+            "full_word: false",
+            "start_anchor: false",
+        ] {
+            assert!(
+                generated.contains(field),
+                "generated codegen missing `{field}` field; got:\n{generated}"
+            );
+        }
+
+        // No `..Default::default()` shortcut allowed.
+        assert!(
+            !generated.contains("..Default::default()"),
+            "generated codegen must not use `..Default::default()`; got:\n{generated}"
+        );
+
+        // Fully-qualified path so the build script does not need an import.
+        assert!(
+            generated.contains("crate::parser::ast::SearchFlags"),
+            "generated codegen must use fully-qualified path; got:\n{generated}"
+        );
+    }
+
+    /// Round-trip: a `TypeKind::Search` with non-default flags must emit
+    /// the corresponding `true` values for the set fields and `false` for
+    /// the rest. Exercises `start_anchor` (search-only `/s`) and
+    /// `ignore_lowercase` (`/c`) together.
+    #[test]
+    fn test_serialize_type_kind_search_with_flags() {
+        use std::num::NonZeroUsize;
+
+        let typ = TypeKind::Search {
+            range: NonZeroUsize::new(1024).expect("1024 is nonzero"),
+            flags: SearchFlags::default()
+                .with_start_anchor(true)
+                .with_ignore_lowercase(true),
+        };
+        let generated = serialize_type_kind(&typ);
+
+        assert!(
+            generated.contains("start_anchor: true"),
+            "expected start_anchor: true; got:\n{generated}"
+        );
+        assert!(
+            generated.contains("ignore_lowercase: true"),
+            "expected ignore_lowercase: true; got:\n{generated}"
+        );
+
+        // Unset flags must still appear with `false`.
+        for field in [
+            "compact_whitespace: false",
+            "compact_optional_whitespace: false",
+            "ignore_uppercase: false",
+            "text_test: false",
+            "trim: false",
+            "bin_test: false",
+            "full_word: false",
+        ] {
+            assert!(
+                generated.contains(field),
+                "expected `{field}` in codegen; got:\n{generated}"
+            );
+        }
+
+        // Range value must still round-trip.
+        assert!(
+            generated.contains("1024"),
+            "expected range literal 1024; got:\n{generated}"
+        );
+    }
+
+    /// Verify the emitted codegen has no panic markers across every
+    /// `SearchFlags` permutation that combines default and non-default
+    /// flags. Extends the original `_default_only` regression test from
+    /// U1's placeholder pass to cover non-default flags too.
+    #[test]
+    fn test_search_codegen_has_no_panic_markers() {
+        use std::num::NonZeroUsize;
+
+        let cases = [
+            SearchFlags::default(),
+            SearchFlags::default().with_start_anchor(true),
+            SearchFlags::default().with_ignore_lowercase(true),
+            SearchFlags::default()
+                .with_compact_whitespace(true)
+                .with_full_word(true),
+            SearchFlags::default()
+                .with_start_anchor(true)
+                .with_ignore_lowercase(true)
+                .with_ignore_uppercase(true)
+                .with_compact_whitespace(true)
+                .with_compact_optional_whitespace(true)
+                .with_text_test(true)
+                .with_trim(true)
+                .with_bin_test(true)
+                .with_full_word(true),
+        ];
+
+        for flags in cases {
+            let typ = TypeKind::Search {
+                range: NonZeroUsize::new(64).expect("64 is nonzero"),
+                flags,
+            };
+            let generated = serialize_type_kind(&typ);
+
+            for forbidden in [".unwrap()", ".expect(", "panic!(", "unreachable!", "todo!"] {
+                assert!(
+                    !generated.contains(forbidden),
+                    "emitted codegen contains forbidden panic marker `{forbidden}`; got:\n{generated}"
+                );
+            }
+
+            // The `unwrap_or` safe-fallback variant is allowed (it is not
+            // a panic marker) and is required by the NonZeroUsize idiom.
+            assert!(
+                generated.contains(".unwrap_or(::std::num::NonZeroUsize::MIN)"),
+                "missing safe-fallback `unwrap_or`; got:\n{generated}"
+            );
+        }
     }
 }
