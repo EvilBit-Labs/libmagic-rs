@@ -1,9 +1,9 @@
 # NOTICE
 
-The files in this directory (`magic.mgc` and the contents of `tests/`) are derived from the `file` / libmagic project (<https://github.com/file/file>) originally authored by Ian F. Darwin and Christos Zoulas (<https://www.darwinsys.com/file/>).
+The files in this directory (`magic.mgc` and everything under `tests/`) come from the `file` / libmagic project (<https://github.com/file/file>) by Ian F. Darwin and Christos Zoulas (<https://www.darwinsys.com/file/>).
 
-They are redistributed under the terms of the original license, which is included in the accompanying COPYING file (from the upstream project).
+They are redistributed under the original license — see the accompanying COPYING file from upstream.
 
-These files are provided solely for compatibility testing and were not authored by the maintainers of this project.
+Their only purpose here is compatibility testing. The maintainers of this project did not write them.
 
-This project does not use, embed, or depend on libmagic code. All code in this repository is authored independently by the maintainers. The files here are included only as test fixtures to verify compatibility with existing libmagic behavior. We thank the original authors of `file` / libmagic for their work and contributions to the community.
+Nothing else in the repo uses, embeds, or links libmagic. We keep these fixtures so we can compare our output against the original. Sincere thanks to Ian F. Darwin, Christos Zoulas, and the rest of the `file` / libmagic maintainers — this project would not be possible without theirs.
