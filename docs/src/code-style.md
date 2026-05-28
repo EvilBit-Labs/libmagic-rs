@@ -1,7 +1,5 @@
 # Code Style
 
-libmagic-rs follows strict code style guidelines to ensure consistency, readability, and maintainability across the codebase.
-
 ## Formatting
 
 ### Rustfmt Configuration

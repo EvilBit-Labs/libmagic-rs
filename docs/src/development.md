@@ -1,7 +1,5 @@
 # Development Setup
 
-This guide covers setting up a development environment for contributing to libmagic-rs, including tools, workflows, and best practices.
-
 ## Current Implementation Status
 
 **Project Phase**: Published on crates.io at v0.5.0

@@ -1,6 +1,6 @@
 # Evaluator Engine
 
-The evaluator engine executes magic rules against file buffers to identify file types. It provides safe, efficient rule evaluation with hierarchical processing, graceful error recovery, and configurable resource limits.
+The evaluator runs magic rules against a file buffer, walking the rule tree top-down. When a parent rule matches, its children get a shot; offset, type, and operator are resolved per rule. Bad inputs (buffer overruns, invalid offsets, malformed types) cause that rule to be skipped rather than aborting the whole match.
 
 ## Overview
 

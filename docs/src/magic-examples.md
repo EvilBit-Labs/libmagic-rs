@@ -1,7 +1,5 @@
 # Appendix C: Magic File Examples
 
-This appendix provides comprehensive examples of magic file syntax and patterns, demonstrating how to create effective file type detection rules.
-
 ## Basic Magic File Syntax
 
 ### Simple Pattern Matching

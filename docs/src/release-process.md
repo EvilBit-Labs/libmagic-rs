@@ -1,7 +1,5 @@
 # Release Process
 
-This document outlines the release process for libmagic-rs, including version management, testing procedures, and deployment steps.
-
 ## Release Types
 
 ### Semantic Versioning

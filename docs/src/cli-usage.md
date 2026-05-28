@@ -1,6 +1,6 @@
 # CLI Usage
 
-The `rmagic` command-line tool identifies file types using magic rules, serving as a pure-Rust alternative to the GNU `file` command.
+`rmagic` is a Rust-native alternative to the GNU `file` command. It identifies file types by evaluating magic rules against a file's contents.
 
 ## Basic Usage
 

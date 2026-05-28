@@ -1,6 +1,6 @@
 # Chapter 9: Output Formatters
 
-The output module converts raw evaluation results into structured, consumable formats. It supports human-readable text output compatible with the GNU `file` command, pretty-printed JSON for single-file analysis, and compact JSON Lines for multi-file batch processing.
+The output module converts evaluation results into one of three formats: GNU `file`-compatible text output, pretty-printed JSON for single-file runs, and JSON Lines for multi-file batch processing.
 
 ## Module Structure
 

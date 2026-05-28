@@ -1,6 +1,6 @@
 # Parser Implementation
 
-The libmagic-rs parser is built using the [nom](https://github.com/Geal/nom) parser combinator library, providing a robust and efficient way to parse magic file syntax into our AST representation.
+The parser is built on the [nom](https://github.com/Geal/nom) parser combinator library and produces the AST defined in `src/parser/ast.rs`.
 
 ## Architecture Overview
 

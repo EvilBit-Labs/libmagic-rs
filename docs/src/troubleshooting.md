@@ -1,7 +1,5 @@
 # Troubleshooting
 
-Common issues and solutions when using libmagic-rs.
-
 ## Installation Issues
 
 ### Rust Version Compatibility

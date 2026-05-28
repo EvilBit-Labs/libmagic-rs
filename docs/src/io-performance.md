@@ -1,6 +1,6 @@
 # I/O and Performance
 
-The I/O module provides efficient file access through memory-mapped I/O with comprehensive safety guarantees and performance optimizations.
+The I/O module uses memory-mapped I/O for file access, with bounds checks on every read.
 
 ## Memory-Mapped I/O Architecture
 

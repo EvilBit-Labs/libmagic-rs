@@ -1,7 +1,5 @@
 # Appendix B: Command Reference
 
-Command-line interface documentation for the `rmagic` file identification tool.
-
 ## Overview
 
 `rmagic` is a pure-Rust implementation of the `file` command for file type identification using magic rules.

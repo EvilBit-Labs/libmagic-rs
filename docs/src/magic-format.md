@@ -1,6 +1,6 @@
 # Magic File Format
 
-Magic files define rules for identifying file types through byte-level patterns. This chapter documents the magic file format supported by libmagic-rs.
+Magic files define rules for identifying file types through byte-level patterns.
 
 ## Overview
 

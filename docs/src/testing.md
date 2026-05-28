@@ -1,6 +1,6 @@
 # Testing and Quality Assurance
 
-The libmagic-rs project maintains high quality standards through comprehensive testing, strict linting, and continuous integration. This chapter covers the testing strategy, current test coverage, and quality assurance practices.
+The project relies on a mix of unit tests, integration tests, property tests with `proptest`, and benchmarks with `criterion`. Linting runs under `cargo clippy -- -D warnings`, formatting under `cargo fmt`, and CI runs everything on every PR.
 
 ## Testing Philosophy
 

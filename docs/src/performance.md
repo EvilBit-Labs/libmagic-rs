@@ -1,6 +1,6 @@
 # Performance Optimization
 
-libmagic-rs includes several performance optimizations across I/O, evaluation, and compilation. This chapter describes each optimization and how to take advantage of them.
+libmagic-rs includes several performance optimizations across I/O, evaluation, and compilation.
 
 ## Memory-Mapped I/O
 

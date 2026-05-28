@@ -1,6 +1,6 @@
 # Library API
 
-The `libmagic_rs` crate provides a safe, efficient Rust API for file type identification through magic rule evaluation.
+The `libmagic_rs` crate exposes a Rust API for identifying file types by evaluating magic rules against file contents.
 
 ## Quick Start
 

@@ -1,7 +1,5 @@
 # Testing Guidelines
 
-Comprehensive testing guidelines for libmagic-rs to ensure code quality, reliability, and maintainability.
-
 ## Testing Philosophy
 
 libmagic-rs follows a comprehensive testing strategy:

@@ -1,7 +1,5 @@
 # Getting Started
 
-This guide will help you get up and running with libmagic-rs, whether you want to use it as a CLI tool or integrate it into your Rust applications.
-
 ## Installation
 
 ### Prerequisites
@@ -122,8 +120,6 @@ fn main() -> Result<(), LibmagicError> {
 
 ## Project Structure
 
-Understanding the project layout will help you navigate the codebase:
-
 ```text
 libmagic-rs/
 ├── Cargo.toml              # Project configuration
@@ -208,24 +204,21 @@ cargo watch -x "test ast_structures"
 
 ## Current Capabilities
 
-- **AST Data Structures**: Complete implementation with full serialization
-- **Magic File Parser**: nom-based parser for magic file DSL with hierarchical rules
-- **Rule Evaluator**: Engine for executing rules against files with graceful error handling
-- **Memory-Mapped I/O**: Efficient file access with comprehensive bounds checking
-- **CLI Tool (`rmagic`)**: Full-featured CLI with text/JSON output, stdin, timeouts, and built-in rules
-- **Built-in Rules**: Pre-compiled detection for common file types (ELF, ZIP, PDF, JPEG, PNG, etc.)
-- **MIME Type Mapping**: Opt-in MIME type detection
-- **Output Formatters**: Text and JSON output with tag enrichment
-- **Strength Calculation**: Rule priority scoring with `!:strength` directives
-- **Confidence Scoring**: Match confidence based on rule hierarchy depth
-- **Timeout Protection**: Configurable per-file evaluation timeouts
-- **Build System**: Cargo configuration with strict clippy pedantic linting
-- **Testing**: 1,200+ comprehensive tests across all modules
-- **Documentation**: This guide, API documentation, and architecture docs
+The library covers the core libmagic feature set:
+
+- Parsing the magic file DSL via a nom-based parser, including hierarchical (`>`, `>>`, …) rules.
+- Evaluating rules against files with graceful error handling — buffer overruns, invalid offsets, and type-read failures get skipped instead of aborting the whole match.
+- Memory-mapped file access with bounds checks on every read.
+- Built-in rules for common formats: ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, PDF.
+- Optional MIME type mapping (off by default).
+- Text and JSON output, with semantic tag enrichment.
+- Strength-based rule ordering, honoring `!:strength` directives.
+- Per-file evaluation timeouts you set on `EvaluationConfig`.
+- Confidence scoring based on how deep into the rule hierarchy a match goes.
+
+The CLI ships as `rmagic` with text/JSON output, stdin support, configurable timeouts, and a `--use-builtin` mode that needs no external magic file. The repo runs ~1,200 tests per change.
 
 ## Example Magic Rules
-
-You can parse magic rules from text or work with AST structures directly:
 
 ### Parsing Magic Files
 
@@ -291,8 +284,6 @@ assert_eq!(matches[0].message, "ELF magic");
 
 ## Testing Your Setup
 
-Verify everything is working correctly:
-
 ```bash
 # Run all tests
 cargo test
@@ -312,19 +303,15 @@ cargo run -- README.md
 
 ## Next Steps
 
-1. **Explore the AST**: Check out [AST Data Structures](./ast-structures.md) to understand the core types
-2. **Read the Architecture**: See [Architecture Overview](./architecture.md) for the big picture
-3. **Follow Development**: Watch the [GitHub repository](https://github.com/EvilBit-Labs/libmagic-rs) for updates
-4. **Contribute**: See [Development Setup](./development.md) for contribution guidelines
+- [AST Data Structures](./ast-structures.md) covers the core types.
+- [Architecture Overview](./architecture.md) explains how the pieces fit together.
+- [Development Setup](./development.md) is where contributing guidelines live.
+
+Watch the [GitHub repository](https://github.com/EvilBit-Labs/libmagic-rs) for updates.
 
 ## Getting Help
 
-- **Documentation**: This guide covers all current functionality
-- **API Reference**: Run `cargo doc --open` for detailed API docs
-- **Issues**: [Report bugs or request features](https://github.com/EvilBit-Labs/libmagic-rs/issues)
-- **Discussions**: [Ask questions or share ideas](https://github.com/EvilBit-Labs/libmagic-rs/discussions)
-
-The project is in active development, so check back regularly for new features and capabilities!
+Run `cargo doc --open` for the full rustdoc. For bug reports and feature requests, use [GitHub Issues](https://github.com/EvilBit-Labs/libmagic-rs/issues). [Discussions](https://github.com/EvilBit-Labs/libmagic-rs/discussions) is the place for open-ended questions.
 
 ## Migration from 0.5.x
 
