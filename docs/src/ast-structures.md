@@ -204,6 +204,7 @@ pub enum TypeKind {
     /// Bounded literal byte sequence search
     Search {
         range: NonZeroUsize,
+        flags: SearchFlags,
     },
 }
 ```
@@ -578,42 +579,117 @@ The `Search` variant scans for a literal byte pattern within a bounded range. Un
 ```rust
 Search {
     range: NonZeroUsize,
+    flags: SearchFlags,
 }
 ```
 
 **Fields:**
 
 - `range`: Mandatory scan window width in bytes (must be non-zero per GNU `file` magic(5) specification)
+- `flags`: Modifier flags from the `/[sCcWwTtBbf]` suffix (see `SearchFlags` below)
 
 **Example:**
 
 ```text
 0    search/256    PK\003\004    ZIP archive within first 256 bytes
+0    search/512/s  FORM          IFF header, anchor at match-start
+0    search/1024/c footer.xml    Case-insensitive footer search
 ```
 
 **Behavior:**
 
 - Returns `Value::String` containing the matched bytes if found within range
-- Anchor advances to `match_idx + pattern.len()` (the byte position just past the matched needle), matching GNU `file`'s `softmagic.c` `FILE_SEARCH` path where `ms->search.offset += idx` and then `moffset()` adds `vlen = m->vallen`. An earlier implementation incorrectly advanced by the full window size (`range`), but this caused relative-offset children to land far past the intended byte.
+- Anchor advances to `match_idx + pattern.len()` by default (match-END), or `match_idx` when `SearchFlags::start_anchor` is `true` (match-START), matching GNU `file`'s `softmagic.c` `FILE_SEARCH` path where `ms->search.offset += idx` and then `moffset()` adds `vlen = m->vallen`. An earlier implementation incorrectly advanced by the full window size (`range`), but this caused relative-offset children to land far past the intended byte.
+- Comparison semantics controlled by `SearchFlags`: byte-exact by default; flags like `/c`, `/w`, `/T`, `/f` alter comparison (see `SearchFlags` below)
 - Only supports `Equal` and `NotEqual` operators
 - Range is mandatory; `search/0` or bare `search` are parse errors
 
 **Examples:**
 
 ```rust
-use libmagic_rs::parser::ast::TypeKind;
+use libmagic_rs::parser::ast::{TypeKind, SearchFlags};
 use std::num::NonZeroUsize;
 
-// Scan up to 256 bytes for the pattern
+// Scan up to 256 bytes for the pattern (byte-exact, match-END anchor)
 let bounded_search = TypeKind::Search {
     range: NonZeroUsize::new(256).unwrap(),
+    flags: SearchFlags::default(),
 };
 
-// Scan up to 1024 bytes
+// Scan up to 1024 bytes with case-insensitive comparison
 let wide_search = TypeKind::Search {
     range: NonZeroUsize::new(1024).unwrap(),
+    flags: SearchFlags::default().with_ignore_lowercase(true),
+};
+
+// Scan with match-START anchor for relative-offset children
+let start_anchor_search = TypeKind::Search {
+    range: NonZeroUsize::new(512).unwrap(),
+    flags: SearchFlags::default().with_start_anchor(true),
 };
 ```
+
+### SearchFlags Struct
+
+The `SearchFlags` struct specifies search comparison behavior modifiers. All flags default to `false` via `SearchFlags::default()`. Mirrors `StringFlags` for the eight shared flags, plus a search-only `start_anchor` field for `/s`.
+
+```rust
+pub struct SearchFlags {
+    pub compact_whitespace: bool,
+    pub compact_optional_whitespace: bool,
+    pub ignore_lowercase: bool,
+    pub ignore_uppercase: bool,
+    pub text_test: bool,
+    pub trim: bool,
+    pub bin_test: bool,
+    pub full_word: bool,
+    pub start_anchor: bool,
+}
+```
+
+**Flag meanings:**
+
+- `/W` (`compact_whitespace`) — pattern whitespace requires at least one whitespace byte in the file, then consumes remaining whitespace greedily
+- `/w` (`compact_optional_whitespace`) — pattern whitespace matches zero or more whitespace bytes in the file
+- `/c` (`ignore_lowercase`) — when the pattern character is lowercase, the file byte is compared case-insensitively; uppercase pattern characters require exact match (asymmetric)
+- `/C` (`ignore_uppercase`) — when the pattern character is uppercase, the file byte is compared case-insensitively; lowercase pattern characters require exact match (asymmetric)
+- `/t` (`text_test`) — hint that this rule applies to text files (captured for MIME output integration)
+- `/T` (`trim`) — trim leading and trailing ASCII whitespace from the pattern before comparison
+- `/b` (`bin_test`) — hint that this rule applies to binary files (captured for MIME output integration)
+- `/f` (`full_word`) — post-match check that the byte after the matched region is either end-of-buffer or a non-word character
+- `/s` (`start_anchor`) — advance anchor to match-START instead of match-END (search-only flag, no `string`-type analog)
+
+**Structural parallelism with `StringFlags`:**
+
+`SearchFlags` shares the eight `STRING_*` flag fields with `StringFlags`. The `SearchFlags::to_string_flags()` accessor projects the shared fields onto a `StringFlags` value for handoff to `compare_string_with_flags` — the search-only `start_anchor` field is dropped during the projection because it is anchor-advance policy, not comparison policy. This design preserves the single comparator implementation without duplication.
+
+**Examples:**
+
+```rust
+use libmagic_rs::parser::ast::SearchFlags;
+
+// Plain search with byte-exact comparison (all flags false)
+let plain = SearchFlags::default();
+assert!(plain.is_empty());
+assert!(!plain.needs_byte_compare());
+
+// Anchor-only flag: fast path through memchr::memmem::find
+let start = SearchFlags::default().with_start_anchor(true);
+assert!(!start.needs_byte_compare());
+
+// Case-insensitive search: slow path through byte-by-byte comparator
+let case = SearchFlags::default().with_ignore_lowercase(true);
+assert!(case.needs_byte_compare());
+
+// Combined flags
+let combo = SearchFlags::default()
+    .with_start_anchor(true)
+    .with_compact_optional_whitespace(true);
+assert!(combo.start_anchor);
+assert!(combo.needs_byte_compare());
+```
+
+`SearchFlags` implements `Default`, `Copy`, `Serialize`, `Deserialize`, `PartialEq`, and `Eq`.
 
 ### Endianness Options
 

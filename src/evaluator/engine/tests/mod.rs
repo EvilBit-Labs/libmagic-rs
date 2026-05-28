@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use crate::parser::ast::{Endianness, OffsetSpec, Operator, StringFlags, TypeKind, Value};
+use crate::parser::ast::{
+    Endianness, OffsetSpec, Operator, SearchFlags, StringFlags, TypeKind, Value,
+};
 
 /// Legacy one-shot single-rule helper used by the engine unit tests.
 ///
@@ -2557,6 +2559,7 @@ fn test_search_rule_not_equal_succeeds_when_pattern_absent() {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Search {
             range: ::std::num::NonZeroUsize::new(64).unwrap(),
+            flags: SearchFlags::default(),
         },
         op: Operator::NotEqual,
         value: Value::String("needle".to_string()),
@@ -2608,6 +2611,7 @@ fn test_search_rule_with_bitwise_operator_is_rejected() {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Search {
             range: ::std::num::NonZeroUsize::new(32).unwrap(),
+            flags: SearchFlags::default(),
         },
         op: Operator::BitwiseAnd,
         value: Value::String("needle".to_string()),
@@ -2700,6 +2704,7 @@ fn test_search_parent_advances_anchor_to_match_end_not_window_end() {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Search {
             range: ::std::num::NonZeroUsize::new(14).unwrap(),
+            flags: SearchFlags::default(),
         },
         op: Operator::Equal,
         value: Value::String("needle".to_string()),
@@ -2739,6 +2744,7 @@ fn test_search_parent_relative_child_at_positive_offset() {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Search {
             range: ::std::num::NonZeroUsize::new(32).unwrap(),
+            flags: SearchFlags::default(),
         },
         op: Operator::Equal,
         value: Value::String("NEEDLE".to_string()),
