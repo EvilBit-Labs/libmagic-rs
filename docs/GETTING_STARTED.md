@@ -1,7 +1,5 @@
 # Getting Started with libmagic-rs
 
-A step-by-step guide to using libmagic-rs for file type identification.
-
 ## Table of Contents
 
 - [Installation](#installation)
@@ -15,7 +13,7 @@ A step-by-step guide to using libmagic-rs for file type identification.
 
 ## Installation
 
-### Add to Your Project
+### Add to your project
 
 Add libmagic-rs to your `Cargo.toml`:
 
@@ -24,15 +22,37 @@ Add libmagic-rs to your `Cargo.toml`:
 libmagic-rs = "0.6.0"
 ```
 
-**Note:** Version 0.6.0 introduces breaking changes. `EvaluationConfig` is now `#[non_exhaustive]` and cannot be constructed with struct literals. Use builder methods (`with_timeout_ms`, `with_max_recursion_depth`, `with_max_string_length`, `with_stop_at_first_match`, `with_mime_types`) or `..Default::default()` syntax. `MagicRule` gained a `value_transform` field. Several enums (`OffsetSpec`, `LibmagicError`, `IoError`, `Operator`, `TypeReadError`, `ParseError`, `Value`, `TypeKind`, `EvaluationError`) are now `#[non_exhaustive]` and require a wildcard `_` in pattern matching. `parse_text_magic_file` returns `ParsedMagic { rules, name_table }` instead of `Vec<MagicRule>`. Many parser grammar functions moved from public to internal API. `evaluate_single_rule` signature changed. `MimeMapper` now implements `Copy`.
+#### Upgrading from earlier versions
 
-Version 0.5.0 introduces breaking changes. If upgrading from 0.4.x, the `RuleMatch` struct has a new `type_kind` field that must be included in struct literals, the `Value` enum no longer derives the `Eq` trait (affecting comparison operations), and the `TypeKind` enum gained two new variants (`Float`, `Double`) for floating-point types with endian variants, causing the `TypeKind::String` variant discriminant to change from 4 to 6. Exhaustive pattern matching on `TypeKind` and struct literals for `RuleMatch` require updates.
+**0.6.0**
 
-Version 0.4.0 introduces breaking changes. If upgrading from 0.3.x, the `Operator` enum gained three new variants (`BitwiseXor`, `BitwiseNot`, `AnyValue`) for bitwise and any-value operations. Exhaustive pattern matching on `Operator` requires updates.
+- `EvaluationConfig` is now `#[non_exhaustive]`. Construct it with `EvaluationConfig::default()` and the `with_*` builder methods (`with_timeout_ms`, `with_max_recursion_depth`, `with_max_string_length`, `with_stop_at_first_match`, `with_mime_types`), or with `..Default::default()` syntax. Struct literals no longer compile.
+- `MagicRule` gained a `value_transform` field.
+- `OffsetSpec`, `LibmagicError`, `IoError`, `Operator`, `TypeReadError`, `ParseError`, `Value`, `TypeKind`, and `EvaluationError` are all `#[non_exhaustive]`. Pattern matches on these need a wildcard `_` arm.
+- `parse_text_magic_file` returns `ParsedMagic { rules, name_table }` instead of `Vec<MagicRule>`.
+- Several parser grammar functions moved from public to internal API.
+- `evaluate_single_rule` signature changed.
+- `MimeMapper` now implements `Copy`.
 
-Version 0.3.0 introduced breaking changes from 0.2.x: a new `TypeKind::Quad` enum variant was added for 64-bit quad integer types with endian variants, `TypeKind::String` variant discriminant changed from 3 to 4, and `evaluator::MatchResult` was renamed to `evaluator::RuleMatch` to resolve a naming collision with `output::MatchResult`. The public re-export is `RuleMatch`. Exhaustive pattern matching on `TypeKind` requires updates.
+**0.5.0**
 
-Version 0.2.0 introduced breaking changes from 0.1.x: `TypeKind::Byte` changed from a unit variant to a tuple variant, and the `Operator` enum gained new variants (`LessThan`, `GreaterThan`, `LessEqual`, `GreaterEqual`) for comparison operations.
+- `RuleMatch` has a new `type_kind` field; struct literals need updating.
+- `Value` no longer derives `Eq`, which affects comparison operations.
+- `TypeKind` gained `Float` and `Double` variants for floating-point types with endian variants. The `TypeKind::String` discriminant moved from 4 to 6, so exhaustive matches on `TypeKind` need updating.
+
+**0.4.0**
+
+- `Operator` gained `BitwiseXor`, `BitwiseNot`, and `AnyValue`. Exhaustive matches on `Operator` need updating.
+
+**0.3.0**
+
+- Added `TypeKind::Quad` for 64-bit quad integer types with endian variants. The `TypeKind::String` discriminant moved from 3 to 4.
+- `evaluator::MatchResult` was renamed to `evaluator::RuleMatch` to avoid a collision with `output::MatchResult`. The public re-export is `RuleMatch`.
+
+**0.2.0**
+
+- `TypeKind::Byte` changed from a unit variant to a tuple variant.
+- `Operator` gained `LessThan`, `GreaterThan`, `LessEqual`, and `GreaterEqual`.
 
 ### Build from Source
 
@@ -54,18 +74,16 @@ rmagic --version
 
 ---
 
-## Quick Start
+## Quick start
 
-### 5-Minute Tutorial
-
-#### Step 1: Create a New Project
+#### Step 1: Create a new project
 
 ```bash
 cargo new my-file-analyzer
 cd my-file-analyzer
 ```
 
-#### Step 2: Add Dependency
+#### Step 2: Add the dependency
 
 Edit `Cargo.toml`:
 
@@ -74,7 +92,7 @@ Edit `Cargo.toml`:
 libmagic-rs = "0.6.0"
 ```
 
-#### Step 3: Write Code
+#### Step 3: Write the code
 
 Edit `src/main.rs`:
 
@@ -95,7 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-#### Step 4: Create a Test File
+#### Step 4: Create a test file
 
 ```bash
 # Create a test ZIP file
@@ -440,30 +458,27 @@ fn get_file_info(path: &str) -> Result<FileInfo, String> {
 
 ---
 
-## Next Steps
+## Next steps
 
-### Learn More
+The deeper docs cover specific tasks:
 
-1. **[API Reference](API_REFERENCE.md)** - Complete API documentation
-2. **[Architecture Guide](ARCHITECTURE.md)** - Understand the internals
-3. **[CLI Reference](CLI_REFERENCE.md)** - Full CLI documentation
-4. **[Magic File Format](MAGIC_FORMAT.md)** - Write custom rules
+- [API Reference](API_REFERENCE.md) — complete API documentation
+- [Architecture Guide](ARCHITECTURE.md) — internals
+- [CLI Reference](CLI_REFERENCE.md) — full CLI documentation
+- [Magic File Format](MAGIC_FORMAT.md) — writing custom rules
 
-### Best Practices
+Before shipping anything that touches untrusted input:
 
-1. **Reuse MagicDatabase**: Create once, use for multiple files
-2. **Set Timeouts**: Always set `timeout_ms` for untrusted input
-3. **Handle Errors**: Check for "data" fallback result
-4. **Use Built-in Rules**: Start simple, add custom rules as needed
+- Create one `MagicDatabase` and reuse it across many files. Do not reload it per call.
+- Set `timeout_ms` on `EvaluationConfig`. The default is unbounded.
+- If the result `description` is the literal string `"data"`, no rule matched. Handle that case.
+- The built-in rules cover ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, PDF. Use them first; add custom rules only when needed.
 
-### Get Help
-
-- [GitHub Issues](https://github.com/EvilBit-Labs/libmagic-rs/issues)
-- [API Documentation](https://docs.rs/libmagic-rs)
+Bug reports go to [GitHub Issues](https://github.com/EvilBit-Labs/libmagic-rs/issues). API docs are at [docs.rs/libmagic-rs](https://docs.rs/libmagic-rs).
 
 ---
 
-## Quick Reference Card
+## Quick reference
 
 ```rust
 // Load database
