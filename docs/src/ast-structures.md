@@ -1,6 +1,6 @@
 # AST Data Structures
 
-The Abstract Syntax Tree (AST) is the core representation of magic rules in libmagic-rs. This chapter provides detailed documentation of the fully implemented AST data structures with comprehensive test coverage (29 unit tests) and their usage patterns.
+The Abstract Syntax Tree (AST) is the core representation of magic rules in libmagic-rs.
 
 ## Overview
 
