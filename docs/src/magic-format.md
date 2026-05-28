@@ -335,17 +335,17 @@ Search flags are specified as `/flags` after the range in search types: `search/
 
 Search flags share most semantics with string flags. Eight flags (`/c`, `/C`, `/w`, `/W`, `/T`, `/f`, `/t`, `/b`) carry the same comparison-altering or metadata-hint meanings as their string-type counterparts. The ninth flag, `/s`, is search-specific: it controls where the previous-match anchor lands for relative-offset children.
 
-| Flag | Description                                                                                                     |
-| ---- | --------------------------------------------------------------------------------------------------------------- |
+| Flag | Description                                                                                                   |
+| ---- | ------------------------------------------------------------------------------------------------------------- |
 | `/s` | Start anchor: sets the previous-match anchor to match-START instead of match-END for relative-offset children |
-| `/c` | Case-insensitive (lowercase): pattern lowercase letters match both cases in buffer                             |
-| `/C` | Case-insensitive (uppercase): pattern uppercase letters match both cases in buffer                             |
-| `/w` | Optional whitespace: pattern whitespace matches zero-or-more buffer whitespace                                 |
-| `/W` | Compact whitespace: pattern whitespace requires ≥1 buffer whitespace                                           |
-| `/T` | Trim whitespace: leading/trailing whitespace in pattern is ignored                                             |
-| `/f` | Full word: post-match word boundary check (same semantics as string type)                                      |
-| `/t` | Text test hint: MIME output hint (parsed, no comparison effect)                                                |
-| `/b` | Binary test hint: MIME output hint (parsed, no comparison effect)                                              |
+| `/c` | Case-insensitive (lowercase): pattern lowercase letters match both cases in buffer                            |
+| `/C` | Case-insensitive (uppercase): pattern uppercase letters match both cases in buffer                            |
+| `/w` | Optional whitespace: pattern whitespace matches zero-or-more buffer whitespace                                |
+| `/W` | Compact whitespace: pattern whitespace requires ≥1 buffer whitespace                                          |
+| `/T` | Trim whitespace: leading/trailing whitespace in pattern is ignored                                            |
+| `/f` | Full word: post-match word boundary check (same semantics as string type)                                     |
+| `/t` | Text test hint: MIME output hint (parsed, no comparison effect)                                               |
+| `/b` | Binary test hint: MIME output hint (parsed, no comparison effect)                                             |
 
 **Performance note:** Flags `/c`, `/C`, `/w`, `/W`, `/T`, `/f` force byte-by-byte comparison, while `/s`, `/t`, `/b` preserve the fast SIMD-accelerated search path (via `memchr::memmem::find`).
 
@@ -369,7 +369,7 @@ Examples:
 0       search/2652/b  (This\ file\ must\ be\ converted\ with\ BinHex  BinHex binary text
 ```
 
-**Note on `/T` empty patterns:** `search/T "   "` trims to an empty pattern. The evaluator treats this as no-match (with a `warn!` log) rather than letting it silently match every offset. Fix the rule.
+**Note on `/T` empty patterns:** `search/256/T "   "` (or any `search/N/T` with a whitespace-only pattern) trims to an empty pattern. The evaluator treats this as no-match (with a `warn!` log) rather than letting it silently match every offset. Fix the rule. Note that the `/N` range is mandatory — bare `search/T` is a parse error before evaluation ever sees the trim.
 
 ## Operators
 
