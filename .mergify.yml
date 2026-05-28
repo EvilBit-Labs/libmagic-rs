@@ -1,4 +1,3 @@
-# WARNING: auto_merge applies globally to all queue rules. The following queue rules did NOT have autoqueue enabled and will now also auto-queue: 'default'. Review your queue_conditions to ensure this is the desired behavior.
 queue_rules:
   # Dosubot: only needs quality (fmt + clippy) to pass
   - name: dosubot
@@ -37,15 +36,11 @@ queue_rules:
     merge_conditions:
       - check-success = DCO
 
-  # Human PRs: manually enqueued via @mergifyio queue command
+  # Human PRs: manually enqueued via @mergifyio queue command.
+  # No queue_conditions -- this queue is only reachable via the /queue command.
+  # Repo permissions restrict who can send the command.
   - name: default
     merge_method: squash
-    queue_conditions:
-      - base = main
-      - label != do-not-merge
-      - author != dependabot[bot]
-      - author != dosubot[bot]
-      - -head ~= ^release-plz-
     merge_conditions:
       - check-success = quality
       - check-success = test
@@ -120,4 +115,21 @@ merge_protections:
       - "#commits-behind <= 10"
 merge_protections_settings:
   reporting_method: check-runs
-  auto_merge_conditions: true
+  # Restrict auto-merge to bot queues only. Human PRs land in the `default`
+  # queue, which has no queue_conditions and is only reachable via the
+  # `@mergifyio queue` command.
+  auto_merge_conditions:
+    - or:
+        - and:
+            - base = main
+            - label != do-not-merge
+            - author = dosubot[bot]
+        - and:
+            - base = main
+            - label != do-not-merge
+            - author = dependabot[bot]
+        - and:
+            - base = main
+            - label != do-not-merge
+            - author = release-plz[bot]
+            - head ~= ^release-plz-

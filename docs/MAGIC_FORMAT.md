@@ -359,16 +359,40 @@ Bounded literal pattern scan. Searches for a literal byte pattern within a speci
 **Syntax:**
 
 ```text
-offset  search/range  pattern  message
+offset  search/range[/flags]  pattern  message
 ```
 
-The range is MANDATORY (`NonZeroUsize`). Bare `search` and `search/0` are parse errors per GNU `file` magic(5). Anchor advance follows GNU `file` semantics (match-end, not window-end).
+The range is MANDATORY (`NonZeroUsize`). Bare `search` and `search/0` are parse errors per GNU `file` magic(5). Anchor advance follows GNU `file` semantics (match-end, not window-end) unless `/s` is set.
+
+**Search Flags:**
+
+Flags for `search` type modify comparison and anchor behavior. Most flags share semantics with `string` type flags; `/s` is search-specific.
+
+| Flag | Description                                                                                                          |
+| ---- | -------------------------------------------------------------------------------------------------------------------- |
+| `/s` | Anchor advance lands at match-START instead of match-END (required for TGA footer, sfnt name table)                  |
+| `/c` | Case-insensitive match (lowercase pattern chars fold file bytes to lower; uppercase pattern chars are literal)       |
+| `/C` | Case-insensitive match (uppercase pattern chars fold file bytes to upper; lowercase pattern chars are literal)       |
+| `/w` | Whitespace-optional (pattern whitespace matches zero or more file whitespace)                                        |
+| `/W` | Whitespace-required-compact (pattern whitespace requires at least one file whitespace; additional whitespace consumed) |
+| `/T` | Trim leading/trailing ASCII whitespace from pattern before comparison                                                |
+| `/f` | Full-word match (post-match word-boundary check; next byte must be EOF or non-word char)                             |
+| `/t` | Force text test (MIME-output hint; no effect on comparison)                                                          |
+| `/b` | Force binary test (MIME-output hint; no effect on comparison)                                                        |
+
+**`/c` vs `/C` asymmetry:** The pattern character controls fold direction. `/c` with lowercase pattern chars folds the file byte to lowercase; uppercase pattern chars in the same pattern are compared literally. See String Flags section above for details.
+
+**`/s` — Start anchor:** When set, the anchor for relative-offset child rules lands at the match-START position rather than match-END. This is required for file formats that place magic strings in footers or trailers (TGA, sfnt name table).
+
+**MIME hints (`/t`, `/b`):** These flags are captured but do not currently alter match decisions. They are deferred to MIME-output integration (issue #51).
 
 Examples:
 
 ```text
-0       search/1024   MARKER    Found marker within 1024 bytes
-0       search/4096   \x00\x00  Found null bytes
+0       search/1024         MARKER                      Found marker within 1024 bytes
+0       search/4096         \x00\x00                    Found null bytes
+0       search/4261301/s    TRUEVISION-XFILE.\0         TGA footer (anchor at match-start)
+0       search/1/w          #!\040/usr/bin/python       Python shebang (flexible whitespace)
 ```
 
 ---

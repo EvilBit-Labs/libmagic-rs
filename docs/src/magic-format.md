@@ -329,6 +329,48 @@ Examples:
 
 **Note on `/T` empty patterns:** `string/T "   "` trims to an empty pattern. The evaluator treats this as no-match (with a `warn!` log) rather than letting it silently match every file. Fix the rule.
 
+### Search Flags
+
+Search flags are specified as `/flags` after the range in search types: `search/N/<flags>`. libmagic-rs implements the full search-type flag semantics (issue #235).
+
+Search flags share most semantics with string flags. Eight flags (`/c`, `/C`, `/w`, `/W`, `/T`, `/f`, `/t`, `/b`) carry the same comparison-altering or metadata-hint meanings as their string-type counterparts. The ninth flag, `/s`, is search-specific: it controls where the previous-match anchor lands for relative-offset children.
+
+| Flag | Description                                                                                                     |
+| ---- | --------------------------------------------------------------------------------------------------------------- |
+| `/s` | Start anchor: sets the previous-match anchor to match-START instead of match-END for relative-offset children |
+| `/c` | Case-insensitive (lowercase): pattern lowercase letters match both cases in buffer                             |
+| `/C` | Case-insensitive (uppercase): pattern uppercase letters match both cases in buffer                             |
+| `/w` | Optional whitespace: pattern whitespace matches zero-or-more buffer whitespace                                 |
+| `/W` | Compact whitespace: pattern whitespace requires ≥1 buffer whitespace                                           |
+| `/T` | Trim whitespace: leading/trailing whitespace in pattern is ignored                                             |
+| `/f` | Full word: post-match word boundary check (same semantics as string type)                                      |
+| `/t` | Text test hint: MIME output hint (parsed, no comparison effect)                                                |
+| `/b` | Binary test hint: MIME output hint (parsed, no comparison effect)                                              |
+
+**Performance note:** Flags `/c`, `/C`, `/w`, `/W`, `/T`, `/f` force byte-by-byte comparison, while `/s`, `/t`, `/b` preserve the fast SIMD-accelerated search path (via `memchr::memmem::find`).
+
+**`/s` anchor semantics:** By default, a search match advances the previous-match anchor to the byte just past the matched pattern (match-END). With `/s`, the anchor lands on the first byte of the match (match-START). This is required for file formats that place magic signatures in trailers or use relative-offset children that reference the signature start (TGA footer, sfnt name table).
+
+Examples:
+
+```text
+# TGA footer with start-anchor (images:114)
+# The magic string "TRUEVISION-XFILE.\0" is in the trailer; /s lets
+# relative-offset children resolve against the signature's start position
+0       search/4261301/s  TRUEVISION-XFILE.\0  TGA image data
+>-8     lelong            x                   \b, offset %d
+
+# Python shebang with optional whitespace (commands:20)
+# Pattern has one space; /w allows zero or more whitespace in the file
+0       search/1/w  #!\040/usr/bin/python  Python script text executable
+
+# BinHex with binary hint (macintosh:17)
+# /b is parsed and stored; comparison-time MIME effect deferred to !:mime
+0       search/2652/b  (This\ file\ must\ be\ converted\ with\ BinHex  BinHex binary text
+```
+
+**Note on `/T` empty patterns:** `search/T "   "` trims to an empty pattern. The evaluator treats this as no-match (with a `warn!` log) rather than letting it silently match every offset. Fix the rule.
+
 ## Operators
 
 ### Comparison Operators

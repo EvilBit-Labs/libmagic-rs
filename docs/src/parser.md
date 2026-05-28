@@ -376,11 +376,11 @@ parse_type_and_operator("regex/cs256")
 
 ### Search Type
 
-The parser supports bounded literal byte sequence searching through the `search` keyword:
+The parser supports bounded literal byte sequence searching through the `search` keyword with optional modifier flags:
 
 **Type Keyword:**
 
-- `search` - Multi-byte pattern search within bounded range → `TypeKind::Search { range }`
+- `search` - Multi-byte pattern search within bounded range → `TypeKind::Search { range, flags }`
 
 **Mandatory Range Parameter:**
 
@@ -390,12 +390,54 @@ Search rules require a decimal range suffix specifying the scan window width in 
 
 Per GNU `file` magic(5) specification, the range is **mandatory**. Bare `search` (no `/N` suffix) and `search/0` are both rejected at parse time.
 
+**SearchFlags Structure:**
+
+The `SearchFlags` struct contains nine boolean fields corresponding to the flag suffixes. Each field defaults to `false` (byte-exact comparison, match-END anchor):
+
+- `start_anchor` (`/s`) - Anchor advances to match-START instead of match-END (required for TGA footer patterns, sfnt name tables)
+- `ignore_lowercase` (`/c`) - Asymmetric case-insensitive: lowercase pattern bytes match either case in buffer
+- `ignore_uppercase` (`/C`) - Asymmetric case-insensitive: uppercase pattern bytes match either case in buffer
+- `compact_optional_whitespace` (`/w`) - Pattern whitespace matches zero-or-more buffer whitespace
+- `compact_whitespace` (`/W`) - Pattern whitespace requires ≥1 buffer whitespace, then absorbs greedily
+- `trim` (`/T`) - Trim leading/trailing ASCII whitespace from pattern at evaluation time
+- `full_word` (`/f`) - Post-match word-boundary check (byte after match must be non-word or end-of-buffer)
+- `text_test` (`/t`) - Hint for text files (captured for MIME-output integration, no current comparison effect)
+- `bin_test` (`/b`) - Hint for binary files (captured for MIME-output integration, no current comparison effect)
+
+The `/B` flag is accepted as a synonym for `/b` in search rules (distinct from pstring's `/B` which is the 1-byte length-width letter).
+
+Flags can be combined in any order (`/cs`, `/sWcT`, etc.). Duplicate letters are accepted idempotently (for example `search/256/cc` sets `ignore_lowercase` once with no side effect).
+
 **Parsing Examples:**
 
 ```rust
-// 256-byte search window
+// 256-byte search window, no flags
 parse_type_and_operator("search/256")
-// → TypeKind::Search { range: NonZeroUsize(256) }
+// → TypeKind::Search {
+//       range: NonZeroUsize(256),
+//       flags: SearchFlags::default(),
+//   }
+
+// Match-start anchor flag
+parse_type_and_operator("search/256/s")
+// → TypeKind::Search {
+//       range: NonZeroUsize(256),
+//       flags: SearchFlags {
+//           start_anchor: true,
+//           ..Default::default()
+//       },
+//   }
+
+// Multiple flags: case-insensitive lowercase + start anchor
+parse_type_and_operator("search/256/cs")
+// → TypeKind::Search {
+//       range: NonZeroUsize(256),
+//       flags: SearchFlags {
+//           ignore_lowercase: true,
+//           start_anchor: true,
+//           ..Default::default()
+//       },
+//   }
 
 // Bare search is a parse error (range is mandatory)
 parse_type_and_operator("search")
@@ -412,14 +454,22 @@ parse_type_and_operator("search/0")
 // Scan up to 256 bytes for DOS MZ header
 0 search/256 "MZ" DOS executable
 
-// Look for ZIP signature within first 1024 bytes
-0 search/1024 "PK\x03\x04" ZIP archive
+// Match-start anchor for TGA footer (signature at end, anchor at start)
+0 search/18/s TRUEVISION-XFILE TGA image
+
+// Case-insensitive search
+0 search/1024/c "content-type:" HTTP header
+
+// Multiple flags: optional whitespace + trim
+0 search/512/wT "version" version string
 ```
 
-**Search Semantics:**
+**Evaluation Semantics:**
 
-- Unlike `TypeKind::String`, which only matches at the exact offset, `search` scans forward up to `range` bytes for the first occurrence of the literal pattern.
-- The anchor advances to the end of the matched pattern (matching libmagic's `FILE_SEARCH` behavior in `softmagic.c::moffset()`).
+- The parser stores flag letters in the `SearchFlags` struct via `parse_search_suffix`, which returns `(NonZeroUsize, SearchFlags)`.
+- Unlike `TypeKind::String` (which only matches at the exact offset), `search` scans forward up to `range` bytes for the first occurrence of the literal pattern.
+- When `SearchFlags::needs_byte_compare()` returns `true` (any of `/c`, `/C`, `/w`, `/W`, `/T`, `/f` is set), the evaluator uses a byte-by-byte walk through `compare_string_with_flags`. When only anchor-only or metadata-only flags (`/s`, `/t`, `/b`) are set, the SIMD-accelerated `memchr::memmem::find` fast path is preserved.
+- The anchor advance is controlled by `start_anchor`: when `true`, the anchor lands at the match-START index (matching libmagic's `STRING_SEARCHEND` behavior); when `false`, the anchor lands at match-END (default, matching `FILE_SEARCH` in `softmagic.c::moffset()`).
 - Search rules only support `Operator::Equal` and `Operator::NotEqual`; other comparison operators are rejected at evaluation time.
 
 **Features:**
@@ -427,7 +477,10 @@ parse_type_and_operator("search/0")
 - ✅ `search` keyword recognition with mandatory `/N` suffix
 - ✅ `NonZeroUsize` range representation (zero-width scan unrepresentable)
 - ✅ Bare `search` and `search/0` rejected at parse time
-- ✅ Binary-safe literal matching via `memchr::memmem::find`
+- ✅ Nine modifier flags (`/s`, `/c`, `/C`, `/w`, `/W`, `/T`, `/t`, `/b`, `/f`) parsed into `SearchFlags` struct
+- ✅ Duplicate flag letters accepted idempotently
+- ✅ Fast-path preservation for anchor-only flags (SIMD memchr when `needs_byte_compare()` is `false`)
+- ✅ Binary-safe literal matching via `memchr::memmem::find` or `compare_string_with_flags`
 
 ### Meta-type Directives (`name`, `use`, `default`, `clear`, `indirect`, `offset`)
 
