@@ -345,6 +345,7 @@ pub(super) fn parse_search_suffix<'a>(
                 // on the type keyword.)
                 'B' | 'b' => flags.bin_test = true,
                 's' => flags.start_anchor = true,
+                'f' => flags.full_word = true,
                 _ => break,
             }
             consumed += ch.len_utf8();
@@ -754,10 +755,26 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_search_suffix_f_sets_full_word() {
+        // `/f` is STRING_FULL_WORD — post-match word-boundary check.
+        let (rest, (range, flags)) =
+            parse_search_suffix("search/256/f", "256/f").expect("search/256/f");
+        assert_eq!(rest, "");
+        assert_eq!(range.get(), 256);
+        assert_eq!(
+            flags,
+            SearchFlags {
+                full_word: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
     fn test_parse_search_suffix_unknown_flag_letter_rejected_via_trailing_junk() {
-        // `f` is not a search flag letter. The flag loop stops at `f`,
-        // leaving `foo` as remainder; the trailing-junk gate then rejects.
-        let result = parse_search_suffix("search/256/sfoo", "256/sfoo");
+        // `z` is not a search flag letter. The flag loop stops at `z`,
+        // leaving `zoo` as remainder; the trailing-junk gate then rejects.
+        let result = parse_search_suffix("search/256/szoo", "256/szoo");
         assert!(
             result.is_err(),
             "unknown flag letter must be rejected by the trailing-junk gate"
