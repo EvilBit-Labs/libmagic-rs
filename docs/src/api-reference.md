@@ -1,7 +1,5 @@
 # API Reference
 
-Complete API documentation for libmagic-rs library components.
-
 ## Core Types
 
 ### MagicDatabase
