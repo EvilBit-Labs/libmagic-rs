@@ -286,9 +286,18 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
                 flags.case_insensitive, flags.start_offset
             )
         }
-        TypeKind::Search { range } => format!(
-            "TypeKind::Search {{ range: ::std::num::NonZeroUsize::new({}).unwrap_or(::std::num::NonZeroUsize::MIN) }}",
-            range.get()
+        TypeKind::Search { range, flags } => format!(
+            "TypeKind::Search {{ range: ::std::num::NonZeroUsize::new({}).unwrap_or(::std::num::NonZeroUsize::MIN), flags: crate::parser::ast::SearchFlags {{ compact_whitespace: {}, compact_optional_whitespace: {}, ignore_lowercase: {}, ignore_uppercase: {}, text_test: {}, trim: {}, bin_test: {}, full_word: {}, start_anchor: {} }} }}",
+            range.get(),
+            flags.compact_whitespace,
+            flags.compact_optional_whitespace,
+            flags.ignore_lowercase,
+            flags.ignore_uppercase,
+            flags.text_test,
+            flags.trim,
+            flags.bin_test,
+            flags.full_word,
+            flags.start_anchor,
         ),
         TypeKind::Meta(meta) => match meta {
             MetaType::Default => "TypeKind::Meta(MetaType::Default)".to_string(),

@@ -677,15 +677,17 @@ pub fn parse_type_and_operator(
         input = rest;
     }
 
-    // Handle search suffix: required decimal range (e.g., `search/256`).
-    // Per GNU `file` magic(5), the range is mandatory. `search/0` and
-    // bare `search` are rejected at parse time via `NonZeroUsize`.
-    let mut search_range: Option<::std::num::NonZeroUsize> = None;
+    // Handle search suffix: required decimal range plus optional flags
+    // (e.g., `search/256`, `search/256/s`, `search/256/cs`). Per GNU
+    // `file` magic(5), the range is mandatory. `search/0` and bare
+    // `search` are rejected at parse time via `NonZeroUsize`.
+    let mut search_suffix: Option<(::std::num::NonZeroUsize, crate::parser::ast::SearchFlags)> =
+        None;
     if type_name == "search"
         && let Some(suffix_rest) = input.strip_prefix('/')
     {
-        let (rest, range) = parse_search_suffix(input, suffix_rest)?;
-        search_range = Some(range);
+        let (rest, parsed) = parse_search_suffix(input, suffix_rest)?;
+        search_suffix = Some(parsed);
         input = rest;
     }
 
@@ -762,10 +764,10 @@ pub fn parse_type_and_operator(
         },
         "search" => {
             // Mandatory range: reject bare `search` at parse time.
-            let range = search_range.ok_or_else(|| {
+            let (range, flags) = search_suffix.ok_or_else(|| {
                 nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Tag))
             })?;
-            TypeKind::Search { range }
+            TypeKind::Search { range, flags }
         }
         _ => {
             // `type_keyword_to_kind` returns:

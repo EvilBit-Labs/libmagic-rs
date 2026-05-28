@@ -18,7 +18,7 @@
 //! This pattern is documented in GOTCHAS 3.9.
 
 use libmagic_rs::evaluator::evaluate_rules;
-use libmagic_rs::parser::ast::{RegexCount, RegexFlags, StringFlags};
+use libmagic_rs::parser::ast::{RegexCount, RegexFlags, SearchFlags, StringFlags};
 use libmagic_rs::parser::{ParsedMagic, parse_text_magic_file};
 use libmagic_rs::{
     EvaluationConfig, EvaluationContext, MagicRule, OffsetSpec, Operator, TypeKind, Value,
@@ -74,6 +74,7 @@ fn search_rule(
         offset,
         typ: TypeKind::Search {
             range: NonZeroUsize::new(range).expect("range must be non-zero"),
+            flags: SearchFlags::default(),
         },
         op: Operator::Equal,
         value: Value::String(pattern.to_string()),

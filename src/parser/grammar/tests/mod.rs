@@ -9,6 +9,7 @@ use crate::parser::ast::Endianness;
 use crate::parser::ast::IndirectAdjustmentOp;
 use crate::parser::ast::MetaType;
 use crate::parser::ast::PStringLengthWidth;
+use crate::parser::ast::SearchFlags;
 use crate::parser::ast::StringFlags;
 
 /// Helper function to test parsing with various whitespace patterns
@@ -2503,6 +2504,7 @@ fn test_parse_type_and_operator_regex_and_search_suffixes() {
     fn sr(n: usize) -> TypeKind {
         TypeKind::Search {
             range: NonZeroUsize::new(n).unwrap(),
+            flags: SearchFlags::default(),
         }
     }
     fn nz(n: u32) -> NonZeroU32 {
@@ -2665,6 +2667,7 @@ fn test_parse_magic_rule_regex_and_search() {
         rule.typ,
         TypeKind::Search {
             range: NonZeroUsize::new(256).unwrap(),
+            flags: SearchFlags::default(),
         }
     );
     assert_eq!(rule.op, Operator::Equal);

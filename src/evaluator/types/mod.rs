@@ -264,7 +264,7 @@ pub fn read_typed_value_with_pattern(
             Ok(read_regex(buffer, offset, pattern_str, *flags, *count)?
                 .unwrap_or_else(|| Value::String(String::new())))
         }
-        TypeKind::Search { range } => {
+        TypeKind::Search { range, flags } => {
             let pattern_bytes: &[u8] = match pattern {
                 Some(Value::String(s)) => s.as_bytes(),
                 Some(Value::Bytes(b)) => b.as_slice(),
@@ -274,7 +274,7 @@ pub fn read_typed_value_with_pattern(
                     });
                 }
             };
-            Ok(read_search(buffer, offset, pattern_bytes, *range)?
+            Ok(read_search(buffer, offset, pattern_bytes, *range, *flags)?
                 .unwrap_or_else(|| Value::String(String::new())))
         }
         TypeKind::Meta(meta) => Err(TypeReadError::UnsupportedType {
@@ -319,7 +319,7 @@ pub(crate) fn read_pattern_match(
             };
             read_regex(buffer, offset, pattern_str, *flags, *count)
         }
-        TypeKind::Search { range } => {
+        TypeKind::Search { range, flags } => {
             let pattern_bytes: &[u8] = match pattern {
                 Some(Value::String(s)) => s.as_bytes(),
                 Some(Value::Bytes(b)) => b.as_slice(),
@@ -329,7 +329,7 @@ pub(crate) fn read_pattern_match(
                     });
                 }
             };
-            read_search(buffer, offset, pattern_bytes, *range)
+            read_search(buffer, offset, pattern_bytes, *range, *flags)
         }
         // Flagged `string` rules go through the pattern-bearing-type
         // contract (GOTCHAS S2.4): on hit return `Some(Value::Bytes(
@@ -716,12 +716,12 @@ pub(crate) fn bytes_consumed_with_pattern(
                 0
             }
         },
-        TypeKind::Search { range } => match pattern {
+        TypeKind::Search { range, flags } => match pattern {
             Some(Value::String(s)) => {
-                search::search_bytes_consumed(buffer, offset, s.as_bytes(), *range)
+                search::search_bytes_consumed(buffer, offset, s.as_bytes(), *range, *flags)
             }
             Some(Value::Bytes(b)) => {
-                search::search_bytes_consumed(buffer, offset, b.as_slice(), *range)
+                search::search_bytes_consumed(buffer, offset, b.as_slice(), *range, *flags)
             }
             other => {
                 debug_assert!(
