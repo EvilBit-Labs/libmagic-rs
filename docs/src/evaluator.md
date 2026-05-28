@@ -4,14 +4,7 @@ The evaluator runs magic rules against a file buffer, walking the rule tree top-
 
 ## Overview
 
-The evaluator processes magic rules hierarchically:
-
-1. **Load file** into memory-mapped buffer
-2. **Resolve offsets** (absolute, relative, from-end)
-3. **Read typed values** from buffer with bounds checking
-4. **Apply operators** for comparison
-5. **Process children** if parent rule matches
-6. **Collect results** with match metadata
+For each top-level rule, the engine loads the file into a memory-mapped buffer, resolves the rule's offset, reads the typed value at that offset, applies the rule's operator against the rule's value, and — if it matched — recurses into the rule's children. Each match produces a `RuleMatch` carrying the offset, value, message, and depth in the hierarchy.
 
 ## Architecture
 
@@ -38,7 +31,7 @@ The evaluator module separates public interface from implementation:
   - **`types/tests.rs`** - Module tests
 - **`evaluator/strength.rs`** - Rule strength calculation
 
-The refactoring improves organization by separating concerns: `mod.rs` handles the public API surface and data types, while `engine/` contains the core evaluation logic. The types module was refactored in v0.4.2 from a single 1,836-line file into focused submodules for numeric, floating-point, date/timestamp, and string handling, improving maintainability without changing the public API. From a public API perspective, all types and functions are imported from the `evaluator` module as before -- the internal organization is transparent to library users.
+From a public API perspective, all types and functions are imported from the `evaluator` module — the internal submodule layout is not part of the public surface.
 
 ## Core Components
 
@@ -100,8 +93,6 @@ The `Value` type is from `parser::ast::Value` and represents the actual matched 
 
 ### Offset Resolution (`evaluator/offset.rs`)
 
-Handles all offset types safely:
-
 - **Absolute offsets**: Direct file positions (`0`, `0x100`)
 - **Relative offsets**: Resolved using `last_match_end + delta` from the previous match anchor (`&+4`, `&-2`)
 - **From-end offsets**: Calculated from file size (`-4` from end)
@@ -120,7 +111,7 @@ Relative offsets resolve as `last_match_end + delta` with bounds and overflow ch
 
 ### Type Reading (`evaluator/types/`)
 
-Interprets bytes according to type specifications. The types module is organized into submodules for numeric, floating-point, date/timestamp, and string type handling (refactored from a single file in v0.4.2):
+The types module is organized into submodules for numeric, floating-point, date/timestamp, string, regex, and search handling. Each submodule reads bytes from the buffer according to one type category.
 
 - **Byte**: Single byte values (signed or unsigned)
 - **Short**: 16-bit integers with endianness
@@ -232,8 +223,6 @@ pub fn read_pstring(
 - Returns `Value::String` with UTF-8 conversion (using lossy conversion for invalid UTF-8)
 
 ### Operator Application (`evaluator/operators.rs`)
-
-Applies comparison operations:
 
 - **Equal** (`=`, `==`): Exact value matching
 - **NotEqual** (`!=`, `<>`): Non-matching values

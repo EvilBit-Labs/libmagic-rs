@@ -2,65 +2,27 @@
 
 [![Crates.io][crates-badge]][crates-link] [![GitHub License][license-badge]][license-link] [![OpenSSF Scorecard][scorecard-badge]][scorecard-link] [![OpenSSF Best Practices][bestpractices-badge]][bestpractices-link]
 
-Welcome to the **libmagic-rs** developer guide! This documentation provides comprehensive information about the pure-Rust implementation of libmagic, the library that powers the `file` command for identifying file types.
+libmagic-rs is a pure-Rust reimplementation of the libmagic library — the file-type detection engine behind the GNU `file` command. The library has no `unsafe` code in its own modules and uses memory-mapped I/O for file reads. The magic-file syntax matches GNU `file` closely; rules written for `file` should mostly work without changes.
 
-## What is libmagic-rs?
+This guide is the developer reference: the library, the `rmagic` CLI, and the magic-file format.
 
-libmagic-rs is a clean-room implementation of the libmagic library, written entirely in Rust. It provides:
+## What's in the box
 
-- **Memory Safety**: Pure Rust with no unsafe code (except vetted dependencies)
-- **Performance**: Memory-mapped I/O for efficient file processing
-- **Compatibility**: Support for standard magic file syntax and formats
-- **Modern Design**: Extensible architecture for contemporary file formats
-- **Multiple Outputs**: Both human-readable text and structured JSON formats
+The parser handles text-format magic files (`Magdir/` directories and individual files), with hierarchical rules, comments, line continuations, and a `parse_text_magic_file()` API. Format detection picks the right loader for a given path automatically.
 
-## Project Status
+The evaluator handles offset resolution (absolute, from-end, relative, indirect), the libmagic type primitives, the operator set (equality, inequality, comparisons, bitwise, any-value), cross-type integer coercion, and per-rule error recovery so a single bad rule doesn't abort the whole match. A `!:strength` directive lets rules adjust their priority.
 
-🚀 **Active Development** - Core components are complete with ongoing feature additions.
+The `rmagic` CLI takes one or more files (or stdin), produces text or JSON output, honors a per-file timeout, and supports `--use-builtin` for a no-external-files mode. Built-in rules ship for ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, and PDF.
 
-### What's Complete
+Smaller pieces worth knowing about: opt-in MIME type mapping, semantic tag extraction from match descriptions, confidence scoring based on hierarchy depth, three configuration presets (`default()`, `performance()`, `comprehensive()`) with security-bound validation, and structured error types covering parse, evaluation, config, file, and timeout failures.
 
-- **Core AST Structures**: Complete data model for magic rules with full serialization
-- **Magic File Parser**: Full text magic file parsing with hierarchical structure, comments, continuations, and `parse_text_magic_file()` API
-- **Format Detection**: Automatic detection of text files, directories (Magdir), and binary .mgc files with helpful error messages
-- **Rule Evaluation Engine**: Complete hierarchical evaluation with offset resolution, type interpretation, comparison operators, cross-type integer coercion, and graceful error recovery
-- **Memory-Mapped I/O**: FileBuffer implementation with memmap2 and comprehensive safety
-- **CLI Tool (`rmagic`)**: Command-line interface with clap, text/JSON output, stdin support, magic file discovery, strict mode, timeouts, and built-in rules
-- **Built-in Rules**: Pre-compiled detection for common file types (ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, PNG, GIF, BMP, PDF) compiled at build time
-- **MIME Type Mapping**: Opt-in MIME type detection via `enable_mime_types` configuration
-- **Strength Calculation**: Rule priority scoring with `!:strength` directive support (add, subtract, multiply, divide, set)
-- **Output Formatters**: Text and JSON output with tag enrichment and JSON Lines for batch processing
-- **Confidence Scoring**: Match confidence based on rule hierarchy depth
-- **Tag Extraction**: Semantic tag extraction from match descriptions (e.g., "executable", "elf", "archive")
-- **Timeout Protection**: Configurable per-file evaluation timeouts to prevent DoS
-- **Configuration Presets**: `performance()`, `comprehensive()`, and `default()` presets with security validation
-- **Project Infrastructure**: Build system, strict linting, pre-commit hooks, and CI/CD
-- **Extensive Test Coverage**: 940+ comprehensive tests covering all modules
-- **Memory Safety**: Zero unsafe code with comprehensive bounds checking
-- **Error Handling**: Structured error types (ParseError, EvaluationError, ConfigError, FileError, Timeout) with graceful degradation
-- **Code Quality**: Strict clippy pedantic linting with zero-warnings policy
+The project is under active development. CI runs ~1,200 tests on every change, clippy runs in pedantic mode with warnings treated as errors, and no `unsafe` code is allowed in library modules.
 
-### Next Milestones
+## What's next
 
-- Indirect offset support (complex pointer dereferencing patterns)
-- Binary .mgc support (compiled magic database format)
-- Rule caching (pre-compiled magic database)
-- Parallel evaluation (multi-file processing)
-- Extended type support (regex, date, etc.)
+Indirect offsets with complex pointer dereferencing patterns, parallel evaluation across multiple files, and broader format coverage are on the roadmap. Binary `.mgc` support is intentionally out of scope — the project is text-magic only, OpenBSD-style.
 
-## Why Rust?
-
-The choice of Rust for this implementation provides several key advantages:
-
-1. **Memory Safety**: Eliminates entire classes of security vulnerabilities
-2. **Performance**: Zero-cost abstractions and efficient compiled code
-3. **Concurrency**: Safe parallelism for processing multiple files
-4. **Ecosystem**: Rich crate ecosystem for parsing, I/O, and serialization
-5. **Maintainability**: Strong type system and excellent tooling
-
-## Architecture Overview
-
-The library follows a clean parser-evaluator architecture:
+## Architecture at a glance
 
 ```mermaid
 flowchart LR
@@ -77,45 +39,27 @@ flowchart LR
     style F fill:#c8e6c9
 ```
 
-This separation allows for:
+Magic files become an AST at load time. The evaluator runs that AST against a file buffer at evaluation time. Output formatters turn results into text or JSON.
 
-- Independent testing of each component
-- Flexible output formatting
-- Efficient rule caching and optimization
-- Clear error handling and debugging
+## How this guide is organized
 
-## How to Use This Guide
+The chapters move from end-user concerns toward internals: getting started and CLI usage first, then library integration and configuration, then architecture and per-module reference, then advanced topics (magic format, testing, performance), then contribution and release process. The appendices cover the API reference, full CLI reference, and example magic rules.
 
-This documentation is organized into five main parts:
+## Getting help
 
-- **Part I: User Guide** - Getting started, CLI usage, and basic library integration
-- **Part II: Architecture & Implementation** - Deep dive into the codebase structure and components
-- **Part III: Advanced Topics** - Magic file formats, testing, and performance optimization
-- **Part IV: Integration & Migration** - Moving from libmagic and troubleshooting
-- **Part V: Development & Contributing** - Contributing guidelines and development setup
-
-The appendices provide quick reference materials for commands, examples, and compatibility information.
-
-## Getting Help
-
-- **Documentation**: This comprehensive guide covers all aspects of the library
-- **API Reference**: Generated rustdoc for detailed API information (Appendix A)
-- **Command Reference**: Complete CLI documentation (Appendix B)
-- **Examples**: Magic file examples and patterns (Appendix C)
-- **Issues**: [GitHub Issues](https://github.com/EvilBit-Labs/libmagic-rs/issues) for bugs and feature requests
-- **Discussions**: [GitHub Discussions](https://github.com/EvilBit-Labs/libmagic-rs/discussions) for questions and ideas
+For bugs and feature requests, use [GitHub Issues](https://github.com/EvilBit-Labs/libmagic-rs/issues). For open-ended questions, [GitHub Discussions](https://github.com/EvilBit-Labs/libmagic-rs/discussions). Generated API documentation is at [docs.rs/libmagic-rs](https://docs.rs/libmagic-rs).
 
 ## Contributing
 
-We welcome contributions! See the [CONTRIBUTING.md](https://github.com/EvilBit-Labs/libmagic-rs/blob/main/CONTRIBUTING.md) file in the repository root and the [Development Setup](./development.md) guide for information on how to get started.
+Contributions welcome. See [CONTRIBUTING.md](https://github.com/EvilBit-Labs/libmagic-rs/blob/main/CONTRIBUTING.md) and the [Development Setup](./development.md) guide.
 
 ## License
 
-This project is licensed under the Apache License 2.0. See the [LICENSE](https://github.com/EvilBit-Labs/libmagic-rs/blob/main/LICENSE) file for details.
+Apache 2.0 — see the [LICENSE](https://github.com/EvilBit-Labs/libmagic-rs/blob/main/LICENSE) file.
 
 ## Acknowledgments
 
-This project is inspired by and respects the original [libmagic](https://www.darwinsys.com/file/) implementation by Ian Darwin and the current maintainers led by Christos Zoulas. We aim to provide a modern, safe alternative while maintaining compatibility with the established magic file format.
+This is a clean-room reimplementation. The original [libmagic](https://www.darwinsys.com/file/) is the work of Ian F. Darwin and Christos Zoulas, with many other contributors over the decades. We have benefited enormously from the magic-file format they shaped, and from the corpus of rules that ships with `file`.
 
 [bestpractices-badge]: https://www.bestpractices.dev/projects/11947/badge
 [bestpractices-link]: https://www.bestpractices.dev/projects/11947
