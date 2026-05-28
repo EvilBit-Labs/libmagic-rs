@@ -369,7 +369,7 @@ Examples:
 0       search/2652/b  (This\ file\ must\ be\ converted\ with\ BinHex  BinHex binary text
 ```
 
-**Note on `/T` empty patterns:** `search/256/T "   "` (or any `search/N/T` with a whitespace-only pattern) trims to an empty pattern. The evaluator treats this as no-match (with a `warn!` log) rather than letting it silently match every offset. Fix the rule. Note that the `/N` range is mandatory — bare `search/T` is a parse error before evaluation ever sees the trim.
+**Note on `/T` empty patterns:** the `/N` range is mandatory, so the example must carry a window like `/256`. A rule such as `search/256/T "   "` (or any `search/N/T` with a whitespace-only pattern) trims to an empty pattern, and the evaluator treats that as no-match (with a `warn!` log) rather than letting it silently match every offset. Fix the rule. Bare `search/T` does not reach the evaluator at all -- it is a parse error before the trim ever runs.
 
 ## Operators
 
