@@ -124,7 +124,7 @@ The types module is organized into submodules for numeric, floating-point, date/
 - **String**: Byte sequences with length limits and flag-based comparison semantics (case-insensitive, whitespace handling, etc.) when flags are present
 - **PString**: Pascal-style length-prefixed strings with 1-byte (`/B`), 2-byte (`/H` or `/h`), or 4-byte (`/L` or `/l`) length prefixes, supporting big-endian and little-endian byte order
 - **Regex**: Binary-safe regex matching via `regex::bytes::Regex`. `/c` enables case-insensitive matching, `/s` advances the relative-offset anchor to match-start instead of match-end, and `/l` measures the scan window in lines instead of bytes (with an 8192-byte hard cap). Multi-line regex matching is always on via unconditional `REG_NEWLINE`, so `^`/`$` match at line boundaries regardless of `/l`.
-- **Search**: Bounded literal pattern scan via `memchr::memmem::find`; `search/N` caps the scan window to `N` bytes from the offset. Range is mandatory and non-zero (`NonZeroUsize`), so bare `search` and `search/0` are parse errors.
+- **Search**: Bounded literal pattern scan with flag support. `search/N` caps the scan window to `N` bytes from the offset; range is mandatory and non-zero (`NonZeroUsize`). Accepts nine flag suffixes (`/s`, `/c`, `/C`, `/w`, `/W`, `/T`, `/f`, `/t`, `/b`) that control scan behavior and anchor advancement. When only anchor-only flags (`/s`, `/t`, `/b`) are set or no flags are present, the SIMD-accelerated `memchr::memmem::find` fast path is used. When comparison-altering flags (`/c`, `/C`, `/w`, `/W`, `/T`, `/f`) are set, a byte-by-byte comparison through `compare_string_with_flags` is used. The `/s` flag sets the previous-match anchor for relative-offset children to match-START instead of match-END.
 - **Bounds checking**: Prevents buffer overruns
 
 ```rust
@@ -621,7 +621,7 @@ assert_eq!(matches_j[0].message, "JPEG-style pstring with self-inclusive length"
 - [x] Indirect offset support (pointer dereferencing, issue #37)
 - [x] Relative offset support (GNU `file` anchor semantics, issue #38)
 - [x] Regex type support (binary-safe `regex::bytes::Regex` with `/c`, `/s`, `/l` flags and 8192-byte cap; unconditional `REG_NEWLINE`)
-- [x] Search type support (bounded literal pattern scan via `memchr::memmem::find` with mandatory `NonZeroUsize` range)
+- [x] Search type support (bounded literal pattern scan via `memchr::memmem::find` with mandatory `NonZeroUsize` range; flag-based dispatch with `/s`/`/c`/`/C`/`/w`/`/W`/`/T`/`/f`/`/t`/`/b` modifiers for scan behavior and anchor advancement; PR #297)
 - [x] String-type flag semantics (`/c`, `/C`, `/w`, `/W`, `/T`, `/f`, `/b`, `/t` modifiers for case-insensitive and whitespace-flexible matching; PR #234)
 - [x] Meta-type directives: `default`, `clear`, `name`/`use` subroutines, `indirect` re-evaluation, `offset` resolved-address reporting (issue #42)
 - [ ] Performance optimizations (rule ordering, caching)
