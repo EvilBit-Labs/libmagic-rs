@@ -8,7 +8,7 @@
 //! re-exports the core evaluation functions from submodules.
 
 use crate::{EvaluationConfig, LibmagicError};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 mod engine;
 pub mod offset;
@@ -396,7 +396,14 @@ impl Drop for RecursionGuard<'_> {
 ///
 /// Contains information extracted from a successful rule match, including
 /// the matched value, position, and confidence score.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+///
+/// This type derives `Serialize` so callers can convert evaluation results
+/// to JSON, but intentionally does NOT derive `Deserialize`: a
+/// reconstructed `RuleMatch` would lack the buffer context it was
+/// produced against, so deserialization is not a meaningful operation.
+/// The output-side conversion layer (`output::MatchResult` /
+/// `output::json::JsonMatchResult`) is the documented JSON contract.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RuleMatch {
     /// The message associated with the matching rule
     pub message: String,
@@ -410,6 +417,16 @@ pub struct RuleMatch {
     ///
     /// Carries the source `TypeKind` so downstream consumers (e.g., output
     /// formatting) can determine the on-disk width of the matched value.
+    ///
+    /// `#[serde(skip)]` keeps the parser AST out of JSON output produced
+    /// by serializing `EvaluationResult` directly via
+    /// `serde_json::to_string(&result)`. The documented JSON contract is
+    /// `JsonMatchResult` in `src/output/json.rs`, which omits this field.
+    /// Origin findings 1B-H2 / 2A-M1 (CWE-200 information exposure).
+    /// Rust-side consumers continue to access `type_kind` via field access
+    /// for runtime needs (`format_magic_message` width-masking,
+    /// `bit_width()` derivation).
+    #[serde(skip)]
     pub type_kind: crate::parser::ast::TypeKind,
     /// Confidence score (0.0 to 1.0)
     ///

@@ -102,7 +102,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 // Re-export modules
 pub mod builtin_rules;
@@ -615,7 +615,7 @@ impl MagicDatabase {
 /// assert_eq!(metadata.file_size, 8192);
 /// assert!(!metadata.timed_out);
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct EvaluationMetadata {
     /// Size of the analyzed file or buffer in bytes
     pub file_size: u64,
@@ -684,7 +684,7 @@ impl Default for EvaluationMetadata {
 /// assert_eq!(result.description, "ELF 64-bit executable");
 /// assert!(result.confidence > 0.5);
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct EvaluationResult {
     /// Human-readable file type description
     ///

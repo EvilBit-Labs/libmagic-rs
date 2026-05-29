@@ -324,3 +324,97 @@ fn test_cli_json_vs_text_output() {
         "Text output should contain filename"
     );
 }
+
+// =============================================================================
+// 1B-H2 / 2A-M1: RuleMatch.type_kind must not leak into JSON output
+// =============================================================================
+
+/// Library-side `EvaluationResult` carries `RuleMatch.type_kind: TypeKind`
+/// for runtime needs (width-masking, bit_width derivation). Serializing
+/// the result directly via `serde_json::to_string` must NOT expose the
+/// parser AST to JSON consumers. The documented JSON contract is
+/// `output::json::JsonMatchResult` which omits this field; the library
+/// type now matches that contract via `#[serde(skip)]` on the field.
+///
+/// Origin findings 1B-H2 (CWE-200 information exposure through serialized
+/// AST shape) and 2A-M1 (security-lens variant).
+#[test]
+fn test_rule_match_type_kind_not_serialized_in_evaluation_result() {
+    use libmagic_rs::parser::ast::{TypeKind, Value};
+    use libmagic_rs::{EvaluationMetadata, EvaluationResult, evaluator::RuleMatch};
+
+    // Construct an EvaluationResult containing a RuleMatch whose
+    // `type_kind` is a fully-qualified TypeKind variant. Then serialize
+    // it and assert the rendered JSON contains no `type_kind` key.
+    let rule_match = RuleMatch {
+        message: "ELF executable".to_string(),
+        offset: 0,
+        level: 0,
+        value: Value::Uint(0x7f),
+        type_kind: TypeKind::Byte { signed: false },
+        confidence: 0.9,
+    };
+    let metadata = EvaluationMetadata::default();
+    let result = EvaluationResult {
+        description: "ELF executable".to_string(),
+        mime_type: None,
+        confidence: 0.9,
+        matches: vec![rule_match],
+        metadata,
+    };
+
+    let json = serde_json::to_string(&result).expect("must serialize");
+
+    assert!(
+        !json.contains("type_kind"),
+        "EvaluationResult JSON must not contain `type_kind` key \
+         (1B-H2 / 2A-M1 regression: parser AST leaking into JSON output). \
+         Got: {json}"
+    );
+
+    // The `value` field (the matched data) and `confidence` should still
+    // be present -- sanity check that #[serde(skip)] only excluded
+    // type_kind, not the surrounding fields.
+    assert!(
+        json.contains("\"value\""),
+        "EvaluationResult JSON should still include `value`"
+    );
+    assert!(
+        json.contains("\"confidence\""),
+        "EvaluationResult JSON should still include `confidence`"
+    );
+}
+
+/// Sanity check: the `type_kind` field is still accessible from Rust
+/// code after `#[serde(skip)]`. The attribute affects serde only; field
+/// access for runtime consumers (`format_magic_message`, `bit_width()`
+/// derivation) is unchanged.
+#[test]
+fn test_rule_match_type_kind_still_accessible_in_rust() {
+    use libmagic_rs::evaluator::RuleMatch;
+    use libmagic_rs::parser::ast::{Endianness, TypeKind, Value};
+
+    let m = RuleMatch {
+        message: "test".to_string(),
+        offset: 0,
+        level: 0,
+        value: Value::Uint(0),
+        type_kind: TypeKind::Long {
+            endian: Endianness::Little,
+            signed: false,
+        },
+        confidence: 1.0,
+    };
+
+    // Field access still works
+    match m.type_kind {
+        TypeKind::Long {
+            endian: Endianness::Little,
+            signed: false,
+        } => {}
+        ref other => panic!("type_kind field access broke: got {other:?}"),
+    }
+
+    // bit_width() derivation still works (relied on by format_magic_message)
+    assert_eq!(m.type_kind.bit_width(), Some(32));
+}
