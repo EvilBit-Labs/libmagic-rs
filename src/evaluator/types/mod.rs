@@ -103,12 +103,12 @@ pub enum TypeReadError {
 
 /// Default `max_string_length` used by [`read_typed_value`] when callers
 /// do not supply an explicit cap. Matches
-/// `EvaluationConfig::default().max_string_length` so unit tests that
+/// `EvaluationConfig::default().max_string_length` so call sites that
 /// invoke `read_typed_value` directly see the same scan-mode bound the
 /// engine applies at evaluation time. The engine call path
 /// (`evaluate_value_rule`) threads the user-configured cap, so this
-/// constant only governs ad-hoc / test usage.
-#[cfg(test)]
+/// constant only governs internal helper / test usage.
+#[allow(dead_code)]
 pub(crate) const DEFAULT_MAX_STRING_LENGTH: usize = 8192;
 
 /// Reads bytes according to the specified `TypeKind`.
@@ -136,9 +136,12 @@ pub(crate) const DEFAULT_MAX_STRING_LENGTH: usize = 8192;
 /// [`DEFAULT_MAX_STRING_LENGTH`] (8192 bytes, matching
 /// `EvaluationConfig::default()`). The engine's value-rule path supplies
 /// the user-configured cap via [`read_typed_value_with_pattern`] directly,
-/// so this helper exists solely for unit tests that want a one-shot
-/// type-read without constructing a context.
-#[cfg(test)]
+/// so this helper exists for internal callers (tests, future fuzz
+/// harnesses) that want a one-shot type-read without constructing a
+/// context. The lib build doesn't currently call it; the `dead_code`
+/// allow keeps the helper available for `#[cfg(test)]` modules without
+/// gating its visibility, so a future fuzz harness can reuse it.
+#[allow(dead_code)]
 pub(crate) fn read_typed_value(
     buffer: &[u8],
     offset: usize,
@@ -148,30 +151,31 @@ pub(crate) fn read_typed_value(
 }
 
 /// Reads bytes according to the specified `TypeKind`, threading a
-/// `pattern` operand through for pattern-bearing types (`Regex`, `Search`).
+/// `pattern` operand through for non-pattern-bearing types whose
+/// dispatch arm consults the rule's value operand (e.g. `TypeKind::String`
+/// equality matches against the literal pattern bytes).
 ///
-/// This is the internal dispatch entry point used by the evaluation engine
-/// to evaluate pattern-bearing types. The engine threads the rule's value
-/// operand through as `pattern` so the regex and search readers can
-/// compile/locate it against the buffer. For fixed-width and non-pattern
-/// types (numeric, float, date, string, pstring), the `pattern` parameter
-/// is ignored; external callers for those types should prefer the simpler
-/// three-argument [`read_typed_value`] wrapper.
+/// This is the internal dispatch entry point for value-rule evaluation.
+/// Pattern-bearing types (`TypeKind::Regex`, `TypeKind::Search`, and
+/// flagged `TypeKind::String`) are routed through [`read_pattern_match`]
+/// by the engine instead; this function returns
+/// `TypeReadError::UnsupportedType` if called with those variants so a
+/// programmatic caller mis-routing them surfaces immediately rather than
+/// silently producing wrong results.
 ///
 /// # Errors
 ///
 /// Returns `TypeReadError::BufferOverrun` when the requested value extends
-/// past the buffer bounds, `TypeReadError::UnsupportedType` when a regex
-/// pattern fails to compile or a pattern-bearing type is evaluated without
-/// a pattern, or `TypeReadError::InvalidPStringLength` for a malformed
-/// Pascal string length prefix.
+/// past the buffer bounds, `TypeReadError::UnsupportedType` when a
+/// pattern-bearing type is evaluated through this path instead of via
+/// [`read_pattern_match`], or `TypeReadError::InvalidPStringLength` for a
+/// malformed Pascal string length prefix.
 ///
 /// `max_string_length` bounds the scan-mode string read on the
 /// `(None, _)` arm of [`TypeKind::String`]. Without it, `string x` rules
 /// against an attacker-controlled NUL-free buffer could allocate up to
-/// the full buffer length (origin finding 2A-H1 / CWE-770). The cap is
-/// wired from [`EvaluationContext::max_string_length`] at the engine call
-/// site.
+/// the full buffer length (CWE-770). The cap is wired from
+/// `EvaluationContext::max_string_length` at the engine call site.
 pub(crate) fn read_typed_value_with_pattern(
     buffer: &[u8],
     offset: usize,
@@ -379,17 +383,25 @@ pub(crate) fn read_pattern_match(
             // produces no match via `compare_string_with_flags`'s EOF
             // handling -- no special case needed.
             //
-            // 2A-H1: When AST `max_length` is `None`, fall back to the
+            // CWE-770: When AST `max_length` is `None`, fall back to the
             // configured `max_string_length` cap rather than passing the
             // full buffer. The cap is applied to the buffer's UPPER bound
             // (not pre-sliced from `offset`) because
             // `compare_string_with_flags` slices internally via
             // `buffer.get(offset..)?` -- pre-slicing would double-offset
             // and silently produce no-match at any non-zero offset.
+            //
+            // `end` is constructed with `saturating_add` then `.min(buffer.len())`
+            // so the slice always satisfies `end <= buffer.len()`. We slice
+            // directly with `&buffer[..end]` rather than
+            // `buffer.get(..end).unwrap_or(buffer)` so that any future
+            // refactor that breaks the clamp invariant fails loudly (panic)
+            // instead of silently falling back to the uncapped buffer --
+            // which would defeat the CWE-770 control.
             let scan_buffer: &[u8] = {
                 let cap = max_length.unwrap_or(max_string_length);
                 let end = offset.saturating_add(cap).min(buffer.len());
-                buffer.get(..end).unwrap_or(buffer)
+                &buffer[..end]
             };
             match string::compare_string_with_flags(trimmed, scan_buffer, offset, *flags) {
                 Some(consumed) => {

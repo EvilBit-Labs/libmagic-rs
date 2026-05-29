@@ -58,7 +58,8 @@ pub struct EvaluationConfig {
     /// Does NOT apply to:
     /// - `TypeKind::PString`: returns `TypeReadError::BufferOverrun`
     ///   rather than truncating when the length prefix exceeds the
-    ///   remaining buffer (per GOTCHAS S6.1).
+    ///   remaining buffer (per GOTCHAS S3.8's pstring anchor-clamp
+    ///   invariant).
     /// - `TypeKind::String16`: bounded by a hardcoded
     ///   `STRING16_MAX_UNITS = 8192` ceiling at 2 bytes per unit.
     pub max_string_length: usize,

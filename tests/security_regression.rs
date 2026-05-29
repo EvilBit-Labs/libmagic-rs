@@ -289,6 +289,52 @@ fn test_max_string_length_caps_unflagged_string_x() {
     );
 }
 
+/// Flagged path with non-zero offset: pins that the `scan_buffer`
+/// construction caps the buffer's UPPER bound rather than pre-slicing
+/// from `offset`. A future "simplification" that swaps
+/// `&buffer[..end]` for `&buffer[offset..end]` would silently double-
+/// offset the comparator (which slices `buffer.get(offset..)?`
+/// internally) and break every flagged-string rule at non-zero offset.
+///
+/// This test was added in response to PR #304 review finding TS-1 from
+/// `pr-review-toolkit:review-pr`.
+#[test]
+fn test_max_string_length_flagged_path_works_at_non_zero_offset() {
+    use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
+    use libmagic_rs::parser::ast::StringFlags;
+    use libmagic_rs::{MagicRule, OffsetSpec, Operator, TypeKind, Value};
+
+    // Buffer: 50 bytes of 'A', then the literal pattern "hit" at offset 50.
+    let mut buf = vec![b'A'; 50];
+    buf.extend_from_slice(b"hit");
+
+    // Flagged-`/c` rule at offset 50, looking for "hit". With a cap of
+    // 1024 (well above the offset + pattern), the comparator must find
+    // the match. If the scan_buffer construction were pre-sliced from
+    // `offset`, the comparator's internal `get(offset..)` would skip
+    // past the pattern and find nothing.
+    let rule = MagicRule::new(
+        OffsetSpec::Absolute(50),
+        TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default().with_ignore_lowercase(true),
+        },
+        Operator::Equal,
+        Value::String("hit".to_string()),
+        "found at offset".to_string(),
+    );
+    let config = EvaluationConfig::default().with_max_string_length(1024);
+    let mut ctx = EvaluationContext::new(config);
+    let matches =
+        evaluate_rules(std::slice::from_ref(&rule), &buf, &mut ctx).expect("must not error");
+    assert_eq!(
+        matches.len(),
+        1,
+        "flagged string/c at offset 50 must match `hit` with cap=1024; \
+         a regression to pre-slice from offset would break this"
+    );
+}
+
 /// Flagged-`/W` path: a `string/W "X "` rule against a buffer of all
 /// whitespace must walk only `max_string_length` bytes before giving up,
 /// not the full buffer. Origin 2A-H1 (flagged-string scan-window variant)
