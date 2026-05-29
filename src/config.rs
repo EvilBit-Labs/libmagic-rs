@@ -48,8 +48,19 @@ pub struct EvaluationConfig {
 
     /// Maximum string length to read
     ///
-    /// This limits the amount of data read for string types to prevent
-    /// excessive memory usage. Default is 8192 bytes.
+    /// Caps the buffer-length allocation for scan-mode reads of
+    /// `TypeKind::String` (both the unflagged `(None, _)` arm and the
+    /// flagged `/c`/`/C`/`/w`/`/W`/`/T`/`/f` arm). Without this cap, a
+    /// `string x` rule against an attacker-controlled NUL-free buffer
+    /// could allocate up to the full buffer length -- the CWE-770
+    /// control documented at this field. Default is 8192 bytes.
+    ///
+    /// Does NOT apply to:
+    /// - `TypeKind::PString`: returns `TypeReadError::BufferOverrun`
+    ///   rather than truncating when the length prefix exceeds the
+    ///   remaining buffer (per GOTCHAS S6.1).
+    /// - `TypeKind::String16`: bounded by a hardcoded
+    ///   `STRING16_MAX_UNITS = 8192` ceiling at 2 bytes per unit.
     pub max_string_length: usize,
 
     /// Stop at first match or continue for all matches

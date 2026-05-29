@@ -158,6 +158,15 @@ The I/O layer mitigates the common shapes of this attack by canonicalizing the p
 
 The `evaluate_file` rustdoc (`# Security` section) cross-references this subsection.
 
+### 7.3 `max_string_length` Coverage Gaps
+
+`EvaluationConfig::max_string_length` caps the buffer-length allocation for `TypeKind::String` scan-mode reads (both the unflagged `(None, _)` arm of `read_typed_value_with_pattern` and the flagged-string arm of `read_pattern_match`). It does **not** govern two adjacent string-family read paths:
+
+- **`TypeKind::PString`** uses an explicit length prefix decoded from the buffer and returns `TypeReadError::BufferOverrun` (rather than truncating) when the prefix declares a length that exceeds the remaining buffer. The error-on-overrun behaviour is a real bound -- the read function cannot allocate past the buffer length -- but it differs from the configurable cap that `max_string_length` provides. See GOTCHAS S6.1 for the load-bearing pstring clamp documentation.
+- **`TypeKind::String16`** is capped at a hardcoded `STRING16_MAX_UNITS = 8192` ceiling (2 bytes per UCS-2 unit, so up to 16 384 bytes per read). The configured cap is not consulted on this path.
+
+**Mitigation for callers:** Embedders who need a configurable cap on `String16` or `PString` reads cannot rely on `EvaluationConfig::max_string_length` for those types today. The existing built-in bounds (16 KiB ceiling on String16, error-on-overrun on PString) constrain the worst-case allocation. A configurable cap for these paths is tracked as follow-up work; the threat model entry will be updated when it lands.
+
 ## 8. Ongoing Assurance
 
 This assurance case is maintained as a living document. It is updated when:

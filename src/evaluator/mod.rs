@@ -301,11 +301,20 @@ impl EvaluationContext {
         self.config.stop_at_first_match
     }
 
-    /// Get the maximum string length allowed
+    /// Get the maximum string length allowed for scan-mode string reads.
+    ///
+    /// Threaded into both string-read dispatchers
+    /// (`read_typed_value_with_pattern` for the unflagged `(None, _)` arm
+    /// and `read_pattern_match` for the flagged `/c`/`/C`/`/w`/`/W`/`/T`/`/f`
+    /// arm) so they cap the buffer-length allocation against this value.
+    /// Does NOT apply to `TypeKind::PString` (which errors on oversized
+    /// length prefixes per GOTCHAS S6.1) or `TypeKind::String16` (capped
+    /// at a hardcoded `STRING16_MAX_UNITS = 8192` ceiling).
     ///
     /// # Returns
     ///
-    /// The maximum string length that should be read during evaluation
+    /// The configured `max_string_length` (default 8192 bytes per
+    /// `EvaluationConfig::default()`).
     #[must_use]
     pub const fn max_string_length(&self) -> usize {
         self.config.max_string_length
