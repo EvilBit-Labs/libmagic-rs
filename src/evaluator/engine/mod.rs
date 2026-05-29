@@ -162,17 +162,7 @@ static INDIRECT_WITHOUT_RULE_ENV_WARNED: AtomicBool = AtomicBool::new(false);
 /// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
 ///
 /// // Create a rule to check for ELF magic bytes at offset 0
-/// let rule = MagicRule {
-///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte { signed: true },
-///     op: Operator::Equal,
-///     value: Value::Uint(0x7f),
-///     message: "ELF magic".to_string(),
-///     children: vec![],
-///     level: 0,
-///     strength_modifier: None,
-/// value_transform: None,
-/// };
+/// let rule = MagicRule::new(OffsetSpec::Absolute(0), TypeKind::Byte { signed: true }, Operator::Equal, Value::Uint(0x7f), "ELF magic".to_string());
 ///
 /// let mut context = EvaluationContext::new(EvaluationConfig::default());
 /// let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
@@ -594,29 +584,23 @@ fn evaluate_children_or_warn(
 /// use libmagic_rs::EvaluationConfig;
 ///
 /// // Create a hierarchical rule set for ELF files
-/// let parent_rule = MagicRule {
-///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte { signed: true },
-///     op: Operator::Equal,
-///     value: Value::Uint(0x7f),
-///     message: "ELF".to_string(),
-///     children: vec![
-///         MagicRule {
-///             offset: OffsetSpec::Absolute(4),
-///             typ: TypeKind::Byte { signed: true },
-///             op: Operator::Equal,
-///             value: Value::Uint(2),
-///             message: "64-bit".to_string(),
-///             children: vec![],
-///             level: 1,
-///             strength_modifier: None,
-///         value_transform: None,
-///         }
-///     ],
-///     level: 0,
-///     strength_modifier: None,
-/// value_transform: None,
-/// };
+/// let parent_rule = MagicRule::new(
+///     OffsetSpec::Absolute(0),
+///     TypeKind::Byte { signed: true },
+///     Operator::Equal,
+///     Value::Uint(0x7f),
+///     "ELF".to_string(),
+/// )
+/// .with_children(vec![
+///     MagicRule::new(
+///         OffsetSpec::Absolute(4),
+///         TypeKind::Byte { signed: true },
+///         Operator::Equal,
+///         Value::Uint(2),
+///         "64-bit".to_string(),
+///     )
+///     .with_level(1),
+/// ]);
 ///
 /// let rules = vec![parent_rule];
 /// let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 header
@@ -736,14 +720,14 @@ pub fn evaluate_rules(
             if !sibling_matched {
                 let matches_before = matches.len();
 
-                let match_result = RuleMatch {
-                    message: rule.message.clone(),
-                    offset: context.last_match_end(),
-                    level: rule.level,
-                    value: crate::parser::ast::Value::Uint(0),
-                    type_kind: rule.typ.clone(),
-                    confidence: RuleMatch::calculate_confidence(rule.level),
-                };
+                let match_result = RuleMatch::new(
+                    rule.message.clone(),
+                    context.last_match_end(),
+                    rule.level,
+                    crate::parser::ast::Value::Uint(0),
+                    rule.typ.clone(),
+                    RuleMatch::calculate_confidence(rule.level),
+                );
                 matches.push(match_result);
 
                 // `default` is treated as a successful match at this
@@ -832,14 +816,14 @@ pub fn evaluate_rules(
             // directive's own `message` never surfaces in the output.
             context.set_last_match_end(absolute_offset);
 
-            let indirect_match = RuleMatch {
-                message: rule.message.clone(),
-                offset: absolute_offset,
-                level: rule.level,
-                value: crate::parser::ast::Value::String("indirect".to_string()),
-                type_kind: rule.typ.clone(),
-                confidence: RuleMatch::calculate_confidence(rule.level),
-            };
+            let indirect_match = RuleMatch::new(
+                rule.message.clone(),
+                absolute_offset,
+                rule.level,
+                crate::parser::ast::Value::String("indirect".to_string()),
+                rule.typ.clone(),
+                RuleMatch::calculate_confidence(rule.level),
+            );
             matches.push(indirect_match);
 
             // Indirect counts as a match for `sibling_matched` regardless of
@@ -935,14 +919,14 @@ pub fn evaluate_rules(
             // `Indirect` and every other value-bearing rule.
             context.set_last_match_end(absolute_offset);
 
-            let offset_match = RuleMatch {
-                message: rule.message.clone(),
-                offset: absolute_offset,
-                level: rule.level,
-                value: crate::parser::ast::Value::Uint(absolute_offset as u64),
-                type_kind: rule.typ.clone(),
-                confidence: RuleMatch::calculate_confidence(rule.level),
-            };
+            let offset_match = RuleMatch::new(
+                rule.message.clone(),
+                absolute_offset,
+                rule.level,
+                crate::parser::ast::Value::Uint(absolute_offset as u64),
+                rule.typ.clone(),
+                RuleMatch::calculate_confidence(rule.level),
+            );
             matches.push(offset_match);
 
             sibling_matched = true;
@@ -1086,14 +1070,14 @@ pub fn evaluate_rules(
             // default-after-match semantics.
             sibling_matched = true;
 
-            let match_result = RuleMatch {
-                message: rule.message.clone(),
-                offset: absolute_offset,
-                level: rule.level,
-                value: read_value,
-                type_kind: rule.typ.clone(),
-                confidence: RuleMatch::calculate_confidence(rule.level),
-            };
+            let match_result = RuleMatch::new(
+                rule.message.clone(),
+                absolute_offset,
+                rule.level,
+                read_value,
+                rule.typ.clone(),
+                RuleMatch::calculate_confidence(rule.level),
+            );
             matches.push(match_result);
 
             // If this rule has children, evaluate them recursively
@@ -1182,17 +1166,7 @@ pub fn evaluate_rules(
 /// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
 /// use libmagic_rs::EvaluationConfig;
 ///
-/// let rule = MagicRule {
-///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte { signed: true },
-///     op: Operator::Equal,
-///     value: Value::Uint(0x7f),
-///     message: "ELF magic".to_string(),
-///     children: vec![],
-///     level: 0,
-///     strength_modifier: None,
-/// value_transform: None,
-/// };
+/// let rule = MagicRule::new(OffsetSpec::Absolute(0), TypeKind::Byte { signed: true }, Operator::Equal, Value::Uint(0x7f), "ELF magic".to_string());
 ///
 /// let rules = vec![rule];
 /// let buffer = &[0x7f, 0x45, 0x4c, 0x46];

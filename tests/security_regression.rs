@@ -147,20 +147,16 @@ fn test_regex_compile_bounded_for_pathological_patterns() {
     let config = EvaluationConfig::default().with_timeout_ms(Some(1000));
 
     for (pat, label) in cases {
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Regex {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Regex {
                 flags: RegexFlags::default(),
                 count: RegexCount::Default,
             },
-            op: Operator::Equal,
-            value: Value::String((*pat).to_string()),
-            message: "never-matches".to_string(),
-            children: vec![],
-            level: 0,
-            strength_modifier: None,
-            value_transform: None,
-        };
+            Operator::Equal,
+            Value::String((*pat).to_string()),
+            "never-matches".to_string(),
+        );
 
         let mut ctx = EvaluationContext::new(config.clone());
         let start = Instant::now();
@@ -409,6 +405,24 @@ fn test_max_string_length_unflagged_stops_at_nul_before_cap() {
         "unflagged path must stop at NUL even when cap is larger; \
          got {} bytes",
         captured_len(&v)
+    );
+}
+
+/// SF-1 defense: `EvaluationContext::new` must clamp `max_string_length = 0`
+/// to a safe default. The validator at `EvaluationConfig::validate()` rejects
+/// 0, but struct-literal construction and the `with_max_string_length`
+/// builder can bypass it. Without the clamp, an invalid config silently
+/// disables the CWE-770 control.
+#[test]
+fn test_evaluation_context_clamps_invalid_max_string_length() {
+    use libmagic_rs::evaluator::EvaluationContext;
+    let invalid = EvaluationConfig::default().with_max_string_length(0);
+    let ctx = EvaluationContext::new(invalid);
+    assert!(
+        ctx.max_string_length() >= 1,
+        "EvaluationContext::new must clamp max_string_length=0 to a safe default; \
+         got {} (SF-1 regression)",
+        ctx.max_string_length()
     );
 }
 

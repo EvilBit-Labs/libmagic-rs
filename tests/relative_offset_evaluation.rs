@@ -22,17 +22,7 @@ fn cfg() -> EvaluationConfig {
 }
 
 fn child_rule(offset: OffsetSpec, typ: TypeKind, value: Value, message: &str) -> MagicRule {
-    MagicRule {
-        offset,
-        typ,
-        op: Operator::Equal,
-        value,
-        message: message.to_string(),
-        children: vec![],
-        level: 1,
-        strength_modifier: None,
-        value_transform: None,
-    }
+    MagicRule::new(offset, typ, Operator::Equal, value, message.to_string()).with_level(1)
 }
 
 #[test]
@@ -42,28 +32,25 @@ fn relative_child_after_long_parent() {
     // and reads at offset 4 (= parent end).
     let buffer = [0x78, 0x56, 0x34, 0x12, 0xBE, 0xBA, 0xFE, 0xCA];
 
-    let parent = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Long {
+    let parent = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Long {
             endian: Endianness::Little,
             signed: false,
         },
-        op: Operator::Equal,
-        value: Value::Uint(0x1234_5678),
-        message: "parent-long".to_string(),
-        children: vec![child_rule(
-            OffsetSpec::Relative(0),
-            TypeKind::Long {
-                endian: Endianness::Little,
-                signed: false,
-            },
-            Value::Uint(0xCAFE_BABE),
-            "child-long",
-        )],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::Uint(0x1234_5678),
+        "parent-long".to_string(),
+    )
+    .with_children(vec![child_rule(
+        OffsetSpec::Relative(0),
+        TypeKind::Long {
+            endian: Endianness::Little,
+            signed: false,
+        },
+        Value::Uint(0xCAFE_BABE),
+        "child-long",
+    )]);
 
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[parent], &buffer, &mut ctx).unwrap();
@@ -80,22 +67,19 @@ fn relative_child_with_positive_delta() {
     // at offset 1 (parent_end) + 2 = 3.
     let buffer = [0x7F, 0xAA, 0xBB, 0x42, 0xCC];
 
-    let parent = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte { signed: false },
-        op: Operator::Equal,
-        value: Value::Uint(0x7F),
-        message: "p".to_string(),
-        children: vec![child_rule(
-            OffsetSpec::Relative(2),
-            TypeKind::Byte { signed: false },
-            Value::Uint(0x42),
-            "c",
-        )],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+    let parent = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Byte { signed: false },
+        Operator::Equal,
+        Value::Uint(0x7F),
+        "p".to_string(),
+    )
+    .with_children(vec![child_rule(
+        OffsetSpec::Relative(2),
+        TypeKind::Byte { signed: false },
+        Value::Uint(0x42),
+        "c",
+    )]);
 
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[parent], &buffer, &mut ctx).unwrap();
@@ -109,25 +93,22 @@ fn relative_child_with_negative_delta() {
     // (4+4) - 7 = 1.
     let buffer = [0x00, 0xAA, 0x00, 0x00, 0x78, 0x56, 0x34, 0x12, 0x00];
 
-    let parent = MagicRule {
-        offset: OffsetSpec::Absolute(4),
-        typ: TypeKind::Long {
+    let parent = MagicRule::new(
+        OffsetSpec::Absolute(4),
+        TypeKind::Long {
             endian: Endianness::Little,
             signed: false,
         },
-        op: Operator::Equal,
-        value: Value::Uint(0x1234_5678),
-        message: "p".to_string(),
-        children: vec![child_rule(
-            OffsetSpec::Relative(-7),
-            TypeKind::Byte { signed: false },
-            Value::Uint(0xAA),
-            "c",
-        )],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::Uint(0x1234_5678),
+        "p".to_string(),
+    )
+    .with_children(vec![child_rule(
+        OffsetSpec::Relative(-7),
+        TypeKind::Byte { signed: false },
+        Value::Uint(0xAA),
+        "c",
+    )]);
 
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[parent], &buffer, &mut ctx).unwrap();
@@ -165,20 +146,17 @@ fn relative_chain_marches_forward() {
     );
     middle.children = vec![leaf];
 
-    let root = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Long {
+    let root = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Long {
             endian: Endianness::Little,
             signed: false,
         },
-        op: Operator::Equal,
-        value: Value::Uint(0x1234_5678),
-        message: "root".to_string(),
-        children: vec![middle],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::Uint(0x1234_5678),
+        "root".to_string(),
+    )
+    .with_children(vec![middle]);
 
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[root], &buffer, &mut ctx).unwrap();
@@ -193,25 +171,22 @@ fn relative_after_string_parent_includes_nul_terminator() {
     // byte the child reads via Relative(0).
     let buffer = b"MZ\x00\x42rest";
 
-    let parent = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::String {
+    let parent = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::String {
             max_length: None,
             flags: StringFlags::default(),
         },
-        op: Operator::Equal,
-        value: Value::String("MZ".to_string()),
-        message: "mz".to_string(),
-        children: vec![child_rule(
-            OffsetSpec::Relative(0),
-            TypeKind::Byte { signed: false },
-            Value::Uint(0x42),
-            "byte-after-mz",
-        )],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::String("MZ".to_string()),
+        "mz".to_string(),
+    )
+    .with_children(vec![child_rule(
+        OffsetSpec::Relative(0),
+        TypeKind::Byte { signed: false },
+        Value::Uint(0x42),
+        "byte-after-mz",
+    )]);
 
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[parent], buffer, &mut ctx).unwrap();
@@ -228,27 +203,24 @@ fn relative_after_string_parent_includes_nul_terminator() {
 #[test]
 fn relative_after_flagged_string_parent_includes_nul_terminator() {
     let buffer = b"MZ\x00\x42rest";
-    let parent = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::String {
+    let parent = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::String {
             max_length: None,
             flags: StringFlags::default().with_ignore_lowercase(true),
         },
-        op: Operator::Equal,
+        Operator::Equal,
         // Lowercase pattern: /c folds the file byte to lower, so "mz"
         // matches "MZ" in the buffer. Same flagged dispatch path.
-        value: Value::String("mz".to_string()),
-        message: "mz-flagged".to_string(),
-        children: vec![child_rule(
-            OffsetSpec::Relative(0),
-            TypeKind::Byte { signed: false },
-            Value::Uint(0x42),
-            "byte-after-mz-flagged",
-        )],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Value::String("mz".to_string()),
+        "mz-flagged".to_string(),
+    )
+    .with_children(vec![child_rule(
+        OffsetSpec::Relative(0),
+        TypeKind::Byte { signed: false },
+        Value::Uint(0x42),
+        "byte-after-mz-flagged",
+    )]);
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[parent], buffer, &mut ctx).unwrap();
     assert_eq!(
@@ -274,20 +246,16 @@ fn flagged_string_respects_max_length_cap() {
     // scan window is 2 bytes ("a " or just "ab"), which doesn't
     // contain a 'b' to complete the match.
     let buffer = b"a              b!";
-    let rule = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::String {
+    let rule = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::String {
             max_length: Some(2),
             flags: StringFlags::default().with_compact_optional_whitespace(true),
         },
-        op: Operator::Equal,
-        value: Value::String("a b".to_string()),
-        message: "should-not-match".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::String("a b".to_string()),
+        "should-not-match".to_string(),
+    );
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[rule], buffer, &mut ctx).unwrap();
     assert!(
@@ -302,26 +270,23 @@ fn relative_after_pstring_parent_consumes_prefix_and_payload() {
     // total), then a byte at offset 6.
     let buffer = b"\x05Hello\x42tail";
 
-    let parent = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::PString {
+    let parent = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::PString {
             max_length: None,
             length_width: PStringLengthWidth::OneByte,
             length_includes_itself: false,
         },
-        op: Operator::Equal,
-        value: Value::String("Hello".to_string()),
-        message: "pstr".to_string(),
-        children: vec![child_rule(
-            OffsetSpec::Relative(0),
-            TypeKind::Byte { signed: false },
-            Value::Uint(0x42),
-            "byte-after-pstr",
-        )],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::String("Hello".to_string()),
+        "pstr".to_string(),
+    )
+    .with_children(vec![child_rule(
+        OffsetSpec::Relative(0),
+        TypeKind::Byte { signed: false },
+        Value::Uint(0x42),
+        "byte-after-pstr",
+    )]);
 
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[parent], buffer, &mut ctx).unwrap();
@@ -334,17 +299,13 @@ fn relative_top_level_resolves_from_zero_anchor() {
     // No prior match: top-level Relative(2) -> absolute 2.
     let buffer = [0xAA, 0xBB, 0x42, 0xCC];
 
-    let rule = MagicRule {
-        offset: OffsetSpec::Relative(2),
-        typ: TypeKind::Byte { signed: false },
-        op: Operator::Equal,
-        value: Value::Uint(0x42),
-        message: "top".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+    let rule = MagicRule::new(
+        OffsetSpec::Relative(2),
+        TypeKind::Byte { signed: false },
+        Operator::Equal,
+        Value::Uint(0x42),
+        "top".to_string(),
+    );
 
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[rule], &buffer, &mut ctx).unwrap();
@@ -360,31 +321,23 @@ fn relative_sibling_propagation_at_top_level() {
     // Second rule uses Relative(0) -> reads at offset 4.
     let buffer = [0x78, 0x56, 0x34, 0x12, 0x42, 0x00, 0x00, 0x00];
 
-    let first = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Long {
+    let first = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Long {
             endian: Endianness::Little,
             signed: false,
         },
-        op: Operator::Equal,
-        value: Value::Uint(0x1234_5678),
-        message: "first".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
-    let second = MagicRule {
-        offset: OffsetSpec::Relative(0),
-        typ: TypeKind::Byte { signed: false },
-        op: Operator::Equal,
-        value: Value::Uint(0x42),
-        message: "second".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::Uint(0x1234_5678),
+        "first".to_string(),
+    );
+    let second = MagicRule::new(
+        OffsetSpec::Relative(0),
+        TypeKind::Byte { signed: false },
+        Operator::Equal,
+        Value::Uint(0x42),
+        "second".to_string(),
+    );
 
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[first, second], &buffer, &mut ctx).unwrap();
@@ -399,22 +352,19 @@ fn relative_out_of_bounds_skips_child_gracefully() {
     // Engine should skip the child and continue without panicking.
     let buffer = [0x7F, 0xAA, 0xBB];
 
-    let parent = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte { signed: false },
-        op: Operator::Equal,
-        value: Value::Uint(0x7F),
-        message: "p".to_string(),
-        children: vec![child_rule(
-            OffsetSpec::Relative(50),
-            TypeKind::Byte { signed: false },
-            Value::Uint(0x00),
-            "c",
-        )],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+    let parent = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Byte { signed: false },
+        Operator::Equal,
+        Value::Uint(0x7F),
+        "p".to_string(),
+    )
+    .with_children(vec![child_rule(
+        OffsetSpec::Relative(50),
+        TypeKind::Byte { signed: false },
+        Value::Uint(0x00),
+        "c",
+    )]);
 
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[parent], &buffer, &mut ctx).unwrap();
@@ -439,42 +389,30 @@ fn relative_anchor_can_decrease_when_later_sibling_matches_at_lower_position() {
         0x78, 0x56, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, // bytes 8-15
     ];
 
-    let rule_a = MagicRule {
-        offset: OffsetSpec::Absolute(8),
-        typ: TypeKind::Long {
+    let rule_a = MagicRule::new(
+        OffsetSpec::Absolute(8),
+        TypeKind::Long {
             endian: Endianness::Little,
             signed: false,
         },
-        op: Operator::Equal,
-        value: Value::Uint(0x1234_5678),
-        message: "rule-a-high".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
-    let rule_b = MagicRule {
-        offset: OffsetSpec::Absolute(2),
-        typ: TypeKind::Byte { signed: false },
-        op: Operator::Equal,
-        value: Value::Uint(0xAA),
-        message: "rule-b-low".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
-    let rule_c = MagicRule {
-        offset: OffsetSpec::Relative(0),
-        typ: TypeKind::Byte { signed: false },
-        op: Operator::Equal,
-        value: Value::Uint(0x99),
-        message: "rule-c-relative".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::Uint(0x1234_5678),
+        "rule-a-high".to_string(),
+    );
+    let rule_b = MagicRule::new(
+        OffsetSpec::Absolute(2),
+        TypeKind::Byte { signed: false },
+        Operator::Equal,
+        Value::Uint(0xAA),
+        "rule-b-low".to_string(),
+    );
+    let rule_c = MagicRule::new(
+        OffsetSpec::Relative(0),
+        TypeKind::Byte { signed: false },
+        Operator::Equal,
+        Value::Uint(0x99),
+        "rule-c-relative".to_string(),
+    );
 
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[rule_a, rule_b, rule_c], &buffer, &mut ctx).unwrap();
@@ -497,42 +435,30 @@ fn relative_anchor_persists_across_non_matching_intermediate_sibling() {
     // Third top-level rule uses Relative(0) -> reads at offset 4.
     let buffer = [0x78, 0x56, 0x34, 0x12, 0x42, 0x00, 0x00, 0x00];
 
-    let first = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Long {
+    let first = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Long {
             endian: Endianness::Little,
             signed: false,
         },
-        op: Operator::Equal,
-        value: Value::Uint(0x1234_5678),
-        message: "first".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
-    let middle_no_match = MagicRule {
-        offset: OffsetSpec::Absolute(4),
-        typ: TypeKind::Byte { signed: false },
-        op: Operator::Equal,
-        value: Value::Uint(0xDE), // does not match (real byte is 0x42)
-        message: "middle-skip".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
-    let third = MagicRule {
-        offset: OffsetSpec::Relative(0),
-        typ: TypeKind::Byte { signed: false },
-        op: Operator::Equal,
-        value: Value::Uint(0x42),
-        message: "third".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::Uint(0x1234_5678),
+        "first".to_string(),
+    );
+    let middle_no_match = MagicRule::new(
+        OffsetSpec::Absolute(4),
+        TypeKind::Byte { signed: false },
+        Operator::Equal,
+        Value::Uint(0xDE), // does not match (real byte is 0x42)
+        "middle-skip".to_string(),
+    );
+    let third = MagicRule::new(
+        OffsetSpec::Relative(0),
+        TypeKind::Byte { signed: false },
+        Operator::Equal,
+        Value::Uint(0x42),
+        "third".to_string(),
+    );
 
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[first, middle_no_match, third], &buffer, &mut ctx).unwrap();
@@ -550,31 +476,23 @@ fn relative_anchor_resets_between_evaluations_via_reset() {
     let buffer_a = [0x78, 0x56, 0x34, 0x12];
     let buffer_b = [0x42, 0xAA, 0xBB, 0xCC];
 
-    let pass_one = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Long {
+    let pass_one = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Long {
             endian: Endianness::Little,
             signed: false,
         },
-        op: Operator::Equal,
-        value: Value::Uint(0x1234_5678),
-        message: "pass-one".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
-    let pass_two = MagicRule {
-        offset: OffsetSpec::Relative(0),
-        typ: TypeKind::Byte { signed: false },
-        op: Operator::Equal,
-        value: Value::Uint(0x42),
-        message: "pass-two".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::Uint(0x1234_5678),
+        "pass-one".to_string(),
+    );
+    let pass_two = MagicRule::new(
+        OffsetSpec::Relative(0),
+        TypeKind::Byte { signed: false },
+        Operator::Equal,
+        Value::Uint(0x42),
+        "pass-two".to_string(),
+    );
 
     let mut ctx = EvaluationContext::new(cfg());
     let _ = evaluate_rules(&[pass_one], &buffer_a, &mut ctx).unwrap();
@@ -592,22 +510,19 @@ fn relative_underflow_skips_child_gracefully() {
     // Anchor=1 (after parent byte), child Relative(-100) underflows.
     let buffer = [0x7F, 0xAA];
 
-    let parent = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Byte { signed: false },
-        op: Operator::Equal,
-        value: Value::Uint(0x7F),
-        message: "p".to_string(),
-        children: vec![child_rule(
-            OffsetSpec::Relative(-100),
-            TypeKind::Byte { signed: false },
-            Value::Uint(0x00),
-            "c",
-        )],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+    let parent = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Byte { signed: false },
+        Operator::Equal,
+        Value::Uint(0x7F),
+        "p".to_string(),
+    )
+    .with_children(vec![child_rule(
+        OffsetSpec::Relative(-100),
+        TypeKind::Byte { signed: false },
+        Value::Uint(0x00),
+        "c",
+    )]);
 
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[parent], &buffer, &mut ctx).unwrap();

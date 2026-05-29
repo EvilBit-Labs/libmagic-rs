@@ -346,22 +346,22 @@ fn test_rule_match_type_kind_not_serialized_in_evaluation_result() {
     // Construct an EvaluationResult containing a RuleMatch whose
     // `type_kind` is a fully-qualified TypeKind variant. Then serialize
     // it and assert the rendered JSON contains no `type_kind` key.
-    let rule_match = RuleMatch {
-        message: "ELF executable".to_string(),
-        offset: 0,
-        level: 0,
-        value: Value::Uint(0x7f),
-        type_kind: TypeKind::Byte { signed: false },
-        confidence: 0.9,
-    };
+    let rule_match = RuleMatch::new(
+        "ELF executable".to_string(),
+        0,
+        0,
+        Value::Uint(0x7f),
+        TypeKind::Byte { signed: false },
+        0.9,
+    );
     let metadata = EvaluationMetadata::default();
-    let result = EvaluationResult {
-        description: "ELF executable".to_string(),
-        mime_type: None,
-        confidence: 0.9,
-        matches: vec![rule_match],
+    let result = EvaluationResult::new(
+        "ELF executable".to_string(),
+        None,
+        0.9,
+        vec![rule_match],
         metadata,
-    };
+    );
 
     let json = serde_json::to_string(&result).expect("must serialize");
 
@@ -394,17 +394,17 @@ fn test_rule_match_type_kind_still_accessible_in_rust() {
     use libmagic_rs::evaluator::RuleMatch;
     use libmagic_rs::parser::ast::{Endianness, TypeKind, Value};
 
-    let m = RuleMatch {
-        message: "test".to_string(),
-        offset: 0,
-        level: 0,
-        value: Value::Uint(0),
-        type_kind: TypeKind::Long {
+    let m = RuleMatch::new(
+        "test".to_string(),
+        0,
+        0,
+        Value::Uint(0),
+        TypeKind::Long {
             endian: Endianness::Little,
             signed: false,
         },
-        confidence: 1.0,
-    };
+        1.0,
+    );
 
     // Field access still works
     match m.type_kind {

@@ -52,6 +52,7 @@ pub(crate) struct RuleEnvironment {
 /// assert_eq!(context.recursion_depth(), 0);
 /// ```
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct EvaluationContext {
     /// Current offset position in the file buffer
     current_offset: usize,
@@ -120,7 +121,31 @@ impl EvaluationContext {
     /// let context = EvaluationContext::new(config);
     /// ```
     #[must_use]
-    pub const fn new(config: EvaluationConfig) -> Self {
+    pub fn new(mut config: EvaluationConfig) -> Self {
+        // Defensive clamp on `max_string_length`: `EvaluationConfig::validate()`
+        // rejects 0, but callers can bypass validation by setting the field
+        // via struct-literal syntax (or via the `with_max_string_length`
+        // builder, which doesn't validate). Without this clamp, a `cap = 0`
+        // would silently produce zero-byte reads on every scan-mode `string x`
+        // rule and disable the CWE-770 control documented at this field.
+        //
+        // The clamp rewrites an invalid 0 to
+        // `crate::evaluator::types::DEFAULT_MAX_STRING_LENGTH` (8192,
+        // matching `EvaluationConfig::default()`). A `warn!` records the
+        // correction so embedders see it in logs. Closes PR #304 review
+        // finding SF-1.
+        if config.max_string_length == 0 {
+            log::warn!(
+                "EvaluationContext::new received max_string_length=0 \
+                 (likely a struct-literal or builder bypass of \
+                 EvaluationConfig::validate); clamping to {} (the documented \
+                 default). Construct the config via EvaluationConfig::new() \
+                 / EvaluationConfig::default() and use the with_* builders \
+                 to avoid this warning.",
+                crate::evaluator::types::DEFAULT_MAX_STRING_LENGTH,
+            );
+            config.max_string_length = crate::evaluator::types::DEFAULT_MAX_STRING_LENGTH;
+        }
         Self {
             current_offset: 0,
             last_match_end: 0,
@@ -413,6 +438,7 @@ impl Drop for RecursionGuard<'_> {
 /// The output-side conversion layer (`output::MatchResult` /
 /// `output::json::JsonMatchResult`) is the documented JSON contract.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct RuleMatch {
     /// The message associated with the matching rule
     pub message: String,
@@ -446,6 +472,31 @@ pub struct RuleMatch {
 }
 
 impl RuleMatch {
+    /// Construct a new `RuleMatch`.
+    ///
+    /// `confidence` is typically derived from `level` via
+    /// [`RuleMatch::calculate_confidence`]; pass it explicitly here so
+    /// callers can supply an alternative score when needed (e.g. when
+    /// post-processing a series of matches).
+    #[must_use]
+    pub fn new(
+        message: String,
+        offset: usize,
+        level: u32,
+        value: crate::parser::ast::Value,
+        type_kind: crate::parser::ast::TypeKind,
+        confidence: f64,
+    ) -> Self {
+        Self {
+            message,
+            offset,
+            level,
+            value,
+            type_kind,
+            confidence,
+        }
+    }
+
     /// Calculate confidence score based on rule depth
     ///
     /// Formula: min(1.0, 0.3 + (level * 0.2))

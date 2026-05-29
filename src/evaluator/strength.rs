@@ -50,17 +50,7 @@ pub const MIN_STRENGTH: i32 = 0;
 /// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, StringFlags, TypeKind, Operator, Value};
 /// use libmagic_rs::evaluator::strength::calculate_default_strength;
 ///
-/// let rule = MagicRule {
-///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::String { max_length: None, flags: StringFlags::default() },
-///     op: Operator::Equal,
-///     value: Value::String("ELF".to_string()),
-///     message: "ELF file".to_string(),
-///     children: vec![],
-///     level: 0,
-///     strength_modifier: None,
-///     value_transform: None,
-/// };
+/// let rule = MagicRule::new(OffsetSpec::Absolute(0), TypeKind::String { max_length: None, flags: StringFlags::default() }, Operator::Equal, Value::String("ELF".to_string()), "ELF file".to_string());
 ///
 /// let strength = calculate_default_strength(&rule);
 /// assert!(strength > 0);
@@ -325,17 +315,14 @@ pub fn apply_strength_modifier(base_strength: i32, modifier: &StrengthModifier) 
 /// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value, StrengthModifier};
 /// use libmagic_rs::evaluator::strength::calculate_rule_strength;
 ///
-/// let rule = MagicRule {
-///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte { signed: true },
-///     op: Operator::Equal,
-///     value: Value::Uint(0x7f),
-///     message: "ELF magic".to_string(),
-///     children: vec![],
-///     level: 0,
-///     strength_modifier: Some(StrengthModifier::Add(20)),
-/// value_transform: None,
-/// };
+/// let rule = MagicRule::new(
+///     OffsetSpec::Absolute(0),
+///     TypeKind::Byte { signed: true },
+///     Operator::Equal,
+///     Value::Uint(0x7f),
+///     "ELF magic".to_string(),
+/// )
+/// .with_strength_modifier(StrengthModifier::Add(20));
 ///
 /// let strength = calculate_rule_strength(&rule);
 /// // Base: 5 (byte) + 10 (equal) + 10 (absolute) + 0 (numeric) = 25
@@ -369,28 +356,8 @@ pub fn calculate_rule_strength(rule: &MagicRule) -> i32 {
 /// use libmagic_rs::evaluator::strength::sort_rules_by_strength;
 ///
 /// let mut rules = vec![
-///     MagicRule {
-///         offset: OffsetSpec::Absolute(0),
-///         typ: TypeKind::Byte { signed: true },
-///         op: Operator::Equal,
-///         value: Value::Uint(0x7f),
-///         message: "byte rule".to_string(),
-///         children: vec![],
-///         level: 0,
-///         strength_modifier: None,
-///     value_transform: None,
-///     },
-///     MagicRule {
-///         offset: OffsetSpec::Absolute(0),
-///         typ: TypeKind::String { max_length: None, flags: StringFlags::default() },
-///         op: Operator::Equal,
-///         value: Value::String("MAGIC".to_string()),
-///         message: "string rule".to_string(),
-///         children: vec![],
-///         level: 0,
-///         strength_modifier: None,
-///     value_transform: None,
-///     },
+///     MagicRule::new(OffsetSpec::Absolute(0), TypeKind::Byte { signed: true }, Operator::Equal, Value::Uint(0x7f), "byte rule".to_string()),
+///     MagicRule::new(OffsetSpec::Absolute(0), TypeKind::String { max_length: None, flags: StringFlags::default() }, Operator::Equal, Value::String("MAGIC".to_string()), "string rule".to_string()),
 /// ];
 ///
 /// sort_rules_by_strength(&mut rules);
@@ -460,28 +427,8 @@ pub fn sort_rules_by_strength_recursive(rules: &mut [MagicRule]) {
 /// use libmagic_rs::evaluator::strength::into_sorted_by_strength;
 ///
 /// let rules = vec![
-///     MagicRule {
-///         offset: OffsetSpec::Absolute(0),
-///         typ: TypeKind::Byte { signed: true },
-///         op: Operator::Equal,
-///         value: Value::Uint(0),
-///         message: "byte rule".to_string(),
-///         children: vec![],
-///         level: 0,
-///         strength_modifier: None,
-///     value_transform: None,
-///     },
-///     MagicRule {
-///         offset: OffsetSpec::Absolute(0),
-///         typ: TypeKind::String { max_length: None, flags: StringFlags::default() },
-///         op: Operator::Equal,
-///         value: Value::String("MAGIC".to_string()),
-///         message: "string rule".to_string(),
-///         children: vec![],
-///         level: 0,
-///         strength_modifier: None,
-///     value_transform: None,
-///     },
+///     MagicRule::new(OffsetSpec::Absolute(0), TypeKind::Byte { signed: true }, Operator::Equal, Value::Uint(0), "byte rule".to_string()),
+///     MagicRule::new(OffsetSpec::Absolute(0), TypeKind::String { max_length: None, flags: StringFlags::default() }, Operator::Equal, Value::String("MAGIC".to_string()), "string rule".to_string()),
 /// ];
 ///
 /// let sorted = into_sorted_by_strength(rules);

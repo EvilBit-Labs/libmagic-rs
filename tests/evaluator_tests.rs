@@ -250,19 +250,15 @@ fn test_evaluate_partial_magic_header() {
 #[test]
 fn test_evaluate_float_rule_equal() {
     // IEEE 754 little-endian 1.0f32 = 0x3f800000 => bytes [0x00, 0x00, 0x80, 0x3f]
-    let rule = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Float {
+    let rule = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Float {
             endian: Endianness::Little,
         },
-        op: Operator::Equal,
-        value: Value::Float(1.0),
-        message: "float 1.0 detected".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::Float(1.0),
+        "float 1.0 detected".to_string(),
+    );
 
     let buffer: &[u8] = &[0x00, 0x00, 0x80, 0x3f];
     let config = EvaluationConfig::default();
@@ -274,19 +270,15 @@ fn test_evaluate_float_rule_equal() {
 #[test]
 fn test_evaluate_double_rule_equal() {
     // IEEE 754 big-endian 1.0f64 = 0x3ff0000000000000
-    let rule = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Double {
+    let rule = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Double {
             endian: Endianness::Big,
         },
-        op: Operator::Equal,
-        value: Value::Float(1.0),
-        message: "double 1.0 detected".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::Float(1.0),
+        "double 1.0 detected".to_string(),
+    );
 
     let buffer: &[u8] = &[0x3f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
     let config = EvaluationConfig::default();
@@ -298,19 +290,15 @@ fn test_evaluate_double_rule_equal() {
 #[test]
 fn test_evaluate_float_rule_not_equal() {
     // Buffer contains 1.0f32 LE, rule expects != 2.0 -- should match
-    let rule = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Float {
+    let rule = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Float {
             endian: Endianness::Little,
         },
-        op: Operator::NotEqual,
-        value: Value::Float(2.0),
-        message: "not 2.0".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::NotEqual,
+        Value::Float(2.0),
+        "not 2.0".to_string(),
+    );
 
     let buffer: &[u8] = &[0x00, 0x00, 0x80, 0x3f]; // 1.0f32 LE
     let config = EvaluationConfig::default();
@@ -326,19 +314,15 @@ fn test_evaluate_float_rule_not_equal() {
 #[test]
 fn test_evaluate_float_rule_less_than() {
     // Buffer contains 1.0f32 LE, rule checks < 2.0 -- should match
-    let rule = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Float {
+    let rule = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Float {
             endian: Endianness::Little,
         },
-        op: Operator::LessThan,
-        value: Value::Float(2.0),
-        message: "less than 2.0".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::LessThan,
+        Value::Float(2.0),
+        "less than 2.0".to_string(),
+    );
 
     let buffer: &[u8] = &[0x00, 0x00, 0x80, 0x3f]; // 1.0f32 LE
     let config = EvaluationConfig::default();
@@ -354,21 +338,17 @@ fn test_evaluate_float_rule_less_than() {
 #[test]
 fn test_evaluate_pstring_rule_match() {
     // Pascal string: length byte (3) followed by "PDF"
-    let rule = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::PString {
+    let rule = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::PString {
             max_length: None,
             length_width: PStringLengthWidth::OneByte,
             length_includes_itself: false,
         },
-        op: Operator::Equal,
-        value: Value::String("PDF".to_string()),
-        message: "Pascal PDF marker".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::String("PDF".to_string()),
+        "Pascal PDF marker".to_string(),
+    );
 
     let buffer: &[u8] = &[3, b'P', b'D', b'F', 0x00, 0x00];
     let config = EvaluationConfig::default();
@@ -380,21 +360,17 @@ fn test_evaluate_pstring_rule_match() {
 
 #[test]
 fn test_evaluate_pstring_rule_no_match() {
-    let rule = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::PString {
+    let rule = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::PString {
             max_length: None,
             length_width: PStringLengthWidth::OneByte,
             length_includes_itself: false,
         },
-        op: Operator::Equal,
-        value: Value::String("ZIP".to_string()),
-        message: "Should not match".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::String("ZIP".to_string()),
+        "Should not match".to_string(),
+    );
 
     let buffer: &[u8] = &[3, b'P', b'D', b'F'];
     let config = EvaluationConfig::default();
@@ -409,21 +385,17 @@ fn test_evaluate_pstring_rule_no_match() {
 #[test]
 fn test_evaluate_pstring_with_max_length() {
     // Pascal string in buffer has length=10, but max_length caps at 3
-    let rule = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::PString {
+    let rule = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::PString {
             max_length: Some(3),
             length_width: PStringLengthWidth::OneByte,
             length_includes_itself: false,
         },
-        op: Operator::Equal,
-        value: Value::String("Hel".to_string()),
-        message: "Truncated pascal string".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::String("Hel".to_string()),
+        "Truncated pascal string".to_string(),
+    );
 
     let buffer: &[u8] = &[
         10, b'H', b'e', b'l', b'l', b'o', b' ', b'w', b'o', b'r', b'l',
@@ -441,21 +413,17 @@ fn test_evaluate_pstring_with_max_length() {
 #[test]
 fn test_evaluate_pstring_two_byte_be_with_j_flag() {
     // 2-byte big-endian prefix with /J: stored length=7 includes the 2-byte prefix, so string is 5 bytes
-    let rule = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::PString {
+    let rule = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::PString {
             max_length: None,
             length_width: PStringLengthWidth::TwoByteBE,
             length_includes_itself: true,
         },
-        op: Operator::Equal,
-        value: Value::String("Hello".to_string()),
-        message: "BE pstring with /J flag".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::String("Hello".to_string()),
+        "BE pstring with /J flag".to_string(),
+    );
 
     // Big-endian length 7 = [0x00, 0x07], minus 2-byte prefix = 5 bytes of "Hello"
     let buffer: &[u8] = &[0x00, 0x07, b'H', b'e', b'l', b'l', b'o'];
@@ -472,19 +440,15 @@ fn test_evaluate_pstring_two_byte_be_with_j_flag() {
 #[test]
 fn test_evaluate_float_rule_no_match() {
     // Buffer contains 1.0f32 LE, rule expects == 2.0 -- should NOT match
-    let rule = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Float {
+    let rule = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Float {
             endian: Endianness::Little,
         },
-        op: Operator::Equal,
-        value: Value::Float(2.0),
-        message: "should not match".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::Float(2.0),
+        "should not match".to_string(),
+    );
 
     let buffer: &[u8] = &[0x00, 0x00, 0x80, 0x3f]; // 1.0f32 LE
     let config = EvaluationConfig::default();
@@ -544,50 +508,42 @@ fn test_regex_eol_corpus() {
     let one_line_count =
         libmagic_rs::parser::ast::RegexCount::Lines(::std::num::NonZeroU32::new(1));
 
-    let inner_regex = MagicRule {
-        offset: OffsetSpec::Relative(1),
-        typ: TypeKind::Regex {
+    let inner_regex = MagicRule::new(
+        OffsetSpec::Relative(1),
+        TypeKind::Regex {
             flags: libmagic_rs::parser::ast::RegexFlags::default(),
             count: one_line_count,
         },
-        op: Operator::Equal,
-        value: Value::String("[^;]+$".to_string()),
-        message: "\u{0008}, using AES256 encryption".to_string(),
-        children: vec![],
-        level: 2,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::String("[^;]+$".to_string()),
+        "\u{0008}, using AES256 encryption".to_string(),
+    )
+    .with_level(2);
 
-    let version_regex = MagicRule {
-        offset: OffsetSpec::Relative(1),
-        typ: TypeKind::Regex {
+    let version_regex = MagicRule::new(
+        OffsetSpec::Relative(1),
+        TypeKind::Regex {
             flags: libmagic_rs::parser::ast::RegexFlags::default(),
             count: one_line_count,
         },
-        op: Operator::Equal,
-        value: Value::String("[0-9]+(\\.[0-9]+)+".to_string()),
-        message: "\u{0008}, version 1.1".to_string(),
-        children: vec![inner_regex],
-        level: 1,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::String("[0-9]+(\\.[0-9]+)+".to_string()),
+        "\u{0008}, version 1.1".to_string(),
+    )
+    .with_children(vec![inner_regex])
+    .with_level(1);
 
-    let ansible_vault = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::String {
+    let ansible_vault = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::String {
             max_length: Some("$ANSIBLE_VAULT".len()),
             flags: StringFlags::default(),
         },
-        op: Operator::Equal,
-        value: Value::String("$ANSIBLE_VAULT".to_string()),
-        message: "Ansible Vault text".to_string(),
-        children: vec![version_regex],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::String("$ANSIBLE_VAULT".to_string()),
+        "Ansible Vault text".to_string(),
+    )
+    .with_children(vec![version_regex]);
 
     let config = EvaluationConfig::default();
     let mut context = EvaluationContext::new(config);

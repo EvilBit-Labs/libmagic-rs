@@ -49,17 +49,15 @@ fn regex_rule(
     children: Vec<MagicRule>,
     level: u32,
 ) -> MagicRule {
-    MagicRule {
+    MagicRule::new(
         offset,
-        typ: TypeKind::Regex { flags, count },
-        op: Operator::Equal,
-        value: Value::String(pattern.to_string()),
-        message: message.to_string(),
-        children,
-        level,
-        strength_modifier: None,
-        value_transform: None,
-    }
+        TypeKind::Regex { flags, count },
+        Operator::Equal,
+        Value::String(pattern.to_string()),
+        message.to_string(),
+    )
+    .with_children(children)
+    .with_level(level)
 }
 
 fn search_rule(
@@ -70,20 +68,18 @@ fn search_rule(
     children: Vec<MagicRule>,
     level: u32,
 ) -> MagicRule {
-    MagicRule {
+    MagicRule::new(
         offset,
-        typ: TypeKind::Search {
+        TypeKind::Search {
             range: NonZeroUsize::new(range).expect("range must be non-zero"),
             flags: SearchFlags::default(),
         },
-        op: Operator::Equal,
-        value: Value::String(pattern.to_string()),
-        message: message.to_string(),
-        children,
-        level,
-        strength_modifier: None,
-        value_transform: None,
-    }
+        Operator::Equal,
+        Value::String(pattern.to_string()),
+        message.to_string(),
+    )
+    .with_children(children)
+    .with_level(level)
 }
 
 // =====================================================================
@@ -103,17 +99,14 @@ fn test_searchbug_corpus_search_with_relative_child() {
     // Byte child reading the character immediately after "ABC". In the
     // corpus file the first ABC is `ABC1` at offset 8, so after "ABC"
     // (match-end at 11) the byte at offset 11 is '1' (0x31).
-    let after_abc = MagicRule {
-        offset: OffsetSpec::Relative(0),
-        typ: TypeKind::Byte { signed: false },
-        op: Operator::Equal,
-        value: Value::Uint(u64::from(b'1')),
-        message: "followed by 1".to_string(),
-        children: vec![],
-        level: 2,
-        strength_modifier: None,
-        value_transform: None,
-    };
+    let after_abc = MagicRule::new(
+        OffsetSpec::Relative(0),
+        TypeKind::Byte { signed: false },
+        Operator::Equal,
+        Value::Uint(u64::from(b'1')),
+        "followed by 1".to_string(),
+    )
+    .with_level(2);
 
     // search/12 "ABC" with Relative(0) child.
     let search_abc = search_rule(
@@ -126,20 +119,17 @@ fn test_searchbug_corpus_search_with_relative_child() {
     );
 
     // Parent: TEST header at offset 0.
-    let root = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::String {
+    let root = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::String {
             max_length: Some(4),
             flags: StringFlags::default(),
         },
-        op: Operator::Equal,
-        value: Value::String("TEST".to_string()),
-        message: "Testfmt".to_string(),
-        children: vec![search_abc],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::String("TEST".to_string()),
+        "Testfmt".to_string(),
+    )
+    .with_children(vec![search_abc]);
 
     let matches = run_rules(&[root], &buffer);
 
@@ -162,17 +152,14 @@ fn test_searchbug_search_anchor_advance_not_window_end() {
     // 'x' (0x78), not '1' (0x31).
     let buffer = load_corpus_file("searchbug.testfile");
 
-    let wrong_byte = MagicRule {
-        offset: OffsetSpec::Relative(0),
-        typ: TypeKind::Byte { signed: false },
-        op: Operator::Equal,
-        value: Value::Uint(u64::from(b'x')),
-        message: "window-end bug -- must NOT match".to_string(),
-        children: vec![],
-        level: 2,
-        strength_modifier: None,
-        value_transform: None,
-    };
+    let wrong_byte = MagicRule::new(
+        OffsetSpec::Relative(0),
+        TypeKind::Byte { signed: false },
+        Operator::Equal,
+        Value::Uint(u64::from(b'x')),
+        "window-end bug -- must NOT match".to_string(),
+    )
+    .with_level(2);
 
     let search_abc = search_rule(
         OffsetSpec::Relative(0),
@@ -183,20 +170,17 @@ fn test_searchbug_search_anchor_advance_not_window_end() {
         1,
     );
 
-    let root = MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::String {
+    let root = MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::String {
             max_length: Some(4),
             flags: StringFlags::default(),
         },
-        op: Operator::Equal,
-        value: Value::String("TEST".to_string()),
-        message: "Testfmt".to_string(),
-        children: vec![search_abc],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::String("TEST".to_string()),
+        "Testfmt".to_string(),
+    )
+    .with_children(vec![search_abc]);
 
     let matches = run_rules(&[root], &buffer);
     // Should see Testfmt + found ABC but NOT the wrong_byte child.
