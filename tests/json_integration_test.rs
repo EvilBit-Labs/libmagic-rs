@@ -324,3 +324,117 @@ fn test_cli_json_vs_text_output() {
         "Text output should contain filename"
     );
 }
+
+// =============================================================================
+// 1B-H2 / 2A-M1: RuleMatch.type_kind must not leak into JSON output
+// =============================================================================
+
+/// Library-side `EvaluationResult` carries `RuleMatch.type_kind: TypeKind`
+/// for runtime needs (width-masking, bit_width derivation). Serializing
+/// the result directly via `serde_json::to_string` must NOT expose the
+/// parser AST to JSON consumers. The documented JSON contract is
+/// `output::json::JsonMatchResult` which omits this field; the library
+/// type now matches that contract via `#[serde(skip)]` on the field.
+///
+/// Origin findings 1B-H2 (CWE-200 information exposure through serialized
+/// AST shape) and 2A-M1 (security-lens variant).
+#[test]
+fn test_rule_match_type_kind_not_serialized_in_evaluation_result() {
+    use libmagic_rs::parser::ast::{TypeKind, Value};
+    use libmagic_rs::{EvaluationMetadata, EvaluationResult, evaluator::RuleMatch};
+
+    // Construct an EvaluationResult containing a RuleMatch whose
+    // `type_kind` is a fully-qualified TypeKind variant. Then serialize
+    // it and assert the rendered JSON contains no `type_kind` key.
+    let rule_match = RuleMatch::new(
+        "ELF executable".to_string(),
+        0,
+        0,
+        Value::Uint(0x7f),
+        TypeKind::Byte { signed: false },
+        0.9,
+    );
+    let metadata = EvaluationMetadata::default();
+    let result = EvaluationResult::new(
+        "ELF executable".to_string(),
+        None,
+        0.9,
+        vec![rule_match],
+        metadata,
+    );
+
+    let json = serde_json::to_string(&result).expect("must serialize");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json).expect("emitted JSON must round-trip through serde_json");
+
+    // Walk the structure and assert `type_kind` is absent from every
+    // RuleMatch entry under `matches[*]`. Substring checks would false-
+    // fail if any user-visible string happened to contain `type_kind`,
+    // and -- more importantly -- they cannot prove key absence; only
+    // structural inspection can.
+    let matches = parsed
+        .get("matches")
+        .and_then(|v| v.as_array())
+        .expect("EvaluationResult JSON must have a `matches` array");
+    assert!(
+        !matches.is_empty(),
+        "EvaluationResult JSON must include at least one rule match for this assertion to be meaningful"
+    );
+    for (i, m) in matches.iter().enumerate() {
+        let obj = m.as_object().unwrap_or_else(|| {
+            panic!("matches[{i}] must be a JSON object, got {m}");
+        });
+        assert!(
+            !obj.contains_key("type_kind"),
+            "matches[{i}] must not contain `type_kind` key \
+             (1B-H2 / 2A-M1 regression: parser AST leaking into JSON output). \
+             Got keys: {:?}",
+            obj.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            obj.contains_key("value"),
+            "matches[{i}] must still include `value` -- #[serde(skip)] should \
+             only suppress type_kind, not the surrounding fields. Got keys: {:?}",
+            obj.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            obj.contains_key("confidence"),
+            "matches[{i}] must still include `confidence`. Got keys: {:?}",
+            obj.keys().collect::<Vec<_>>()
+        );
+    }
+}
+
+/// Sanity check: the `type_kind` field is still accessible from Rust
+/// code after `#[serde(skip)]`. The attribute affects serde only; field
+/// access for runtime consumers (`format_magic_message`, `bit_width()`
+/// derivation) is unchanged.
+#[test]
+fn test_rule_match_type_kind_still_accessible_in_rust() {
+    use libmagic_rs::evaluator::RuleMatch;
+    use libmagic_rs::parser::ast::{Endianness, TypeKind, Value};
+
+    let m = RuleMatch::new(
+        "test".to_string(),
+        0,
+        0,
+        Value::Uint(0),
+        TypeKind::Long {
+            endian: Endianness::Little,
+            signed: false,
+        },
+        1.0,
+    );
+
+    // Field access still works
+    match m.type_kind {
+        TypeKind::Long {
+            endian: Endianness::Little,
+            signed: false,
+        } => {}
+        ref other => panic!("type_kind field access broke: got {other:?}"),
+    }
+
+    // bit_width() derivation still works (relied on by format_magic_message)
+    assert_eq!(m.type_kind.bit_width(), Some(32));
+}

@@ -54,20 +54,18 @@ fn search_rule(
     children: Vec<MagicRule>,
     level: u32,
 ) -> MagicRule {
-    MagicRule {
+    MagicRule::new(
         offset,
-        typ: TypeKind::Search {
+        TypeKind::Search {
             range: NonZeroUsize::new(range).expect("range must be non-zero"),
             flags,
         },
-        op: Operator::Equal,
-        value: Value::String(pattern.to_string()),
-        message: msg.to_string(),
-        children,
-        level,
-        strength_modifier: None,
-        value_transform: None,
-    }
+        Operator::Equal,
+        Value::String(pattern.to_string()),
+        msg.to_string(),
+    )
+    .with_children(children)
+    .with_level(level)
 }
 
 fn run_rules(rules: &[MagicRule], buffer: &[u8]) -> Vec<libmagic_rs::evaluator::RuleMatch> {
@@ -108,20 +106,17 @@ fn search_s_anchors_relative_child_at_match_start() {
     let buffer: &[u8] = b"junk-prefix-ABC-suffix-bytes";
 
     // Child: `>&0 string ABC`. We use TypeKind::String with max_length = 3.
-    let child = MagicRule {
-        offset: OffsetSpec::Relative(0),
-        typ: TypeKind::String {
+    let child = MagicRule::new(
+        OffsetSpec::Relative(0),
+        TypeKind::String {
             max_length: Some(3),
             flags: libmagic_rs::parser::ast::StringFlags::default(),
         },
-        op: Operator::Equal,
-        value: Value::String("ABC".to_string()),
-        message: "child matched at anchor".to_string(),
-        children: vec![],
-        level: 1,
-        strength_modifier: None,
-        value_transform: None,
-    };
+        Operator::Equal,
+        Value::String("ABC".to_string()),
+        "child matched at anchor".to_string(),
+    )
+    .with_level(1);
 
     // Parent WITH /s -- expect both parent and child to fire.
     let parent_s = search_rule(

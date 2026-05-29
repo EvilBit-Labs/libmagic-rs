@@ -150,3 +150,4 @@ todos/
 .tessl/tiles/
 .tessl/RULES.md
 .claude/instincts/
+.claude/scheduled_tasks.lock

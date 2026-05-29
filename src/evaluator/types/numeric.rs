@@ -14,7 +14,7 @@ use crate::parser::ast::{Endianness, Value};
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::evaluator::types::read_byte;
 /// use libmagic_rs::parser::ast::Value;
 ///
@@ -56,7 +56,7 @@ pub fn read_byte(buffer: &[u8], offset: usize, signed: bool) -> Result<Value, Ty
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::evaluator::types::read_short;
 /// use libmagic_rs::parser::ast::{Endianness, Value};
 ///
@@ -104,7 +104,7 @@ pub fn read_short(
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::evaluator::types::read_long;
 /// use libmagic_rs::parser::ast::{Endianness, Value};
 ///
@@ -152,7 +152,7 @@ pub fn read_long(
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::evaluator::types::read_quad;
 /// use libmagic_rs::parser::ast::{Endianness, Value};
 ///

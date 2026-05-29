@@ -66,16 +66,17 @@ fn arb_search_flags() -> impl Strategy<Value = SearchFlags> {
                 bin_test,
                 full_word,
                 start_anchor,
-            )| SearchFlags {
-                compact_whitespace,
-                compact_optional_whitespace,
-                ignore_lowercase,
-                ignore_uppercase,
-                text_test,
-                trim,
-                bin_test,
-                full_word,
-                start_anchor,
+            )| {
+                SearchFlags::default()
+                    .with_compact_whitespace(compact_whitespace)
+                    .with_compact_optional_whitespace(compact_optional_whitespace)
+                    .with_ignore_lowercase(ignore_lowercase)
+                    .with_ignore_uppercase(ignore_uppercase)
+                    .with_text_test(text_test)
+                    .with_trim(trim)
+                    .with_bin_test(bin_test)
+                    .with_full_word(full_word)
+                    .with_start_anchor(start_anchor)
             },
         )
 }
@@ -144,10 +145,9 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
             ];
             (any::<bool>(), any::<bool>(), count_strategy).prop_map(
                 |(case_insensitive, start_offset, count)| TypeKind::Regex {
-                    flags: libmagic_rs::parser::ast::RegexFlags {
-                        case_insensitive,
-                        start_offset,
-                    },
+                    flags: libmagic_rs::parser::ast::RegexFlags::default()
+                        .with_case_insensitive(case_insensitive)
+                        .with_start_offset(start_offset),
                     count,
                 },
             )
@@ -202,16 +202,8 @@ fn arb_magic_rule() -> impl Strategy<Value = MagicRule> {
         arb_value(),
         "[a-zA-Z0-9 _-]{1,64}",
     )
-        .prop_map(|(offset, typ, op, value, message)| MagicRule {
-            offset,
-            typ,
-            op,
-            value,
-            message,
-            children: vec![],
-            level: 0,
-            strength_modifier: None,
-            value_transform: None,
+        .prop_map(|(offset, typ, op, value, message)| {
+            MagicRule::new(offset, typ, op, value, message)
         })
 }
 
@@ -242,16 +234,8 @@ fn arb_meta_rule() -> impl Strategy<Value = MagicRule> {
         arb_value(),
         "[a-zA-Z0-9 _-]{1,64}",
     )
-        .prop_map(|(offset, typ, op, value, message)| MagicRule {
-            offset,
-            typ,
-            op,
-            value,
-            message,
-            children: vec![],
-            level: 0,
-            strength_modifier: None,
-            value_transform: None,
+        .prop_map(|(offset, typ, op, value, message)| {
+            MagicRule::new(offset, typ, op, value, message)
         })
 }
 
@@ -365,8 +349,8 @@ proptest! {
             4 => (TypeKind::Long { endian: Endianness::Little, signed: false }, Endianness::Little),
             _ => (TypeKind::Quad { endian: Endianness::Little, signed: false }, Endianness::Little),
         };
-        let rule = MagicRule {
-            offset: OffsetSpec::Indirect {
+        let rule = MagicRule::new(
+    OffsetSpec::Indirect {
                 base_offset: base,
                 base_relative: false,
                 pointer_type,
@@ -375,15 +359,11 @@ proptest! {
                 result_relative: false,
                 endian,
             },
-            typ: TypeKind::Byte { signed: false },
-            op: Operator::Equal,
-            value: Value::Uint(0),
-            message: "probe".to_string(),
-            children: vec![],
-            level: 0,
-            strength_modifier: None,
-        value_transform: None,
-        };
+    TypeKind::Byte { signed: false },
+    Operator::Equal,
+    Value::Uint(0),
+    "probe".to_string(),
+);
         let config = EvaluationConfig::default().with_timeout_ms(Some(500));
         let mut context = EvaluationContext::new(config);
         // Must never panic, regardless of whether the offset resolves.
@@ -404,21 +384,17 @@ proptest! {
         use libmagic_rs::parser::ast::PStringLengthWidth;
         let mut buf = prefix.to_le_bytes().to_vec();
         buf.extend_from_slice(&payload);
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::PString {
+        let rule = MagicRule::new(
+    OffsetSpec::Absolute(0),
+    TypeKind::PString {
                 max_length: None,
                 length_width: PStringLengthWidth::FourByteLE,
                 length_includes_itself: false,
             },
-            op: Operator::Equal,
-            value: Value::String(String::new()),
-            message: "probe".to_string(),
-            children: vec![],
-            level: 0,
-            strength_modifier: None,
-        value_transform: None,
-        };
+    Operator::Equal,
+    Value::String(String::new()),
+    "probe".to_string(),
+);
         let config = EvaluationConfig::default().with_timeout_ms(Some(500));
         let mut context = EvaluationContext::new(config);
         let _ = evaluate_rules(&[rule], &buf, &mut context);
@@ -458,20 +434,16 @@ proptest! {
     ) {
         use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
         use libmagic_rs::parser::ast::{RegexCount, RegexFlags};
-        let rule = MagicRule {
-            offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Regex {
+        let rule = MagicRule::new(
+    OffsetSpec::Absolute(0),
+    TypeKind::Regex {
                 flags: RegexFlags::default(),
                 count: RegexCount::Default,
             },
-            op: Operator::Equal,
-            value: Value::String(pat),
-            message: "probe".to_string(),
-            children: vec![],
-            level: 0,
-            strength_modifier: None,
-        value_transform: None,
-        };
+    Operator::Equal,
+    Value::String(pat),
+    "probe".to_string(),
+);
         let config = EvaluationConfig::default().with_timeout_ms(Some(500));
         let mut context = EvaluationContext::new(config);
         let start = std::time::Instant::now();

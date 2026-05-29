@@ -162,17 +162,7 @@ static INDIRECT_WITHOUT_RULE_ENV_WARNED: AtomicBool = AtomicBool::new(false);
 /// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
 ///
 /// // Create a rule to check for ELF magic bytes at offset 0
-/// let rule = MagicRule {
-///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte { signed: true },
-///     op: Operator::Equal,
-///     value: Value::Uint(0x7f),
-///     message: "ELF magic".to_string(),
-///     children: vec![],
-///     level: 0,
-///     strength_modifier: None,
-/// value_transform: None,
-/// };
+/// let rule = MagicRule::new(OffsetSpec::Absolute(0), TypeKind::Byte { signed: true }, Operator::Equal, Value::Uint(0x7f), "ELF magic".to_string());
 ///
 /// let mut context = EvaluationContext::new(EvaluationConfig::default());
 /// let elf_buffer = &[0x7f, 0x45, 0x4c, 0x46]; // ELF magic bytes
@@ -212,6 +202,7 @@ fn evaluate_single_rule_with_anchor(
     buffer: &[u8],
     last_match_end: usize,
     base_offset: usize,
+    max_string_length: usize,
 ) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
     use crate::parser::ast::TypeKind;
 
@@ -261,7 +252,7 @@ fn evaluate_single_rule_with_anchor(
         }
         TypeKind::Meta(_) => return Ok(None),
         TypeKind::Regex { .. } | TypeKind::Search { .. } => {
-            evaluate_pattern_rule(rule, buffer, absolute_offset)?
+            evaluate_pattern_rule(rule, buffer, absolute_offset, max_string_length)?
         }
         // Flagged `string` rules route through the pattern-bearing path
         // (see GOTCHAS S2.4 for the contract) so `compare_string_with_flags`
@@ -269,9 +260,9 @@ fn evaluate_single_rule_with_anchor(
         // Default-flag strings (the common case) take the existing
         // value-rule fast path with byte-exact `apply_equal`.
         TypeKind::String { flags, .. } if !flags.is_empty() => {
-            evaluate_pattern_rule(rule, buffer, absolute_offset)?
+            evaluate_pattern_rule(rule, buffer, absolute_offset, max_string_length)?
         }
-        _ => evaluate_value_rule(rule, buffer, absolute_offset)?,
+        _ => evaluate_value_rule(rule, buffer, absolute_offset, max_string_length)?,
     };
     Ok(matched.then_some((absolute_offset, read_value)))
 }
@@ -381,10 +372,16 @@ fn evaluate_pattern_rule(
     rule: &MagicRule,
     buffer: &[u8],
     absolute_offset: usize,
+    max_string_length: usize,
 ) -> Result<(bool, crate::parser::ast::Value), LibmagicError> {
-    let match_outcome =
-        types::read_pattern_match(buffer, absolute_offset, &rule.typ, Some(&rule.value))
-            .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
+    let match_outcome = types::read_pattern_match(
+        buffer,
+        absolute_offset,
+        &rule.typ,
+        Some(&rule.value),
+        max_string_length,
+    )
+    .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
     let pattern_found = match_outcome.is_some();
     let matched = match &rule.op {
         crate::parser::ast::Operator::Equal => pattern_found,
@@ -417,10 +414,16 @@ fn evaluate_value_rule(
     rule: &MagicRule,
     buffer: &[u8],
     absolute_offset: usize,
+    max_string_length: usize,
 ) -> Result<(bool, crate::parser::ast::Value), LibmagicError> {
-    let read_value =
-        types::read_typed_value_with_pattern(buffer, absolute_offset, &rule.typ, Some(&rule.value))
-            .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
+    let read_value = types::read_typed_value_with_pattern(
+        buffer,
+        absolute_offset,
+        &rule.typ,
+        Some(&rule.value),
+        max_string_length,
+    )
+    .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
 
     // Apply any pre-comparison value transform (`type+N`/`type-N`/`type*N`/
     // `type/N`/`type%N`/`type|N`/`type^N`). The transform runs on the read
@@ -581,29 +584,23 @@ fn evaluate_children_or_warn(
 /// use libmagic_rs::EvaluationConfig;
 ///
 /// // Create a hierarchical rule set for ELF files
-/// let parent_rule = MagicRule {
-///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte { signed: true },
-///     op: Operator::Equal,
-///     value: Value::Uint(0x7f),
-///     message: "ELF".to_string(),
-///     children: vec![
-///         MagicRule {
-///             offset: OffsetSpec::Absolute(4),
-///             typ: TypeKind::Byte { signed: true },
-///             op: Operator::Equal,
-///             value: Value::Uint(2),
-///             message: "64-bit".to_string(),
-///             children: vec![],
-///             level: 1,
-///             strength_modifier: None,
-///         value_transform: None,
-///         }
-///     ],
-///     level: 0,
-///     strength_modifier: None,
-/// value_transform: None,
-/// };
+/// let parent_rule = MagicRule::new(
+///     OffsetSpec::Absolute(0),
+///     TypeKind::Byte { signed: true },
+///     Operator::Equal,
+///     Value::Uint(0x7f),
+///     "ELF".to_string(),
+/// )
+/// .with_children(vec![
+///     MagicRule::new(
+///         OffsetSpec::Absolute(4),
+///         TypeKind::Byte { signed: true },
+///         Operator::Equal,
+///         Value::Uint(2),
+///         "64-bit".to_string(),
+///     )
+///     .with_level(1),
+/// ]);
 ///
 /// let rules = vec![parent_rule];
 /// let buffer = &[0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]; // ELF64 header
@@ -723,14 +720,14 @@ pub fn evaluate_rules(
             if !sibling_matched {
                 let matches_before = matches.len();
 
-                let match_result = RuleMatch {
-                    message: rule.message.clone(),
-                    offset: context.last_match_end(),
-                    level: rule.level,
-                    value: crate::parser::ast::Value::Uint(0),
-                    type_kind: rule.typ.clone(),
-                    confidence: RuleMatch::calculate_confidence(rule.level),
-                };
+                let match_result = RuleMatch::new(
+                    rule.message.clone(),
+                    context.last_match_end(),
+                    rule.level,
+                    crate::parser::ast::Value::Uint(0),
+                    rule.typ.clone(),
+                    RuleMatch::calculate_confidence(rule.level),
+                );
                 matches.push(match_result);
 
                 // `default` is treated as a successful match at this
@@ -819,14 +816,14 @@ pub fn evaluate_rules(
             // directive's own `message` never surfaces in the output.
             context.set_last_match_end(absolute_offset);
 
-            let indirect_match = RuleMatch {
-                message: rule.message.clone(),
-                offset: absolute_offset,
-                level: rule.level,
-                value: crate::parser::ast::Value::String("indirect".to_string()),
-                type_kind: rule.typ.clone(),
-                confidence: RuleMatch::calculate_confidence(rule.level),
-            };
+            let indirect_match = RuleMatch::new(
+                rule.message.clone(),
+                absolute_offset,
+                rule.level,
+                crate::parser::ast::Value::String("indirect".to_string()),
+                rule.typ.clone(),
+                RuleMatch::calculate_confidence(rule.level),
+            );
             matches.push(indirect_match);
 
             // Indirect counts as a match for `sibling_matched` regardless of
@@ -922,14 +919,14 @@ pub fn evaluate_rules(
             // `Indirect` and every other value-bearing rule.
             context.set_last_match_end(absolute_offset);
 
-            let offset_match = RuleMatch {
-                message: rule.message.clone(),
-                offset: absolute_offset,
-                level: rule.level,
-                value: crate::parser::ast::Value::Uint(absolute_offset as u64),
-                type_kind: rule.typ.clone(),
-                confidence: RuleMatch::calculate_confidence(rule.level),
-            };
+            let offset_match = RuleMatch::new(
+                rule.message.clone(),
+                absolute_offset,
+                rule.level,
+                crate::parser::ast::Value::Uint(absolute_offset as u64),
+                rule.typ.clone(),
+                RuleMatch::calculate_confidence(rule.level),
+            );
             matches.push(offset_match);
 
             sibling_matched = true;
@@ -1026,6 +1023,7 @@ pub fn evaluate_rules(
             buffer,
             context.last_match_end(),
             context.base_offset(),
+            context.max_string_length(),
         ) {
             Ok(data) => data,
             Err(
@@ -1072,14 +1070,14 @@ pub fn evaluate_rules(
             // default-after-match semantics.
             sibling_matched = true;
 
-            let match_result = RuleMatch {
-                message: rule.message.clone(),
-                offset: absolute_offset,
-                level: rule.level,
-                value: read_value,
-                type_kind: rule.typ.clone(),
-                confidence: RuleMatch::calculate_confidence(rule.level),
-            };
+            let match_result = RuleMatch::new(
+                rule.message.clone(),
+                absolute_offset,
+                rule.level,
+                read_value,
+                rule.typ.clone(),
+                RuleMatch::calculate_confidence(rule.level),
+            );
             matches.push(match_result);
 
             // If this rule has children, evaluate them recursively
@@ -1168,17 +1166,7 @@ pub fn evaluate_rules(
 /// use libmagic_rs::parser::ast::{MagicRule, OffsetSpec, TypeKind, Operator, Value};
 /// use libmagic_rs::EvaluationConfig;
 ///
-/// let rule = MagicRule {
-///     offset: OffsetSpec::Absolute(0),
-///     typ: TypeKind::Byte { signed: true },
-///     op: Operator::Equal,
-///     value: Value::Uint(0x7f),
-///     message: "ELF magic".to_string(),
-///     children: vec![],
-///     level: 0,
-///     strength_modifier: None,
-/// value_transform: None,
-/// };
+/// let rule = MagicRule::new(OffsetSpec::Absolute(0), TypeKind::Byte { signed: true }, Operator::Equal, Value::Uint(0x7f), "ELF magic".to_string());
 ///
 /// let rules = vec![rule];
 /// let buffer = &[0x7f, 0x45, 0x4c, 0x46];

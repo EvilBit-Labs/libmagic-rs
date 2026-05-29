@@ -18,13 +18,13 @@ pub struct EvaluationConfig {
 
 ### Field Reference
 
-| Field                 | Type          | Default | Bounds         | Purpose                                                                                                                      |
-| --------------------- | ------------- | ------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `max_recursion_depth` | `u32`         | 20      | 1 -- 1000      | Limits nested rule traversal depth to prevent stack overflow                                                                 |
-| `max_string_length`   | `usize`       | 8192    | 1 -- 1_048_576 | Caps bytes read for string types to prevent memory exhaustion                                                                |
-| `stop_at_first_match` | `bool`        | `true`  | --             | When true, evaluation stops after the first matching top-level rule (children of that rule are still evaluated -- see below) |
-| `enable_mime_types`   | `bool`        | `false` | --             | When true, maps file type descriptions to standard MIME types                                                                |
-| `timeout_ms`          | `Option<u64>` | `None`  | 1 -- 300_000   | Per-file evaluation timeout in milliseconds; `None` disables                                                                 |
+| Field                 | Type          | Default | Bounds         | Purpose                                                                                                                                                                                                                                                                    |
+| --------------------- | ------------- | ------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `max_recursion_depth` | `u32`         | 20      | 1 -- 1000      | Limits nested rule traversal depth to prevent stack overflow                                                                                                                                                                                                               |
+| `max_string_length`   | `usize`       | 8192    | 1 -- 1_048_576 | Caps bytes read for `TypeKind::String` reads (both unflagged and flagged `/c`/`/C`/`/w`/`/W`/`/T`/`/f` variants). Does NOT apply to `TypeKind::PString` (returns `TypeReadError::BufferOverrun` on oversized prefix) or `TypeKind::String16` (hardcoded 8192-unit ceiling) |
+| `stop_at_first_match` | `bool`        | `true`  | --             | When true, evaluation stops after the first matching top-level rule (children of that rule are still evaluated -- see below)                                                                                                                                               |
+| `enable_mime_types`   | `bool`        | `false` | --             | When true, maps file type descriptions to standard MIME types                                                                                                                                                                                                              |
+| `timeout_ms`          | `Option<u64>` | `None`  | 1 -- 300_000   | Per-file evaluation timeout in milliseconds; `None` disables                                                                                                                                                                                                               |
 
 ### `stop_at_first_match` Semantics
 

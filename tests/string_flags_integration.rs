@@ -24,20 +24,16 @@ fn cfg() -> EvaluationConfig {
 }
 
 fn rule(offset: i64, pattern: &str, flags: StringFlags, msg: &str) -> MagicRule {
-    MagicRule {
-        offset: OffsetSpec::Absolute(offset),
-        typ: TypeKind::String {
+    MagicRule::new(
+        OffsetSpec::Absolute(offset),
+        TypeKind::String {
             max_length: None,
             flags,
         },
-        op: Operator::Equal,
-        value: Value::String(pattern.to_string()),
-        message: msg.to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    }
+        Operator::Equal,
+        Value::String(pattern.to_string()),
+        msg.to_string(),
+    )
 }
 
 // ---------- /c: case-insensitive ----------

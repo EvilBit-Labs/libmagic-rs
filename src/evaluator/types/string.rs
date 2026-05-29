@@ -43,7 +43,7 @@ const STRING16_MAX_UNITS: usize = 8192;
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::evaluator::types::read_string;
 /// use libmagic_rs::parser::ast::Value;
 ///
@@ -290,7 +290,7 @@ fn bytes_to_string_fast(bytes: &[u8]) -> String {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::evaluator::types::read_string16;
 /// use libmagic_rs::parser::ast::{Endianness, Value};
 ///
@@ -401,7 +401,7 @@ pub(crate) fn string16_bytes_consumed(buffer: &[u8], offset: usize, endian: Endi
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::evaluator::types::read_pstring;
 /// use libmagic_rs::parser::ast::{Value, PStringLengthWidth};
 ///

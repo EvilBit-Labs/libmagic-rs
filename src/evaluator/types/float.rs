@@ -16,7 +16,7 @@ use crate::parser::ast::{Endianness, Value};
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::evaluator::types::read_float;
 /// use libmagic_rs::parser::ast::{Endianness, Value};
 ///
@@ -56,7 +56,7 @@ pub fn read_float(
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::evaluator::types::read_double;
 /// use libmagic_rs::parser::ast::{Endianness, Value};
 ///

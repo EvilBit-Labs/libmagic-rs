@@ -30,20 +30,16 @@ use libmagic_rs::{EvaluationConfig, MagicRule, OffsetSpec, Operator, TypeKind, V
 use std::hint::black_box;
 
 fn regex_rule(pattern: &str) -> MagicRule {
-    MagicRule {
-        offset: OffsetSpec::Absolute(0),
-        typ: TypeKind::Regex {
+    MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::Regex {
             flags: RegexFlags::default(),
             count: RegexCount::Default,
         },
-        op: Operator::Equal,
-        value: Value::String(pattern.to_string()),
-        message: "bench-match".to_string(),
-        children: vec![],
-        level: 0,
-        strength_modifier: None,
-        value_transform: None,
-    }
+        Operator::Equal,
+        Value::String(pattern.to_string()),
+        "bench-match".to_string(),
+    )
 }
 
 fn make_context() -> EvaluationContext {

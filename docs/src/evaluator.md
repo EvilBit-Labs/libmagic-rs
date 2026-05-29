@@ -23,7 +23,7 @@ The evaluator module separates public interface from implementation:
 - **`evaluator/offset/mod.rs`** - Offset resolution
 - **`evaluator/operators/mod.rs`** - Operator application
 - **`evaluator/types/`** - Type reading and coercion (organized as submodules as of v0.4.2)
-  - **`types/mod.rs`** - Public API surface: `read_typed_value`, `coerce_value_to_type`, re-exports type functions
+  - **`types/mod.rs`** - Internal type-reading API: `pub(crate)` dispatchers (`read_typed_value_with_pattern`, `read_pattern_match`, `coerce_value_to_type`) plus re-exports of leaf `read_*` functions
   - **`types/numeric.rs`** - Numeric type handling: `read_byte`, `read_short`, `read_long`, `read_quad` with endianness and signedness support
   - **`types/float.rs`** - Floating-point type handling: `read_float` (32-bit IEEE 754), `read_double` (64-bit IEEE 754) with endianness support
   - **`types/date.rs`** - Date and timestamp type handling: `read_date` (32-bit Unix timestamps), `read_qdate` (64-bit Unix timestamps) with endianness and UTC/local time support
@@ -91,6 +91,8 @@ pub struct RuleMatch {
 
 The `Value` type is from `parser::ast::Value` and represents the actual matched content according to the rule's type specification. Note that `Value` implements only `PartialEq` (not `Eq`) due to floating-point NaN semantics.
 
+`RuleMatch` also carries a `pub type_kind: TypeKind` field used by the engine for width calculations and format substitution. The field is part of the public Rust API (accessible to consumers via field access) but is excluded from JSON serialization via `#[serde(skip)]` so the parser AST does not leak into structured output.
+
 ### Offset Resolution (`evaluator/offset.rs`)
 
 - **Absolute offsets**: Direct file positions (`0`, `0x100`)
@@ -127,27 +129,7 @@ The types module is organized into submodules for numeric, floating-point, date/
 - **Search**: Bounded literal pattern scan with flag support. `search/N` caps the scan window to `N` bytes from the offset; range is mandatory and non-zero (`NonZeroUsize`). Accepts nine flag suffixes (`/s`, `/c`, `/C`, `/w`, `/W`, `/T`, `/f`, `/t`, `/b`) that control scan behavior and anchor advancement. When only anchor-only flags (`/s`, `/t`, `/b`) are set or no flags are present, the SIMD-accelerated `memchr::memmem::find` fast path is used. When comparison-altering flags (`/c`, `/C`, `/w`, `/W`, `/T`, `/f`) are set, a byte-by-byte comparison through `compare_string_with_flags` is used. The `/s` flag sets the previous-match anchor for relative-offset children to match-START instead of match-END.
 - **Bounds checking**: Prevents buffer overruns
 
-```rust
-// Non-pattern types use the 3-arg convenience wrapper:
-pub fn read_typed_value(
-    buffer: &[u8],
-    offset: usize,
-    type_kind: &TypeKind,
-) -> Result<Value, TypeReadError>
-
-// Pattern-bearing types (Regex, Search) thread the rule's value operand
-// through as the match pattern:
-pub fn read_typed_value_with_pattern(
-    buffer: &[u8],
-    offset: usize,
-    type_kind: &TypeKind,
-    pattern: Option<&Value>,
-) -> Result<Value, TypeReadError>
-```
-
-The engine uses `read_typed_value_with_pattern` uniformly and passes `Some(&rule.value)` for every rule; the convenience `read_typed_value` is a thin wrapper that forwards `pattern: None`. For pattern-bearing types a genuine "no match" is collapsed to `Value::String(String::new())` in the `read_typed_value_with_pattern` return so the back-compat `Value` shape is preserved; the engine instead calls `read_pattern_match` directly, which returns `Result<Option<Value>, _>` so zero-width matches (e.g. `^`, `a*`) can be distinguished from genuine misses.
-
-The `read_byte` function signature changed in v0.2.0 to accept three parameters (`buffer`, `offset`, and `signed`) instead of two, allowing explicit control over signed vs unsigned byte interpretation.
+The type-reading functions are internal (`pub(crate)`) engine helpers. External library users evaluate rules through `evaluate_rules` or `evaluate_rules_with_config`.
 
 **Floating-Point Type Reading (`evaluator/types/float.rs`):**
 

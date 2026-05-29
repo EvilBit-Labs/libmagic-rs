@@ -39,20 +39,21 @@ static DEFAULT_TAG_EXTRACTOR: LazyLock<crate::tags::TagExtractor> =
 /// use libmagic_rs::output::MatchResult;
 /// use libmagic_rs::parser::ast::Value;
 ///
-/// let result = MatchResult {
-///     message: "ELF 64-bit LSB executable".to_string(),
-///     offset: 0,
-///     length: 4,
-///     value: Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
-///     rule_path: vec!["elf".to_string(), "elf64".to_string()],
-///     confidence: 90,
-///     mime_type: Some("application/x-executable".to_string()),
-/// };
+/// let result = MatchResult::with_metadata(
+///     "ELF 64-bit LSB executable".to_string(),
+///     0,
+///     4,
+///     Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
+///     vec!["elf".to_string(), "elf64".to_string()],
+///     90,
+///     Some("application/x-executable".to_string()),
+/// );
 ///
 /// assert_eq!(result.message, "ELF 64-bit LSB executable");
 /// assert_eq!(result.offset, 0);
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct MatchResult {
     /// Human-readable description of the file type or pattern match
     pub message: String,
@@ -121,32 +122,25 @@ pub struct MatchResult {
 /// use libmagic_rs::parser::ast::Value;
 /// use std::path::PathBuf;
 ///
-/// let result = EvaluationResult {
-///     filename: PathBuf::from("example.bin"),
-///     matches: vec![
-///         MatchResult {
-///             message: "ELF executable".to_string(),
-///             offset: 0,
-///             length: 4,
-///             value: Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
-///             rule_path: vec!["elf".to_string()],
-///             confidence: 95,
-///             mime_type: Some("application/x-executable".to_string()),
-///         }
-///     ],
-///     metadata: EvaluationMetadata {
-///         file_size: 8192,
-///         evaluation_time_ms: 2.5,
-///         rules_evaluated: 42,
-///         rules_matched: 1,
-///     },
-///     error: None,
-/// };
+/// let result = EvaluationResult::new(
+///     PathBuf::from("example.bin"),
+///     vec![MatchResult::with_metadata(
+///         "ELF executable".to_string(),
+///         0,
+///         4,
+///         Value::Bytes(vec![0x7f, 0x45, 0x4c, 0x46]),
+///         vec!["elf".to_string()],
+///         95,
+///         Some("application/x-executable".to_string()),
+///     )],
+///     EvaluationMetadata::new(8192, 2.5, 42, 1),
+/// );
 ///
 /// assert_eq!(result.matches.len(), 1);
 /// assert_eq!(result.metadata.file_size, 8192);
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct EvaluationResult {
     /// Path to the file that was analyzed
     pub filename: PathBuf,
@@ -175,6 +169,7 @@ pub struct EvaluationResult {
 /// Provides diagnostic information about how the evaluation was performed,
 /// including performance metrics and statistics about rule processing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct EvaluationMetadata {
     /// Size of the analyzed file in bytes
     pub file_size: u64,
@@ -418,12 +413,7 @@ impl EvaluationResult {
     /// let result = EvaluationResult::new(
     ///     PathBuf::from("test.txt"),
     ///     vec![],
-    ///     EvaluationMetadata {
-    ///         file_size: 1024,
-    ///         evaluation_time_ms: 1.2,
-    ///         rules_evaluated: 10,
-    ///         rules_matched: 0,
-    ///     }
+    ///     EvaluationMetadata::new(1024, 1.2, 10, 0),
     /// );
     ///
     /// assert_eq!(result.filename, PathBuf::from("test.txt"));
@@ -502,12 +492,7 @@ impl EvaluationResult {
     /// let result = EvaluationResult::with_error(
     ///     PathBuf::from("missing.txt"),
     ///     "File not found".to_string(),
-    ///     EvaluationMetadata {
-    ///         file_size: 0,
-    ///         evaluation_time_ms: 0.0,
-    ///         rules_evaluated: 0,
-    ///         rules_matched: 0,
-    ///     }
+    ///     EvaluationMetadata::new(0, 0.0, 0, 0),
     /// );
     ///
     /// assert_eq!(result.error, Some("File not found".to_string()));
@@ -535,12 +520,7 @@ impl EvaluationResult {
     /// let mut result = EvaluationResult::new(
     ///     PathBuf::from("data.bin"),
     ///     vec![],
-    ///     EvaluationMetadata {
-    ///         file_size: 512,
-    ///         evaluation_time_ms: 0.8,
-    ///         rules_evaluated: 5,
-    ///         rules_matched: 0,
-    ///     }
+    ///     EvaluationMetadata::new(512, 0.8, 5, 0),
     /// );
     ///
     /// let match_result = MatchResult::new(
@@ -602,12 +582,7 @@ impl EvaluationResult {
     ///             Some("application/x-msdownload".to_string())
     ///         ),
     ///     ],
-    ///     EvaluationMetadata {
-    ///         file_size: 4096,
-    ///         evaluation_time_ms: 1.5,
-    ///         rules_evaluated: 15,
-    ///         rules_matched: 2,
-    ///     }
+    ///     EvaluationMetadata::new(4096, 1.5, 15, 2),
     /// );
     ///
     /// let primary = result.primary_match();
@@ -632,23 +607,13 @@ impl EvaluationResult {
     /// let success = EvaluationResult::new(
     ///     PathBuf::from("good.txt"),
     ///     vec![],
-    ///     EvaluationMetadata {
-    ///         file_size: 100,
-    ///         evaluation_time_ms: 0.5,
-    ///         rules_evaluated: 3,
-    ///         rules_matched: 0,
-    ///     }
+    ///     EvaluationMetadata::new(100, 0.5, 3, 0),
     /// );
     ///
     /// let failure = EvaluationResult::with_error(
     ///     PathBuf::from("bad.txt"),
     ///     "Parse error".to_string(),
-    ///     EvaluationMetadata {
-    ///         file_size: 0,
-    ///         evaluation_time_ms: 0.0,
-    ///         rules_evaluated: 0,
-    ///         rules_matched: 0,
-    ///     }
+    ///     EvaluationMetadata::new(0, 0.0, 0, 0),
     /// );
     ///
     /// assert!(success.is_success());

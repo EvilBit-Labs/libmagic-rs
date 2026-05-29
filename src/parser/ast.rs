@@ -630,10 +630,9 @@ pub enum TypeKind {
     ///
     /// // `regex/cs` -- case-insensitive, anchor advances to match-start.
     /// let case_insensitive_start = TypeKind::Regex {
-    ///     flags: RegexFlags {
-    ///         case_insensitive: true,
-    ///         start_offset: true,
-    ///     },
+    ///     flags: RegexFlags::default()
+    ///         .with_case_insensitive(true)
+    ///         .with_start_offset(true),
     ///     count: RegexCount::Default,
     /// };
     /// ```
@@ -731,6 +730,7 @@ pub enum TypeKind {
 /// assert!(case_and_start.start_offset);
 /// ```
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RegexFlags {
     /// `/c` -- case-insensitive matching. When `true`, ASCII letter
     /// casing is ignored during pattern matching.
@@ -814,6 +814,7 @@ impl RegexFlags {
 // in every consumer. The bool-per-flag layout mirrors `RegexFlags` and
 // the libmagic source -- the clippy lint is overruled by the design.
 #[allow(clippy::struct_excessive_bools)]
+#[non_exhaustive]
 pub struct StringFlags {
     /// `/W` -- `STRING_COMPACT_WHITESPACE`. Pattern whitespace requires at
     /// least one whitespace byte in the file, then any further whitespace
@@ -971,6 +972,7 @@ impl StringFlags {
 // The bool-per-flag layout mirrors `StringFlags` and `RegexFlags` and the
 // libmagic source -- the clippy lint is overruled by the design.
 #[allow(clippy::struct_excessive_bools)]
+#[non_exhaustive]
 pub struct SearchFlags {
     /// `/W` -- `STRING_COMPACT_WHITESPACE`. Pattern whitespace requires at
     /// least one whitespace byte in the file, then any further whitespace
@@ -1533,11 +1535,12 @@ pub enum ValueTransformOp {
 /// use libmagic_rs::parser::ast::{ValueTransform, ValueTransformOp};
 ///
 /// // `lelong+1` -> add 1 to the read value
-/// let t = ValueTransform { op: ValueTransformOp::Add, operand: 1 };
+/// let t = ValueTransform::new(ValueTransformOp::Add, 1);
 /// assert_eq!(t.op, ValueTransformOp::Add);
 /// assert_eq!(t.operand, 1);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ValueTransform {
     /// Operation to apply.
     pub op: ValueTransformOp,
@@ -1545,8 +1548,17 @@ pub struct ValueTransform {
     pub operand: i64,
 }
 
+impl ValueTransform {
+    /// Construct a new `ValueTransform` from an op and an operand.
+    #[must_use]
+    pub const fn new(op: ValueTransformOp, operand: i64) -> Self {
+        Self { op, operand }
+    }
+}
+
 /// Magic rule representation in the AST
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct MagicRule {
     /// Offset specification for where to read data
     pub offset: OffsetSpec,

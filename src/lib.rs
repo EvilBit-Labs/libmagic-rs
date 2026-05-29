@@ -102,7 +102,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 // Re-export modules
 pub mod builtin_rules;
@@ -149,6 +149,7 @@ impl From<crate::io::IoError> for LibmagicError {
 
 /// Main interface for magic rule database
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct MagicDatabase {
     /// Named subroutine definitions extracted from magic file `name` rules,
     /// keyed by identifier. The evaluator consults this table when a rule of
@@ -604,18 +605,19 @@ impl MagicDatabase {
 /// use libmagic_rs::EvaluationMetadata;
 /// use std::path::PathBuf;
 ///
-/// let metadata = EvaluationMetadata {
-///     file_size: 8192,
-///     evaluation_time_ms: 2.5,
-///     rules_evaluated: 42,
-///     magic_file: Some(PathBuf::from("/usr/share/misc/magic")),
-///     timed_out: false,
-/// };
+/// let metadata = EvaluationMetadata::new(
+///     8192,
+///     2.5,
+///     42,
+///     Some(PathBuf::from("/usr/share/misc/magic")),
+///     false,
+/// );
 ///
 /// assert_eq!(metadata.file_size, 8192);
 /// assert!(!metadata.timed_out);
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct EvaluationMetadata {
     /// Size of the analyzed file or buffer in bytes
     pub file_size: u64,
@@ -673,18 +675,19 @@ impl Default for EvaluationMetadata {
 /// ```
 /// use libmagic_rs::{EvaluationResult, EvaluationMetadata};
 ///
-/// let result = EvaluationResult {
-///     description: "ELF 64-bit executable".to_string(),
-///     mime_type: Some("application/x-executable".to_string()),
-///     confidence: 0.9,
-///     matches: vec![],
-///     metadata: EvaluationMetadata::default(),
-/// };
+/// let result = EvaluationResult::new(
+///     "ELF 64-bit executable".to_string(),
+///     Some("application/x-executable".to_string()),
+///     0.9,
+///     vec![],
+///     EvaluationMetadata::default(),
+/// );
 ///
 /// assert_eq!(result.description, "ELF 64-bit executable");
 /// assert!(result.confidence > 0.5);
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct EvaluationResult {
     /// Human-readable file type description
     ///
@@ -712,6 +715,54 @@ pub struct EvaluationResult {
     pub matches: Vec<evaluator::RuleMatch>,
     /// Metadata about the evaluation process
     pub metadata: EvaluationMetadata,
+}
+
+impl EvaluationResult {
+    /// Construct a new library-side `EvaluationResult`.
+    ///
+    /// This is the outbound type returned by [`MagicDatabase::evaluate_file`]
+    /// and [`MagicDatabase::evaluate_buffer`]. For the output-facing
+    /// type used by the CLI and JSON/text formatters, see
+    /// [`crate::output::EvaluationResult::from_library_result`].
+    #[must_use]
+    pub fn new(
+        description: String,
+        mime_type: Option<String>,
+        confidence: f64,
+        matches: Vec<evaluator::RuleMatch>,
+        metadata: EvaluationMetadata,
+    ) -> Self {
+        Self {
+            description,
+            mime_type,
+            confidence,
+            matches,
+            metadata,
+        }
+    }
+}
+
+impl EvaluationMetadata {
+    /// Construct a new library-side `EvaluationMetadata` from the four
+    /// always-set fields. `magic_file` and `timed_out` default to `None`
+    /// / `false`; use struct-update syntax with [`EvaluationMetadata::default()`]
+    /// to set them explicitly.
+    #[must_use]
+    pub fn new(
+        file_size: u64,
+        evaluation_time_ms: f64,
+        rules_evaluated: usize,
+        magic_file: Option<PathBuf>,
+        timed_out: bool,
+    ) -> Self {
+        Self {
+            file_size,
+            evaluation_time_ms,
+            rules_evaluated,
+            magic_file,
+            timed_out,
+        }
+    }
 }
 
 #[cfg(test)]
