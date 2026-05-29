@@ -150,7 +150,7 @@ Inside a `MetaType::Use` subroutine body, `OffsetSpec::Absolute(n)` with `n >= 0
 
 ### 3.11 `parse_text_magic_file` is Fail-Fast, Not Skip-on-Error
 
-`build_rule_hierarchy` propagates any `parse_magic_rule_line` error immediately, so a single unparseable rule (e.g., a child using unsupported `&+N` relative-offset syntax or an unquoted `$VAR` string value -- see S3.6) causes the **entire file load** to fail with `ParseError::InvalidSyntax`. There is no skip-and-continue mode. When writing corpus tests against third_party `.magic` files that mix supported and unsupported syntax, bypass the parser and build the equivalent `MagicRule` tree programmatically via the AST; the runtime evaluator can still be exercised end-to-end against the real testfile buffer. See `tests/evaluator_tests.rs::test_regex_eol_corpus` for a worked example.
+`build_rule_hierarchy` propagates any `parse_magic_rule_line` error immediately, so a single unparseable rule (e.g., a string value using unquoted `$VAR` substitution on a non-string-family type -- see S3.6) causes the **entire file load** to fail with `ParseError::InvalidSyntax`. There is no skip-and-continue mode. When writing corpus tests against third_party `.magic` files that mix supported and unsupported syntax, bypass the parser and build the equivalent `MagicRule` tree programmatically via the AST; the runtime evaluator can still be exercised end-to-end against the real testfile buffer. See `tests/evaluator_tests.rs::test_regex_eol_corpus` for a worked example.
 
 ### 3.10 `parse_text_magic_file` Returns `ParsedMagic`, Not `Vec<MagicRule>`
 
