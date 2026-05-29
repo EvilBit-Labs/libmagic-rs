@@ -17,6 +17,12 @@
 //!   `size_limit` / `dfa_size_limit` (CWE-1333).
 //! * **T-M2 (S13.1)** — `EvaluationConfig::default()` has no timeout;
 //!   this test pins the invariant so a change is a deliberate choice.
+//! * **2A-H1 / 3A-C2** — `EvaluationConfig::max_string_length` must be
+//!   threaded into both the unflagged string dispatcher (`read_typed_value_with_pattern`)
+//!   AND the flagged-string dispatcher (`read_pattern_match`). Origin
+//!   `.full-review/05-final-report.md` documented the cap as a working
+//!   CWE-770 countermeasure that was never wired. These tests pin the
+//!   fix on both paths.
 //!
 //! Tests that require private-module access (codegen round-trip for
 //! S-L2, `concatenate_messages` backspace edges for S14.1) live inline
@@ -184,5 +190,192 @@ fn test_evaluation_config_default_is_unbounded() {
         "EvaluationConfig::default() is expected to leave timeout_ms unset. \
          If you are intentionally changing this behavior, update GOTCHAS S13.1 \
          and the rustdoc `# Security` section on the MagicDatabase constructors."
+    );
+}
+
+// =============================================================================
+// 2A-H1 / 3A-C2: max_string_length must be honored on both string-read paths
+// =============================================================================
+
+/// Helper: build a 1 MiB NUL-free buffer to stress the cap.
+fn one_mib_nul_free() -> Vec<u8> {
+    vec![b'A'; 1_048_576]
+}
+
+/// Build a `string x` rule (unflagged any-value) with no AST max_length.
+/// Exercises the `read_typed_value_with_pattern` `(None, _)` arm. The
+/// rule's `value` field is `Value::Uint(0)` (sentinel for `x`); using
+/// `Value::String("")` would route through the `(None, Some(Value::String(p)))`
+/// arm which reads `p.len() == 0` bytes — not the path we want to exercise.
+fn unflagged_string_x_rule() -> libmagic_rs::MagicRule {
+    use libmagic_rs::parser::ast::StringFlags;
+    use libmagic_rs::{MagicRule, OffsetSpec, Operator, TypeKind, Value};
+    MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default(),
+        },
+        Operator::AnyValue,
+        Value::Uint(0),
+        "captured: %s".to_string(),
+    )
+}
+
+/// Build a `string/<flag> "<pattern>"` rule for testing the flagged-string
+/// scan window. Flagged strings reject `Operator::AnyValue` (the engine
+/// requires `Equal`/`NotEqual` for pattern-bearing types), so we use a
+/// concrete pattern and verify match-vs-no-match based on whether the
+/// scan window covers the pattern position.
+fn flagged_string_equal_rule(
+    flags: libmagic_rs::parser::ast::StringFlags,
+    pattern: &str,
+) -> libmagic_rs::MagicRule {
+    use libmagic_rs::{MagicRule, OffsetSpec, Operator, TypeKind, Value};
+    MagicRule::new(
+        OffsetSpec::Absolute(0),
+        TypeKind::String {
+            max_length: None,
+            flags,
+        },
+        Operator::Equal,
+        Value::String(pattern.to_string()),
+        "flagged hit".to_string(),
+    )
+}
+
+/// Run an evaluation against the rule and return the first match's `Value`
+/// if the rule matched, or `None` on no-match.
+fn captured_value(
+    rule: &libmagic_rs::MagicRule,
+    buffer: &[u8],
+    cap: usize,
+) -> Option<libmagic_rs::parser::ast::Value> {
+    use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
+    let config = EvaluationConfig::default()
+        .with_max_string_length(cap)
+        .with_timeout_ms(Some(5_000));
+    let mut ctx = EvaluationContext::new(config);
+    let matches = evaluate_rules(std::slice::from_ref(rule), buffer, &mut ctx)
+        .expect("evaluate_rules should not error for these simple rules");
+    matches.into_iter().next().map(|m| m.value)
+}
+
+/// Extract the byte length of a captured string-shaped `Value`.
+fn captured_len(v: &libmagic_rs::parser::ast::Value) -> usize {
+    use libmagic_rs::parser::ast::Value;
+    match v {
+        Value::String(s) => s.len(),
+        Value::Bytes(b) => b.len(),
+        other => panic!("expected string/bytes capture, got {other:?}"),
+    }
+}
+
+/// Unflagged path: `0 string x` against a 1 MiB NUL-free buffer with
+/// `max_string_length = 64` must produce a capture bounded to 64 bytes.
+/// Pre-fix this allocates the full buffer (~1 MiB) because the dispatcher
+/// passes `None` to `read_string`. Origin finding 2A-H1.
+#[test]
+fn test_max_string_length_caps_unflagged_string_x() {
+    let buf = one_mib_nul_free();
+    let rule = unflagged_string_x_rule();
+    let captured =
+        captured_value(&rule, &buf, 64).expect("unflagged `string x` should match any buffer");
+    let len = captured_len(&captured);
+    assert_eq!(
+        len, 64,
+        "unflagged string x must cap at max_string_length=64; got {len} bytes \
+         (2A-H1 regression: dispatcher dropped the cap)"
+    );
+}
+
+/// Flagged-`/W` path: a `string/W "X "` rule against a buffer of all
+/// whitespace must walk only `max_string_length` bytes before giving up,
+/// not the full buffer. Origin 2A-H1 (flagged-string scan-window variant)
+/// — the `/W` operator consumes greedy whitespace which without a cap
+/// could walk an arbitrarily large buffer. The test uses a buffer too
+/// large to consume completely in any reasonable time bound; the U1 cap
+/// prevents the runaway walk.
+///
+/// We assert no-match (the pattern `X ` requires a literal `X` after the
+/// whitespace run; the buffer has none), and that the evaluation
+/// completes well under the cap-implied wall-clock bound. A correctly
+/// capped walk completes in microseconds; an uncapped walk through 16
+/// MiB takes meaningfully longer.
+#[test]
+fn test_max_string_length_caps_flagged_w_whitespace_walk() {
+    use libmagic_rs::parser::ast::StringFlags;
+    use std::time::Instant;
+
+    // 16 MiB of whitespace — large enough that an uncapped walk is
+    // observably slower than a capped one, but not so large that test
+    // setup dominates the run time.
+    let buf = vec![b' '; 16 * 1024 * 1024];
+    let rule =
+        flagged_string_equal_rule(StringFlags::default().with_compact_whitespace(true), " X");
+
+    let cap = 1024usize;
+    let start = Instant::now();
+    let result = captured_value(&rule, &buf, cap);
+    let elapsed = start.elapsed();
+
+    assert!(
+        result.is_none(),
+        "flagged string/W ' X' must NOT match an all-whitespace buffer; got {result:?}"
+    );
+    // With a 1024-byte cap the comparator walks at most ~1024 bytes.
+    // A pessimistic bound of 100 ms covers any reasonable CI environment;
+    // an uncapped walk through 16 MiB takes substantially longer.
+    assert!(
+        elapsed.as_millis() < 100,
+        "flagged string/W against 16 MiB whitespace ran for {elapsed:?} \
+         (2A-H1 regression: flagged-string scan_buffer ignored max_string_length=1024)"
+    );
+}
+
+/// Minimum valid cap (cap = 1) must produce a 1-byte result on the
+/// unflagged path. `EvaluationConfig::validate()` rejects
+/// `max_string_length == 0` at construction time, so cap=0 cannot be
+/// reached through the public API.
+#[test]
+fn test_max_string_length_minimum_cap_returns_one_byte() {
+    let buf = one_mib_nul_free();
+    let v = captured_value(&unflagged_string_x_rule(), &buf, 1).expect("must match");
+    assert_eq!(
+        captured_len(&v),
+        1,
+        "unflagged: cap=1 must yield 1-byte capture; got {} bytes",
+        captured_len(&v)
+    );
+}
+
+/// NUL before cap: the unflagged path stops at the first NUL even when
+/// the configured cap would allow reading further. Confirms the cap is
+/// an upper bound, not a target.
+#[test]
+fn test_max_string_length_unflagged_stops_at_nul_before_cap() {
+    let mut buf = b"hello\0".to_vec();
+    buf.extend(std::iter::repeat_n(b'A', 1_048_576));
+    let v = captured_value(&unflagged_string_x_rule(), &buf, 64).expect("must match");
+    assert_eq!(
+        captured_len(&v),
+        5,
+        "unflagged path must stop at NUL even when cap is larger; \
+         got {} bytes",
+        captured_len(&v)
+    );
+}
+
+/// Cap larger than remaining buffer must return the entire buffer (or up
+/// to the first NUL, whichever comes first). The cap is an upper bound.
+#[test]
+fn test_max_string_length_cap_larger_than_buffer_returns_full_buffer() {
+    let buf = vec![b'A'; 100];
+    let v = captured_value(&unflagged_string_x_rule(), &buf, 1_000_000).expect("must match");
+    assert_eq!(
+        captured_len(&v),
+        100,
+        "cap larger than buffer should return full buffer; got {} bytes",
+        captured_len(&v)
     );
 }

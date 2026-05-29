@@ -23,7 +23,13 @@ fn evaluate_single_rule_legacy(
     rule: &MagicRule,
     buffer: &[u8],
 ) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
-    evaluate_single_rule_with_anchor(rule, buffer, 0, 0)
+    evaluate_single_rule_with_anchor(
+        rule,
+        buffer,
+        0,
+        0,
+        crate::evaluator::types::DEFAULT_MAX_STRING_LENGTH,
+    )
 }
 
 #[test]

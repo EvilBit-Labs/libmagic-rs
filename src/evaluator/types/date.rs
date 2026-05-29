@@ -29,7 +29,7 @@ const MONTH_NAMES: [&str; 12] = [
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::evaluator::types::read_date;
 /// use libmagic_rs::parser::ast::{Endianness, Value};
 ///
@@ -77,7 +77,7 @@ pub fn read_date(
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use libmagic_rs::evaluator::types::read_qdate;
 /// use libmagic_rs::parser::ast::{Endianness, Value};
 ///

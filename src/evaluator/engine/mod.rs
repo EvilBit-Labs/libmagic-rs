@@ -212,6 +212,7 @@ fn evaluate_single_rule_with_anchor(
     buffer: &[u8],
     last_match_end: usize,
     base_offset: usize,
+    max_string_length: usize,
 ) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
     use crate::parser::ast::TypeKind;
 
@@ -261,7 +262,7 @@ fn evaluate_single_rule_with_anchor(
         }
         TypeKind::Meta(_) => return Ok(None),
         TypeKind::Regex { .. } | TypeKind::Search { .. } => {
-            evaluate_pattern_rule(rule, buffer, absolute_offset)?
+            evaluate_pattern_rule(rule, buffer, absolute_offset, max_string_length)?
         }
         // Flagged `string` rules route through the pattern-bearing path
         // (see GOTCHAS S2.4 for the contract) so `compare_string_with_flags`
@@ -269,9 +270,9 @@ fn evaluate_single_rule_with_anchor(
         // Default-flag strings (the common case) take the existing
         // value-rule fast path with byte-exact `apply_equal`.
         TypeKind::String { flags, .. } if !flags.is_empty() => {
-            evaluate_pattern_rule(rule, buffer, absolute_offset)?
+            evaluate_pattern_rule(rule, buffer, absolute_offset, max_string_length)?
         }
-        _ => evaluate_value_rule(rule, buffer, absolute_offset)?,
+        _ => evaluate_value_rule(rule, buffer, absolute_offset, max_string_length)?,
     };
     Ok(matched.then_some((absolute_offset, read_value)))
 }
@@ -381,10 +382,16 @@ fn evaluate_pattern_rule(
     rule: &MagicRule,
     buffer: &[u8],
     absolute_offset: usize,
+    max_string_length: usize,
 ) -> Result<(bool, crate::parser::ast::Value), LibmagicError> {
-    let match_outcome =
-        types::read_pattern_match(buffer, absolute_offset, &rule.typ, Some(&rule.value))
-            .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
+    let match_outcome = types::read_pattern_match(
+        buffer,
+        absolute_offset,
+        &rule.typ,
+        Some(&rule.value),
+        max_string_length,
+    )
+    .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
     let pattern_found = match_outcome.is_some();
     let matched = match &rule.op {
         crate::parser::ast::Operator::Equal => pattern_found,
@@ -417,10 +424,16 @@ fn evaluate_value_rule(
     rule: &MagicRule,
     buffer: &[u8],
     absolute_offset: usize,
+    max_string_length: usize,
 ) -> Result<(bool, crate::parser::ast::Value), LibmagicError> {
-    let read_value =
-        types::read_typed_value_with_pattern(buffer, absolute_offset, &rule.typ, Some(&rule.value))
-            .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
+    let read_value = types::read_typed_value_with_pattern(
+        buffer,
+        absolute_offset,
+        &rule.typ,
+        Some(&rule.value),
+        max_string_length,
+    )
+    .map_err(|e| LibmagicError::EvaluationError(e.into()))?;
 
     // Apply any pre-comparison value transform (`type+N`/`type-N`/`type*N`/
     // `type/N`/`type%N`/`type|N`/`type^N`). The transform runs on the read
@@ -1026,6 +1039,7 @@ pub fn evaluate_rules(
             buffer,
             context.last_match_end(),
             context.base_offset(),
+            context.max_string_length(),
         ) {
             Ok(data) => data,
             Err(
