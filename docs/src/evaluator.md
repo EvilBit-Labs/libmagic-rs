@@ -91,7 +91,7 @@ pub struct RuleMatch {
 
 The `Value` type is from `parser::ast::Value` and represents the actual matched content according to the rule's type specification. Note that `Value` implements only `PartialEq` (not `Eq`) due to floating-point NaN semantics.
 
-`RuleMatch` also carries a non-public `type_kind: TypeKind` field used internally by the engine for width calculations and format substitution. This field is excluded from JSON serialization (`#[serde(skip)]`).
+`RuleMatch` also carries a `pub type_kind: TypeKind` field used by the engine for width calculations and format substitution. The field is part of the public Rust API (accessible to consumers via field access) but is excluded from JSON serialization via `#[serde(skip)]` so the parser AST does not leak into structured output.
 
 ### Offset Resolution (`evaluator/offset.rs`)
 

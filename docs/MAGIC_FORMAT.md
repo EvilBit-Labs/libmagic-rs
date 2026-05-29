@@ -368,17 +368,17 @@ The range is MANDATORY (`NonZeroUsize`). Bare `search` and `search/0` are parse 
 
 Flags for `search` type modify comparison and anchor behavior. Most flags share semantics with `string` type flags; `/s` is search-specific.
 
-| Flag | Description                                                                                                          |
-| ---- | -------------------------------------------------------------------------------------------------------------------- |
-| `/s` | Anchor advance lands at match-START instead of match-END (required for TGA footer, sfnt name table)                  |
-| `/c` | Case-insensitive match (lowercase pattern chars fold file bytes to lower; uppercase pattern chars are literal)       |
-| `/C` | Case-insensitive match (uppercase pattern chars fold file bytes to upper; lowercase pattern chars are literal)       |
-| `/w` | Whitespace-optional (pattern whitespace matches zero or more file whitespace)                                        |
+| Flag | Description                                                                                                            |
+| ---- | ---------------------------------------------------------------------------------------------------------------------- |
+| `/s` | Anchor advance lands at match-START instead of match-END (required for TGA footer, sfnt name table)                    |
+| `/c` | Case-insensitive match (lowercase pattern chars fold file bytes to lower; uppercase pattern chars are literal)         |
+| `/C` | Case-insensitive match (uppercase pattern chars fold file bytes to upper; lowercase pattern chars are literal)         |
+| `/w` | Whitespace-optional (pattern whitespace matches zero or more file whitespace)                                          |
 | `/W` | Whitespace-required-compact (pattern whitespace requires at least one file whitespace; additional whitespace consumed) |
-| `/T` | Trim leading/trailing ASCII whitespace from pattern before comparison                                                |
-| `/f` | Full-word match (post-match word-boundary check; next byte must be EOF or non-word char)                             |
-| `/t` | Force text test (MIME-output hint; no effect on comparison)                                                          |
-| `/b` | Force binary test (MIME-output hint; no effect on comparison)                                                        |
+| `/T` | Trim leading/trailing ASCII whitespace from pattern before comparison                                                  |
+| `/f` | Full-word match (post-match word-boundary check; next byte must be EOF or non-word char)                               |
+| `/t` | Force text test (MIME-output hint; no effect on comparison)                                                            |
+| `/b` | Force binary test (MIME-output hint; no effect on comparison)                                                          |
 
 **`/c` vs `/C` asymmetry:** The pattern character controls fold direction. `/c` with lowercase pattern chars folds the file byte to lowercase; uppercase pattern chars in the same pattern are compared literally. See String Flags section above for details.
 

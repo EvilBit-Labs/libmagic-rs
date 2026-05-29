@@ -306,6 +306,22 @@ pub(crate) fn read_pattern_match(
     pattern: Option<&Value>,
     max_string_length: usize,
 ) -> Result<Option<Value>, TypeReadError> {
+    // Match the documented BufferOverrun contract uniformly across all
+    // pattern-bearing paths. `read_regex` and `read_search` enforce this
+    // guard internally; the flagged `TypeKind::String` arm below delegates
+    // to `compare_string_with_flags`, which would silently return `None`
+    // (no-match) for `offset >= buffer.len()`. Under `Operator::NotEqual`
+    // an out-of-bounds read would then be reported as a successful match
+    // -- a correctness hazard. Returning `BufferOverrun` here keeps the
+    // three paths semantically aligned and lets the engine dispatcher
+    // (`evaluate_pattern_rule`) reject the rule rather than infer truth
+    // from an unread region.
+    if offset >= buffer.len() {
+        return Err(TypeReadError::BufferOverrun {
+            offset,
+            buffer_len: buffer.len(),
+        });
+    }
     match type_kind {
         TypeKind::Regex { flags, count } => {
             let pattern_str = match pattern {
@@ -392,16 +408,23 @@ pub(crate) fn read_pattern_match(
             // and silently produce no-match at any non-zero offset.
             //
             // `end` is constructed with `saturating_add` then `.min(buffer.len())`
-            // so the slice always satisfies `end <= buffer.len()`. We slice
-            // directly with `&buffer[..end]` rather than
-            // `buffer.get(..end).unwrap_or(buffer)` so that any future
-            // refactor that breaks the clamp invariant fails loudly (panic)
+            // so the slice always satisfies `end <= buffer.len()`. We use
+            // `buffer.get(..end).ok_or(BufferOverrun)` rather than direct
+            // indexing to satisfy the project-wide ".get() for buffer access"
+            // rule (AGENTS.md "Memory Safety First") while preserving the
+            // SF-2 fail-loud posture: if a future refactor breaks the clamp
+            // invariant, we surface a typed `BufferOverrun` to the engine
             // instead of silently falling back to the uncapped buffer --
-            // which would defeat the CWE-770 control.
+            // which would defeat the CWE-770 control. The `ok_or` arm is
+            // structurally unreachable under the current invariant; it
+            // exists as defense-in-depth.
             let scan_buffer: &[u8] = {
                 let cap = max_length.unwrap_or(max_string_length);
                 let end = offset.saturating_add(cap).min(buffer.len());
-                &buffer[..end]
+                buffer.get(..end).ok_or(TypeReadError::BufferOverrun {
+                    offset,
+                    buffer_len: buffer.len(),
+                })?
             };
             match string::compare_string_with_flags(trimmed, scan_buffer, offset, *flags) {
                 Some(consumed) => {

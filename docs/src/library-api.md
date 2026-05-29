@@ -70,13 +70,13 @@ When no rules match, the description defaults to `"data"` with confidence `0.0`.
 
 Controls evaluation behavior with these fields:
 
-| Field                 | Type          | Default | Description                                                                                                                                                              |
-| --------------------- | ------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `max_recursion_depth` | `u32`         | `20`    | Maximum depth for nested rule evaluation                                                                                                                                 |
+| Field                 | Type          | Default | Description                                                                                                                                                               |
+| --------------------- | ------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `max_recursion_depth` | `u32`         | `20`    | Maximum depth for nested rule evaluation                                                                                                                                  |
 | `max_string_length`   | `usize`       | `8192`  | Caps bytes read for `TypeKind::String` reads (both unflagged and with `/c`/`/C`/`/w`/`/W`/`/T`/`/f` flags); does NOT apply to `TypeKind::PString` or `TypeKind::String16` |
-| `stop_at_first_match` | `bool`        | `true`  | Stop after the first matching rule                                                                                                                                       |
-| `enable_mime_types`   | `bool`        | `false` | Map descriptions to MIME types                                                                                                                                           |
-| `timeout_ms`          | `Option<u64>` | `None`  | Evaluation timeout in milliseconds                                                                                                                                       |
+| `stop_at_first_match` | `bool`        | `true`  | Stop after the first matching rule                                                                                                                                        |
+| `enable_mime_types`   | `bool`        | `false` | Map descriptions to MIME types                                                                                                                                            |
+| `timeout_ms`          | `Option<u64>` | `None`  | Evaluation timeout in milliseconds                                                                                                                                        |
 
 ### Presets
 

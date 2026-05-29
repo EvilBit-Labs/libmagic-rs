@@ -331,7 +331,7 @@ fn test_max_string_length_flagged_path_works_at_non_zero_offset() {
     );
 }
 
-/// Flagged-`/W` path: a `string/W "X "` rule against a buffer of all
+/// Flagged-`/W` path: a `string/W " X"` rule against a buffer of all
 /// whitespace must walk only `max_string_length` bytes before giving up,
 /// not the full buffer. Origin 2A-H1 (flagged-string scan-window variant)
 /// — the `/W` operator consumes greedy whitespace which without a cap
@@ -339,11 +339,11 @@ fn test_max_string_length_flagged_path_works_at_non_zero_offset() {
 /// large to consume completely in any reasonable time bound; the U1 cap
 /// prevents the runaway walk.
 ///
-/// We assert no-match (the pattern `X ` requires a literal `X` after the
-/// whitespace run; the buffer has none), and that the evaluation
-/// completes well under the cap-implied wall-clock bound. A correctly
-/// capped walk completes in microseconds; an uncapped walk through 16
-/// MiB takes meaningfully longer.
+/// We assert no-match (the pattern ` X` requires a literal `X` after the
+/// leading whitespace; the buffer is all spaces with no `X`), and that
+/// the evaluation completes well under the cap-implied wall-clock bound.
+/// A correctly capped walk completes in microseconds; an uncapped walk
+/// through 16 MiB takes meaningfully longer.
 #[test]
 fn test_max_string_length_caps_flagged_w_whitespace_walk() {
     use libmagic_rs::parser::ast::StringFlags;
@@ -376,9 +376,13 @@ fn test_max_string_length_caps_flagged_w_whitespace_walk() {
 }
 
 /// Minimum valid cap (cap = 1) must produce a 1-byte result on the
-/// unflagged path. `EvaluationConfig::validate()` rejects
-/// `max_string_length == 0` at construction time, so cap=0 cannot be
-/// reached through the public API.
+/// unflagged path. `EvaluationConfig::with_max_string_length` is a pure
+/// setter and does not validate; `EvaluationConfig::validate()` (called
+/// explicitly by validated entry points such as `MagicDatabase`) rejects
+/// `max_string_length == 0`. As defense-in-depth, `EvaluationContext::new`
+/// clamps `max_string_length == 0` to `DEFAULT_MAX_STRING_LENGTH` so
+/// even low-level callers that bypass `validate()` cannot reach a
+/// 0-byte cap at evaluation time (SF-1).
 #[test]
 fn test_max_string_length_minimum_cap_returns_one_byte() {
     let buf = one_mib_nul_free();

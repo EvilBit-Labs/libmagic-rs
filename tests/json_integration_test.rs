@@ -364,25 +364,45 @@ fn test_rule_match_type_kind_not_serialized_in_evaluation_result() {
     );
 
     let json = serde_json::to_string(&result).expect("must serialize");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json).expect("emitted JSON must round-trip through serde_json");
 
+    // Walk the structure and assert `type_kind` is absent from every
+    // RuleMatch entry under `matches[*]`. Substring checks would false-
+    // fail if any user-visible string happened to contain `type_kind`,
+    // and -- more importantly -- they cannot prove key absence; only
+    // structural inspection can.
+    let matches = parsed
+        .get("matches")
+        .and_then(|v| v.as_array())
+        .expect("EvaluationResult JSON must have a `matches` array");
     assert!(
-        !json.contains("type_kind"),
-        "EvaluationResult JSON must not contain `type_kind` key \
-         (1B-H2 / 2A-M1 regression: parser AST leaking into JSON output). \
-         Got: {json}"
+        !matches.is_empty(),
+        "EvaluationResult JSON must include at least one rule match for this assertion to be meaningful"
     );
-
-    // The `value` field (the matched data) and `confidence` should still
-    // be present -- sanity check that #[serde(skip)] only excluded
-    // type_kind, not the surrounding fields.
-    assert!(
-        json.contains("\"value\""),
-        "EvaluationResult JSON should still include `value`"
-    );
-    assert!(
-        json.contains("\"confidence\""),
-        "EvaluationResult JSON should still include `confidence`"
-    );
+    for (i, m) in matches.iter().enumerate() {
+        let obj = m.as_object().unwrap_or_else(|| {
+            panic!("matches[{i}] must be a JSON object, got {m}");
+        });
+        assert!(
+            !obj.contains_key("type_kind"),
+            "matches[{i}] must not contain `type_kind` key \
+             (1B-H2 / 2A-M1 regression: parser AST leaking into JSON output). \
+             Got keys: {:?}",
+            obj.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            obj.contains_key("value"),
+            "matches[{i}] must still include `value` -- #[serde(skip)] should \
+             only suppress type_kind, not the surrounding fields. Got keys: {:?}",
+            obj.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            obj.contains_key("confidence"),
+            "matches[{i}] must still include `confidence`. Got keys: {:?}",
+            obj.keys().collect::<Vec<_>>()
+        );
+    }
 }
 
 /// Sanity check: the `type_kind` field is still accessible from Rust
