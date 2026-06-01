@@ -155,7 +155,7 @@ clap_complete = "4.6.5"
 ctrlc = { version = "3.5.2", features = ["termination"] }
 env_logger = "0.11"
 log = "0.4"
-memchr = "2.8.0"
+memchr = "2.8.1"
 memmap2 = "0.9.10"
 nom = "8.0.0"
 regex = "1.12.3"
