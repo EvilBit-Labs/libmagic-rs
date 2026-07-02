@@ -6,6 +6,11 @@
 //! These tests validate the `load_magic_directory()` function's behavior
 //! with various directory structures and content scenarios.
 
+// Test code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per crate instead.
+#![allow(clippy::expect_used, clippy::create_dir)]
+
 use libmagic_rs::parser::{ParsedMagic, load_magic_directory};
 use std::fs;
 use std::path::{Path, PathBuf};

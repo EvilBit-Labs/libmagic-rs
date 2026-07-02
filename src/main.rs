@@ -44,6 +44,9 @@ Examples:
   rmagic --generate-completion bash > rmagic.bash",
     group(clap::ArgGroup::new("format").args(["json", "text"]))
 )]
+// Each bool is an independent CLI flag; clap derive structs are the one
+// place where a field-per-flag layout is the correct design.
+#[allow(clippy::struct_excessive_bools)]
 pub struct Args {
     /// Files to analyze (use '-' for stdin)
     #[arg(value_name = "FILE", required_unless_present = "generate_completion", num_args = 1..)]
@@ -110,7 +113,7 @@ impl Args {
             .unwrap_or_else(Self::default_magic_file_path)
     }
 
-    /// Create an EvaluationConfig from command-line arguments
+    /// Create an `EvaluationConfig` from command-line arguments
     ///
     /// Uses the timeout value from --timeout-ms if provided, with validation
     /// performed during config creation. Other config values use defaults.
@@ -146,6 +149,7 @@ impl Args {
     ///
     /// This is primarily exposed for testing purposes to verify the search order.
     #[cfg(unix)]
+    #[must_use]
     pub fn magic_file_candidates() -> &'static [&'static str] {
         Self::MAGIC_FILE_CANDIDATES
     }
@@ -263,7 +267,7 @@ fn main() -> std::process::ExitCode {
                 0
             }
         }
-        Err(e) => handle_error(e),
+        Err(e) => handle_error(&e),
     };
 
     // Return ExitCode instead of process::exit so destructors run
@@ -281,7 +285,7 @@ fn main() -> std::process::ExitCode {
 /// - 3: File not found or access denied
 /// - 4: Magic file not found or invalid
 /// - 5: Evaluation timeout or resource limits exceeded
-fn handle_error(error: LibmagicError) -> i32 {
+fn handle_error(error: &LibmagicError) -> i32 {
     // Note: `LibmagicError` is `#[non_exhaustive]` so a wildcard arm is
     // mandatory here (bin crates are separate compilation units from the
     // library crate, even inside the same cargo package). The wildcard
@@ -290,15 +294,15 @@ fn handle_error(error: LibmagicError) -> i32 {
     // firing in the wild, a new variant was added to `LibmagicError`
     // without a corresponding handler in this function.
     match error {
-        LibmagicError::IoError(ref io_err) => handle_io_error(io_err),
-        LibmagicError::ParseError(ref parse_err) => handle_parse_error_new(parse_err),
-        LibmagicError::EvaluationError(ref eval_err) => handle_evaluation_error_new(eval_err),
-        LibmagicError::Timeout { timeout_ms } => handle_timeout_error(timeout_ms),
-        LibmagicError::ConfigError { ref reason } => {
+        LibmagicError::IoError(io_err) => handle_io_error(io_err),
+        LibmagicError::ParseError(parse_err) => handle_parse_error_new(parse_err),
+        LibmagicError::EvaluationError(eval_err) => handle_evaluation_error_new(eval_err),
+        LibmagicError::Timeout { timeout_ms } => handle_timeout_error(*timeout_ms),
+        LibmagicError::ConfigError { reason } => {
             eprintln!("Configuration error: {reason}");
             1
         }
-        LibmagicError::FileError(ref msg) => {
+        LibmagicError::FileError(msg) => {
             eprintln!("File error: {msg}");
             3
         }
@@ -332,8 +336,7 @@ fn handle_io_error(io_err: &std::io::Error) -> i32 {
         }
         _ => {
             eprintln!(
-                "Error: File access failed\nFailed to access file: {}\nPlease check the file path and permissions.",
-                io_err
+                "Error: File access failed\nFailed to access file: {io_err}\nPlease check the file path and permissions."
             );
             3
         }
@@ -343,8 +346,7 @@ fn handle_io_error(io_err: &std::io::Error) -> i32 {
 /// Handle parse errors with detailed information
 fn handle_parse_error_new(parse_err: &libmagic_rs::ParseError) -> i32 {
     eprintln!(
-        "Error: Magic file parse error\n{}\nThe magic file contains invalid syntax or formatting.\nPlease check the magic file format or try a different magic file.",
-        parse_err
+        "Error: Magic file parse error\n{parse_err}\nThe magic file contains invalid syntax or formatting.\nPlease check the magic file format or try a different magic file."
     );
     4
 }
@@ -352,8 +354,7 @@ fn handle_parse_error_new(parse_err: &libmagic_rs::ParseError) -> i32 {
 /// Handle evaluation errors
 fn handle_evaluation_error_new(eval_err: &libmagic_rs::EvaluationError) -> i32 {
     eprintln!(
-        "Error: Rule evaluation failed\n{}\nFailed to evaluate magic rules against the file.\nThe file may be corrupted or the magic rules may be incompatible.",
-        eval_err
+        "Error: Rule evaluation failed\n{eval_err}\nFailed to evaluate magic rules against the file.\nThe file may be corrupted or the magic rules may be incompatible."
     );
     1
 }
@@ -361,8 +362,7 @@ fn handle_evaluation_error_new(eval_err: &libmagic_rs::EvaluationError) -> i32 {
 /// Handle timeout errors
 fn handle_timeout_error(timeout_ms: u64) -> i32 {
     eprintln!(
-        "Error: Evaluation timeout\nFile analysis timed out after {}ms\nThe file may be too large or complex to analyze within the time limit.\nTry using a simpler magic file or increasing the timeout limit.",
-        timeout_ms
+        "Error: Evaluation timeout\nFile analysis timed out after {timeout_ms}ms\nThe file may be too large or complex to analyze within the time limit.\nTry using a simpler magic file or increasing the timeout limit."
     );
     5
 }
@@ -501,10 +501,7 @@ fn process_file(
 
         // Warn only if we actually read more than max_string_length bytes
         if buffer.len() > max_string_length {
-            eprintln!(
-                "Warning: stdin input truncated to {} bytes",
-                max_string_length
-            );
+            eprintln!("Warning: stdin input truncated to {max_string_length} bytes");
             // Truncate the buffer back to max_string_length
             buffer.truncate(max_string_length);
         }
@@ -609,6 +606,10 @@ fn validate_arguments(args: &Args) -> Result<(), LibmagicError> {
 
 #[cfg(test)]
 mod tests {
+    // Test-only: candidate lists use fixed lowercase extensions, so the
+    // case-sensitive comparison is exact by construction.
+    #![allow(clippy::case_sensitive_file_extension_comparisons)]
+
     use super::*;
     use clap::Parser;
     use std::fs;
@@ -804,8 +805,7 @@ mod tests {
 
             assert!(
                 valid_paths.contains(&default_path.to_str().unwrap()),
-                "Got unexpected path: {:?}",
-                default_path
+                "Got unexpected path: {default_path:?}"
             );
         }
 
@@ -834,8 +834,7 @@ mod tests {
 
             assert!(
                 valid_paths.contains(&default_path.to_str().unwrap()),
-                "Got unexpected path: {:?}",
-                default_path
+                "Got unexpected path: {default_path:?}"
             );
         }
 
@@ -856,7 +855,7 @@ mod tests {
             std::io::ErrorKind::NotFound,
             "File not found",
         ));
-        let exit_code = handle_error(error);
+        let exit_code = handle_error(&error);
         assert_eq!(exit_code, 3);
     }
 
@@ -866,7 +865,7 @@ mod tests {
             std::io::ErrorKind::PermissionDenied,
             "Permission denied",
         ));
-        let exit_code = handle_error(error);
+        let exit_code = handle_error(&error);
         assert_eq!(exit_code, 3);
     }
 
@@ -876,7 +875,7 @@ mod tests {
             std::io::ErrorKind::InvalidInput,
             "Invalid input",
         ));
-        let exit_code = handle_error(error);
+        let exit_code = handle_error(&error);
         assert_eq!(exit_code, 2);
     }
 
@@ -886,7 +885,7 @@ mod tests {
             42,
             "Invalid syntax",
         ));
-        let exit_code = handle_error(error);
+        let exit_code = handle_error(&error);
         assert_eq!(exit_code, 4);
     }
 
@@ -895,14 +894,14 @@ mod tests {
         let error = LibmagicError::EvaluationError(libmagic_rs::EvaluationError::unsupported_type(
             "Evaluation failed",
         ));
-        let exit_code = handle_error(error);
+        let exit_code = handle_error(&error);
         assert_eq!(exit_code, 1);
     }
 
     #[test]
     fn test_handle_error_timeout() {
         let error = LibmagicError::Timeout { timeout_ms: 5000 };
-        let exit_code = handle_error(error);
+        let exit_code = handle_error(&error);
         assert_eq!(exit_code, 5);
     }
 
@@ -994,9 +993,7 @@ mod tests {
             if i < first_binary_index {
                 assert!(
                     !candidate.ends_with(".mgc"),
-                    "Candidate at index {} should be text (not .mgc): {}",
-                    i,
-                    candidate
+                    "Candidate at index {i} should be text (not .mgc): {candidate}"
                 );
             }
         }
@@ -1006,9 +1003,7 @@ mod tests {
             if i >= first_binary_index {
                 assert!(
                     candidate.ends_with(".mgc"),
-                    "Candidate at index {} should be binary (.mgc): {}",
-                    i,
-                    candidate
+                    "Candidate at index {i} should be binary (.mgc): {candidate}"
                 );
             }
         }
@@ -1070,8 +1065,7 @@ mod tests {
         for (i, (actual, expected)) in candidates.iter().zip(expected.iter()).enumerate() {
             assert_eq!(
                 actual, expected,
-                "Candidate mismatch at index {}: got '{}', expected '{}'",
-                i, actual, expected
+                "Candidate mismatch at index {i}: got '{actual}', expected '{expected}'"
             );
         }
     }
@@ -1103,8 +1097,7 @@ mod tests {
         let text_format = detect_format(&text_magic_path);
         assert!(
             matches!(text_format, Ok(MagicFileFormat::Text)),
-            "Text magic file should be detected as Text format, got {:?}",
-            text_format
+            "Text magic file should be detected as Text format, got {text_format:?}"
         );
 
         // Verify binary file exists and is detected as binary format
@@ -1112,8 +1105,7 @@ mod tests {
         let binary_format = detect_format(&binary_magic_path);
         assert!(
             matches!(binary_format, Ok(MagicFileFormat::Binary)),
-            "Binary magic file should be detected as Binary format, got {:?}",
-            binary_format
+            "Binary magic file should be detected as Binary format, got {binary_format:?}"
         );
     }
 

@@ -142,6 +142,10 @@ fn scrub_nested_names(children: Vec<MagicRule>, parent_level: u32) -> Vec<MagicR
 
 #[cfg(test)]
 mod tests {
+    // Restriction lints without an allow-*-in-tests config option;
+    // unreachable! asserts a must-not-fire test closure.
+    #![allow(clippy::unreachable)]
+
     use super::*;
     use crate::parser::ast::{OffsetSpec, Operator, Value};
 

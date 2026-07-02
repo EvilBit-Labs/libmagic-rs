@@ -46,7 +46,7 @@ pub fn resolve_relative_offset(
         matches!(spec, OffsetSpec::Relative(_)),
         "resolve_relative_offset called with non-relative spec"
     );
-    let OffsetSpec::Relative(delta) = spec else {
+    let &OffsetSpec::Relative(delta) = spec else {
         // Defensive: outside of debug builds, fall through with a clear error
         // rather than relying on the assertion.
         return Err(LibmagicError::EvaluationError(
@@ -55,7 +55,6 @@ pub fn resolve_relative_offset(
             ),
         ));
     };
-    let delta = *delta;
 
     let delta_isize = isize::try_from(delta).map_err(|_| {
         LibmagicError::EvaluationError(crate::error::EvaluationError::InvalidOffset {

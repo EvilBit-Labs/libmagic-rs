@@ -124,7 +124,9 @@ pub(super) fn parse_hex_bytes_no_prefix(input: &str) -> IResult<&str, Vec<u8>> {
         )));
     }
 
-    // Parse pairs of hex digits
+    // Parse pairs of hex digits. Floor division is intended: an odd
+    // trailing digit is handled below and only affects the capacity hint.
+    #[allow(clippy::integer_division)]
     let mut bytes = Vec::with_capacity(hex_chars.len() / 2);
     let mut chars = hex_chars.chars();
     while let (Some(c1), Some(c2)) = (chars.next(), chars.next()) {
@@ -183,7 +185,14 @@ pub(super) fn parse_escape_sequence(input: &str) -> IResult<&str, char> {
         '"' => '"',
         '\'' => '\'',
         '0' => '\0',
-        _ => unreachable!("one_of constrains input to known escape characters"),
+        // one_of constrains input to the characters above; return a parse
+        // error rather than panicking if that invariant ever breaks.
+        _ => {
+            return Err(nom::Err::Error(NomError::new(
+                input,
+                nom::error::ErrorKind::OneOf,
+            )));
+        }
     };
 
     Ok((input, result_char))

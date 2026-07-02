@@ -630,7 +630,7 @@ pub fn evaluate_rules(
     // Per-level "did any sibling match yet?" flag for `default`/`clear`
     // dispatch. Each recursive descent gets its own fresh flag, so child
     // sibling chains track their own state independently of the parent.
-    let mut sibling_matched: bool = false;
+    let mut sibling_matched = false;
 
     // Per-level entry anchor: captured at the start of this sibling list's
     // evaluation. For CHILD sibling lists (recursion_depth > 0), the
@@ -784,7 +784,10 @@ pub fn evaluate_rules(
             // rules and run them without attaching a `RuleEnvironment`;
             // a panic on this path would break the never-panics invariant.
             // See GOTCHAS S2.1 for the same rationale on the leaked-Name arm.
-            let Some(root_rules) = context.rule_env().map(|e| e.root_rules.clone()) else {
+            let Some(root_rules) = context
+                .rule_env()
+                .map(|e| std::sync::Arc::clone(&e.root_rules))
+            else {
                 debug!(
                     "indirect rule '{}' evaluated without a rule environment; treating as no-op",
                     rule.message

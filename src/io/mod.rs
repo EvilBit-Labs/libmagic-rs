@@ -626,6 +626,14 @@ pub fn validate_buffer_access(
 
 #[cfg(test)]
 mod tests {
+    // Restriction lints without an allow-*-in-tests config option;
+    // test-only helpers: fixture math and best-effort temp-file cleanup.
+    #![allow(
+        clippy::integer_division,
+        clippy::let_underscore_must_use,
+        clippy::semicolon_outside_block
+    )]
+
     use super::*;
     use std::fs;
     use std::io::Write;

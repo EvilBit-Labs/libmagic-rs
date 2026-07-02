@@ -166,6 +166,9 @@ use crate::error::ParseError;
 /// The rule list preserves the original ordering of all non-`Name` top-level
 /// rules, so strength-based sorting and evaluation semantics are unchanged
 /// for magic files that do not use the `name`/`use` directive pair.
+// The mixed visibility is deliberate: `name_table` is pub(crate) so external
+// consumers cannot inject subroutine tables (see GOTCHAS S3.10).
+#[allow(clippy::partial_pub_fields)]
 #[derive(Debug)]
 pub struct ParsedMagic {
     /// Top-level rules after `Name` subroutines have been removed.
