@@ -162,7 +162,7 @@ use crate::error::ParseError;
 /// Result of parsing a text magic file.
 ///
 /// Contains the top-level rule list with any `name`-declared subroutines
-/// hoisted into a separate [`name_table::NameTable`] keyed by identifier.
+/// hoisted into a separate crate-internal `NameTable` keyed by identifier.
 /// The rule list preserves the original ordering of all non-`Name` top-level
 /// rules, so strength-based sorting and evaluation semantics are unchanged
 /// for magic files that do not use the `name`/`use` directive pair.

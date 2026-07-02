@@ -352,7 +352,7 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<ParsedMagic, ParseError> 
 /// - Invalid syntax is rejected with descriptive errors
 /// - Binary `.mgc` files are rejected (not parsed)
 ///
-/// A 1 GB size limit ([`MAX_MAGIC_FILE_SIZE`]) is enforced on each file loaded
+/// A 1 GB size limit (`MAX_MAGIC_FILE_SIZE`, module-internal) is enforced on each file loaded
 /// (both standalone files and files within a directory) to prevent memory
 /// exhaustion from maliciously oversized inputs. Files exceeding the limit are
 /// rejected with a `ParseError` before their contents are read.

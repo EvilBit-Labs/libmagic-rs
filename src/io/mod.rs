@@ -194,7 +194,7 @@ impl FileBuffer {
     /// This constructor deliberately skips `std::fs::canonicalize` for
     /// performance. Symlink resolution and path canonicalization are the
     /// caller's responsibility. In adversarial environments (untrusted file
-    /// paths), prefer [`FileBuffer::new`] or [`MagicDatabase::evaluate_buffer`]
+    /// paths), prefer [`FileBuffer::new`] or [`crate::MagicDatabase::evaluate_buffer`]
     /// instead.
     ///
     /// The caller is responsible for having read `metadata` via a path that

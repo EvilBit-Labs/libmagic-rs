@@ -363,7 +363,7 @@ fn evaluate_use_rule(
 /// (possibly zero-width, e.g., `a*`) and `None` on a genuine miss; the
 /// engine translates those directly into `Equal`/`NotEqual`. Any other
 /// operator on a pattern-bearing type is a magic-file semantic bug and
-/// surfaces as [`TypeReadError::UnsupportedType`] -- the earlier
+/// surfaces as [`crate::evaluator::types::TypeReadError::UnsupportedType`] -- the earlier
 /// fallthrough to `apply_operator` masked this by producing nonsense
 /// ordering comparisons against the pattern source text.
 ///

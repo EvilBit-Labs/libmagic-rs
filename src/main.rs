@@ -10,6 +10,9 @@ use clap::{CommandFactory, Parser};
 use clap_complete::Shell;
 use clap_stdin::FileOrStdin;
 use libmagic_rs::output::json::{format_json_line_output, format_json_output};
+// Used only by the unix-gated magic-file discovery path and by tests;
+// gate the import so Windows release builds do not flag it as unused.
+#[cfg(any(unix, test))]
 use libmagic_rs::parser::{MagicFileFormat, detect_format};
 use libmagic_rs::{LibmagicError, MagicDatabase};
 use std::io::{BufWriter, Write};
