@@ -124,6 +124,10 @@ static USE_WITHOUT_RULE_ENV_WARNED: AtomicBool = AtomicBool::new(false);
 /// Same rationale as `USE_WITHOUT_RULE_ENV_WARNED`: surface the
 /// misconfiguration exactly once per process so a large corpus of
 /// env-less `indirect` rules does not flood the log.
+// Gated to debug builds like its only use site (the diagnostic guard in
+// `evaluate_rules_with_config`); in release builds the item would be dead
+// code, which the workspace `warnings = "deny"` lint rejects.
+#[cfg(debug_assertions)]
 static INDIRECT_WITHOUT_RULE_ENV_WARNED: AtomicBool = AtomicBool::new(false);
 
 /// Evaluate a single magic rule against a file buffer
@@ -1236,6 +1240,9 @@ pub fn evaluate_rules_with_config(
 /// silently no-op'd at runtime. The check logs the misconfiguration at
 /// `debug!` level so consumer tests can detect it without panicking (see
 /// GOTCHAS S2.4 for why `debug_assert!` would be wrong here).
+// Gated to debug builds like its only caller (see the diagnostic guard in
+// `evaluate_rules_with_config`).
+#[cfg(debug_assertions)]
 fn contains_indirect_rule(rules: &[MagicRule]) -> bool {
     rules.iter().any(|rule| {
         matches!(rule.typ, TypeKind::Meta(MetaType::Indirect))
