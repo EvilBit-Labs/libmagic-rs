@@ -11,6 +11,11 @@
 //! big-endian. Pointer types are signed by default (GOTCHAS S6.3).
 //! Adjustment is parsed after the closing paren: `(base.type)+adj`.
 
+// Test code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per crate instead.
+#![allow(clippy::indexing_slicing)]
+
 use std::fs;
 use std::io::Write;
 

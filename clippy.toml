@@ -1,0 +1,12 @@
+# Clippy configuration for libmagic-rs.
+#
+# Test code is exempt from the panic-safety restriction lints: unwrap/expect/
+# panic and direct indexing are the idiomatic way to express test invariants,
+# and a panicking test is a failing test, not a vulnerability. Library and
+# binary code remain fully covered by the workspace lint table in Cargo.toml.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-dbg-in-tests = true
+allow-print-in-tests = true
+allow-indexing-slicing-in-tests = true

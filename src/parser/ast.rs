@@ -86,7 +86,7 @@ pub enum PStringLengthWidth {
 impl PStringLengthWidth {
     /// Returns the number of bytes used for the length prefix.
     #[must_use]
-    pub fn byte_count(&self) -> usize {
+    pub fn byte_count(self) -> usize {
         match self {
             Self::OneByte => 1,
             Self::TwoByteBE | Self::TwoByteLE => 2,
@@ -1779,6 +1779,10 @@ impl MagicRule {
 
 #[cfg(test)]
 mod tests {
+    // Restriction lints without an allow-*-in-tests config option;
+    // non-ASCII test data exercises string value handling.
+    #![allow(clippy::non_ascii_literal)]
+
     use super::*;
 
     #[test]

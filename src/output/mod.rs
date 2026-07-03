@@ -303,6 +303,8 @@ impl MatchResult {
         let length = match &m.value {
             Value::Bytes(b) => b.len(),
             Value::String(s) => s.len(),
+            // `bit_width()` returns multiples of 8, so the division is exact.
+            #[allow(clippy::integer_division)]
             Value::Uint(_) | Value::Int(_) | Value::Float(_) => m
                 .type_kind
                 .bit_width()
