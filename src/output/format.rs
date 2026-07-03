@@ -70,6 +70,9 @@ use crate::parser::ast::{TypeKind, Value};
 /// assert_eq!(out, "100% sure");
 /// ```
 #[must_use]
+// Indexing is invariant-safe: every `bytes[i]` is guarded by an
+// `i < bytes.len()` loop condition.
+#[allow(clippy::indexing_slicing)]
 pub fn format_magic_message(template: &str, value: &Value, type_kind: &TypeKind) -> String {
     let mut out = String::with_capacity(template.len());
     let bytes = template.as_bytes();
@@ -174,6 +177,9 @@ const MAX_FORMAT_WIDTH: usize = 4096;
 /// Parse a format specifier starting at `start` (the first byte after the
 /// leading `%`). Returns `None` if the sequence does not end in a
 /// recognized conversion character.
+// Indexing is invariant-safe: every `bytes[i]` is guarded by an
+// `i < bytes.len()` loop or branch condition.
+#[allow(clippy::indexing_slicing)]
 fn parse_spec(bytes: &[u8], start: usize) -> Option<Spec> {
     let mut i = start;
     let mut zero_pad = false;
@@ -470,6 +476,10 @@ fn pad_numeric(body: &str, spec: &Spec) -> String {
 
 #[cfg(test)]
 mod tests {
+    // Restriction lints without an allow-*-in-tests config option;
+    // non-ASCII test data exercises the UTF-8-safe format scanner.
+    #![allow(clippy::non_ascii_literal)]
+
     use super::*;
     use crate::parser::ast::StringFlags;
 

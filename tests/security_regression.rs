@@ -28,6 +28,11 @@
 //! S-L2, `concatenate_messages` backspace edges for S14.1) live inline
 //! in `src/parser/codegen.rs` and `src/lib.rs` respectively.
 
+// Test code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per test crate instead.
+#![allow(clippy::expect_used, clippy::let_underscore_must_use, clippy::panic)]
+
 use assert_cmd::Command;
 use libmagic_rs::EvaluationConfig;
 use std::fs;
@@ -198,7 +203,7 @@ fn one_mib_nul_free() -> Vec<u8> {
     vec![b'A'; 1_048_576]
 }
 
-/// Build a `string x` rule (unflagged any-value) with no AST max_length.
+/// Build a `string x` rule (unflagged any-value) with no AST `max_length`.
 /// Exercises the `read_typed_value_with_pattern` `(None, _)` arm. The
 /// rule's `value` field is `Value::Uint(0)` (sentinel for `x`); using
 /// `Value::String("")` would route through the `(None, Some(Value::String(p)))`

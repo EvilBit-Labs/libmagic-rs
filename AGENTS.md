@@ -569,7 +569,7 @@ This project has the OSSF Best Practices passing badge. Maintain these standards
 - Vulnerabilities go through private reporting (GitHub advisories or <support@evilbitlabs.io>), never public issues
 - `cargo audit` and `cargo deny` run daily in CI -- fix findings promptly
 - Medium+ severity vulnerabilities: we aim to release a fix within 90 days of confirmation (see SECURITY.md for canonical policy)
-- `unsafe_code = "forbid"` is enforced project-wide via workspace lints in `Cargo.toml` -- this is a hardening mechanism, not a suggestion
+- `unsafe_code = "deny"` is enforced project-wide via workspace lints in `Cargo.toml` (inherited through `[lints] workspace = true`) -- this is a hardening mechanism, not a suggestion. Exactly one vetted, SAFETY-commented `#[allow(unsafe_code)]` exception exists: the memmap2 `map()` call in `src/io/mod.rs` (memory mapping is inherently unsafe). Any new exception requires the same treatment and review (see GOTCHAS S8.2)
 - `docs/src/security-assurance.md` must be updated when new attack surface is introduced
 
 ### Documentation

@@ -162,6 +162,10 @@ fn local_utc_offset_secs(unix_secs: u64) -> i64 {
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss
 )]
+// Indexing is invariant-safe: `day_of_week` is `rem_euclid(7)` into a
+// 7-element array and `month - 1` is in [0, 11] by the civil-calendar
+// algorithm below.
+#[allow(clippy::indexing_slicing)]
 fn format_unix_timestamp_64(secs: u64, utc: bool) -> String {
     // Use i128 for safe arithmetic with timezone offsets, supporting pre-epoch results
     let effective_secs: i128 = if utc {
@@ -204,6 +208,10 @@ fn format_unix_timestamp_64(secs: u64, utc: bool) -> String {
 
 #[cfg(test)]
 mod tests {
+    // Restriction lints without an allow-*-in-tests config option;
+    // test-only arithmetic on fixture timestamps.
+    #![allow(clippy::integer_division)]
+
     use super::*;
 
     #[test]

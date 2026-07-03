@@ -9,6 +9,20 @@
 //! - PDF document detection
 //! - Unknown data handling
 
+// Bench code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per crate instead.
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    clippy::let_underscore_must_use,
+    clippy::unreadable_literal,
+    clippy::cast_possible_truncation,
+    clippy::semicolon_outside_block,
+    clippy::semicolon_inside_block
+)]
+
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use libmagic_rs::{EvaluationConfig, MagicDatabase};
 use std::hint::black_box;
@@ -91,7 +105,7 @@ fn bench_file_type_detection(c: &mut Criterion) {
                 .evaluate_buffer(black_box(&elf_data))
                 .expect("should evaluate");
             black_box(result)
-        })
+        });
     });
 
     // ZIP detection
@@ -103,7 +117,7 @@ fn bench_file_type_detection(c: &mut Criterion) {
                 .evaluate_buffer(black_box(&zip_data))
                 .expect("should evaluate");
             black_box(result)
-        })
+        });
     });
 
     // PDF detection
@@ -115,7 +129,7 @@ fn bench_file_type_detection(c: &mut Criterion) {
                 .evaluate_buffer(black_box(&pdf_data))
                 .expect("should evaluate");
             black_box(result)
-        })
+        });
     });
 
     // Unknown data (fallback to "data")
@@ -127,7 +141,7 @@ fn bench_file_type_detection(c: &mut Criterion) {
                 .evaluate_buffer(black_box(&unknown_data))
                 .expect("should evaluate");
             black_box(result)
-        })
+        });
     });
 
     group.finish();
@@ -149,7 +163,7 @@ fn bench_buffer_sizes(c: &mut Criterion) {
                     .evaluate_buffer(black_box(data))
                     .expect("should evaluate");
                 black_box(result)
-            })
+            });
         });
     }
 
@@ -172,7 +186,7 @@ fn bench_evaluation_configs(c: &mut Criterion) {
                 .evaluate_buffer(black_box(&elf_data))
                 .expect("should evaluate");
             black_box(result)
-        })
+        });
     });
 
     // Performance configuration
@@ -184,7 +198,7 @@ fn bench_evaluation_configs(c: &mut Criterion) {
                 .evaluate_buffer(black_box(&elf_data))
                 .expect("should evaluate");
             black_box(result)
-        })
+        });
     });
 
     // Comprehensive configuration
@@ -196,7 +210,7 @@ fn bench_evaluation_configs(c: &mut Criterion) {
                 .evaluate_buffer(black_box(&elf_data))
                 .expect("should evaluate");
             black_box(result)
-        })
+        });
     });
 
     group.finish();
@@ -237,7 +251,7 @@ fn bench_name_use_subroutines(c: &mut Criterion) {
                 .evaluate_buffer(black_box(&buf))
                 .expect("should evaluate");
             black_box(result)
-        })
+        });
     });
     group.finish();
 }

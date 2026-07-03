@@ -23,6 +23,17 @@
 //! cargo bench --bench regex_bench -- --baseline pre-p-h1
 //! ```
 
+// Bench code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per crate instead.
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    clippy::let_underscore_must_use,
+    clippy::unreadable_literal
+)]
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
 use libmagic_rs::parser::ast::{RegexCount, RegexFlags};
