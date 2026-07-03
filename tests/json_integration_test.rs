@@ -249,7 +249,7 @@ fn test_cli_json_output_validity() {
         let score = match_obj["score"]
             .as_u64()
             .expect("score should be a number");
-        assert!(score <= 100, "Score should be <= 100, got {}", score);
+        assert!(score <= 100, "Score should be <= 100, got {score}");
     }
 }
 
@@ -330,7 +330,7 @@ fn test_cli_json_vs_text_output() {
 // =============================================================================
 
 /// Library-side `EvaluationResult` carries `RuleMatch.type_kind: TypeKind`
-/// for runtime needs (width-masking, bit_width derivation). Serializing
+/// for runtime needs (width-masking, `bit_width` derivation). Serializing
 /// the result directly via `serde_json::to_string` must NOT expose the
 /// parser AST to JSON consumers. The documented JSON contract is
 /// `output::json::JsonMatchResult` which omits this field; the library

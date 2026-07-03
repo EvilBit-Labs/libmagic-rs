@@ -6,6 +6,11 @@
 //! These tests validate the `load_magic_directory()` function's behavior
 //! with various directory structures and content scenarios.
 
+// Test code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per crate instead.
+#![allow(clippy::expect_used, clippy::create_dir)]
+
 use libmagic_rs::parser::{ParsedMagic, load_magic_directory};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -421,6 +426,38 @@ fn test_load_directory_all_files_fail_to_parse() {
     assert!(
         err_msg.contains("All") && err_msg.contains("failed to parse"),
         "Error message should indicate all files failed: {err_msg}"
+    );
+}
+
+#[test]
+fn test_load_directory_all_files_fail_truncates_details_after_three() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    // Five invalid files: the error message lists the first three failures
+    // and summarizes the rest as "... and N more".
+    for name in ["bad1", "bad2", "bad3", "bad4", "bad5"] {
+        create_test_magic_file(temp_dir.path(), name, "not valid magic syntax");
+    }
+
+    let err =
+        load_magic_directory(temp_dir.path()).expect_err("all-invalid directory must fail to load");
+    let err_msg = err.to_string();
+
+    assert!(
+        err_msg.contains("All 5 magic file(s) in directory failed to parse"),
+        "Error message should report the total file count: {err_msg}"
+    );
+    assert!(
+        err_msg.contains("bad1") && err_msg.contains("bad3"),
+        "Error message should list the first three failing files: {err_msg}"
+    );
+    assert!(
+        !err_msg.contains("bad4") && !err_msg.contains("bad5"),
+        "Failures beyond the third should be summarized, not listed: {err_msg}"
+    );
+    assert!(
+        err_msg.contains("... and 2 more"),
+        "Error message should summarize the remaining failure count: {err_msg}"
     );
 }
 

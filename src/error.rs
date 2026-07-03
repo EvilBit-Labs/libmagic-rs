@@ -262,7 +262,7 @@ pub enum EvaluationError {
     /// attached to the [`crate::evaluator::EvaluationContext`].
     ///
     /// `MetaType::Indirect` re-evaluates the entire root rule list at the
-    /// resolved offset. Without a [`crate::evaluator::RuleEnvironment`] (the
+    /// resolved offset. Without a `RuleEnvironment` (the crate-internal
     /// shared root rules + name table) the engine has nothing to re-enter,
     /// so the directive is a no-op. This variant is reserved for consumers
     /// that opt in to strict-mode evaluation where the misconfiguration

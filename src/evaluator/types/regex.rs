@@ -164,6 +164,9 @@ fn build_regex(pattern: &str, case_insensitive: bool) -> Result<Regex, regex::Er
 /// [`RegexCount::Default`]: crate::parser::ast::RegexCount::Default
 /// [`RegexCount::Bytes(n)`]: crate::parser::ast::RegexCount::Bytes
 /// [`RegexCount::Lines(count)`]: crate::parser::ast::RegexCount::Lines
+// Slicing is invariant-safe: `byte_cap`, `count_bytes`, and `idx` are all
+// clamped to the slice length before use.
+#[allow(clippy::indexing_slicing)]
 fn compute_window(buffer: &[u8], offset: usize, count: crate::parser::ast::RegexCount) -> &[u8] {
     use crate::parser::ast::RegexCount;
     let Some(remaining) = buffer.get(offset..) else {

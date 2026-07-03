@@ -55,9 +55,7 @@ fn test_extract_all_default_keywords() {
         let tags = extractor.extract_tags(description);
         assert!(
             tags.contains(&expected_tag.to_string()),
-            "Expected tag '{}' from description '{}'",
-            expected_tag,
-            description
+            "Expected tag '{expected_tag}' from description '{description}'"
         );
     }
 }

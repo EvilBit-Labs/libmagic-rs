@@ -179,7 +179,10 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<ParsedMagic, ParseError> 
             )
         })?;
 
-        // Only process regular files, skip directories and symlinks
+        // Only process regular files, skip directories and symlinks.
+        // `is_file()` (not `!is_dir()`) is deliberate: sockets, FIFOs, and
+        // device nodes must also be excluded from magic-file discovery.
+        #[allow(clippy::filetype_is_file)]
         if file_type.is_file() && !file_type.is_symlink() {
             file_paths.push(path);
         }
@@ -241,7 +244,14 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<ParsedMagic, ParseError> 
             message.push_str(":\n");
             message.push_str(&failure_details.join("\n"));
             if parse_failures.len() > 3 {
-                let _ = write!(message, "\n  ... and {} more", parse_failures.len() - 3);
+                // fmt::Write to a String is infallible; discard the Result
+                // rather than unwrap so the no-panic policy holds regardless.
+                #[allow(clippy::let_underscore_must_use)]
+                let _ = write!(
+                    message,
+                    "\n  ... and {} more",
+                    parse_failures.len().saturating_sub(3)
+                );
             }
         }
 
@@ -342,7 +352,7 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<ParsedMagic, ParseError> 
 /// - Invalid syntax is rejected with descriptive errors
 /// - Binary `.mgc` files are rejected (not parsed)
 ///
-/// A 1 GB size limit ([`MAX_MAGIC_FILE_SIZE`]) is enforced on each file loaded
+/// A 1 GB size limit (`MAX_MAGIC_FILE_SIZE`, module-internal) is enforced on each file loaded
 /// (both standalone files and files within a directory) to prevent memory
 /// exhaustion from maliciously oversized inputs. Files exceeding the limit are
 /// rejected with a `ParseError` before their contents are read.
@@ -382,6 +392,10 @@ pub fn load_magic_file(path: &Path) -> Result<ParsedMagic, ParseError> {
 
 #[cfg(test)]
 mod tests {
+    // Restriction lints without an allow-*-in-tests config option;
+    // tests create exactly one level under a fresh TempDir.
+    #![allow(clippy::create_dir)]
+
     use super::*;
 
     // ============================================================

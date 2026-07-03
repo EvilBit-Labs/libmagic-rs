@@ -124,6 +124,10 @@ static USE_WITHOUT_RULE_ENV_WARNED: AtomicBool = AtomicBool::new(false);
 /// Same rationale as `USE_WITHOUT_RULE_ENV_WARNED`: surface the
 /// misconfiguration exactly once per process so a large corpus of
 /// env-less `indirect` rules does not flood the log.
+// Gated to debug builds like its only use site (the diagnostic guard in
+// `evaluate_rules_with_config`); in release builds the item would be dead
+// code, which the workspace `warnings = "deny"` lint rejects.
+#[cfg(debug_assertions)]
 static INDIRECT_WITHOUT_RULE_ENV_WARNED: AtomicBool = AtomicBool::new(false);
 
 /// Evaluate a single magic rule against a file buffer
@@ -359,7 +363,7 @@ fn evaluate_use_rule(
 /// (possibly zero-width, e.g., `a*`) and `None` on a genuine miss; the
 /// engine translates those directly into `Equal`/`NotEqual`. Any other
 /// operator on a pattern-bearing type is a magic-file semantic bug and
-/// surfaces as [`TypeReadError::UnsupportedType`] -- the earlier
+/// surfaces as [`crate::evaluator::types::TypeReadError::UnsupportedType`] -- the earlier
 /// fallthrough to `apply_operator` masked this by producing nonsense
 /// ordering comparisons against the pattern source text.
 ///
@@ -630,7 +634,7 @@ pub fn evaluate_rules(
     // Per-level "did any sibling match yet?" flag for `default`/`clear`
     // dispatch. Each recursive descent gets its own fresh flag, so child
     // sibling chains track their own state independently of the parent.
-    let mut sibling_matched: bool = false;
+    let mut sibling_matched = false;
 
     // Per-level entry anchor: captured at the start of this sibling list's
     // evaluation. For CHILD sibling lists (recursion_depth > 0), the
@@ -784,7 +788,10 @@ pub fn evaluate_rules(
             // rules and run them without attaching a `RuleEnvironment`;
             // a panic on this path would break the never-panics invariant.
             // See GOTCHAS S2.1 for the same rationale on the leaked-Name arm.
-            let Some(root_rules) = context.rule_env().map(|e| e.root_rules.clone()) else {
+            let Some(root_rules) = context
+                .rule_env()
+                .map(|e| std::sync::Arc::clone(&e.root_rules))
+            else {
                 debug!(
                     "indirect rule '{}' evaluated without a rule environment; treating as no-op",
                     rule.message
@@ -1233,6 +1240,9 @@ pub fn evaluate_rules_with_config(
 /// silently no-op'd at runtime. The check logs the misconfiguration at
 /// `debug!` level so consumer tests can detect it without panicking (see
 /// GOTCHAS S2.4 for why `debug_assert!` would be wrong here).
+// Gated to debug builds like its only caller (see the diagnostic guard in
+// `evaluate_rules_with_config`).
+#[cfg(debug_assertions)]
 fn contains_indirect_rule(rules: &[MagicRule]) -> bool {
     rules.iter().any(|rule| {
         matches!(rule.typ, TypeKind::Meta(MetaType::Indirect))

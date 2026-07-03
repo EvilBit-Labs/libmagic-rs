@@ -6,6 +6,11 @@
 //! These tests validate the complete flow from file/directory loading through
 //! rule evaluation, ensuring all components work together correctly.
 
+// Test code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per crate instead.
+#![allow(clippy::expect_used, clippy::create_dir)]
+
 use libmagic_rs::MagicDatabase;
 use libmagic_rs::parser::{ParsedMagic, load_magic_file};
 use std::fs;
@@ -138,8 +143,7 @@ fn test_load_binary_magic_file_error() {
     // Verify error message contains --use-builtin guidance
     assert!(
         error_message.contains("--use-builtin") || error_message.contains("Binary"),
-        "Error message should mention binary format or --use-builtin option: {}",
-        error_message
+        "Error message should mention binary format or --use-builtin option: {error_message}"
     );
 }
 
@@ -328,15 +332,13 @@ fn test_binary_format_error_message_quality() {
     // Verify error message is user-friendly and actionable
     assert!(
         error_message.contains("Binary") || error_message.contains("binary"),
-        "Error should mention binary format: {}",
-        error_message
+        "Error should mention binary format: {error_message}"
     );
 
     // Should suggest using built-in rules
     assert!(
         error_message.contains("--use-builtin") || error_message.contains("built-in"),
-        "Error should suggest --use-builtin option: {}",
-        error_message
+        "Error should suggest --use-builtin option: {error_message}"
     );
 }
 

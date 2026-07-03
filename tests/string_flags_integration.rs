@@ -15,6 +15,11 @@
 //! boundary, trim) and `src/file.h` (flag-letter to `STRING_*` constant
 //! mapping). GOTCHAS S6.5 / S6.6 cover the non-obvious bits.
 
+// Test code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per test crate/module instead.
+#![allow(clippy::semicolon_outside_block)]
+
 use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
 use libmagic_rs::parser::ast::StringFlags;
 use libmagic_rs::{EvaluationConfig, MagicRule, OffsetSpec, Operator, TypeKind, Value};
@@ -56,7 +61,7 @@ fn string_c_matches_exfat_any_case() {
     ] {
         let mut ctx = EvaluationContext::new(cfg());
         let matches = evaluate_rules(std::slice::from_ref(&r), buf, &mut ctx).unwrap();
-        assert_eq!(matches.len(), 1, "string/c exfat should match {:?}", buf);
+        assert_eq!(matches.len(), 1, "string/c exfat should match {buf:?}");
     }
 }
 

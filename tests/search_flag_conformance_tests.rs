@@ -31,6 +31,11 @@
 //! deferred -- see the plan's Open Questions for sfnt-fixture sourcing. The
 //! `/s` semantics are still covered by the TGA test.
 
+// Test code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per test crate instead.
+#![allow(clippy::expect_used, clippy::unimplemented)]
+
 use libmagic_rs::evaluator::evaluate_rules;
 use libmagic_rs::parser::ast::SearchFlags;
 use libmagic_rs::parser::parse_text_magic_file;

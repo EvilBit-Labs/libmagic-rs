@@ -3,7 +3,7 @@
 
 //! Corpus integration tests for issue #39 — regex and search types
 //!
-//! This file exercises the regex and search TypeKind variants end-to-end
+//! This file exercises the regex and search `TypeKind` variants end-to-end
 //! against the test corpus files listed as "blocked" in issue #39:
 //!
 //! * `searchbug` — exercises `search/N` against a two-match binary buffer
@@ -16,6 +16,11 @@
 //! parser for relative offsets), the test bypasses `parse_text_magic_file`
 //! and builds the equivalent rule tree programmatically via the AST.
 //! This pattern is documented in GOTCHAS 3.9.
+
+// Test code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per crate instead.
+#![allow(clippy::expect_used, clippy::panic)]
 
 use libmagic_rs::evaluator::evaluate_rules;
 use libmagic_rs::parser::ast::{RegexCount, RegexFlags, SearchFlags, StringFlags};
