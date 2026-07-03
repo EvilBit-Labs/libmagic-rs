@@ -253,51 +253,26 @@ impl JsonMatchResult {
 /// ```
 #[must_use]
 pub fn format_value_as_hex(value: &Value) -> String {
-    use std::fmt::Write;
+    fn hex_string(bytes: &[u8]) -> String {
+        use std::fmt::Write;
 
+        let mut result = String::with_capacity(bytes.len().saturating_mul(2));
+        for &b in bytes {
+            // fmt::Write to a String is infallible; discard the Result
+            // rather than unwrap so the no-panic policy holds regardless.
+            #[allow(clippy::let_underscore_must_use)]
+            let _ = write!(result, "{b:02x}");
+        }
+        result
+    }
+
+    // Numeric values are converted to little-endian bytes for consistency.
     match value {
-        Value::Bytes(bytes) => {
-            let mut result = String::with_capacity(bytes.len() * 2);
-            for &b in bytes {
-                write!(&mut result, "{b:02x}").expect("Writing to String should never fail");
-            }
-            result
-        }
-        Value::String(s) => {
-            let bytes = s.as_bytes();
-            let mut result = String::with_capacity(bytes.len() * 2);
-            for &b in bytes {
-                write!(&mut result, "{b:02x}").expect("Writing to String should never fail");
-            }
-            result
-        }
-        Value::Uint(n) => {
-            // Convert to little-endian bytes for consistency
-            let bytes = n.to_le_bytes();
-            let mut result = String::with_capacity(16); // 8 bytes * 2 chars per byte
-            for &b in &bytes {
-                write!(&mut result, "{b:02x}").expect("Writing to String should never fail");
-            }
-            result
-        }
-        Value::Int(n) => {
-            // Convert to little-endian bytes for consistency
-            let bytes = n.to_le_bytes();
-            let mut result = String::with_capacity(16); // 8 bytes * 2 chars per byte
-            for &b in &bytes {
-                write!(&mut result, "{b:02x}").expect("Writing to String should never fail");
-            }
-            result
-        }
-        Value::Float(f) => {
-            // Convert to little-endian bytes for consistency
-            let bytes = f.to_le_bytes();
-            let mut result = String::with_capacity(16); // 8 bytes * 2 chars per byte
-            for &b in &bytes {
-                write!(&mut result, "{b:02x}").expect("Writing to String should never fail");
-            }
-            result
-        }
+        Value::Bytes(bytes) => hex_string(bytes),
+        Value::String(s) => hex_string(s.as_bytes()),
+        Value::Uint(n) => hex_string(&n.to_le_bytes()),
+        Value::Int(n) => hex_string(&n.to_le_bytes()),
+        Value::Float(f) => hex_string(&f.to_le_bytes()),
     }
 }
 
@@ -762,6 +737,10 @@ pub fn format_json_line_output(
 
 #[cfg(test)]
 mod tests {
+    // Restriction lints without an allow-*-in-tests config option;
+    // non-ASCII test data exercises JSON string escaping.
+    #![allow(clippy::non_ascii_literal)]
+
     use super::*;
     use crate::output::{EvaluationMetadata, EvaluationResult, MatchResult};
     use std::path::PathBuf;

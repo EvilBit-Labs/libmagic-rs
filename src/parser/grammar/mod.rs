@@ -590,8 +590,8 @@ fn parse_name_or_use_meta<'a>(
     } else {
         MetaType::Use(id.to_string())
     };
-    let (input, _) = multispace0(tail)?;
-    Ok((input, (TypeKind::Meta(meta), None, None)))
+    let (rest, _) = multispace0(tail)?;
+    Ok((rest, (TypeKind::Meta(meta), None, None)))
 }
 
 /// Parse a type specification with an optional attached bitwise-AND mask operator

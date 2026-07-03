@@ -270,9 +270,9 @@ Reserved-for-future enum variants (e.g., `TypeReadError::UnsupportedType`) need 
 
 Enum variants with a shared suffix (e.g., `OneByte`, `TwoByte`, `FourByte`) trigger `clippy::enum_variant_names`. Add `#[allow(clippy::enum_variant_names)]` when renaming would hurt readability.
 
-### 8.2 `unsafe_code = "forbid"` is Absolute
+### 8.2 `unsafe_code = "deny"` Has Exactly One Vetted Exception
 
-`unsafe_code = "forbid"` in `Cargo.toml` workspace lints cannot be overridden with `#[allow(unsafe_code)]`. Use vetted crates (e.g., `chrono` for timezone) instead of libc FFI or subprocess calls.
+`unsafe_code = "deny"` in `Cargo.toml` workspace lints applies project-wide via `[lints] workspace = true` in the package section (without that opt-in the whole `[workspace.lints]` table is inert -- do not remove it). The level is `deny` rather than `forbid` because the memmap2 `map()` call in `src/io/mod.rs::create_memory_mapping` requires one `#[allow(unsafe_code)]` block: memory mapping is inherently unsafe (a concurrently-truncated file is UB at the OS level) and `forbid` would make the exception impossible. Any new `unsafe` block needs the same treatment: a SAFETY comment explaining the invariants (enforced by `clippy::undocumented_unsafe_blocks = "deny"`) and explicit review sign-off. For everything else, use vetted crates (e.g., `chrono` for timezone) instead of libc FFI or subprocess calls.
 
 ### 8.3 Pre-commit Hook Reformats
 

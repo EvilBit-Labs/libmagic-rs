@@ -1,6 +1,11 @@
 // Copyright (c) 2025-2026 the libmagic-rs contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Test code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per test crate/module instead.
+#![allow(clippy::modulo_arithmetic)]
+
 use super::*;
 use crate::parser::ast::{
     Endianness, OffsetSpec, Operator, SearchFlags, StringFlags, TypeKind, Value,

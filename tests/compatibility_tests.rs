@@ -6,6 +6,15 @@
 //! These tests ensure that our implementation produces identical results to the original libmagic.
 //! Test files are downloaded from the file/file repository and compared against expected results.
 
+// Test/bench code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per crate instead.
+#![allow(
+    clippy::unwrap_used,
+    clippy::unused_self,
+    clippy::needless_pass_by_value
+)]
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -90,7 +99,7 @@ impl CompatibilityTestRunner {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("rmagic failed: {}", stderr).into());
+            return Err(format!("rmagic failed: {stderr}").into());
         }
 
         let full_output = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -109,7 +118,7 @@ impl CompatibilityTestRunner {
     fn normalize_output(&self, output: &str) -> String {
         output
             .lines()
-            .map(|line| line.trim())
+            .map(str::trim)
             .filter(|line| !line.is_empty())
             .collect::<Vec<_>>()
             .join("\n")
@@ -125,7 +134,7 @@ impl CompatibilityTestRunner {
                     status: TestStatus::Error,
                     expected_output: String::new(),
                     actual_output: String::new(),
-                    error: Some(format!("Failed to read result file: {}", e)),
+                    error: Some(format!("Failed to read result file: {e}")),
                     errors: vec![],
                 };
             }
@@ -139,7 +148,7 @@ impl CompatibilityTestRunner {
                     status: TestStatus::Error,
                     expected_output,
                     actual_output: String::new(),
-                    error: Some(format!("rmagic failed: {}", e)),
+                    error: Some(format!("rmagic failed: {e}")),
                     errors: vec![],
                 };
             }
@@ -237,12 +246,12 @@ fn find_rmagic_binary() -> Result<PathBuf, Box<dyn std::error::Error>> {
 
 /// Test that downloads and runs compatibility tests
 #[test]
-#[ignore] // Ignore by default since it requires downloading test files
+#[ignore = "requires downloading test files from the file/file repository"]
 fn test_compatibility_with_original_libmagic() {
     let runner = match CompatibilityTestRunner::new() {
         Ok(runner) => runner,
         Err(e) => {
-            println!("Skipping compatibility tests: {}", e);
+            println!("Skipping compatibility tests: {e}");
             return;
         }
     };
@@ -267,7 +276,7 @@ fn test_compatibility_with_original_libmagic() {
         for result in failed_tests {
             println!("FAIL {}", result.test_file.display());
             for error in &result.errors {
-                println!("   {}", error);
+                println!("   {error}");
             }
             println!();
         }
@@ -284,7 +293,7 @@ fn test_compatibility_with_original_libmagic() {
         for result in error_tests {
             println!("ERROR {}", result.test_file.display());
             if let Some(error) = &result.error {
-                println!("   Error: {}", error);
+                println!("   Error: {error}");
             }
             println!();
         }
@@ -294,9 +303,11 @@ fn test_compatibility_with_original_libmagic() {
     assert!(summary["total"] > 0, "No compatibility tests found");
 
     // Fail if we have errors (these are different from assertion failures)
-    if summary["errors"] > 0 {
-        panic!("{} tests had errors", summary["errors"]);
-    }
+    assert!(
+        summary["errors"] == 0,
+        "{} tests had errors",
+        summary["errors"]
+    );
 
     // Note: Individual test failures are now handled by assertions in run_single_test
     // If we reach here, all tests passed

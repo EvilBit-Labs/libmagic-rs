@@ -10,6 +10,11 @@
 //! Note: These tests require the `rmagic` binary to be built (handled
 //! automatically by `assert_cmd`).
 
+// Test code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per test crate instead.
+#![allow(clippy::expect_used)]
+
 use assert_cmd::Command;
 use libmagic_rs::EvaluationConfig;
 use predicates::prelude::*;
