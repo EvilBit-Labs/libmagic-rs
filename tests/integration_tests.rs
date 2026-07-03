@@ -6,6 +6,11 @@
 //! Tests the complete workflow: load database, evaluate files/buffers,
 //! verify output formatting and metadata.
 
+// Test code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per crate instead.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;

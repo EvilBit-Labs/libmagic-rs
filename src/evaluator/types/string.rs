@@ -64,6 +64,9 @@ const STRING16_MAX_UNITS: usize = 8192;
 ///
 /// Returns `TypeReadError::BufferOverrun` if the offset is greater than or equal to the buffer
 /// length.
+// Slicing is invariant-safe: `offset < buffer.len()` is checked at entry;
+// `search_len` and `read_length` are clamped by `min`/`memchr` results.
+#[allow(clippy::indexing_slicing)]
 pub fn read_string(
     buffer: &[u8],
     offset: usize,
@@ -169,6 +172,9 @@ pub fn read_string_exact(
 ///
 /// [`StringFlags`]: crate::parser::ast::StringFlags
 #[must_use]
+// Indexing is invariant-safe: `pattern[a]` is guarded by the
+// `a < pattern.len()` loop condition.
+#[allow(clippy::indexing_slicing)]
 pub fn compare_string_with_flags(
     pattern: &[u8],
     buffer: &[u8],
@@ -304,6 +310,9 @@ fn bytes_to_string_fast(bytes: &[u8]) -> String {
 /// let result = read_string16(buffer, 0, Endianness::Big).unwrap();
 /// assert_eq!(result, Value::String("MZ".to_string()));
 /// ```
+// Indexing is invariant-safe: `offset < buffer.len()` is checked at entry
+// and `chunks_exact(2)` yields exactly 2-byte slices.
+#[allow(clippy::indexing_slicing)]
 pub fn read_string16(
     buffer: &[u8],
     offset: usize,
@@ -349,6 +358,9 @@ pub fn read_string16(
 /// included -- in which case the count is still even because the
 /// terminator itself is two bytes). A successful read with zero bytes
 /// returns `0`.
+// Indexing is invariant-safe: `chunks_exact(2)` yields exactly 2-byte
+// slices.
+#[allow(clippy::indexing_slicing)]
 pub(crate) fn string16_bytes_consumed(buffer: &[u8], offset: usize, endian: Endianness) -> usize {
     let Some(remaining) = buffer.get(offset..) else {
         return 0;
@@ -423,6 +435,9 @@ pub(crate) fn string16_bytes_consumed(buffer: &[u8], offset: usize, endian: Endi
 /// Returns `TypeReadError::BufferOverrun` if:
 /// - The offset is beyond buffer bounds (cannot read the length prefix)
 /// - The string data (length prefix value) extends beyond the buffer
+// Slicing is invariant-safe: `string_start..string_end` is validated
+// against `buffer.len()` before the slice.
+#[allow(clippy::indexing_slicing)]
 pub fn read_pstring(
     buffer: &[u8],
     offset: usize,
@@ -533,6 +548,10 @@ pub fn read_pstring(
 
 #[cfg(test)]
 mod tests {
+    // Restriction lints without an allow-*-in-tests config option;
+    // non-ASCII test data exercises the UCS-2/UTF-8 handling paths.
+    #![allow(clippy::non_ascii_literal)]
+
     use super::*;
     use crate::parser::ast::{PStringLengthWidth, StringFlags, TypeKind};
     #[test]

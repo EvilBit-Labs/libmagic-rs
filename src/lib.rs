@@ -467,8 +467,8 @@ impl MagicDatabase {
         crate::evaluator::types::regex::reset_regex_cache();
 
         let env = std::sync::Arc::new(RuleEnvironment {
-            name_table: self.name_table.clone(),
-            root_rules: self.root_rules.clone(),
+            name_table: std::sync::Arc::clone(&self.name_table),
+            root_rules: std::sync::Arc::clone(&self.root_rules),
         });
 
         let mut context = EvaluationContext::new(self.config.clone()).with_rule_env(env);

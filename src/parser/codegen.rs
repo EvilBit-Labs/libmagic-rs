@@ -513,7 +513,10 @@ pub fn format_byte_vec(bytes: &[u8]) -> String {
         if index > 0 {
             output.push_str(", ");
         }
-        write!(output, "0x{byte:02x}").unwrap();
+        // fmt::Write to a String is infallible; discard the Result rather
+        // than unwrap so the no-panic policy holds regardless.
+        #[allow(clippy::let_underscore_must_use)]
+        let _ = write!(output, "0x{byte:02x}");
     }
     output.push(']');
     output
