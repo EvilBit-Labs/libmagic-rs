@@ -344,12 +344,29 @@ offset  regex[/count[unit]][flags]  pattern  message
 
 Every scan window is capped at 8192 bytes (`FILE_REGEX_MAX`). Multi-line matching is always enabled (matching libmagic's unconditional `REG_NEWLINE`). Anchor advance follows GNU `file` semantics (match-end, not window-end).
 
+**Bareword (unquoted) pattern escape handling:**
+
+Bareword regex patterns undergo escape resolution using GNU `file`'s getstr escape table before the pattern is compiled. Quoted patterns (`"..."`) preserve escapes verbatim without getstr resolution.
+
+Supported bareword escape sequences:
+
+- `\t`, `\n`, `\r`, `\b`, `\f`, `\v` - standard C control sequences (tab, newline, carriage return, backspace, form feed, vertical tab)
+- `\NNN` - octal escape sequences (three digits; e.g. `\040` resolves to space)
+- `\xNN` - hexadecimal escape sequences (two hex digits; e.g. `\x20` resolves to space)
+- `\\` - escaped backslash (resolves to a single backslash)
+- Unrecognized escape sequences drop the backslash (e.g. `\^` becomes `^`)
+
+Bytes >= 0x80 produced by escape resolution are re-encoded as `\xHH` format for the regex engine. Regex shorthand sequences like `\d`, `\s`, `\w` that are not recognized by getstr are demoted to literals (e.g. `\d` becomes `d`).
+
+This behavior matches GNU `file`'s handling of bareword regex patterns and ensures compatibility with system magic databases like `/usr/share/file/magic/`.
+
 Examples:
 
 ```text
 0       regex/100      [A-Z]+            Found uppercase letters
 0       regex/10l/c    error             Found "error" (case-insensitive, 10-line cap)
 0       regex/500/s    ^BEGIN            Found BEGIN at start (anchor advances to match-start)
+0       regex/50       \^[\040\t]{0,50}\\.asciiz    assembler source text (getstr-resolved pattern)
 ```
 
 ### Search Type
