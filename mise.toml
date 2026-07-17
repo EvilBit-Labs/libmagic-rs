@@ -57,3 +57,6 @@ package_manager = "bun"
 
 [settings.pipx]
 uvx = true
+
+[settings.cargo]
+binstall_only = false
