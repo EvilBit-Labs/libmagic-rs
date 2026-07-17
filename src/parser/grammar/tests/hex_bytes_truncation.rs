@@ -1,0 +1,163 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! U7 audit: does `parse_hex_bytes` (and its sub-parsers
+//! `parse_mixed_hex_ascii` / `parse_hex_bytes_no_prefix`) consume a whole
+//! value token, or silently truncate at the first character that doesn't
+//! look like a hex digit and leak the remainder back to the caller?
+//!
+//! `TypeKind::Regex` no longer routes through this code path (see
+//! `parser::grammar::getstr`), but `TypeKind::Search` (and any other
+//! string-family type whose bareword value happens to look like hex
+//! bytes) still does, via `parse_value`'s `alt(...)`.
+//!
+//! **Finding (confirmed by the tests below, not inferred):**
+//! `parse_mixed_hex_ascii` (used whenever the token starts with a
+//! backslash) consumes the WHOLE token -- its final fallback branch,
+//! `none_of(" \t\n\r")`, accepts virtually any non-whitespace character,
+//! so a mixed escape+literal token like `\x41BC[def` is captured in
+//! full. `parse_hex_bytes_no_prefix` (used only when the token does
+//! **not** start with a backslash and looks like a run of pure hex
+//! digits) DOES truncate: it uses `take_while(is_ascii_hexdigit)`, which
+//! stops at the first non-hex-digit character and returns `Ok` with the
+//! shorter byte vector, leaving the remainder (e.g. `[42`) in the
+//! `IResult`'s remaining-input slot. Through `parse_magic_rule`, that
+//! leaked remainder is treated as the start of the rule's *message*
+//! field -- corrupting the parsed value AND fabricating message text
+//! that was never intended, with no parse error to signal the mistake.
+//!
+//! This is a genuine, if narrow, bug: it requires a bareword (unquoted,
+//! no `\` prefix) token that is (a) an even number of hex-digit
+//! characters, (b) contains at least one `a`-`f`/`A`-`F` letter (so
+//! `parse_hex_bytes_no_prefix`'s "must look like hex, not a decimal
+//! number" guard doesn't reject it), and (c) is immediately followed
+//! (no whitespace) by more non-whitespace, non-hex-digit characters.
+//! Fixed below by requiring the parsed hex run to be immediately
+//! followed by whitespace or end-of-input -- i.e. the ENTIRE token must
+//! be hex digits, not just a hex-looking prefix of it.
+
+use super::*;
+
+#[test]
+fn mixed_escape_and_literal_token_is_captured_whole() {
+    // `\x41BC[def`: hex-prefixed byte, then plain ASCII letters, then a
+    // literal `[` (not part of any escape), then more plain letters.
+    // Confirms `parse_mixed_hex_ascii` does NOT truncate at `[`.
+    let (remaining, bytes) = parse_hex_bytes(r"\x41BC[def").expect(r"\x41BC[def");
+    assert_eq!(remaining, "", "whole token must be consumed, none leaked");
+    assert_eq!(
+        bytes,
+        vec![0x41, b'B', b'C', b'[', b'd', b'e', b'f'],
+        "all intended bytes must be present, in order"
+    );
+}
+
+#[test]
+fn mixed_escape_and_literal_token_stops_only_at_whitespace() {
+    let (remaining, bytes) =
+        parse_hex_bytes(r"\x7f\x45(LF)[bracket] trailing").expect("mixed token with brackets");
+    assert_eq!(remaining, " trailing");
+    assert_eq!(
+        bytes,
+        {
+            let mut expected = vec![0x7f, 0x45];
+            expected.extend_from_slice(b"(LF)[bracket]");
+            expected
+        },
+        "escape + arbitrary literal punctuation must all be captured"
+    );
+}
+
+/// Regression test for the confirmed truncation bug in
+/// `parse_hex_bytes_no_prefix`: a bareword (no `\` prefix) token that
+/// looks like hex digits followed immediately by non-hex-digit
+/// characters (no separating whitespace) must NOT silently truncate and
+/// leak the remainder. Before the fix, `parse_hex_bytes("4a[42")`
+/// returned `Ok(("[42", vec![0x4a]))` -- only the "4a" prefix was
+/// captured and "[42" leaked back as if it were separate input.
+#[test]
+fn no_prefix_hex_token_does_not_truncate_at_trailing_non_hex_chars() {
+    // A hex-looking token immediately followed by a non-hex-digit
+    // character with NO separating whitespace is not a valid pure-hex
+    // token -- it must be rejected outright (Err), not silently
+    // truncated to a shorter byte vector with the remainder leaked.
+    assert!(
+        parse_hex_bytes("4a[42").is_err(),
+        "a hex-looking prefix immediately followed by non-hex-digit, \
+         non-whitespace characters must not silently truncate"
+    );
+
+    // A whitespace boundary is still a legitimate token terminator (this
+    // is how `parse_hex_bytes` is meant to be used inside `parse_value`
+    // when more input, such as an operator or message, follows).
+    assert_eq!(
+        parse_hex_bytes("4a1b more text"),
+        Ok((" more text", vec![0x4a, 0x1b]))
+    );
+
+    // A trailing quote (closing a quoted-value context) is likewise a
+    // legitimate boundary, matching the existing
+    // `test_parse_hex_bytes_with_remaining_input` coverage.
+    assert_eq!(parse_hex_bytes("ab\""), Ok(("\"", vec![0xab])));
+}
+
+#[test]
+fn search_literal_no_prefix_hex_lookalike_round_trips_through_parse_value() {
+    // Behavioral confirmation at the `parse_value` level (the entry
+    // point `parse_magic_rule` uses for string-family types): a
+    // bareword token that looks like hex digits but is immediately
+    // followed by non-hex-digit characters must not corrupt the parsed
+    // value or leak text into what would become the rule's message.
+    //
+    // `"ab[cd message"` is used (rather than a leading-digit token like
+    // `"4a[cd message"`) to isolate this assertion to the hex-bytes path
+    // under audit: a leading decimal digit would also be greedily
+    // consumed by `parse_numeric_value`'s `digit1` (e.g. `"4a..."` still
+    // yields `Ok(Value::Uint(4))` with `"a..."` leaking as remaining --
+    // a pre-existing, separate greediness in the *numeric* fallback,
+    // out of scope for this hex-bytes-specific audit). Starting with a
+    // letter (`'a'`) means neither `parse_float_value` nor
+    // `parse_numeric_value` can match at all, so the only way
+    // `parse_value` could have returned `Ok` here was via the hex-bytes
+    // path -- which, before this fix, DID: `parse_value("ab[cd message")`
+    // returned `Ok(("[cd message", Value::Bytes(vec![0xab])))`, silently
+    // truncating the value to one byte and leaking "[cd message" as if
+    // it were separate input (`parse_magic_rule` would have rendered it
+    // as the rule's message text).
+    //
+    // After the fix: the malformed pure-hex-lookalike token is rejected
+    // by the hex-bytes path, so `parse_value` itself returns `Err`,
+    // exactly as it would for any other unrecognized bareword token
+    // (see `test_parse_value_invalid_input`). The string-family bareword
+    // fallback (`parse_bare_string_value`) in `parse_magic_rule` then
+    // takes over and captures the ENTIRE token, brackets included.
+    assert!(parse_value("ab[cd message").is_err());
+
+    match parse_value("4a1bcd 0x41 more") {
+        Ok((remaining, Value::Bytes(bytes))) => {
+            assert_eq!(remaining, " 0x41 more");
+            assert_eq!(bytes, vec![0x4a, 0x1b, 0xcd]);
+        }
+        other => panic!("expected whitespace-terminated hex bytes, got {other:?}"),
+    }
+}
+
+#[test]
+fn search_rule_with_malformed_hex_lookalike_literal_captures_whole_value() {
+    // Full `parse_magic_rule` round-trip (not just `parse_value`): a
+    // `search` rule whose bareword literal looks like a hex-byte prefix
+    // but is immediately followed by non-hex characters must parse with
+    // the ENTIRE literal as the value and the actual trailing words as
+    // the message -- not a 1-byte value with "[cd real message" mangled
+    // into the message field.
+    let input = "0 search/16 ab[cd real message";
+    let (remaining, rule) = parse_magic_rule(input).expect(input);
+    assert_eq!(remaining, "");
+    assert_eq!(
+        rule.value,
+        Value::String("ab[cd".to_string()),
+        "the whole malformed-hex-lookalike token must be captured as one value \
+         via the bareword string fallback, not truncated to a partial Value::Bytes"
+    );
+    assert_eq!(rule.message, "real message");
+}

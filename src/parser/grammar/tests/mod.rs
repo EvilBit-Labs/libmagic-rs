@@ -1,6 +1,7 @@
 // Copyright (c) 2025-2026 the libmagic-rs contributors
 // SPDX-License-Identifier: Apache-2.0
 
+mod hex_bytes_truncation;
 mod indirect_offset;
 mod meta_types;
 
