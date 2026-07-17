@@ -101,6 +101,44 @@ pub enum TypeReadError {
     },
 }
 
+/// Returns `true` if `type_name` (the free-form diagnostic string carried by
+/// [`TypeReadError::UnsupportedType`]) describes a pattern-bearing type
+/// (`Regex`, `Search`, or a flagged `String`) that was evaluated without a
+/// usable `String`/`Bytes` pattern operand.
+///
+/// This is the narrow "missing pattern" condition the engine's graceful skip
+/// (GOTCHAS S2.1, S2.4) targets -- deliberately an exhaustive allowlist of
+/// the exact messages this module emits for that condition, not a substring
+/// heuristic, so a genuine evaluator capability gap (an unwired `TypeKind`
+/// variant, or a non-equality operator on a pattern-bearing type) is never
+/// accidentally swallowed. See `is_regex_compile_failure` for the sibling
+/// "compile failure" condition, and the fix-system-magic-regex-graceful
+/// plan (KTD4/KTD5, requirement R3) for the full rationale.
+#[must_use]
+pub(crate) fn is_missing_pattern_operand(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "regex without string pattern"
+            | "search without string/bytes pattern"
+            | "string with flags requires string/bytes pattern"
+    )
+}
+
+/// Returns `true` if `type_name` describes a regex compile failure, as
+/// opposed to a missing pattern operand.
+///
+/// Compile failures include the `REGEX_COMPILE_SIZE_LIMIT` (1 MiB) denial-of-service guard
+/// (CWE-1333) from `evaluator::types::regex`. Both conditions flow
+/// through the same [`TypeReadError::UnsupportedType`] variant and are
+/// gracefully skipped by the engine, but a compile failure is logged at
+/// `warn!` rather than `debug!` so a malicious or pathological magic file's
+/// rejection is not silently invisible even though evaluation of the rest
+/// of the file continues (KTD5).
+#[must_use]
+pub(crate) fn is_regex_compile_failure(type_name: &str) -> bool {
+    type_name.starts_with("regex compile error:")
+}
+
 /// Default `max_string_length` used by [`read_typed_value`] when callers
 /// do not supply an explicit cap. Matches
 /// `EvaluationConfig::default().max_string_length` so call sites that
@@ -148,6 +186,34 @@ pub(crate) fn read_typed_value(
     type_kind: &TypeKind,
 ) -> Result<Value, TypeReadError> {
     read_typed_value_with_pattern(buffer, offset, type_kind, None, DEFAULT_MAX_STRING_LENGTH)
+}
+
+/// Decodes a `Value::Bytes` regex pattern operand into a `String` for
+/// compilation (KTD1/KTD6 of the fix-system-magic-regex-graceful plan).
+///
+/// Regex patterns are normally captured by the parser as `Value::String`,
+/// but escape-heavy patterns (e.g. `\^[\040\t]{0,50}\\.asciiz`) can
+/// currently be miscategorized as `Value::Bytes` by `parse_value`'s
+/// hex/mixed-ascii branch. This backstop lets such patterns compile
+/// instead of fatally erroring (GOTCHAS S2.4), mirroring the existing
+/// `TypeKind::Search` arms' dual `String`/`Bytes` acceptance.
+///
+/// `String::from_utf8_lossy` never panics, but on a real substitution --
+/// any byte `>= 0x80` that is not valid UTF-8 -- it silently replaces the
+/// byte with U+FFFD while the target buffer is still matched against its
+/// *raw* bytes. The two sides then diverge silently: the compiled regex
+/// no longer represents the same bytes the file comparison expects. Detect
+/// a real substitution with `str::from_utf8` first and `warn!` so the
+/// divergence is visible in logs rather than a silent wrong answer.
+fn decode_regex_bytes_pattern(bytes: &[u8]) -> String {
+    if std::str::from_utf8(bytes).is_err() {
+        log::warn!(
+            "regex pattern given as raw bytes {bytes:?} is not valid UTF-8; \
+             lossily reinterpreting as text before compiling (bytes >= 0x80 \
+             become U+FFFD and will not byte-match the target buffer)"
+        );
+    }
+    String::from_utf8_lossy(bytes).into_owned()
 }
 
 /// Reads bytes according to the specified `TypeKind`, threading a
@@ -246,8 +312,13 @@ pub(crate) fn read_typed_value_with_pattern(
             *length_includes_itself,
         ),
         TypeKind::Regex { flags, count } => {
-            let pattern_str = match pattern {
-                Some(Value::String(s)) => s.as_str(),
+            // Dual `String`/`Bytes` acceptance mirrors the `Search` arm
+            // directly below (GOTCHAS S2.4). The `String` fast path stays
+            // allocation-free via `Cow::Borrowed`; `Bytes` goes through
+            // `decode_regex_bytes_pattern` (KTD6 lossy-substitution guard).
+            let pattern_str: Cow<'_, str> = match pattern {
+                Some(Value::String(s)) => Cow::Borrowed(s.as_str()),
+                Some(Value::Bytes(b)) => Cow::Owned(decode_regex_bytes_pattern(b)),
                 _ => {
                     return Err(TypeReadError::UnsupportedType {
                         type_name: "regex without string pattern".to_string(),
@@ -259,7 +330,7 @@ pub(crate) fn read_typed_value_with_pattern(
             // shape. The engine path goes through `read_pattern_match`
             // directly and preserves the `Option` so it can distinguish a
             // zero-width match from a miss.
-            Ok(read_regex(buffer, offset, pattern_str, *flags, *count)?
+            Ok(read_regex(buffer, offset, &pattern_str, *flags, *count)?
                 .unwrap_or_else(|| Value::String(String::new())))
         }
         TypeKind::Search { range, flags } => {
@@ -324,15 +395,19 @@ pub(crate) fn read_pattern_match(
     }
     match type_kind {
         TypeKind::Regex { flags, count } => {
-            let pattern_str = match pattern {
-                Some(Value::String(s)) => s.as_str(),
+            // Dual `String`/`Bytes` acceptance mirrors the `Search` arm
+            // directly below (GOTCHAS S2.4); see `decode_regex_bytes_pattern`
+            // for the KTD6 lossy-substitution `warn!` guard.
+            let pattern_str: Cow<'_, str> = match pattern {
+                Some(Value::String(s)) => Cow::Borrowed(s.as_str()),
+                Some(Value::Bytes(b)) => Cow::Owned(decode_regex_bytes_pattern(b)),
                 _ => {
                     return Err(TypeReadError::UnsupportedType {
                         type_name: "regex without string pattern".to_string(),
                     });
                 }
             };
-            read_regex(buffer, offset, pattern_str, *flags, *count)
+            read_regex(buffer, offset, &pattern_str, *flags, *count)
         }
         TypeKind::Search { range, flags } => {
             let pattern_bytes: &[u8] = match pattern {
@@ -735,16 +810,30 @@ pub(crate) fn bytes_consumed_with_pattern(
             Some(Value::String(s)) => {
                 regex::regex_bytes_consumed(buffer, offset, s.as_str(), *flags, *count)
             }
+            // U1 (fix-system-magic-regex-graceful): `Value::Bytes` regex
+            // patterns are now accepted by `read_typed_value_with_pattern`/
+            // `read_pattern_match` (GOTCHAS S2.4), so this consume-side
+            // helper must mirror that acceptance -- otherwise a
+            // successful Bytes-pattern regex match would hit the
+            // `debug_assert` below and silently fail to advance the
+            // anchor. Decode via the same `decode_regex_bytes_pattern`
+            // helper used by the read paths so both sides agree on what
+            // the pattern text is.
+            Some(Value::Bytes(b)) => {
+                let decoded = decode_regex_bytes_pattern(b);
+                regex::regex_bytes_consumed(buffer, offset, &decoded, *flags, *count)
+            }
             // Invariant: the engine only calls `bytes_consumed_with_pattern`
             // after a successful `read_typed_value_with_pattern`/`read_pattern_match`,
-            // which requires `Some(Value::String(_))` for regex. If we land
-            // here the invariant is broken by a new caller and the anchor
-            // would silently stall instead of advancing. Fire a debug_assert
-            // so the mismatch is caught in dev/test builds.
+            // which requires `Some(Value::String(_) | Value::Bytes(_))` for
+            // regex. If we land here the invariant is broken by a new
+            // caller and the anchor would silently stall instead of
+            // advancing. Fire a debug_assert so the mismatch is caught in
+            // dev/test builds.
             other => {
                 debug_assert!(
                     false,
-                    "bytes_consumed_with_pattern: TypeKind::Regex without Value::String pattern ({other:?}) -- engine invariant violated"
+                    "bytes_consumed_with_pattern: TypeKind::Regex without Value::String/Bytes pattern ({other:?}) -- engine invariant violated"
                 );
                 0
             }

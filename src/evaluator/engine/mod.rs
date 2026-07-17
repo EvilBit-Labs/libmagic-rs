@@ -455,6 +455,32 @@ fn evaluate_value_rule(
     Ok((matched, transformed_value))
 }
 
+/// Logs the graceful skip of a pattern-bearing-type rule whose
+/// `TypeReadError::UnsupportedType` condition falls in the narrow
+/// missing-pattern-operand or regex-compile-failure allowlist (see
+/// `types::is_missing_pattern_operand` / `types::is_regex_compile_failure`).
+///
+/// Shared by all three engine catch sites (`evaluate_children_or_warn`, the
+/// top-level dispatch match, and the inline child-recursion match) so a
+/// future rewording of the log message only needs one touch point (DRY,
+/// AGENTS.md). Split by KTD5 (fix-system-magic-regex-graceful plan): the
+/// ordinary missing-pattern case is `debug!`-logged (an expected,
+/// low-severity data condition -- e.g. the root-cause parser
+/// miscategorization this plan also fixes), while a regex compile failure
+/// (which includes the `REGEX_COMPILE_SIZE_LIMIT` CWE-1333 denial-of-service guard) is
+/// `warn!`-logged so a malicious or pathological magic file's rejection is
+/// not silently invisible, even though the rest of the file's evaluation
+/// continues (R1: no fatal abort of the whole evaluation).
+fn log_pattern_operand_skip(site_label: &str, rule_message: &str, type_name: &str) {
+    if types::is_regex_compile_failure(type_name) {
+        warn!(
+            "Skipping {site_label} rule '{rule_message}' due to regex compile failure: {type_name} -- this may indicate a malicious or pathological magic file"
+        );
+    } else {
+        debug!("Skipping {site_label} rule '{rule_message}': {type_name}");
+    }
+}
+
 /// Evaluate a rule's children under the standard recursion-guard/graceful-skip discipline.
 ///
 /// This helper centralises the `RecursionGuard` + `evaluate_rules` + error-dispatch
@@ -533,6 +559,22 @@ fn evaluate_children_or_warn(
                 "Discarding child evaluation under {} rule '{}' due to unexpected error: {} -- parent match is still emitted",
                 rule_kind, rule.message, e
             );
+        }
+        // Narrow graceful-skip (KTD4): a pattern-bearing type evaluated
+        // without a usable pattern operand, or a regex compile failure
+        // (including the REGEX_COMPILE_SIZE_LIMIT DoS guard), must not
+        // abort the whole evaluation -- see `log_pattern_operand_skip` and
+        // the top-level dispatch match below for the full contract. This
+        // arm is defensive: under the current implementation, individual
+        // child failures are already caught and logged inside the
+        // recursive `evaluate_rules` call (they never propagate here); it
+        // guards against a future change to that strategy.
+        Err(LibmagicError::EvaluationError(crate::error::EvaluationError::TypeReadError(
+            crate::evaluator::types::TypeReadError::UnsupportedType { ref type_name },
+        ))) if types::is_missing_pattern_operand(type_name)
+            || types::is_regex_compile_failure(type_name) =>
+        {
+            log_pattern_operand_skip(rule_kind, &rule.message, type_name);
         }
         Err(e) => return Err(e),
     }
@@ -1046,13 +1088,40 @@ pub fn evaluate_rules(
                 | LibmagicError::IoError(_)),
             ) => {
                 // Expected data-dependent evaluation errors -- skip gracefully.
-                // TypeReadError::UnsupportedType is intentionally NOT caught here
-                // so that evaluator capability gaps propagate as errors.
+                // TypeReadError::UnsupportedType is intentionally NOT caught
+                // here (except the narrow exception in the arm immediately
+                // below) so that evaluator capability gaps propagate as
+                // errors.
                 debug!("Skipping rule '{}': {}", rule.message, e);
                 continue;
             }
+            // Narrow graceful-skip (KTD4, fix-system-magic-regex-graceful
+            // plan): a pattern-bearing type (`Regex`/`Search`/flagged
+            // `String`) evaluated without a usable `String`/`Bytes` pattern
+            // operand, or a regex compile failure (including the
+            // `REGEX_COMPILE_SIZE_LIMIT` CWE-1333 DoS guard), must not
+            // abort the whole file's evaluation (R1/R2). This is
+            // deliberately an exhaustive allowlist keyed on the
+            // `UnsupportedType` diagnostic string
+            // (`types::is_missing_pattern_operand` /
+            // `types::is_regex_compile_failure`), not a broadening of the
+            // general `UnsupportedType` exclusion above -- any OTHER
+            // `UnsupportedType` (an unwired `TypeKind` variant, a
+            // non-Equal/NotEqual operator on a pattern-bearing type, etc.)
+            // still falls through to the catch-all below and propagates
+            // (R3). See `log_pattern_operand_skip` for the debug!/warn!
+            // split.
+            Err(LibmagicError::EvaluationError(crate::error::EvaluationError::TypeReadError(
+                crate::evaluator::types::TypeReadError::UnsupportedType { ref type_name },
+            ))) if types::is_missing_pattern_operand(type_name)
+                || types::is_regex_compile_failure(type_name) =>
+            {
+                log_pattern_operand_skip("top-level", &rule.message, type_name);
+                continue;
+            }
             Err(e) => {
-                // Unexpected errors (InternalError, UnsupportedType, etc.) should propagate
+                // Unexpected errors (InternalError, other UnsupportedType
+                // conditions, etc.) should propagate.
                 return Err(e);
             }
         };
@@ -1130,6 +1199,27 @@ pub fn evaluate_rules(
                             "Discarding child evaluation under rule '{}' due to unexpected error: {} -- parent match is still emitted; investigate the recursive evaluate_rules error-handling path",
                             rule.message, e
                         );
+                    }
+                    // Narrow graceful-skip (KTD4): same allowlist as the
+                    // top-level dispatch match above and
+                    // `evaluate_children_or_warn` -- a pattern-bearing type
+                    // evaluated without a usable pattern operand, or a
+                    // regex compile failure, must not abort the parent's
+                    // match. Defensive: individual child failures are
+                    // already caught inside the recursive `evaluate_rules`
+                    // call and never reach here under the current
+                    // implementation; this arm guards against a future
+                    // change to that strategy.
+                    Err(LibmagicError::EvaluationError(
+                        crate::error::EvaluationError::TypeReadError(
+                            crate::evaluator::types::TypeReadError::UnsupportedType {
+                                ref type_name,
+                            },
+                        ),
+                    )) if types::is_missing_pattern_operand(type_name)
+                        || types::is_regex_compile_failure(type_name) =>
+                    {
+                        log_pattern_operand_skip("child", &rule.message, type_name);
                     }
                     Err(e) => {
                         // Unexpected errors in children (including RecursionLimitExceeded)

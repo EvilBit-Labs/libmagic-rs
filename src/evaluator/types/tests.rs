@@ -1030,6 +1030,195 @@ fn test_bytes_consumed_string_at_past_end_returns_zero() {
     assert_eq!(bytes_consumed_with_pattern(buf, 10, &typ, None), 0);
 }
 
+// =============================================================================
+// fix-system-magic-regex-graceful, U1: `Value::Bytes` backstop for
+// `TypeKind::Regex`.
+//
+// The parser can currently miscategorize an escape-heavy regex pattern
+// (e.g. `\^[\040\t]{0,50}\\.asciiz`) as `Value::Bytes` instead of
+// `Value::String` (see `parse_value`'s hex/mixed-ascii branch). Before this
+// fix, both `read_typed_value_with_pattern` and `read_pattern_match`
+// rejected `Value::Bytes` regex patterns with `UnsupportedType`, unlike the
+// sibling `TypeKind::Search` arms which already accepted both variants
+// (GOTCHAS S2.4). See docs/plans/2026-07-17-001-fix-system-magic-regex-
+// graceful-plan.md.
+// =============================================================================
+
+fn regex_type() -> TypeKind {
+    TypeKind::Regex {
+        flags: crate::parser::ast::RegexFlags::default(),
+        count: crate::parser::ast::RegexCount::Default,
+    }
+}
+
+/// Happy path (regression guard): a `Value::String` pattern still matches
+/// through `read_pattern_match`, unaffected by the new `Bytes` arm.
+#[test]
+fn test_read_pattern_match_regex_string_pattern_still_matches() {
+    let typ = regex_type();
+    let pattern = Value::String("foobar[0-9]+".to_string());
+    let result = read_pattern_match(b"prefix foobar123 suffix", 0, &typ, Some(&pattern), 8192)
+        .expect("read_pattern_match should not error for a valid String pattern");
+    assert!(
+        matches!(result, Some(Value::String(ref s)) if s == "foobar123"),
+        "expected a match on the String pattern, got {result:?}"
+    );
+}
+
+/// A `Value::Bytes` regex pattern (the miscategorized-escape case) must be
+/// accepted by `read_pattern_match`, not rejected as `UnsupportedType`.
+#[test]
+fn test_read_pattern_match_regex_accepts_bytes_pattern() {
+    let typ = regex_type();
+    let pattern = Value::Bytes(b"^[ \t]*\\.asciiz".to_vec());
+    let result = read_pattern_match(b"\t.asciiz \"hi\"", 0, &typ, Some(&pattern), 8192)
+        .expect("read_pattern_match must accept a Value::Bytes regex pattern, not UnsupportedType");
+    assert!(
+        result.is_some(),
+        "expected the Bytes pattern to match the leading-whitespace buffer, got {result:?}"
+    );
+}
+
+/// The same `Value::Bytes` acceptance must hold for
+/// `read_typed_value_with_pattern` (the non-engine dispatch entry point),
+/// mirroring the `read_pattern_match` arm exactly.
+#[test]
+fn test_read_typed_value_with_pattern_regex_accepts_bytes_pattern() {
+    let typ = regex_type();
+    let pattern = Value::Bytes(b"[0-9]+".to_vec());
+    let result = read_typed_value_with_pattern(b"abc123def", 0, &typ, Some(&pattern), 8192)
+        .expect("read_typed_value_with_pattern must accept a Value::Bytes regex pattern");
+    assert_eq!(
+        result,
+        Value::String("123".to_string()),
+        "expected the matched digits, got {result:?}"
+    );
+}
+
+/// Zero-width match contract (GOTCHAS S2.5) must be preserved for a
+/// `Value::Bytes` pattern: `^` matches at position 0 with an empty capture,
+/// which is `Ok(Some(Value::String("")))`, distinct from a genuine miss.
+#[test]
+fn test_read_pattern_match_regex_bytes_zero_width_match() {
+    let typ = regex_type();
+    let pattern = Value::Bytes(b"^".to_vec());
+    let result = read_pattern_match(b"hello", 0, &typ, Some(&pattern), 8192)
+        .expect("zero-width Bytes pattern should not error");
+    assert_eq!(
+        result,
+        Some(Value::String(String::new())),
+        "zero-width match must be Some(empty string), not None (GOTCHAS S2.5)"
+    );
+}
+
+/// A `Value::Bytes` pattern that does not match the buffer must produce a
+/// genuine miss (`Ok(None)`), not an error.
+#[test]
+fn test_read_pattern_match_regex_bytes_pattern_miss() {
+    let typ = regex_type();
+    let pattern = Value::Bytes(b"xyz".to_vec());
+    let result =
+        read_pattern_match(b"abcdef", 0, &typ, Some(&pattern), 8192).expect("miss is not an error");
+    assert_eq!(result, None, "non-matching Bytes pattern must be Ok(None)");
+}
+
+/// KTD6: a `Value::Bytes` regex pattern containing a byte that is not
+/// valid UTF-8 must not panic. `String::from_utf8_lossy` substitutes
+/// U+FFFD for the invalid byte before compiling -- this test only pins the
+/// no-panic / graceful-result contract; the `warn!` emission itself is
+/// verified by code inspection of `decode_regex_bytes_pattern` since this
+/// crate has no log-capturing test seam (no `test-log`/`tracing-test`
+/// dev-dependency).
+#[test]
+fn test_read_pattern_match_regex_bytes_invalid_utf8_does_not_panic() {
+    let typ = regex_type();
+    // 0xFF is never valid UTF-8 in any position.
+    let pattern = Value::Bytes(vec![0xFF, b'a']);
+    let result = read_pattern_match(b"\xEF\xBF\xBDa tail", 0, &typ, Some(&pattern), 8192);
+    // Whether this happens to match the lossily-substituted U+FFFD encoding
+    // or not is incidental; the load-bearing assertion is that decoding an
+    // invalid-UTF-8 Bytes pattern never panics and always yields a valid
+    // Result.
+    assert!(
+        result.is_ok(),
+        "invalid-UTF-8 Bytes pattern must not error, got {result:?}"
+    );
+}
+
+/// Missing pattern (`None`) must still be a hard `UnsupportedType` error in
+/// both dispatch functions -- U2's engine-level graceful skip depends on
+/// this remaining an `Err`, not silently becoming a non-match here.
+#[test]
+fn test_regex_missing_pattern_still_errors_in_both_dispatch_fns() {
+    let typ = regex_type();
+
+    let pattern_match_result = read_pattern_match(b"abc", 0, &typ, None, 8192);
+    assert!(
+        matches!(
+            pattern_match_result,
+            Err(TypeReadError::UnsupportedType { ref type_name }) if type_name == "regex without string pattern"
+        ),
+        "read_pattern_match with no pattern must still error, got {pattern_match_result:?}"
+    );
+
+    let typed_value_result = read_typed_value_with_pattern(b"abc", 0, &typ, None, 8192);
+    assert!(
+        matches!(
+            typed_value_result,
+            Err(TypeReadError::UnsupportedType { ref type_name }) if type_name == "regex without string pattern"
+        ),
+        "read_typed_value_with_pattern with no pattern must still error, got {typed_value_result:?}"
+    );
+}
+
+// =============================================================================
+// U2 predicate helpers: `is_missing_pattern_operand` / `is_regex_compile_failure`
+// =============================================================================
+
+#[test]
+fn test_is_missing_pattern_operand_recognizes_known_messages() {
+    let recognized: &[&str] = &[
+        "regex without string pattern",
+        "search without string/bytes pattern",
+        "string with flags requires string/bytes pattern",
+    ];
+    for msg in recognized {
+        assert!(
+            is_missing_pattern_operand(msg),
+            "expected {msg:?} to be recognized as a missing-pattern-operand condition"
+        );
+    }
+}
+
+#[test]
+fn test_is_missing_pattern_operand_rejects_other_unsupported_type_messages() {
+    // R3 narrowness guard: these must NOT be recognized, or a genuine
+    // capability gap / operator-misuse error would be silently swallowed.
+    let not_recognized: &[String] = &[
+        "regex compile error: some failure".to_string(),
+        "meta-type Offset cannot be read as a value".to_string(),
+        "operator GreaterThan is not supported for pattern-bearing type".to_string(),
+        "read_pattern_match called on non-pattern type".to_string(),
+    ];
+    for msg in not_recognized {
+        assert!(
+            !is_missing_pattern_operand(msg),
+            "expected {msg:?} to NOT be recognized as a missing-pattern-operand condition"
+        );
+    }
+}
+
+#[test]
+fn test_is_regex_compile_failure_matches_only_compile_error_prefix() {
+    assert!(is_regex_compile_failure(
+        "regex compile error: Compiled regex exceeds size limit of 1048576 bytes."
+    ));
+    assert!(!is_regex_compile_failure("regex without string pattern"));
+    assert!(!is_regex_compile_failure(
+        "search without string/bytes pattern"
+    ));
+}
+
 #[test]
 fn test_bytes_consumed_regex_with_string_pattern() {
     // Regression guard for GOTCHAS 2.1: variable-width variants must be
@@ -1044,6 +1233,33 @@ fn test_bytes_consumed_regex_with_string_pattern() {
     let pattern = Value::String("World".to_string());
     // "World" starts at index 7 in the buffer, length 5, so a scan from
     // offset 0 consumes 7+5=12 bytes.
+    assert_eq!(
+        bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)),
+        12
+    );
+}
+
+/// Regression guard: `bytes_consumed_with_pattern`'s `Regex` arm must
+/// accept a `Value::Bytes` pattern, mirroring U1's read-side acceptance
+/// (`read_pattern_match` / `read_typed_value_with_pattern`). This was
+/// caught by `prop_arbitrary_rule_evaluation_never_panics` firing the
+/// `debug_assert` in the pre-fix `other => { debug_assert!(false, ...) }`
+/// arm for a `NotEqual` regex rule with a `Value::Bytes` pattern -- a
+/// successful Bytes-pattern regex match would advance the anchor by 0
+/// (silently stalling) instead of the correct match-end distance, and the
+/// property test additionally caught the `debug_assert!(false, ...)`
+/// firing as a panic in debug builds.
+#[test]
+fn test_bytes_consumed_regex_with_bytes_pattern() {
+    let buf = b"prefix_World_suffix";
+    let typ = TypeKind::Regex {
+        flags: crate::parser::ast::RegexFlags::default(),
+        count: crate::parser::ast::RegexCount::Default,
+    };
+    let pattern = Value::Bytes(b"World".to_vec());
+    // "World" starts at index 7, length 5, so a scan from offset 0
+    // consumes 7+5=12 bytes -- matching the Value::String equivalent in
+    // `test_bytes_consumed_regex_with_string_pattern`.
     assert_eq!(
         bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)),
         12
