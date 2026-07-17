@@ -1054,7 +1054,7 @@ mod tests {
         // Verify all matches have proper rule paths
         for match_result in &result.matches {
             assert!(!match_result.rule_path.is_empty());
-            assert!(match_result.rule_path[0] == "elf");
+            assert_eq!(match_result.rule_path[0], "elf");
         }
     }
 }
