@@ -32,11 +32,6 @@ exclude = [
     "/fuzz",
 ]
 
-# Opt this package into the workspace lint table below. Without this,
-# [workspace.lints] is inert and none of the security lints apply.
-[lints]
-workspace = true
-
 # Workspace lint configuration
 [workspace.lints.rust]
 # Security: Deny unsafe code globally. "deny" rather than "forbid" because the
@@ -221,6 +216,11 @@ nix = { version = "0.31.3", features = ["fs"] }
 predicates = "3.1.4"
 proptest = "1.11.0"
 tempfile = "3.27.0"
+
+# Opt this package into the workspace lint table below. Without this,
+# [workspace.lints] is inert and none of the security lints apply.
+[lints]
+workspace = true
 
 [[bench]]
 name = "parser_bench"
