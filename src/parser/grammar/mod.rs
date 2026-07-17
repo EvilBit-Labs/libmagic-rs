@@ -24,6 +24,7 @@ use crate::parser::ast::{
     TypeKind, Value,
 };
 
+mod getstr;
 mod numbers;
 mod type_suffix;
 mod value;
@@ -1175,6 +1176,30 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
     );
     let (input, value) = if op == Operator::AnyValue {
         (input, Value::Uint(0))
+    } else if matches!(typ, TypeKind::Regex { .. }) {
+        // `regex` patterns get special-cased ahead of the generic
+        // string-family fallback below (issue: getstr fidelity fix).
+        // Quoted values (`regex/c "hello" ...`) keep using
+        // `parse_value`'s existing `parse_quoted_string` path unchanged
+        // -- quoting is a project convenience layered on top of
+        // magic(5), not part of GNU `file`'s own syntax, and existing
+        // quoted-regex rules must keep their current (non-getstr)
+        // escape handling. Bareword (unquoted) patterns are routed
+        // through the dedicated getstr resolver instead of
+        // `parse_hex_bytes`/`parse_bare_string_value`: a pattern
+        // beginning with a magic(5) escape (`\^`, `\040`, `\t`, `\x..`)
+        // would otherwise be captured by `parse_hex_bytes` as
+        // `Value::Bytes` before any string interpretation ran, and
+        // Rust's `regex` crate does not interpret octal escapes the way
+        // GNU `file`'s `getstr` does -- see `getstr.rs` module docs.
+        if input.trim_start().starts_with('"') {
+            parse_value(input)?
+        } else {
+            match getstr::parse_regex_getstr_value(input) {
+                Ok(ok) => ok,
+                Err(orig_err) => parse_value(input).map_err(|_| orig_err)?,
+            }
+        }
     } else if is_string_family_type {
         match parse_value(input) {
             Ok(ok) => ok,
