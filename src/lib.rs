@@ -574,8 +574,19 @@ impl MagicDatabase {
                 // introduce a stray separating space.
                 continue;
             }
-            if let Some(rest) = rendered.strip_prefix('\u{0008}') {
-                // Backspace suppresses the space and the character itself
+            // GNU `file`'s no-separator convention: a description beginning
+            // with a backspace suppresses both the separating space and the
+            // marker itself (GOTCHAS.md S14.1). The marker most often reaches
+            // us as the literal two-character sequence `\b` (backslash + 'b'),
+            // because the message parser preserves description text verbatim --
+            // matching GNU `file`, which keeps the desc literal and
+            // special-cases a leading `\b` at print time (e.g. the msdos
+            // `\b, for MS Windows` and Mach-O universal `\b]` rules). We also
+            // accept a bare U+0008 for programmatically-constructed messages.
+            let without_marker = rendered
+                .strip_prefix('\u{0008}')
+                .or_else(|| rendered.strip_prefix("\\b"));
+            if let Some(rest) = without_marker {
                 result.push_str(rest);
             } else if !result.is_empty() {
                 result.push(' ');
