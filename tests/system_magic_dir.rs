@@ -263,8 +263,12 @@ fn file_binary_detects_assembler(path: &Path) -> bool {
 /// setup -- see that file's `build_regex` doc comment for the
 /// `unicode(false)` fix this test's `>= 0x80` cousin in
 /// `tests/regex_getstr_fixtures.rs` is guarding), not a follow-up issue.
-/// On this host (verified during implementation), parity holds for all
-/// four samples with no divergence to diagnose.
+/// Parity (rmagic == real `file` on the same `--magic-file` DB) is the
+/// host-adaptive invariant asserted on every host; the absolute
+/// positive/negative expectations are additionally asserted only where the
+/// host DB actually carries the assembler rules (macOS ships them as source
+/// magic files; Ubuntu ships only the compiled `magic.mgc`, leaving the
+/// `--magic-file` source dir empty -- see the in-body probe).
 #[test]
 fn test_differential_parity_against_gnu_file_for_assembler_detection() {
     let system_dir = Path::new(SYSTEM_MAGIC_DIR);
@@ -290,6 +294,21 @@ fn test_differential_parity_against_gnu_file_for_assembler_detection() {
 
     let temp_dir = tempfile::TempDir::new().expect("failed to create temp dir for samples");
 
+    // Probe whether THIS host's `--magic-file SYSTEM_MAGIC_DIR` DB actually
+    // carries the assembler-source rules. This is host-dependent: macOS
+    // ships the *source* magic files under `/usr/share/file/magic/`, so both
+    // `file` and rmagic can detect assembler there; Ubuntu/Debian ship only
+    // the *compiled* `magic.mgc` and leave that source directory empty, so a
+    // `--magic-file /usr/share/file/magic/` invocation carries no assembler
+    // rule at all (verified: on ubuntu-latest `file --magic-file
+    // /usr/share/file/magic/ asm.s` prints "ASCII text", not "assembler
+    // source text"). The absolute positive/negative expectations only apply
+    // where the rules are present; parity with real `file` is asserted on
+    // every host regardless.
+    let probe_path = temp_dir.path().join("__probe_leading_tab_asciiz.s");
+    std::fs::write(&probe_path, b"\t.asciiz \"hi\"\n").expect("failed to write probe sample");
+    let host_db_has_assembler_rules = file_binary_detects_assembler(&probe_path);
+
     for sample in SAMPLES {
         let sample_path = temp_dir.path().join(sample.filename);
         std::fs::write(&sample_path, sample.content).expect("failed to write sample file");
@@ -297,24 +316,30 @@ fn test_differential_parity_against_gnu_file_for_assembler_detection() {
         let rmagic_result = rmagic_detects_assembler(&db, sample.content);
         let file_result = file_binary_detects_assembler(&sample_path);
 
-        assert_eq!(
-            rmagic_result, sample.expect_assembler_detected,
-            "rmagic detection mismatch for {:?} ({}): expected {}, got {}",
-            sample.filename, sample.description, sample.expect_assembler_detected, rmagic_result
-        );
-        assert_eq!(
-            file_result, sample.expect_assembler_detected,
-            "GNU `file` detection mismatch for {:?} ({}): expected {}, got {} -- \
-             this would mean the fixture's expectation itself is wrong, not rmagic",
-            sample.filename, sample.description, sample.expect_assembler_detected, file_result
-        );
+        // Trustworthy invariant on every host: rmagic must agree with real
+        // `file` on the SAME `--magic-file` DB, whatever that host DB holds.
+        // A genuine divergence must be diagnosed and fixed in-band (in
+        // `src/parser/grammar/getstr/mod.rs` or `src/evaluator/types/regex.rs`),
+        // not deferred.
         assert_eq!(
             rmagic_result, file_result,
-            "PARITY FAILURE for {:?} ({}): rmagic={rmagic_result} file={file_result} -- \
-             a genuine divergence must be diagnosed and fixed in-band, not deferred \
-             (see the plan's U6 section and this test's doc comment)",
+            "PARITY FAILURE for {:?} ({}): rmagic={rmagic_result} file={file_result}",
             sample.filename, sample.description
         );
+
+        // Absolute semantic check -- applicable only where the host DB
+        // actually carries the assembler rules (see the probe above).
+        if host_db_has_assembler_rules {
+            assert_eq!(
+                rmagic_result,
+                sample.expect_assembler_detected,
+                "rmagic detection mismatch for {:?} ({}): expected {}, got {}",
+                sample.filename,
+                sample.description,
+                sample.expect_assembler_detected,
+                rmagic_result
+            );
+        }
     }
 }
 
@@ -388,15 +413,35 @@ fn test_default_config_assembler_source_no_longer_blank() {
         .evaluate_buffer(b"\t.asciiz \"hi\"\n")
         .expect("evaluation must not fatally error");
 
+    // The ORIGINAL bug (blank output) is host-independent -- it must never
+    // recur, whatever the host DB contains. This is the core regression
+    // guard for the maintainer-reported bug.
     assert!(
         !result.description.trim().is_empty(),
-        "description must not be blank for an assembler-source buffer"
-    );
-    assert!(
-        result.description.contains("assembler"),
-        "expected the assembler signal in the description, got: {:?}",
+        "description must not be blank for an assembler-source buffer, got: {:?}",
         result.description
     );
+
+    // The assembler *classification* is host-dependent (macOS ships the
+    // source magic rules under `/usr/share/file/magic/`; Ubuntu ships only
+    // the compiled `magic.mgc`, leaving that `--magic-file` dir empty).
+    // Assert it against what real `file` reports on the SAME DB rather than
+    // hardcoding a host-specific outcome. See
+    // `test_default_config_messageless_gate_does_not_blank_output_end_to_end`
+    // for the host-INDEPENDENT proof that the message-shadowing fix works.
+    if has_file_binary() {
+        let temp_dir = tempfile::TempDir::new().expect("failed to create temp dir");
+        let sample_path = temp_dir.path().join("leading_tab_asciiz.s");
+        std::fs::write(&sample_path, b"\t.asciiz \"hi\"\n").expect("failed to write sample");
+        let file_says_assembler = file_binary_detects_assembler(&sample_path);
+        assert_eq!(
+            contains_assembler_signal(&result.description),
+            file_says_assembler,
+            "assembler-detection parity failure under default config: rmagic description={:?}, \
+             GNU `file` detected assembler={file_says_assembler}",
+            result.description
+        );
+    }
 }
 
 /// Companion to the assembler case: plain ASCII text with no magic-file
@@ -508,14 +553,22 @@ fn test_default_config_differential_parity_three_cases() {
         );
 
         if *filename == "assembler.s" {
-            assert!(
-                rmagic_result.description.contains("assembler"),
-                "rmagic missing assembler signal for {filename:?}, got: {:?}",
+            // Host-adaptive: assert rmagic AGREES with real `file` on whether
+            // this host's DB classifies the sample as assembler, not that it
+            // unconditionally does. Ubuntu's `--magic-file /usr/share/file/magic/`
+            // dir is empty (only compiled `magic.mgc` is shipped), so neither
+            // side detects assembler there; macOS's dir carries the rule, so
+            // both do. Either way rmagic must match `file`.
+            // Use the full `contains_assembler_signal` phrase, NOT a bare
+            // "assembler" substring -- `file`'s stdout includes the file
+            // PATH ("/tmp/.../assembler.s: ..."), so a bare substring would
+            // spuriously match the filename rather than the classification.
+            assert_eq!(
+                contains_assembler_signal(&rmagic_result.description),
+                contains_assembler_signal(&file_stdout),
+                "assembler-detection parity failure for {filename:?}: \
+                 rmagic={:?}, file={file_stdout:?}",
                 rmagic_result.description
-            );
-            assert!(
-                file_stdout.contains("assembler"),
-                "GNU `file` missing assembler signal for {filename:?}, got: {file_stdout:?}"
             );
         } else {
             assert_eq!(rmagic_result.description, "ASCII text");
@@ -547,5 +600,84 @@ fn test_default_config_differential_parity_three_cases() {
     assert!(
         file_blob_stdout.contains("data"),
         "GNU `file` should also report \"data\" for the binary blob, got: {file_blob_stdout:?}"
+    );
+}
+
+// =======================================================================
+// Portable, host-INDEPENDENT end-to-end guards for the stop_at_first_match
+// message-shadowing fix (GOTCHAS S13.2) and the text/data fallback (S13.3).
+//
+// Unlike every test above, these do NOT depend on the host system magic DB
+// (which differs across platforms -- macOS ships source magic files under
+// `/usr/share/file/magic/`; Ubuntu ships only the compiled `magic.mgc`,
+// leaving that directory empty). They build self-contained temp magic files
+// so they exercise the full default-config pipeline (load -> evaluate ->
+// description assembly -> message-bearing stop gate -> text/data fallback)
+// identically on every CI host. These are the authoritative regression
+// guards for the fix; the system-DB tests above are supplementary parity
+// checks that only exercise the assembler path where the host DB carries
+// the rule.
+// =======================================================================
+
+/// S13.3 fallback wiring: when no rule produces a description (here, a
+/// single message-LESS rule matches but carries no text), the default
+/// config must fall back to the text/data classifier rather than emitting
+/// a blank description. Host-independent.
+#[test]
+fn test_default_config_no_match_falls_back_to_text_classification_end_to_end() {
+    let temp_dir = tempfile::TempDir::new().expect("failed to create temp dir");
+    let magic_path = temp_dir.path().join("messageless_only.magic");
+    // A single message-LESS rule: matches any buffer whose first byte is a
+    // tab (0x09), carries no description of its own.
+    std::fs::write(&magic_path, "0\tbyte\t0x09\n").expect("failed to write magic file");
+
+    let db = MagicDatabase::load_from_file(&magic_path)
+        .expect("loading a single-rule magic file must not fail");
+    let result = db
+        .evaluate_buffer(b"\t.asciiz \"hi\"\n")
+        .expect("evaluation must not fatally error");
+
+    assert_eq!(
+        result.description, "ASCII text",
+        "a match with no usable description text must fall back to the text \
+         classifier, not a blank description; got: {:?}",
+        result.description
+    );
+}
+
+/// S13.2 shadow gate (the exact shape of the maintainer-reported bug): a
+/// message-LESS gating rule that matches and sorts FIRST must NOT shadow a
+/// later message-BEARING rule under the default config. Two `string` rules
+/// with identical strength are used so the STABLE strength sort
+/// (`sort_by_cached_key`) preserves source order -- the message-less rule
+/// is evaluated first. Pre-fix this halted evaluation and produced a blank
+/// description (then the text fallback); post-fix evaluation continues to
+/// the message-bearing rule and surfaces its text. Host-independent, so it
+/// proves the fix on Ubuntu/Windows where the system DB has no assembler
+/// rule to exercise.
+#[test]
+fn test_default_config_messageless_gate_does_not_blank_output_end_to_end() {
+    let temp_dir = tempfile::TempDir::new().expect("failed to create temp dir");
+    let magic_path = temp_dir.path().join("gate_then_message.magic");
+    // Rule 1 (message-less) and Rule 2 (message-bearing) have identical
+    // type/offset/operator/value, hence identical strength; the stable sort
+    // keeps Rule 1 first. Both match `\t.asciiz` at offset 0.
+    std::fs::write(
+        &magic_path,
+        "0\tstring\t\\t.asciiz\n0\tstring\t\\t.asciiz\tassembler source text\n",
+    )
+    .expect("failed to write magic file");
+
+    let db = MagicDatabase::load_from_file(&magic_path)
+        .expect("loading the two-rule magic file must not fail");
+    let result = db
+        .evaluate_buffer(b"\t.asciiz \"hi\"\n")
+        .expect("evaluation must not fatally error");
+
+    assert!(
+        result.description.contains("assembler source text"),
+        "the message-bearing rule's text must survive a preceding message-less \
+         match under stop_at_first_match; got: {:?}",
+        result.description
     );
 }
