@@ -46,7 +46,16 @@
 //!   **the backslash is dropped and the following character is kept
 //!   literally.** This is not special-cased per character in the C
 //!   source; it is the general fallback for anything not in the named
-//!   list above.
+//!   list above -- the bullets above name the notable members, not an
+//!   exhaustive enumeration of this bucket.
+//!
+//! Note also: this resolver deliberately does **not** reproduce getstr's
+//! `file_magwarn` lint diagnostics (the "unnecessary escape" / "no such
+//! escape" warnings `apprentice.c` emits while *compiling* a magic file).
+//! Those are magic-file-authoring diagnostics, orthogonal to escape
+//! *resolution* -- this module's contract is producing the correct
+//! resolved byte sequence for a pattern that already parsed, not linting
+//! the source `.magic` file's style.
 //!
 //! ## Resolved open question: control-char / regex-shorthand collision
 //!
@@ -101,7 +110,7 @@ use crate::parser::ast::Value;
 /// whitespace, or (after escape resolution) yields no characters at all.
 pub(super) fn parse_regex_getstr_value(input: &str) -> IResult<&str, Value> {
     let (input, _) = multispace0(input)?;
-    if input.is_empty() || input.starts_with(char::is_whitespace) {
+    if input.is_empty() {
         return Err(nom::Err::Error(NomError::new(
             input,
             nom::error::ErrorKind::TakeWhile1,
