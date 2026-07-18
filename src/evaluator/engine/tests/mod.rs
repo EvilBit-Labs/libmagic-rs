@@ -1227,6 +1227,203 @@ fn test_evaluate_rules_multiple_rules_find_all() {
     assert_eq!(matches[1].message, "Second match");
 }
 
+/// Build a flat, top-level, message-only byte rule matching a distinct
+/// value at a distinct offset. Shared by the `stop_at_first_match`
+/// message-bearing tests below so each test only needs to state the
+/// interesting bit: which offsets carry which messages.
+fn message_only_byte_rule(offset: i64, byte: u8, message: &str) -> MagicRule {
+    MagicRule {
+        offset: OffsetSpec::Absolute(offset),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(byte)),
+        message: message.to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    }
+}
+
+/// GOTCHAS S13.2 (refined): a message-less top-level match must not
+/// shadow a later, message-bearing sibling under `stop_at_first_match:
+/// true`. This is the exact shape of the assembler-source-text /
+/// plain-ASCII-text blank-output bug -- a gating rule with no message
+/// matches first in strength order and used to terminate evaluation
+/// before the real classification rule was ever tried.
+#[test]
+fn test_evaluate_rules_message_less_match_does_not_stop_at_first_match() {
+    let buffer = &[0xAA, 0xBB, 0xCC, 0xDD];
+    let gating_rule = message_only_byte_rule(0, 0xAA, "");
+    let real_rule = message_only_byte_rule(1, 0xBB, "Second match");
+
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&[gating_rule, real_rule], buffer, &mut context).unwrap();
+
+    // Both rules matched: the message-less gating rule did not terminate
+    // the search, so the message-bearing rule behind it was reached and
+    // its match is present.
+    assert_eq!(matches.len(), 2, "both rules should have matched");
+    assert_eq!(matches[0].message, "");
+    assert_eq!(matches[1].message, "Second match");
+}
+
+/// Reverse of the above: when the message-BEARING rule comes first, the
+/// original `stop_at_first_match` short-circuit still applies -- this
+/// fix only relaxes the stop condition for message-less matches, it does
+/// not disable early-exit for the common (and performance-sensitive)
+/// case where the very first top-level rule already produces output.
+#[test]
+fn test_evaluate_rules_message_bearing_match_still_stops_at_first_match() {
+    let buffer = &[0xAA, 0xBB, 0xCC, 0xDD];
+    let real_rule = message_only_byte_rule(0, 0xAA, "First match");
+    let gating_rule = message_only_byte_rule(1, 0xBB, "");
+    let never_reached = message_only_byte_rule(2, 0xCC, "Should not be reached");
+
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(
+        &[real_rule, gating_rule, never_reached],
+        buffer,
+        &mut context,
+    )
+    .unwrap();
+
+    assert_eq!(
+        matches.len(),
+        1,
+        "evaluation must still stop right after the first message-bearing match"
+    );
+    assert_eq!(matches[0].message, "First match");
+}
+
+/// Several message-less matches in a row must all be skipped over (not
+/// discarded -- just not treated as terminating) until a message-bearing
+/// rule is reached, at which point the usual stop-at-first-match
+/// short-circuit applies again.
+#[test]
+fn test_evaluate_rules_multiple_message_less_matches_before_a_real_one() {
+    let buffer = &[0xAA, 0xBB, 0xCC, 0xDD];
+    let gating_one = message_only_byte_rule(0, 0xAA, "");
+    let gating_two = message_only_byte_rule(1, 0xBB, "");
+    let real_rule = message_only_byte_rule(2, 0xCC, "Real message");
+    let never_reached = message_only_byte_rule(3, 0xDD, "Should not be reached");
+
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(
+        &[gating_one, gating_two, real_rule, never_reached],
+        buffer,
+        &mut context,
+    )
+    .unwrap();
+
+    assert_eq!(matches.len(), 3);
+    assert_eq!(matches[0].message, "");
+    assert_eq!(matches[1].message, "");
+    assert_eq!(matches[2].message, "Real message");
+}
+
+/// Genuinely-no-usable-output case: every top-level rule matches but
+/// none of them carries a message. Under `stop_at_first_match: true`
+/// evaluation must run to exhaustion (there is nothing to stop at) --
+/// all matches are collected, and it is the caller's (here:
+/// `MagicDatabase::build_result`'s) job to fall back to text/data
+/// classification when the resulting description is empty.
+#[test]
+fn test_evaluate_rules_all_message_less_matches_runs_to_exhaustion() {
+    let buffer = &[0xAA, 0xBB];
+    let gating_one = message_only_byte_rule(0, 0xAA, "");
+    let gating_two = message_only_byte_rule(1, 0xBB, "");
+
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&[gating_one, gating_two], buffer, &mut context).unwrap();
+
+    assert_eq!(matches.len(), 2, "both message-less matches are retained");
+    assert!(matches.iter().all(|m| m.message.is_empty()));
+}
+
+/// A message consisting solely of whitespace, or solely of the GNU
+/// `file` backspace continuation marker (`\b`), is just as
+/// "message-less" as an empty string for `stop_at_first_match` purposes
+/// -- see `is_message_bearing`'s doc comment for the rationale.
+#[test]
+fn test_evaluate_rules_whitespace_and_backspace_only_messages_do_not_stop() {
+    let buffer = &[0xAA, 0xBB, 0xCC];
+    let whitespace_only = message_only_byte_rule(0, 0xAA, "   ");
+    let backspace_only = message_only_byte_rule(1, 0xBB, "\u{8}");
+    let real_rule = message_only_byte_rule(2, 0xCC, "Real message");
+
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(
+        &[whitespace_only, backspace_only, real_rule],
+        buffer,
+        &mut context,
+    )
+    .unwrap();
+
+    assert_eq!(matches.len(), 3);
+    assert_eq!(matches[2].message, "Real message");
+}
+
+/// A message-less top-level rule whose CHILD produces real output text
+/// still counts as "producing output" for `stop_at_first_match`
+/// purposes -- this is the normal, common shape for gating rules like
+/// `c-lang`'s `0 search/8192 "#include"` -> `>0 regex \^#include c`
+/// chain, and must keep stopping at the first sibling that (directly or
+/// via a descendant) yields a description; only a rule with NO
+/// message-bearing output anywhere in its subtree should be skipped
+/// past.
+#[test]
+fn test_evaluate_rules_message_less_parent_with_message_bearing_child_still_stops() {
+    let child_rule = message_only_byte_rule(1, 0xBB, "child message");
+    let mut parent_rule = message_only_byte_rule(0, 0xAA, "");
+    parent_rule.children = vec![child_rule];
+
+    let never_reached = message_only_byte_rule(2, 0xCC, "Should not be reached");
+
+    let buffer = &[0xAA, 0xBB, 0xCC];
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&[parent_rule, never_reached], buffer, &mut context).unwrap();
+
+    assert_eq!(
+        matches.len(),
+        2,
+        "parent (message-less) + child (message-bearing) should be present, \
+         and evaluation should stop there"
+    );
+    assert_eq!(matches[0].message, "");
+    assert_eq!(matches[1].message, "child message");
+}
+
 #[test]
 fn test_evaluate_rules_hierarchical_parent_child() {
     let child_rule = MagicRule {

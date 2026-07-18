@@ -477,24 +477,46 @@ impl MagicDatabase {
         // so no `is_empty()` guard is needed here.
         let matches = evaluate_rules(&self.root_rules, buffer, &mut context)?;
 
-        Ok(self.build_result(matches, file_size, start_time))
+        Ok(self.build_result(matches, buffer, file_size, start_time))
     }
 
     /// Build an `EvaluationResult` from match results, file size, and start time.
     ///
     /// This is shared between `evaluate_file` and `evaluate_buffer_internal` to
     /// avoid duplicating the result-construction logic.
+    ///
+    /// # Text/data fallback
+    ///
+    /// When rule evaluation produces no usable description -- either
+    /// because no rule matched at all, or because every match that did
+    /// occur carries no description text (a message-less gating rule
+    /// that was allowed to proceed past `stop_at_first_match` without a
+    /// message-bearing rule ever firing behind it, GOTCHAS S13.2) -- the
+    /// description falls back to [`crate::output::ascmagic::classify_fallback`]
+    /// against the original buffer, mirroring GNU `file`'s `file_ascmagic`
+    /// basic text/data classification. This is what keeps the CLI from
+    /// ever printing a blank description for a readable file.
     fn build_result(
         &self,
         matches: Vec<evaluator::RuleMatch>,
+        buffer: &[u8],
         file_size: u64,
         start_time: std::time::Instant,
     ) -> EvaluationResult {
-        let (description, confidence) = if matches.is_empty() {
-            ("data".to_string(), 0.0)
+        let rule_description = if matches.is_empty() {
+            String::new()
+        } else {
+            Self::concatenate_messages(&matches)
+        };
+
+        let (description, confidence) = if rule_description.trim().is_empty() {
+            (
+                crate::output::ascmagic::classify_fallback(buffer).to_string(),
+                0.0,
+            )
         } else {
             (
-                Self::concatenate_messages(&matches),
+                rule_description,
                 matches.first().map_or(0.0, |m| m.confidence),
             )
         };
@@ -527,7 +549,12 @@ impl MagicDatabase {
     /// Each match's `message` is first run through
     /// [`crate::output::format::format_magic_message`], which substitutes
     /// printf-style specifiers (`%lld`, `%02x`, `%s`, etc.) with the
-    /// rule's read value. The resulting rendered strings are then joined
+    /// rule's read value. Matches that render to an empty string (a
+    /// message-less gating rule -- see GOTCHAS S13.2 -- or a
+    /// `default`/`indirect`/`offset`/`use` directive with no message)
+    /// contribute nothing and are skipped entirely, so they cannot
+    /// introduce a stray separating space between the descriptions on
+    /// either side of them. The remaining rendered strings are joined
     /// with spaces, except when a rendered string starts with the
     /// backspace character (`\b`, U+0008) which suppresses both the
     /// separating space and the backspace itself (GOTCHAS.md S14.1).
@@ -542,6 +569,11 @@ impl MagicDatabase {
         let mut result = String::with_capacity(capacity);
         for m in matches {
             let rendered = format_magic_message(&m.message, &m.value, &m.type_kind);
+            if rendered.is_empty() {
+                // No text to contribute -- skip so this match cannot
+                // introduce a stray separating space.
+                continue;
+            }
             if let Some(rest) = rendered.strip_prefix('\u{0008}') {
                 // Backspace suppresses the space and the character itself
                 result.push_str(rest);

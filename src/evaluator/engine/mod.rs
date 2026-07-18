@@ -481,6 +481,52 @@ fn log_pattern_operand_skip(site_label: &str, rule_message: &str, type_name: &st
     }
 }
 
+/// Whether `message` carries any usable description text.
+///
+/// A message is considered message-less (and thus does not count as
+/// "producing output") if, after trimming ASCII/Unicode whitespace and the
+/// GNU `file` backspace continuation marker (`\u{8}`, see GOTCHAS S14.1),
+/// nothing remains. This covers three shapes GNU `file` magic files use
+/// for structural/gating rules that carry no description of their own:
+/// a genuinely empty message (`""`), a whitespace-only message, and a
+/// `\b`-only message (used purely to suppress a separator when appended
+/// to a sibling's text -- with nothing else to append, it contributes no
+/// content either).
+fn is_message_bearing(message: &str) -> bool {
+    !message
+        .trim_matches(|c: char| c.is_whitespace() || c == '\u{8}')
+        .is_empty()
+}
+
+/// Whether any match in `matches[from..]` carries usable description text
+/// (see [`is_message_bearing`]).
+///
+/// Used to decide whether a top-level rule's match -- together with any
+/// descendant matches produced by its children -- should be treated as
+/// the "winning" match for `stop_at_first_match` purposes. GNU `file`
+/// magic files commonly use message-less top-level rules purely as
+/// gating conditions for child rules (for example the `c-lang` search
+/// rules that test for `#include`/`pragma`/etc. before dispatching to a
+/// message-bearing regex child); under the old all-or-nothing contract, a
+/// message-less rule matching first under `stop_at_first_match: true`
+/// would silently shadow a later, more specific rule that actually
+/// produces a description (GOTCHAS S13.2, the assembler-source-text /
+/// plain-ASCII-text blank-output bug). A rule only "wins" the race if it
+/// (or a descendant) contributes real output text; otherwise evaluation
+/// continues to the next top-level sibling.
+///
+/// Takes `from` (the length of `matches` before this rule's dispatch) and
+/// slices via `.get()` (rather than the caller indexing `matches[from..]`
+/// directly) so this is panic-free per the project's bounds-checking
+/// discipline; `from` is always `<= matches.len()` by construction (it is
+/// captured from `matches.len()` earlier in the same call), so `.get()`
+/// always returns `Some`, but the panic-free form is required regardless.
+fn has_message_bearing_match(matches: &[RuleMatch], from: usize) -> bool {
+    matches
+        .get(from..)
+        .is_some_and(|tail| tail.iter().any(|m| is_message_bearing(&m.message)))
+}
+
 /// Evaluate a rule's children under the standard recursion-guard/graceful-skip discipline.
 ///
 /// This helper centralises the `RecursionGuard` + `evaluate_rules` + error-dispatch
@@ -783,7 +829,10 @@ pub fn evaluate_rules(
 
                 sibling_matched = true;
 
-                if matches.len() > matches_before && context.should_stop_at_first_match() {
+                if matches.len() > matches_before
+                    && context.should_stop_at_first_match()
+                    && has_message_bearing_match(&matches, matches_before)
+                {
                     break;
                 }
             }
@@ -912,7 +961,10 @@ pub fn evaluate_rules(
             // recursion-guard pattern used by every other successful rule.
             evaluate_children_or_warn(rule, "indirect", buffer, context, &mut matches)?;
 
-            if matches.len() > matches_before && context.should_stop_at_first_match() {
+            if matches.len() > matches_before
+                && context.should_stop_at_first_match()
+                && has_message_bearing_match(&matches, matches_before)
+            {
                 break;
             }
             continue;
@@ -984,7 +1036,10 @@ pub fn evaluate_rules(
             // by every other successful rule.
             evaluate_children_or_warn(rule, "offset", buffer, context, &mut matches)?;
 
-            if matches.len() > matches_before && context.should_stop_at_first_match() {
+            if matches.len() > matches_before
+                && context.should_stop_at_first_match()
+                && has_message_bearing_match(&matches, matches_before)
+            {
                 break;
             }
             continue;
@@ -1057,8 +1112,13 @@ pub fn evaluate_rules(
             // other successful rule kind: if this `use` site contributed
             // any matches (either from the subroutine or from its own
             // children) and the caller configured first-match
-            // short-circuiting, halt evaluation of further siblings.
-            if matches.len() > matches_before && context.should_stop_at_first_match() {
+            // short-circuiting, halt evaluation of further siblings --
+            // but only once one of those matches actually carries usable
+            // description text (see `has_message_bearing_match`).
+            if matches.len() > matches_before
+                && context.should_stop_at_first_match()
+                && has_message_bearing_match(&matches, matches_before)
+            {
                 break;
             }
             continue;
@@ -1127,6 +1187,8 @@ pub fn evaluate_rules(
         };
 
         if let Some((absolute_offset, read_value)) = match_data {
+            let matches_before = matches.len();
+
             // Advance the GNU `file` previous-match anchor BEFORE recursing
             // into children, so children and their descendants see the new
             // anchor. The anchor is updated unconditionally to the end of
@@ -1230,8 +1292,15 @@ pub fn evaluate_rules(
                 // `guard` drops here, decrementing the recursion depth.
             }
 
-            // Stop at first match if configured to do so
-            if context.should_stop_at_first_match() {
+            // Stop at first match if configured to do so -- but only once
+            // this rule (or one of its descendants) actually contributed
+            // usable description text. A message-less match (e.g. a
+            // gating rule used purely to trigger a child) must not shadow
+            // a later, more specific top-level rule that would otherwise
+            // produce real output (GOTCHAS S13.2).
+            if context.should_stop_at_first_match()
+                && has_message_bearing_match(&matches, matches_before)
+            {
                 break;
             }
         }

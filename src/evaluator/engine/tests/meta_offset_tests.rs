@@ -9,6 +9,27 @@
 
 use super::*;
 
+/// GOTCHAS S13.2 (refined): a message-less `offset` directive must not
+/// stop evaluation before a later, message-bearing sibling is reached.
+#[test]
+fn test_offset_message_less_match_does_not_stop_at_first_match() {
+    let rules = vec![
+        offset_rule(0, "", vec![]),
+        byte_eq_rule(1, 0xBB, "Real message"),
+    ];
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let buffer = [0xAAu8, 0xBB];
+    let matches = evaluate_rules(&rules, &buffer, &mut context).unwrap();
+
+    assert_eq!(
+        matches.len(),
+        2,
+        "both the offset directive and the real rule should match"
+    );
+    assert_eq!(matches[0].message, "");
+    assert_eq!(matches[1].message, "Real message");
+}
+
 #[test]
 fn test_offset_emits_match_with_resolved_position() {
     let rules = vec![offset_rule(5, "pos=%lld", vec![])];

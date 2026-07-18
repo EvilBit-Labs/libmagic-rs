@@ -317,3 +317,243 @@ fn test_differential_parity_against_gnu_file_for_assembler_detection() {
         );
     }
 }
+
+// =======================================================================
+// Default-config (`stop_at_first_match: true`) end-to-end coverage
+//
+// The tests above deliberately use `with_stop_at_first_match(false)` so
+// the assembler signal can be found anywhere in the full match list
+// (see the module doc). The tests below instead use
+// `EvaluationConfig::default()` unmodified -- the exact configuration
+// `MagicDatabase::load_from_file` uses and the CLI's default behavior --
+// to prove the actual maintainer-reported bug is fixed: a message-less
+// top-level rule (e.g. a `c-lang` gating `search` rule) matching before
+// the assembler/text rules used to terminate evaluation via
+// `stop_at_first_match` and leave the CLI's description blank. See
+// GOTCHAS S13.2 for the refined stop-at-first-match semantics
+// (`has_message_bearing_match` in `src/evaluator/engine/mod.rs`) and
+// `src/output/ascmagic.rs` for the text/data fallback that also
+// contributes here.
+// =======================================================================
+
+/// A fixed, reproducible "binary blob" (not literal `/dev/urandom`, which
+/// would make the test's outcome host- and run-dependent) verified against
+/// the real `file` binary during implementation to produce `"data"` on
+/// this host's full system magic DB.
+///
+/// Bytes 4..8 are pinned to zero deliberately. During implementation, a
+/// first-draft version of this helper (a linear-congruential byte stream
+/// with no such constraint) spuriously matched
+/// `/usr/share/file/magic/ibm6000`'s `AIX core file` entry --
+/// `4 belong &0x0feeddb0` with no explicit comparison and no message --
+/// for nearly every random 64-byte buffer tried. That entry is GNU
+/// `file`'s magic(5) shorthand for `belong &0x0feeddb0 =0x0feeddb0`
+/// ("all of the masked bits must be set"), but this crate's
+/// `apply_bitwise_and` (`src/evaluator/operators/bitwise.rs`) implements
+/// the `&` relational operator as `(value & operand) != 0` ("any masked
+/// bit set") instead -- confirmed by direct A/B testing against
+/// `file --magic-file .../ibm6000` on crafted buffers (an all-zero belong
+/// at the masked offset correctly produces "data" under both
+/// interpretations, but a partial-bit-overlap value that is nonzero-but-
+/// not-equal-to-the-mask produces "data" from real `file` and a false
+/// "AIX core file" match from this crate). This is a genuine, pre-existing
+/// operator-semantics bug, NOT a text/data-fallback issue -- it is out of
+/// scope for this fix (see the maintainer report) and is tracked
+/// separately. Pinning offset 4..8 to zero here keeps this test focused
+/// on the text/data fallback it exists to validate rather than tripping
+/// over that unrelated bug.
+fn deterministic_binary_blob() -> Vec<u8> {
+    vec![
+        0x39, 0x0c, 0x8c, 0x7d, 0x00, 0x00, 0x00, 0x00, 0xd8, 0x10, 0x0f, 0x2f, 0x6f, 0x77, 0x0d,
+        0x65, 0xd6, 0x70, 0xe5, 0x8e, 0x03, 0x51, 0xd8, 0xae, 0x8e, 0x4f, 0x6e, 0xac, 0x34, 0x2f,
+        0xc2, 0x31, 0xb7, 0xb0, 0x87, 0x16, 0xeb, 0x3f, 0xc1, 0x28, 0x96, 0xb9, 0x62, 0x23, 0x17,
+        0x74, 0x94, 0x28, 0x77, 0x33, 0xc2, 0x8e, 0xe8, 0xba, 0x53, 0xbd, 0xb5, 0x6b, 0x88, 0x24,
+        0x57, 0x7d, 0x53, 0xec,
+    ]
+}
+
+/// GOTCHAS S13.2 (the exact repro from the bug report): with the real
+/// system magic DB and the library's default configuration
+/// (`stop_at_first_match: true`, matching what `MagicDatabase::load_from_file`
+/// and the CLI both use), an assembler-source file must no longer produce
+/// a blank description.
+#[test]
+fn test_default_config_assembler_source_no_longer_blank() {
+    let system_dir = Path::new(SYSTEM_MAGIC_DIR);
+    if !has_system_magic_dir(system_dir) {
+        eprintln!(
+            "SKIP: {SYSTEM_MAGIC_DIR} not present on this host -- \
+             default-config assembler test skipped cleanly"
+        );
+        return;
+    }
+
+    // Default config: do NOT override stop_at_first_match.
+    let db = MagicDatabase::load_from_file(system_dir)
+        .expect("loading the system magic directory must not fail");
+
+    let result = db
+        .evaluate_buffer(b"\t.asciiz \"hi\"\n")
+        .expect("evaluation must not fatally error");
+
+    assert!(
+        !result.description.trim().is_empty(),
+        "description must not be blank for an assembler-source buffer"
+    );
+    assert!(
+        result.description.contains("assembler"),
+        "expected the assembler signal in the description, got: {:?}",
+        result.description
+    );
+}
+
+/// Companion to the assembler case: plain ASCII text with no magic-file
+/// signature anywhere must fall back to the text/data classifier's
+/// `"ASCII text"` (GOTCHAS S13.2) under the default config, not a blank
+/// description.
+#[test]
+fn test_default_config_plain_ascii_text_no_longer_blank() {
+    let system_dir = Path::new(SYSTEM_MAGIC_DIR);
+    if !has_system_magic_dir(system_dir) {
+        eprintln!(
+            "SKIP: {SYSTEM_MAGIC_DIR} not present on this host -- \
+             default-config plain-text test skipped cleanly"
+        );
+        return;
+    }
+
+    let db = MagicDatabase::load_from_file(system_dir)
+        .expect("loading the system magic directory must not fail");
+
+    let result = db
+        .evaluate_buffer(b"hello world, this is not assembler\n")
+        .expect("evaluation must not fatally error");
+
+    assert_eq!(result.description, "ASCII text");
+}
+
+/// Binary content must still fall back to `"data"` under the default
+/// config -- the text/data fallback must not misclassify binary content
+/// as text.
+#[test]
+fn test_default_config_binary_blob_is_data() {
+    let system_dir = Path::new(SYSTEM_MAGIC_DIR);
+    if !has_system_magic_dir(system_dir) {
+        eprintln!(
+            "SKIP: {SYSTEM_MAGIC_DIR} not present on this host -- \
+             default-config binary-blob test skipped cleanly"
+        );
+        return;
+    }
+
+    let db = MagicDatabase::load_from_file(system_dir)
+        .expect("loading the system magic directory must not fail");
+
+    let result = db
+        .evaluate_buffer(&deterministic_binary_blob())
+        .expect("evaluation must not fatally error");
+
+    assert_eq!(result.description, "data");
+}
+
+/// GATE 2 (full differential parity, default config): the exact
+/// three-case set the fix's acceptance criteria call out -- an
+/// assembler-source file, a plain ASCII text file, and a binary blob --
+/// each run through both `rmagic` (via the library API, default config)
+/// and the real `file` binary, on the same system magic DB. Unlike
+/// `test_differential_parity_against_gnu_file_for_assembler_detection`
+/// above, this does NOT disable `stop_at_first_match`: it is the
+/// end-to-end proof that the default configuration (what the CLI and
+/// `MagicDatabase::load_from_file` actually use) matches GNU `file`,
+/// not just that the assembler signal is present somewhere in an
+/// exhaustive match list.
+#[test]
+fn test_default_config_differential_parity_three_cases() {
+    let system_dir = Path::new(SYSTEM_MAGIC_DIR);
+    if !has_system_magic_dir(system_dir) {
+        eprintln!(
+            "SKIP: {SYSTEM_MAGIC_DIR} not present on this host -- \
+             default-config differential parity test skipped cleanly"
+        );
+        return;
+    }
+    if !has_file_binary() {
+        eprintln!("SKIP: `file` binary not on PATH -- differential parity test skipped cleanly");
+        return;
+    }
+
+    let db = MagicDatabase::load_from_file(system_dir)
+        .expect("loading the system magic directory must not fail");
+
+    let temp_dir = tempfile::TempDir::new().expect("failed to create temp dir for samples");
+
+    // (filename, content, a predicate over (rmagic_description, file_stdout)
+    // proving parity on the dimension that matters for that case).
+    let cases: &[(&str, &[u8])] = &[
+        ("assembler.s", b"\t.asciiz \"hi\"\n"),
+        ("plain.txt", b"hello world, this is not assembler\n"),
+    ];
+
+    for (filename, content) in cases {
+        let path = temp_dir.path().join(filename);
+        std::fs::write(&path, content).expect("failed to write sample file");
+
+        let rmagic_result = db
+            .evaluate_buffer(content)
+            .expect("evaluation must not fatally error");
+        let file_output = Command::new("file")
+            .arg("--magic-file")
+            .arg(SYSTEM_MAGIC_DIR)
+            .arg(&path)
+            .output()
+            .expect("failed to invoke the `file` binary");
+        assert!(file_output.status.success());
+        let file_stdout = String::from_utf8_lossy(&file_output.stdout);
+
+        assert!(
+            !rmagic_result.description.trim().is_empty(),
+            "rmagic must not produce a blank description for {filename:?}"
+        );
+
+        if *filename == "assembler.s" {
+            assert!(
+                rmagic_result.description.contains("assembler"),
+                "rmagic missing assembler signal for {filename:?}, got: {:?}",
+                rmagic_result.description
+            );
+            assert!(
+                file_stdout.contains("assembler"),
+                "GNU `file` missing assembler signal for {filename:?}, got: {file_stdout:?}"
+            );
+        } else {
+            assert_eq!(rmagic_result.description, "ASCII text");
+            assert!(
+                file_stdout.contains("ASCII text"),
+                "GNU `file` should also report ASCII text for {filename:?}, got: {file_stdout:?}"
+            );
+        }
+    }
+
+    // Binary blob: both must agree on "data".
+    let binary_path = temp_dir.path().join("blob.bin");
+    let blob = deterministic_binary_blob();
+    std::fs::write(&binary_path, &blob).expect("failed to write binary blob");
+
+    let rmagic_blob_result = db
+        .evaluate_buffer(&blob)
+        .expect("evaluation must not fatally error");
+    let file_blob_output = Command::new("file")
+        .arg("--magic-file")
+        .arg(SYSTEM_MAGIC_DIR)
+        .arg(&binary_path)
+        .output()
+        .expect("failed to invoke the `file` binary");
+    assert!(file_blob_output.status.success());
+    let file_blob_stdout = String::from_utf8_lossy(&file_blob_output.stdout);
+
+    assert_eq!(rmagic_blob_result.description, "data");
+    assert!(
+        file_blob_stdout.contains("data"),
+        "GNU `file` should also report \"data\" for the binary blob, got: {file_blob_stdout:?}"
+    );
+}
