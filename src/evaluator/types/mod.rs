@@ -570,18 +570,16 @@ fn flagged_string_bytes_consumed(
         Some(Value::String(s)) => s.as_bytes(),
         Some(Value::Bytes(b)) => b.as_slice(),
         _ => {
-            // Invariant: the engine only calls `bytes_consumed_with_pattern`
-            // after a successful `read_pattern_match`, which validated the
-            // pattern shape. If we reach this arm, a future caller violated
-            // the contract. Fire the debug-only assert for test/dev builds
-            // AND a release-time `warn!` so production runs surface the
-            // anchor-corruption signature (relative-offset child rules
-            // would read from the un-advanced anchor) rather than going
-            // silent. Returns 0 to preserve buffer safety.
-            debug_assert!(
-                false,
-                "flagged_string_bytes_consumed: missing string/bytes pattern ({pattern:?}) -- read_pattern_match should have rejected this"
-            );
+            // The dispatcher (`bytes_consumed_with_pattern`) only routes here
+            // when a string/bytes pattern is present (the Equal/NotEqual
+            // pattern-match path), so this arm is not normally reachable. It is
+            // handled defensively rather than with a `debug_assert!(false)`: a
+            // panic in library code is forbidden by the no-panic policy, and a
+            // flagged string reaching the consume side without a string pattern
+            // (e.g. an AnyValue/ordering operator misrouted by a future change)
+            // must degrade -- warn and return 0 (buffer-safe; the relative-
+            // offset anchor simply does not advance for that rule) rather than
+            // crash.
             log::warn!(
                 "flagged_string_bytes_consumed: missing string/bytes pattern ({pattern:?}); \
                  relative-offset anchor will not advance for this rule"
@@ -767,7 +765,16 @@ pub(crate) fn bytes_consumed_with_pattern(
 
     match type_kind {
         TypeKind::String { max_length, flags } => {
-            if !flags.is_empty() {
+            // Route to the flag-aware consumer ONLY when there is a string/bytes
+            // pattern to walk -- i.e. the Equal/NotEqual pattern-match path.
+            // For an AnyValue (`x`) or ordering operator on a flagged string
+            // (e.g. `0 string/b x`, `>15 string/t >\0`), the engine reads the
+            // string via the plain value path (the /t, /b, /c... flags do not
+            // change how many bytes are consumed), so fall through to the normal
+            // string logic. Without this guard the pattern walker hit its
+            // missing-pattern branch and panicked in debug builds. Mirrors the
+            // engine's `TypeKind::String { flags }` operator-based dispatch.
+            if !flags.is_empty() && matches!(pattern, Some(Value::String(_) | Value::Bytes(_))) {
                 return flagged_string_bytes_consumed(buffer, offset, *max_length, *flags, pattern);
             }
             // For the (`max_length: None`, string literal pattern)

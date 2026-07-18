@@ -182,3 +182,26 @@ fn test_flagged_string_w_whitespace_consumes_extra_file_bytes_for_anchor() {
     assert_eq!(matches.len(), 2, "parent + child must both match");
     assert_eq!(matches[1].message, "exclaim");
 }
+
+#[test]
+fn test_flagged_string_any_value_operator_does_not_panic_end_to_end() {
+    // Regression: `0 string/b x` -- a flagged string with the AnyValue (`x`)
+    // operator, a common message-less gating rule (e.g. compress's zlib
+    // detector `0 string/b x` -> `>0 beshort%31 =0` ...) -- routes to the value
+    // path (not the equality-only pattern path). Its rule value is the AnyValue
+    // placeholder `Uint(0)`, not a string. `bytes_consumed_with_pattern` used to
+    // dispatch ALL flagged strings to the pattern walker regardless of operator
+    // and hit a `debug_assert!(false)` on the missing string pattern, panicking
+    // in debug builds (a no-panic-policy violation). It must instead treat the
+    // read like a normal string and evaluate without panicking.
+    use crate::parser::grammar::parse_magic_rule;
+
+    let (_, rule) = parse_magic_rule("0\tstring/b\tx\tgating").expect("rule must parse");
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[rule], b"\x0b\x30 arbitrary binary bytes", &mut context)
+        .expect("a flagged string with the AnyValue operator must evaluate without panicking");
+    assert!(
+        matches.iter().any(|m| m.message.contains("gating")),
+        "AnyValue (`x`) matches any buffer, so the gating rule fires"
+    );
+}
