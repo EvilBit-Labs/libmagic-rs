@@ -144,3 +144,4 @@ SECURITY_AUDIT.md
 todos/
 .claude/instincts/
 .claude/scheduled_tasks.lock
+.dosu/audit.json
