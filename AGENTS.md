@@ -238,7 +238,6 @@ See **Development Phases** below for the planned roadmap of features not yet imp
 ### Operators
 
 - Parser handles `&`, `&<decimal>`, and `&0x<hex>` masks across the full `u64` range; compound forms like arithmetic expressions in mask position (`&(N+M)`) or post-mask modifiers are not parsed
-- **Known bug (tracked, not yet fixed):** `Operator::BitwiseAnd` (a bare `&VALUE` test, e.g. `belong &0x0feeddb0` with no separate comparison -- distinct from the `type&MASK` attached-mask form, `Operator::BitwiseAndMask`) is implemented as `(value & operand) != 0` ("any masked bit set") in `apply_bitwise_and`. Empirical testing against the real `file` binary proves the correct magic(5)/libmagic semantics is `(value & operand) == operand` ("all masked bits set" -- a bare `&MASK` test with no explicit comparison is shorthand for `&MASK =MASK`). This causes real false-positive matches against the system magic DB (e.g. `/usr/share/file/magic/ibm6000`'s `AIX core file` entry spuriously fires for most random binary content at that offset). See GOTCHAS S13.3 for the full writeup.
 
 ### Offset Specifications
 

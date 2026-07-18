@@ -716,6 +716,10 @@ fn test_evaluate_single_rule_cross_type_comparison() {
 
 #[test]
 fn test_evaluate_single_rule_bitwise_and_with_shorts() {
+    // BitwiseAnd requires ALL masked bits to be set (see GOTCHAS S13.3):
+    // `(value & mask) == mask`, not merely "some bit overlaps". The mask
+    // here (0xff00) asks "is the entire high byte set" -- so the buffer's
+    // high byte must genuinely be 0xff for this to match.
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Short {
@@ -731,13 +735,22 @@ fn test_evaluate_single_rule_bitwise_and_with_shorts() {
         value_transform: None,
     };
 
-    let buffer = &[0x34, 0x12];
-    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
+    // Little-endian [0x34, 0xff] -> 0xff34; high byte is 0xff, all mask bits set.
+    let matching_buffer = &[0x34, 0xff];
+    let result = evaluate_single_rule_legacy(&rule, matching_buffer).unwrap();
     assert!(result.is_some());
+
+    // Little-endian [0x34, 0x12] -> 0x1234; high byte is 0x12, not all mask
+    // bits set, so this must NOT match under the corrected semantics.
+    let non_matching_buffer = &[0x34, 0x12];
+    let result = evaluate_single_rule_legacy(&rule, non_matching_buffer).unwrap();
+    assert!(result.is_none());
 }
 
 #[test]
 fn test_evaluate_single_rule_bitwise_and_with_longs() {
+    // Same "all masked bits set" contract as the shorts test above, applied
+    // to a 32-bit mask spanning the high word.
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Long {
@@ -753,9 +766,17 @@ fn test_evaluate_single_rule_bitwise_and_with_longs() {
         value_transform: None,
     };
 
-    let buffer = &[0x12, 0x34, 0x56, 0x78];
-    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
+    // Big-endian [0xff, 0xff, 0x56, 0x78] -> 0xffff5678; high word is 0xffff,
+    // all mask bits set.
+    let matching_buffer = &[0xff, 0xff, 0x56, 0x78];
+    let result = evaluate_single_rule_legacy(&rule, matching_buffer).unwrap();
     assert!(result.is_some());
+
+    // Big-endian [0x12, 0x34, 0x56, 0x78] -> 0x12345678; high word is
+    // 0x1234, not all mask bits set, so this must NOT match.
+    let non_matching_buffer = &[0x12, 0x34, 0x56, 0x78];
+    let result = evaluate_single_rule_legacy(&rule, non_matching_buffer).unwrap();
+    assert!(result.is_none());
 }
 
 #[test]

@@ -55,8 +55,9 @@ pub fn apply_bitwise_and_mask(mask: u64, left: &Value, right: &Value) -> bool {
 /// Apply bitwise AND operation for pattern matching
 ///
 /// Performs bitwise AND operation between two integer values for pattern matching.
-/// This is commonly used in magic rules to check if specific bits are set in a value.
-/// Only works with integer types (Uint and Int), returns `false` for other types.
+/// This implements magic(5)'s bare `&MASK` relational test: the file value must have
+/// **every** bit in `right` (the mask) set, not merely *some* bit. Only works with
+/// integer types (Uint and Int), returns `false` for other types.
 ///
 /// # Arguments
 ///
@@ -65,7 +66,18 @@ pub fn apply_bitwise_and_mask(mask: u64, left: &Value, right: &Value) -> bool {
 ///
 /// # Returns
 ///
-/// `true` if the bitwise AND result is non-zero, `false` otherwise or for non-integer types
+/// `true` if `(left & right) == right` -- i.e. every bit set in `right` is also set
+/// in `left` -- `false` otherwise or for non-integer types.
+///
+/// # libmagic Compatibility
+///
+/// This mirrors GNU `file`'s `magiccheck()` (`src/softmagic.c`), whose `'&'` relation
+/// is `(v & l) == l` (`v` = file value, `l` = the rule's mask), i.e. "all masked bits
+/// set" -- not "any masked bit set". A mask of `0` is vacuously satisfied by any file
+/// value (every one of the zero required bits is trivially set), matching libmagic's
+/// literal equality test. For a single-bit mask the two interpretations coincide,
+/// which is why simple flag-check rules (`>6 leshort &0x0001 \b, encrypted`) are
+/// unaffected either way -- only multi-bit bare-`&` masks distinguish them.
 ///
 /// # Examples
 ///
@@ -77,9 +89,10 @@ pub fn apply_bitwise_and_mask(mask: u64, left: &Value, right: &Value) -> bool {
 /// assert!(apply_bitwise_and(&Value::Uint(0x01), &Value::Uint(0x01)));
 /// assert!(!apply_bitwise_and(&Value::Uint(0x02), &Value::Uint(0x01)));
 ///
-/// // Check multiple bits
+/// // Multi-bit mask: ALL masked bits must be set, not merely some
 /// assert!(apply_bitwise_and(&Value::Uint(0xFF), &Value::Uint(0x0F)));
 /// assert!(!apply_bitwise_and(&Value::Uint(0xF0), &Value::Uint(0x0F)));
+/// assert!(!apply_bitwise_and(&Value::Uint(0x8F), &Value::Uint(0xFF))); // partial overlap fails
 ///
 /// // Works with signed integers too
 /// assert!(apply_bitwise_and(&Value::Int(-1), &Value::Int(0x01)));
@@ -90,18 +103,24 @@ pub fn apply_bitwise_and_mask(mask: u64, left: &Value, right: &Value) -> bool {
 #[must_use]
 pub fn apply_bitwise_and(left: &Value, right: &Value) -> bool {
     match (left, right) {
-        // Unsigned integer bitwise AND
-        (Value::Uint(a), Value::Uint(b)) => (a & b) != 0,
+        // Unsigned integer bitwise AND: all bits in `right` (the mask) must be set in `left`.
+        (Value::Uint(a), Value::Uint(b)) => (a & b) == *b,
 
         // Signed integer bitwise AND (cast to unsigned for bitwise operations)
         #[allow(clippy::cast_sign_loss)]
-        (Value::Int(a), Value::Int(b)) => ((*a as u64) & (*b as u64)) != 0,
+        (Value::Int(a), Value::Int(b)) => {
+            let (a, b) = (*a as u64, *b as u64);
+            (a & b) == b
+        }
 
         // Mixed signed/unsigned integer bitwise AND
         #[allow(clippy::cast_sign_loss)]
-        (Value::Uint(a), Value::Int(b)) => (a & (*b as u64)) != 0,
+        (Value::Uint(a), Value::Int(b)) => {
+            let b = *b as u64;
+            (a & b) == b
+        }
         #[allow(clippy::cast_sign_loss)]
-        (Value::Int(a), Value::Uint(b)) => ((*a as u64) & b) != 0,
+        (Value::Int(a), Value::Uint(b)) => ((*a as u64) & b) == *b,
 
         // Non-integer types cannot perform bitwise AND
         _ => false,
@@ -242,10 +261,13 @@ mod tests {
 
     #[test]
     fn test_apply_bitwise_and_uint_edge_cases() {
-        // Zero cases
-        assert!(!apply_bitwise_and(&Value::Uint(0), &Value::Uint(0xFF))); // Zero & anything = 0
-        assert!(!apply_bitwise_and(&Value::Uint(0xFF), &Value::Uint(0))); // Anything & zero = 0
-        assert!(!apply_bitwise_and(&Value::Uint(0), &Value::Uint(0))); // Zero & zero = 0
+        // Zero cases. Under the "all masked bits set" semantics (matching
+        // libmagic's `(v & l) == l`), a zero mask is vacuously satisfied by
+        // any file value -- there are no required bits to check. Only the
+        // "value is zero but mask is not" case fails.
+        assert!(!apply_bitwise_and(&Value::Uint(0), &Value::Uint(0xFF))); // Zero value, nonzero mask: unsatisfied
+        assert!(apply_bitwise_and(&Value::Uint(0xFF), &Value::Uint(0))); // Zero mask: vacuously true
+        assert!(apply_bitwise_and(&Value::Uint(0), &Value::Uint(0))); // Zero mask: vacuously true
 
         // Maximum values
         assert!(apply_bitwise_and(&Value::Uint(u64::MAX), &Value::Uint(1))); // Max & 1
@@ -257,15 +279,29 @@ mod tests {
 
     #[test]
     fn test_apply_bitwise_and_uint_specific_patterns() {
-        // Common magic number patterns
-        assert!(apply_bitwise_and(
+        // Common magic number patterns. An 0xFF-per-byte mask asks "is every
+        // bit in this byte region set" -- it is NOT satisfied just because
+        // that byte region happens to be the value of interest (0x7F, 0x504B,
+        // etc. are not all-ones bytes/words). A mask built from the ACTUAL
+        // bits present in the value (mirroring the value itself in that
+        // region) is what bare `&` is for; an 0xFF-style "extract this byte"
+        // mask belongs with `BitwiseAndMask` + an explicit equality compare.
+        assert!(!apply_bitwise_and(
             &Value::Uint(0x7F45_4C46),
             &Value::Uint(0xFF00_0000)
-        )); // ELF magic high byte
+        )); // ELF's high byte (0x7F) is not all-ones
         assert!(apply_bitwise_and(
+            &Value::Uint(0x7F45_4C46),
+            &Value::Uint(0x7F00_0000)
+        )); // Mask matching the ELF high byte exactly does satisfy
+        assert!(!apply_bitwise_and(
             &Value::Uint(0x504B_0304),
             &Value::Uint(0xFFFF_0000)
-        )); // ZIP magic high word
+        )); // ZIP's high word (0x504B) is not all-ones
+        assert!(apply_bitwise_and(
+            &Value::Uint(0x504B_0304),
+            &Value::Uint(0x504B_0000)
+        )); // Mask matching the ZIP high word exactly does satisfy
         assert!(!apply_bitwise_and(
             &Value::Uint(0x1234_5678),
             &Value::Uint(0x0000_0001)
@@ -290,10 +326,11 @@ mod tests {
 
     #[test]
     fn test_apply_bitwise_and_int_zero() {
-        // Zero cases with signed integers
-        assert!(!apply_bitwise_and(&Value::Int(0), &Value::Int(0xFF))); // Zero & anything = 0
-        assert!(!apply_bitwise_and(&Value::Int(0xFF), &Value::Int(0))); // Anything & zero = 0
-        assert!(!apply_bitwise_and(&Value::Int(0), &Value::Int(0))); // Zero & zero = 0
+        // Zero cases with signed integers. As with the unsigned edge cases,
+        // a zero mask is vacuously satisfied (see GOTCHAS S13.3).
+        assert!(!apply_bitwise_and(&Value::Int(0), &Value::Int(0xFF))); // Zero value, nonzero mask: unsatisfied
+        assert!(apply_bitwise_and(&Value::Int(0xFF), &Value::Int(0))); // Zero mask: vacuously true
+        assert!(apply_bitwise_and(&Value::Int(0), &Value::Int(0))); // Zero mask: vacuously true
     }
 
     #[test]
@@ -303,8 +340,14 @@ mod tests {
         assert!(apply_bitwise_and(
             &Value::Int(i64::MIN),
             &Value::Int(i64::MIN)
-        )); // Min & Min
-        assert!(apply_bitwise_and(&Value::Int(i64::MIN), &Value::Int(-1))); // Min & -1 (all bits set)
+        )); // Min & Min (self-AND is always true)
+
+        // Min (only the sign bit set) does NOT have every bit of an
+        // all-ones mask set, so `apply_bitwise_and(MIN, -1)` is false --
+        // only the reverse direction (does -1 have every bit of MIN set)
+        // is true, since -1's bit pattern is a superset of MIN's.
+        assert!(!apply_bitwise_and(&Value::Int(i64::MIN), &Value::Int(-1)));
+        assert!(apply_bitwise_and(&Value::Int(-1), &Value::Int(i64::MIN)));
     }
 
     #[test]
@@ -318,9 +361,12 @@ mod tests {
 
     #[test]
     fn test_apply_bitwise_and_mixed_negative_uint() {
-        // Negative int with uint (negative numbers have high bits set)
-        assert!(apply_bitwise_and(&Value::Int(-1), &Value::Uint(1))); // -1 & 1
-        assert!(apply_bitwise_and(&Value::Uint(1), &Value::Int(-1))); // 1 & -1
+        // Negative int with uint (negative numbers have high bits set).
+        // -1's bit pattern is all-ones, so it has every bit of 1 set: true.
+        assert!(apply_bitwise_and(&Value::Int(-1), &Value::Uint(1)));
+        // But 1 does NOT have every bit of -1 (all-ones) set: false. This is
+        // the asymmetric case pinned by test_apply_bitwise_and_is_not_commutative_in_general.
+        assert!(!apply_bitwise_and(&Value::Uint(1), &Value::Int(-1)));
         assert!(!apply_bitwise_and(&Value::Int(-2), &Value::Uint(1))); // -2 & 1 (bit 0 not set in -2)
         assert!(!apply_bitwise_and(&Value::Uint(1), &Value::Int(-2))); // 1 & -2
     }
@@ -397,8 +443,8 @@ mod tests {
             (0b1111_0000_u64, 0b0000_1111_u64, false), // None of lower 4 bits
             (0b1010_1010_u64, 0b0101_0101_u64, false), // No overlap
             (0b1010_1010_u64, 0b1010_1010_u64, true), // Perfect match
-            (0b1111_1111_u64, 0b0000_0000_u64, false), // Mask is zero
-            (0b0000_0000_u64, 0b1111_1111_u64, false), // Value is zero
+            (0b1111_1111_u64, 0b0000_0000_u64, true), // Zero mask: vacuously satisfied (no required bits)
+            (0b0000_0000_u64, 0b1111_1111_u64, false), // Value is zero, mask is not: unsatisfied
         ];
 
         for (value, mask, expected) in test_cases {
@@ -412,48 +458,84 @@ mod tests {
 
     #[test]
     fn test_apply_bitwise_and_magic_file_patterns() {
-        // Test patterns commonly found in magic files
+        // Test patterns commonly found in magic files. Under the "all masked
+        // bits set" semantics, a mask only matches when EVERY one of its 1
+        // bits is also set in the value -- so a mask must be built from bits
+        // that are genuinely known-set, not merely "some byte region of
+        // interest" (that latter pattern belongs to `Operator::Equal` after
+        // masking with `BitwiseAndMask`, or plain `Equal` on the exact value).
 
-        // ELF magic number (0x7F454C46) - check if it's an ELF file
+        // ELF magic number (0x7F454C46) is not all-ones, so it can never
+        // satisfy an all-ones mask via bare `&`; identity is what `Equal`
+        // is for. This documents why `&0xFFFFFFFF` is NOT how one would
+        // check "is this exactly the ELF magic" in a real magic file.
         let elf_magic = Value::Uint(0x7F45_4C46);
-        let elf_mask = Value::Uint(0xFFFF_FFFF);
-        assert!(apply_bitwise_and(&elf_magic, &elf_mask));
+        let elf_all_ones_mask = Value::Uint(0xFFFF_FFFF);
+        assert!(!apply_bitwise_and(&elf_magic, &elf_all_ones_mask));
 
-        // Check specific bytes in ELF magic
-        assert!(apply_bitwise_and(&elf_magic, &Value::Uint(0x7F00_0000))); // First byte
-        assert!(apply_bitwise_and(&elf_magic, &Value::Uint(0x0045_0000))); // Second byte 'E'
-        assert!(apply_bitwise_and(&elf_magic, &Value::Uint(0x0000_4C00))); // Third byte 'L'
-        assert!(apply_bitwise_and(&elf_magic, &Value::Uint(0x0000_0046))); // Fourth byte 'F'
+        // Masks built from bits that ARE present in elf_magic still match,
+        // because every 1 bit in the mask is also 1 in the value.
+        assert!(apply_bitwise_and(&elf_magic, &Value::Uint(0x7F00_0000))); // First byte (0x7F, matches exactly)
+        assert!(apply_bitwise_and(&elf_magic, &Value::Uint(0x0045_0000))); // Second byte 'E' (0x45, matches exactly)
+        assert!(apply_bitwise_and(&elf_magic, &Value::Uint(0x0000_4C00))); // Third byte 'L' (0x4C, matches exactly)
+        assert!(apply_bitwise_and(&elf_magic, &Value::Uint(0x0000_0046))); // Fourth byte 'F' (0x46, matches exactly)
 
-        // ZIP magic number (0x504B0304) - check if it's a ZIP file
+        // ZIP magic number (0x504B0304): mask built from the actual "PK"
+        // signature bits matches; a bit that's genuinely unset in the value
+        // (bit 0) does not.
         let zip_magic = Value::Uint(0x504B_0304);
-        assert!(apply_bitwise_and(&zip_magic, &Value::Uint(0x504B_0000))); // PK signature
+        assert!(apply_bitwise_and(&zip_magic, &Value::Uint(0x504B_0000))); // PK signature (matches exactly)
         assert!(!apply_bitwise_and(&zip_magic, &Value::Uint(0x0000_0001))); // Bit 0 not set
 
-        // PDF magic (%PDF) - first few bytes
+        // PDF magic (%PDF): an 0xFF-style "give me this byte region" mask is
+        // NOT satisfied unless the value's bits in that region are all 1 --
+        // '%' (0x25) and 'P' (0x50) are not all-ones bytes, so a bare 0xFF
+        // mask over that byte fails. This is the case that distinguishes
+        // "any bit set" from "all bits set": real magic files would use
+        // `Operator::Equal` (or `BitwiseAndMask` + explicit compare value)
+        // to test "this byte equals 0x25", not bare `&0xFF00_0000`.
         let pdf_magic = Value::Uint(0x2550_4446); // "%PDF" as uint32
-        assert!(apply_bitwise_and(&pdf_magic, &Value::Uint(0xFF00_0000))); // '%' character
-        assert!(apply_bitwise_and(&pdf_magic, &Value::Uint(0x00FF_0000))); // 'P' character
+        assert!(!apply_bitwise_and(&pdf_magic, &Value::Uint(0xFF00_0000))); // '%' (0x25) is not all-ones
+        assert!(!apply_bitwise_and(&pdf_magic, &Value::Uint(0x00FF_0000))); // 'P' (0x50) is not all-ones
     }
 
     #[test]
-    fn test_apply_bitwise_and_symmetry() {
-        // Test that bitwise AND is commutative for integer types
-        let test_cases = vec![
-            (Value::Uint(0xFF), Value::Uint(0x0F)),
-            (Value::Int(42), Value::Int(24)),
-            (Value::Uint(0xAAAA), Value::Int(0x5555)),
-            (Value::Int(-1), Value::Uint(1)),
+    fn test_apply_bitwise_and_is_not_commutative_in_general() {
+        // `apply_bitwise_and(left, right)` tests "does `left` have every bit
+        // of `right` set" -- this is a genuinely asymmetric relation (`left`
+        // is the file value, `right` is the rule's mask), matching libmagic's
+        // `(v & l) == l`. It is NOT commutative in general: swapping which
+        // operand plays "value" vs "mask" changes the question being asked.
+        // (It IS trivially symmetric when left == right, or when one side's
+        // bits are a superset of the other's in both directions -- e.g. two
+        // equal masks -- but that is not the general case.) An earlier
+        // revision of this crate implemented "any bit set" (`(a & b) != 0`),
+        // which genuinely is commutative; that was the wrong semantics (see
+        // GOTCHAS S13.3) and this test's name/assertions have been corrected
+        // accordingly rather than deleted, so the asymmetry stays pinned.
+        let asymmetric_cases = vec![
+            (Value::Uint(0xFF), Value::Uint(0x0F)), // 0xFF has all of 0x0F's bits; 0x0F does not have all of 0xFF's
+            (Value::Uint(1), Value::Int(-1)), // 1 does not have all bits of all-ones; all-ones has bit 0
         ];
 
-        for (left, right) in test_cases {
+        for (left, right) in asymmetric_cases {
             let left_to_right = apply_bitwise_and(&left, &right);
             let right_to_left = apply_bitwise_and(&right, &left);
-            assert_eq!(
+            assert_ne!(
                 left_to_right, right_to_left,
-                "Bitwise AND should be commutative: {left:?} & {right:?}"
+                "expected asymmetric result for {left:?} & {right:?} vs swapped operands"
             );
         }
+
+        // Self-AND is always true regardless of operand order (a value always
+        // has every one of its own bits set), so swapping identical operands
+        // trivially agrees.
+        let self_case = Value::Uint(0x5555);
+        assert_eq!(
+            apply_bitwise_and(&self_case, &self_case),
+            apply_bitwise_and(&self_case, &self_case)
+        );
+        assert!(apply_bitwise_and(&self_case, &self_case));
     }
 
     #[test]

@@ -338,38 +338,30 @@ fn test_differential_parity_against_gnu_file_for_assembler_detection() {
 
 /// A fixed, reproducible "binary blob" (not literal `/dev/urandom`, which
 /// would make the test's outcome host- and run-dependent) verified against
-/// the real `file` binary during implementation to produce `"data"` on
-/// this host's full system magic DB.
+/// the real `file` binary to produce `"data"` on this host's full system
+/// magic DB.
 ///
-/// Bytes 4..8 are pinned to zero deliberately. During implementation, a
-/// first-draft version of this helper (a linear-congruential byte stream
-/// with no such constraint) spuriously matched
-/// `/usr/share/file/magic/ibm6000`'s `AIX core file` entry --
-/// `4 belong &0x0feeddb0` with no explicit comparison and no message --
-/// for nearly every random 64-byte buffer tried. That entry is GNU
-/// `file`'s magic(5) shorthand for `belong &0x0feeddb0 =0x0feeddb0`
-/// ("all of the masked bits must be set"), but this crate's
-/// `apply_bitwise_and` (`src/evaluator/operators/bitwise.rs`) implements
-/// the `&` relational operator as `(value & operand) != 0` ("any masked
-/// bit set") instead -- confirmed by direct A/B testing against
-/// `file --magic-file .../ibm6000` on crafted buffers (an all-zero belong
-/// at the masked offset correctly produces "data" under both
-/// interpretations, but a partial-bit-overlap value that is nonzero-but-
-/// not-equal-to-the-mask produces "data" from real `file` and a false
-/// "AIX core file" match from this crate). This is a genuine, pre-existing
-/// operator-semantics bug, NOT a text/data-fallback issue -- it is out of
-/// scope for this fix (see the maintainer report) and is tracked
-/// separately. Pinning offset 4..8 to zero here keeps this test focused
-/// on the text/data fallback it exists to validate rather than tripping
-/// over that unrelated bug.
+/// This is a plain linear-congruential byte stream with no special
+/// constraints on any byte range.
+///
+/// History: during initial implementation of the text/data fallback, this
+/// exact byte stream spuriously matched `/usr/share/file/magic/ibm6000`'s
+/// `AIX core file` entry -- `4 belong &0x0feeddb0` with no explicit
+/// comparison and no message. That entry is GNU `file`'s magic(5) shorthand
+/// for `belong &0x0feeddb0 =0x0feeddb0` ("all of the masked bits must be
+/// set"), but `apply_bitwise_and` (`src/evaluator/operators/bitwise.rs`)
+/// at the time implemented the bare `&` relational operator as
+/// `(value & operand) != 0` ("any masked bit set") instead -- confirmed by
+/// direct A/B testing against `file --magic-file .../ibm6000` on crafted
+/// buffers. That operator-semantics bug has since been fixed (see GOTCHAS
+/// S13.3 and S2.3): `apply_bitwise_and` now implements `(value & operand)
+/// == operand`, matching libmagic's `magiccheck()`. This blob is kept
+/// exactly as originally generated (rather than perturbed to dodge the old
+/// bug) so this test doubles as a regression guard for that fix.
 fn deterministic_binary_blob() -> Vec<u8> {
-    vec![
-        0x39, 0x0c, 0x8c, 0x7d, 0x00, 0x00, 0x00, 0x00, 0xd8, 0x10, 0x0f, 0x2f, 0x6f, 0x77, 0x0d,
-        0x65, 0xd6, 0x70, 0xe5, 0x8e, 0x03, 0x51, 0xd8, 0xae, 0x8e, 0x4f, 0x6e, 0xac, 0x34, 0x2f,
-        0xc2, 0x31, 0xb7, 0xb0, 0x87, 0x16, 0xeb, 0x3f, 0xc1, 0x28, 0x96, 0xb9, 0x62, 0x23, 0x17,
-        0x74, 0x94, 0x28, 0x77, 0x33, 0xc2, 0x8e, 0xe8, 0xba, 0x53, 0xbd, 0xb5, 0x6b, 0x88, 0x24,
-        0x57, 0x7d, 0x53, 0xec,
-    ]
+    (0..64u32)
+        .map(|i| u8::try_from((i * 37 + 11) % 256).expect("modulo 256 always fits in u8"))
+        .collect()
 }
 
 /// GOTCHAS S13.2 (the exact repro from the bug report): with the real
