@@ -11,6 +11,14 @@
 # (via `mise upgrade rust`) and `Cargo.toml` `rust-version` if the
 # declared MSRV moves.
 [toolchain]
+# Tracks `stable`, and MUST stay consistent with mise.toml's rust channel
+# (also `stable`). mise honors this file as an idiomatic version file
+# (`idiomatic_version_file_enable_tools = ["rust"]`), so if this channel and
+# mise.toml disagree, mise resolves two separate rust toolchains and their
+# component installs collide on hosted CI runners (`detected conflict` /
+# `Directory not empty`). Keep both on `stable` with a single `[[tools.rust]]`
+# entry in mise.lock. When bumping rustc: run `mise upgrade rust`, commit the
+# refreshed mise.lock, and update Cargo.toml `rust-version` if the MSRV moves.
 channel = "stable"
 components = [ "rustfmt", "clippy", "llvm-tools-preview" ]
 targets = [

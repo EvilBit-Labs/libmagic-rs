@@ -35,9 +35,11 @@ jobs:
                   cache: true
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Ensure rustfmt and clippy are installed
-              run: mise x -- rustup component add rustfmt clippy
-
+            # rustfmt + clippy are installed by mise's rust component set
+            # (`components = "...,rustfmt,clippy"`). A second `rustup component
+            # add` here re-added them and collided with mise's install on the
+            # hosted runner (`detected conflict` / `Directory not empty`), so it
+            # is intentionally removed.
             - name: Check formatting
               run: just lint-rust
 
