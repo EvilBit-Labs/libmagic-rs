@@ -1289,22 +1289,6 @@ fn parse_bare_string_value(input: &str) -> IResult<&str, Value> {
             break;
         }
         if ch == '\\' {
-            // magic(5) `\ ` (backslash-space): a literal space byte that does
-            // NOT terminate the bareword token. Handled before the other
-            // escape forms because `parse_escape_sequence` does not cover it,
-            // and the lone-backslash fallback below would keep the `\` and
-            // then break at the following space (line "ch.is_whitespace()")
-            // -- truncating e.g. the search pattern `%\ -*-latex-*-` down to
-            // `%`, which false-matches almost any binary (a `%` byte appears
-            // in nearly every file, so `search "%"` mislabels gzip/JPEG/etc.
-            // as "LaTeX document text"). GNU `file`'s getstr resolves `\ ` to
-            // a bare space the same way. `\` and ` ` are both ASCII, so the
-            // 2-byte advance stays on a char boundary.
-            if remaining.as_bytes().get(1) == Some(&b' ') {
-                bytes.push(b' ');
-                remaining = &remaining[2..];
-                continue;
-            }
             // Try a hex byte (`\xNN`) first since `parse_escape_sequence`
             // doesn't recognise it.
             if let Ok((rest, b)) = value::parse_hex_byte_with_prefix(remaining) {
@@ -1332,11 +1316,27 @@ fn parse_bare_string_value(input: &str) -> IResult<&str, Value> {
                 remaining = rest;
                 continue;
             }
-            // Lone `\` not followed by a recognised escape -- treat as
-            // a literal backslash and continue. This matches GNU `file`
-            // tolerance for malformed escapes.
-            bytes.push(b'\\');
-            remaining = &remaining[1..];
+            // Lone `\` followed by an unrecognised escape char: magic(5)
+            // getstr DROPS the backslash and keeps the character literally
+            // (`\<` -> `<`, `\^` -> `^`, `\ ` -> a literal space that
+            // continues the token because it lands in `bytes` rather than
+            // being re-examined by the whitespace-terminator check). This
+            // matches GNU `file`; the earlier "keep the backslash" behavior
+            // broke real rules like sgml's `0 string \<?xml\ version=`, which
+            // then never matched an actual `<?xml ...` document (XML files
+            // fell through to "ASCII text"). A genuine literal backslash is
+            // written `\\` and is already resolved by `parse_escape_sequence`
+            // above, so this branch only ever drops a backslash that was
+            // escaping a non-special character. A trailing lone `\` at
+            // end-of-input has no following char, so it stays literal.
+            if let Some(next) = remaining[1..].chars().next() {
+                let mut buf = [0u8; 4];
+                bytes.extend_from_slice(next.encode_utf8(&mut buf).as_bytes());
+                remaining = &remaining[1 + next.len_utf8()..];
+            } else {
+                bytes.push(b'\\');
+                remaining = &remaining[1..];
+            }
             continue;
         }
         // Plain character: encode as UTF-8 (ASCII is one byte; non-ASCII
