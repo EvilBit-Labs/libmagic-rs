@@ -13,8 +13,8 @@ mod comparison;
 mod equality;
 
 pub use bitwise::{
-    apply_bitwise_and, apply_bitwise_and_mask, apply_bitwise_not, apply_bitwise_not_with_width,
-    apply_bitwise_xor,
+    apply_bitwise_and, apply_bitwise_and_mask, apply_bitwise_and_mask_with_width,
+    apply_bitwise_not, apply_bitwise_not_with_width, apply_bitwise_xor,
 };
 pub use comparison::{
     apply_greater_equal, apply_greater_than, apply_less_equal, apply_less_than, compare_values,

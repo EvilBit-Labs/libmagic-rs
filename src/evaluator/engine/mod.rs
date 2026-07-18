@@ -450,6 +450,19 @@ fn evaluate_value_rule(
             expected_ref,
             rule.typ.bit_width(),
         ),
+        // Masked equality (`type&MASK VALUE`) must re-normalize the masked
+        // result to the type's natural width so a signed read whose high bits
+        // are cleared by the mask still compares equal to the sign-extended
+        // rule literal (e.g. the Mach-O `0 lelong&0xfffffffe 0xfeedface`
+        // rule). See `apply_bitwise_and_mask_with_width`.
+        crate::parser::ast::Operator::BitwiseAndMask(mask) => {
+            operators::apply_bitwise_and_mask_with_width(
+                *mask,
+                &transformed_value,
+                expected_ref,
+                rule.typ.bit_width(),
+            )
+        }
         op => operators::apply_operator(op, &transformed_value, expected_ref),
     };
     Ok((matched, transformed_value))

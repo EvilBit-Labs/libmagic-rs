@@ -39,10 +39,85 @@ use crate::parser::ast::Value;
 /// ```
 #[must_use]
 pub fn apply_bitwise_and_mask(mask: u64, left: &Value, right: &Value) -> bool {
-    let masked_left = match left {
-        Value::Uint(val) => Value::Uint(val & mask),
-        Value::Int(val) => {
-            // Convert u64 mask to i64, using bitwise representation for values > i64::MAX
+    apply_bitwise_and_mask_with_width(mask, left, right, None)
+}
+
+/// Apply bitwise AND with mask, re-normalizing the masked result to the
+/// type's natural bit width before comparison.
+///
+/// This is the width-aware companion to [`apply_bitwise_and_mask`], required
+/// for correct evaluation of masked comparisons on **signed** types. A magic
+/// rule like `0 lelong&0xfffffffe 0xfeedface` (the Mach-O 64-bit signature)
+/// reads a signed 32-bit long, which the evaluator sign-extends to `i64`
+/// (`0xFEEDFACF` -> `0xFFFF_FFFF_FEED_FACF`). Applying the 32-bit mask
+/// `0xfffffffe` in `i64` space clears the high 32 bits, yielding a *positive*
+/// `0x0000_0000_FEED_FACE`; but the rule literal `0xfeedface`, coerced to the
+/// signed type, is stored *sign-extended* as `0xFFFF_FFFF_FEED_FACE`
+/// (negative). The two `i64` values differ in their high 32 bits and never
+/// compare equal even though the low 32 bits match -- so the Mach-O rule
+/// silently fails and lower-strength rules win.
+///
+/// When `bit_width` is `Some(w)` with `w < 64` and the value is signed
+/// (`Value::Int`), this masks within the `w`-bit window and then re-sign-extends
+/// from bit `w-1`, mirroring libmagic's `(int32_t)(v & mask)` in
+/// `mconvert`/`magiccheck` (`src/softmagic.c`). Unsigned values are masked
+/// within the width (zero-extended). `bit_width == None` (or `>= 64`) preserves
+/// the historical width-unaware behavior for callers that lack type context.
+///
+/// # Arguments
+///
+/// * `mask` - The bitmask to apply to the left value
+/// * `left` - The left-hand side value (typically from file data)
+/// * `right` - The right-hand side value (typically from the magic rule)
+/// * `bit_width` - The natural bit width of the rule's type (`8`/`16`/`32`/`64`)
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::parser::ast::Value;
+/// use libmagic_rs::evaluator::operators::apply_bitwise_and_mask_with_width;
+///
+/// // The Mach-O case: signed 32-bit read 0xFEEDFACF (sign-extended to i64),
+/// // masked with 0xfffffffe, compared to the sign-extended rule value.
+/// let read = Value::Int(0xFFFF_FFFF_FEED_FACF_u64 as i64); // lelong sign-extended
+/// let rule = Value::Int(0xFFFF_FFFF_FEED_FACE_u64 as i64); // 0xfeedface coerced to lelong
+/// assert!(apply_bitwise_and_mask_with_width(0xffff_fffe, &read, &rule, Some(32)));
+///
+/// // Without the width, the historical behavior does NOT match (the bug):
+/// assert!(!apply_bitwise_and_mask_with_width(0xffff_fffe, &read, &rule, None));
+/// ```
+#[must_use]
+pub fn apply_bitwise_and_mask_with_width(
+    mask: u64,
+    left: &Value,
+    right: &Value,
+    bit_width: Option<u32>,
+) -> bool {
+    let masked_left = match (left, bit_width) {
+        // Unsigned with a known type width: mask within the width (zero-extended).
+        (Value::Uint(val), Some(width)) if width < 64 => {
+            let width_mask = (1u64 << width) - 1;
+            Value::Uint((val & mask) & width_mask)
+        }
+        (Value::Uint(val), _) => Value::Uint(val & mask),
+        // Signed with a known type width: mask within the width, then
+        // re-sign-extend from the type's sign bit so the result matches the
+        // sign-extended rule literal (see the doc comment for the Mach-O case).
+        (Value::Int(val), Some(width)) if width < 64 => {
+            let width_mask = (1u64 << width) - 1;
+            let masked = u64::from_ne_bytes(val.to_ne_bytes()) & mask & width_mask;
+            let sign_bit = 1u64 << (width - 1);
+            let extended = if masked & sign_bit != 0 {
+                masked | !width_mask
+            } else {
+                masked
+            };
+            // Bit-reinterpret u64 -> i64 (matches the `from_ne_bytes` idiom
+            // used for the mask above; avoids `clippy::cast_possible_wrap`).
+            Value::Int(i64::from_ne_bytes(extended.to_ne_bytes()))
+        }
+        // Signed without a known width (or width >= 64): historical behavior.
+        (Value::Int(val), _) => {
             let i64_mask =
                 i64::try_from(mask).unwrap_or_else(|_| i64::from_ne_bytes(mask.to_ne_bytes()));
             Value::Int(val & i64_mask)
@@ -692,5 +767,101 @@ mod tests {
             &Value::Uint(u64::MAX),
             None
         ));
+    }
+
+    // ------------------------------------------------------------------
+    // Regression: signed masked comparison must re-normalize to the type
+    // width (the Mach-O `0 lelong&0xfffffffe 0xfeedface` miss).
+    // ------------------------------------------------------------------
+
+    /// The exact real-world failure: a signed 32-bit `lelong` read of the
+    /// Mach-O 64-bit magic `0xFEEDFACF` (sign-extended to i64) masked with
+    /// `0xfffffffe` must equal the sign-extended rule literal `0xfeedface`.
+    /// Before the width-aware fix this silently returned `false`, so the
+    /// Mach-O rule never matched and a weak `measure`/Lepton rule won.
+    #[test]
+    #[allow(clippy::cast_possible_wrap)] // intentional i64 bit-patterns
+    fn test_apply_bitwise_and_mask_with_width_matches_signed_macho_signature() {
+        // lelong read of bytes `cf fa ed fe`, sign-extended to i64.
+        let read = Value::Int(0xFFFF_FFFF_FEED_FACF_u64 as i64);
+        // `0xfeedface` coerced to the signed 32-bit type (sign-extended).
+        let rule = Value::Int(0xFFFF_FFFF_FEED_FACE_u64 as i64);
+
+        // Width-aware (the fix): matches.
+        assert!(
+            apply_bitwise_and_mask_with_width(0xffff_fffe, &read, &rule, Some(32)),
+            "signed lelong&0xfffffffe must equal sign-extended 0xfeedface at 32-bit width"
+        );
+        // Width-unaware (the historical bug): does NOT match -- pins that the
+        // width is load-bearing, so a future refactor that drops it regresses
+        // this test rather than silently reintroducing the Mach-O miss.
+        assert!(
+            !apply_bitwise_and_mask_with_width(0xffff_fffe, &read, &rule, None),
+            "without the type width the sign-extension mismatch resurfaces (the bug)"
+        );
+    }
+
+    /// A signed masked read that does NOT match the rule literal must stay a
+    /// non-match under the width-aware path (guards against the fix being a
+    /// blanket "always true").
+    #[test]
+    #[allow(clippy::cast_possible_wrap)] // intentional i64 bit-patterns
+    fn test_apply_bitwise_and_mask_with_width_signed_negative_case() {
+        let read = Value::Int(0x0000_0000_1234_5678_u64 as i64); // positive lelong
+        let rule = Value::Int(0xFFFF_FFFF_FEED_FACE_u64 as i64); // 0xfeedface @ lelong
+        assert!(!apply_bitwise_and_mask_with_width(
+            0xffff_fffe,
+            &read,
+            &rule,
+            Some(32)
+        ));
+    }
+
+    /// Unsigned masked comparison is unaffected by the fix (it already worked)
+    /// -- `ulelong&0xfffffffe 0xfeedface` still matches with and without width.
+    #[test]
+    fn test_apply_bitwise_and_mask_with_width_unsigned_unaffected() {
+        let read = Value::Uint(0x0000_0000_FEED_FACF); // ulelong read
+        let rule = Value::Uint(0x0000_0000_FEED_FACE); // rule literal
+        assert!(apply_bitwise_and_mask_with_width(
+            0xffff_fffe,
+            &read,
+            &rule,
+            Some(32)
+        ));
+        assert!(apply_bitwise_and_mask_with_width(
+            0xffff_fffe,
+            &read,
+            &rule,
+            None
+        ));
+    }
+
+    /// Signed byte width: masking must re-extend from bit 7, not bit 31/63.
+    #[test]
+    #[allow(clippy::cast_possible_wrap)] // intentional i64 bit-patterns
+    fn test_apply_bitwise_and_mask_with_width_signed_byte() {
+        // byte read 0x81 -> Int(-127) sign-extended; mask 0xfe -> 0x80; at
+        // 8-bit width bit 7 is set so it re-extends to Int(-128 == 0xFF..80).
+        let read = Value::Int(0xFFFF_FFFF_FFFF_FF81_u64 as i64);
+        let rule = Value::Int(0xFFFF_FFFF_FFFF_FF80_u64 as i64); // 0x80 @ signed byte
+        assert!(apply_bitwise_and_mask_with_width(
+            0xfe,
+            &read,
+            &rule,
+            Some(8)
+        ));
+    }
+
+    /// The convenience wrapper `apply_bitwise_and_mask` must behave exactly
+    /// like the width-aware form with `bit_width == None`.
+    #[test]
+    fn test_apply_bitwise_and_mask_delegates_to_none_width() {
+        let read = Value::Uint(0x1234);
+        let rule = Value::Uint(0x34);
+        assert_eq!(
+            apply_bitwise_and_mask(0xFF, &read, &rule),
+            apply_bitwise_and_mask_with_width(0xFF, &read, &rule, None)
+        );
     }
 }
