@@ -1446,6 +1446,40 @@ fn test_evaluate_rules_message_less_parent_with_message_bearing_child_still_stop
 }
 
 #[test]
+fn test_stop_at_first_match_does_not_truncate_child_siblings() {
+    // Regression guard: `stop_at_first_match` is a TOP-LEVEL classification
+    // concept. Once a parent matches, ALL of its matching child siblings must
+    // render even under `stop_at_first_match: true` -- the break must not fire
+    // inside a child sibling list. (An earlier revision applied the break at
+    // every recursion level, so the first message-bearing child silently
+    // truncated the rest -- dropping gzip's "max compression", "from Unix",
+    // "original size ..." fragments after the first match. See the
+    // `EvaluationConfig::stop_at_first_match` top-level-only contract.)
+    let mut parent = message_only_byte_rule(0, 0xAA, "parent");
+    parent.children = vec![
+        message_only_byte_rule(1, 0xBB, "child-1"),
+        message_only_byte_rule(2, 0xCC, "child-2"),
+        message_only_byte_rule(3, 0xDD, "child-3"),
+    ];
+
+    let buffer = &[0xAA, 0xBB, 0xCC, 0xDD];
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&[parent], buffer, &mut context).unwrap();
+    let messages: Vec<&str> = matches.iter().map(|m| m.message.as_str()).collect();
+    assert_eq!(
+        messages,
+        vec!["parent", "child-1", "child-2", "child-3"],
+        "all matching child siblings must render under stop_at_first_match; \
+         the break must not fire inside a child sibling list"
+    );
+}
+
+#[test]
 fn test_evaluate_rules_hierarchical_parent_child() {
     let child_rule = MagicRule {
         offset: OffsetSpec::Absolute(4),

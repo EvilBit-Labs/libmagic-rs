@@ -791,6 +791,22 @@ pub fn evaluate_rules(
     let is_indirect_reentry = context.take_indirect_reentry();
     let is_child_sibling_list = context.recursion_depth() > 0 && !is_indirect_reentry;
 
+    // `stop_at_first_match` is a TOP-LEVEL classification concept (see the
+    // `EvaluationConfig::stop_at_first_match` doc): once an outermost rule --
+    // or an indirect re-entry, which is itself a fresh top-level
+    // classification -- produces a message-bearing match, we stop trying
+    // other top-level candidates. It must NOT short-circuit a child /
+    // continuation sibling list or a `use` subroutine body: every matching
+    // sibling there contributes a detail fragment to the description (e.g.
+    // gzip's "max compression", "from Unix", "original size modulo 2^32 N"),
+    // and truncating them silently drops multi-part descriptions. This
+    // mirrors libmagic, where continuation levels always evaluate every
+    // sibling and only the top-level `match()` loop stops at first success.
+    // (An earlier revision applied the break at every recursion level, which
+    // violated the documented top-level-only contract and truncated gzip's
+    // trailing detail after its first message-bearing child.)
+    let stop_at_first_match_applies = !is_child_sibling_list;
+
     // Entry-point timeout check: ensures every recursive descent is bounded
     // and that evaluations of small rule sets (< 16 rules) are still guarded.
     // Without this, the periodic every-16-rules check below never fires for
@@ -856,7 +872,8 @@ pub fn evaluate_rules(
 
                 sibling_matched = true;
 
-                if matches.len() > matches_before
+                if stop_at_first_match_applies
+                    && matches.len() > matches_before
                     && context.should_stop_at_first_match()
                     && has_message_bearing_match(&matches, matches_before)
                 {
@@ -988,7 +1005,8 @@ pub fn evaluate_rules(
             // recursion-guard pattern used by every other successful rule.
             evaluate_children_or_warn(rule, "indirect", buffer, context, &mut matches)?;
 
-            if matches.len() > matches_before
+            if stop_at_first_match_applies
+                && matches.len() > matches_before
                 && context.should_stop_at_first_match()
                 && has_message_bearing_match(&matches, matches_before)
             {
@@ -1009,14 +1027,6 @@ pub fn evaluate_rules(
         // rather than erroring -- a rogue rule shouldn't poison the rest
         // of the evaluation.
         if let TypeKind::Meta(MetaType::Offset) = &rule.typ {
-            if !matches!(rule.op, crate::parser::ast::Operator::AnyValue) {
-                debug!(
-                    "offset rule '{}': non-`x` operator {:?} not supported; skipping",
-                    rule.message, rule.op
-                );
-                continue;
-            }
-
             // Resolve the offset first so a malformed offset surfaces as
             // a graceful skip rather than a hard error. Mirrors the
             // `Indirect` dispatch above.
@@ -1039,6 +1049,26 @@ pub fn evaluate_rules(
                 Err(e) => return Err(e),
             };
 
+            // The magic(5) `offset` pseudo-type treats the resolved offset
+            // itself as the read value. `offset x` is a bare AnyValue
+            // placeholder that always matches (used purely to report the
+            // position via `%lld`). A comparison operator (`offset >48`,
+            // `offset <48`, `offset =N`, ...) tests the resolved offset
+            // against the operand -- e.g. gzip's `>>-0 offset >48` gates
+            // the trailing "original size modulo 2^32" trailer on the file
+            // being long enough to carry it, and its `>>-0 offset <48`
+            // sibling reports "truncated" otherwise. Skip the rule (a
+            // non-match) when the comparison fails so the false branch and
+            // its children do not render.
+            let offset_value = crate::parser::ast::Value::Uint(absolute_offset as u64);
+            let offset_matched = match &rule.op {
+                crate::parser::ast::Operator::AnyValue => true,
+                op => operators::apply_operator(op, &offset_value, &rule.value),
+            };
+            if !offset_matched {
+                continue;
+            }
+
             let matches_before = matches.len();
 
             // Advance the anchor BEFORE emitting the match so sibling
@@ -1051,7 +1081,7 @@ pub fn evaluate_rules(
                 rule.message.clone(),
                 absolute_offset,
                 rule.level,
-                crate::parser::ast::Value::Uint(absolute_offset as u64),
+                offset_value,
                 rule.typ.clone(),
                 RuleMatch::calculate_confidence(rule.level),
             );
@@ -1063,7 +1093,8 @@ pub fn evaluate_rules(
             // by every other successful rule.
             evaluate_children_or_warn(rule, "offset", buffer, context, &mut matches)?;
 
-            if matches.len() > matches_before
+            if stop_at_first_match_applies
+                && matches.len() > matches_before
                 && context.should_stop_at_first_match()
                 && has_message_bearing_match(&matches, matches_before)
             {
@@ -1142,7 +1173,8 @@ pub fn evaluate_rules(
             // short-circuiting, halt evaluation of further siblings --
             // but only once one of those matches actually carries usable
             // description text (see `has_message_bearing_match`).
-            if matches.len() > matches_before
+            if stop_at_first_match_applies
+                && matches.len() > matches_before
                 && context.should_stop_at_first_match()
                 && has_message_bearing_match(&matches, matches_before)
             {
@@ -1325,7 +1357,8 @@ pub fn evaluate_rules(
             // gating rule used purely to trigger a child) must not shadow
             // a later, more specific top-level rule that would otherwise
             // produce real output (GOTCHAS S13.2).
-            if context.should_stop_at_first_match()
+            if stop_at_first_match_applies
+                && context.should_stop_at_first_match()
                 && has_message_bearing_match(&matches, matches_before)
             {
                 break;

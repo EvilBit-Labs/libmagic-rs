@@ -171,9 +171,18 @@ pub(crate) fn resolve_offset_with_base(
         }
         OffsetSpec::Relative(_) => relative::resolve_relative_offset(spec, buffer, last_match_end),
         OffsetSpec::FromEnd(offset) => {
-            // FromEnd is handled the same as negative Absolute offsets.
-            // Base offset does not apply -- "from end" is always
-            // relative to the buffer itself.
+            // `FromEnd(0)` is the magic(5) `-0` form: the end-of-file
+            // *position* (`buffer.len()`), one past the last readable byte.
+            // It is valid as a position value for the `offset` pseudo-type
+            // (which never reads there) even though `resolve_absolute_offset`
+            // would wrongly send `0` through its positive path and resolve to
+            // start-of-file. Negative `FromEnd` deltas keep the shared
+            // from-end resolution (identical to negative `Absolute`); base
+            // offset never applies -- "from end" is always relative to the
+            // buffer itself.
+            if *offset == 0 {
+                return Ok(buffer.len());
+            }
             resolve_absolute_offset(*offset, buffer).map_err(|e| map_offset_error(&e, *offset))
         }
     }
@@ -277,6 +286,31 @@ mod tests {
         let buffer = b"Test data";
         let spec = OffsetSpec::FromEnd(-3);
         assert_eq!(resolve_offset_with_context(&spec, buffer, 999).unwrap(), 6);
+    }
+
+    #[test]
+    fn test_resolve_from_end_zero_is_eof_position() {
+        // The magic(5) `-0` form (`FromEnd(0)`) resolves to the end-of-file
+        // POSITION -- `buffer.len()`, one past the last byte -- NOT offset 0.
+        // `resolve_absolute_offset(0)` would wrongly send it through the
+        // positive path and yield 0/start; the FromEnd arm special-cases it.
+        // Used by gzip's `>>-0 offset >48` trailing-size gate.
+        let buffer = b"Test data"; // 9 bytes
+        assert_eq!(
+            resolve_offset_with_context(&OffsetSpec::FromEnd(0), buffer, 0).unwrap(),
+            buffer.len(),
+            "FromEnd(0) must resolve to the EOF position (buffer.len())"
+        );
+        // Distinct from a real absolute 0.
+        assert_eq!(
+            resolve_offset_with_context(&OffsetSpec::Absolute(0), buffer, 0).unwrap(),
+            0
+        );
+        // Empty buffer: EOF position is 0, and that must not error.
+        assert_eq!(
+            resolve_offset_with_context(&OffsetSpec::FromEnd(0), b"", 0).unwrap(),
+            0
+        );
     }
 
     #[test]

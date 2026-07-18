@@ -352,8 +352,20 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
         let (rest, _) = multispace0(rest)?;
         Ok((rest, OffsetSpec::Relative(value)))
     } else {
+        // Capture the leading `-` before `parse_number` consumes it: magic(5)
+        // `-0` means "0 bytes from the end of the file" -- the EOF position
+        // (`buffer.len()`), NOT absolute offset 0. Because `-0 == 0` in a
+        // signed integer the sign is otherwise lost, so detect it explicitly
+        // and encode `FromEnd(0)`. Used by e.g. gzip's `>>-0 offset >48` to
+        // gate the trailing-size trailer on the file being long enough.
+        // Other negative offsets (`-4`) keep their `Absolute(-4)` encoding,
+        // which the evaluator already resolves from the buffer end.
+        let starts_with_minus = input.starts_with('-');
         let (input, offset_value) = parse_number(input)?;
         let (input, _) = multispace0(input)?;
+        if starts_with_minus && offset_value == 0 {
+            return Ok((input, OffsetSpec::FromEnd(0)));
+        }
         Ok((input, OffsetSpec::Absolute(offset_value)))
     }
 }
@@ -1081,18 +1093,27 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
     // pre-comparison value transform (`+N`/`-N`/`*N`/`/N`/`%N`/`|N`/`^N`).
     let (input, (typ, attached_op, value_transform)) = parse_type_and_operator(input)?;
 
-    // Meta-type directives (default, clear, name, use, indirect, offset)
-    // conceptually have no operator/value operand, but magic(5) source
-    // files (including GNU `file`'s own `searchbug.magic`) often write
-    // them with an `x` (AnyValue) placeholder between the type and the
-    // message, e.g. `>>&0 offset x at_offset %lld`. Consume an optional
-    // leading `x` token here so it does not leak into the rendered
-    // message.
+    // Meta-type directives (default, clear, name, use, indirect) conceptually
+    // have no operator/value operand, but magic(5) source files (including
+    // GNU `file`'s own `searchbug.magic`) often write them with an `x`
+    // (AnyValue) placeholder between the type and the message, e.g.
+    // `>>&0 offset x at_offset %lld`. Consume an optional leading `x` token
+    // here so it does not leak into the rendered message.
+    //
+    // `offset` is deliberately EXCLUDED from this no-operand path: unlike the
+    // other meta-types, the `offset` pseudo-type carries a real comparison
+    // operand -- `offset >48` / `offset <48` (gzip's trailing-size gate) read
+    // the resolved offset and compare it against N, and only the `offset x`
+    // form is a bare AnyValue placeholder. Routing `offset` through the normal
+    // operator+value+message path below handles both forms; the engine then
+    // applies the comparison (see the `MetaType::Offset` dispatch in
+    // `evaluator::engine`). Folding `offset >48` into this block instead
+    // silently turned `>48` into message text and made the compare a no-op.
     //
     // `name`/`use` are handled earlier in parse_type_and_operator and
     // already consumed their identifier operand, so the `x` stripping
     // is a no-op for them.
-    if matches!(typ, TypeKind::Meta(_)) {
+    if matches!(typ, TypeKind::Meta(_)) && !matches!(typ, TypeKind::Meta(MetaType::Offset)) {
         // Meta-type directives have no operand, so an attached operator
         // like `default&0xf` is malformed — reject it here rather than
         // silently dropping it on the floor. `name`/`use` short-circuit in

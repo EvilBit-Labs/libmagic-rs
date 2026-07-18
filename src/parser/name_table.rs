@@ -57,22 +57,6 @@ impl NameTable {
         self.inner.get(name).cloned()
     }
 
-    /// Sort all subroutine rule bodies in place by the provided comparator.
-    ///
-    /// Used by `MagicDatabase` after load to apply strength-based ordering to
-    /// each subroutine body, matching the ordering applied to top-level rules.
-    /// Because subroutine bodies are stored as `Arc<[MagicRule]>` (immutable
-    /// slices), sorting requires materializing a `Vec`, sorting it, and
-    /// rebuilding the `Arc`. This is a one-time cost per load, not per
-    /// evaluation.
-    pub(crate) fn sort_subroutines(&mut self, mut sort_fn: impl FnMut(&mut Vec<MagicRule>)) {
-        for arc in self.inner.values_mut() {
-            let mut vec: Vec<MagicRule> = arc.iter().cloned().collect();
-            sort_fn(&mut vec);
-            *arc = Arc::from(vec);
-        }
-    }
-
     /// Merge another name table into this one.
     ///
     /// Used when loading a magic directory: each file's extracted name
@@ -281,73 +265,5 @@ mod tests {
         table_a.merge(table_b);
         let subroutine = table_a.get("dup").expect("dup kept from first table");
         assert_eq!(subroutine[0].message, "first-child");
-    }
-
-    #[test]
-    fn test_sort_subroutines_reorders_rule_bodies() {
-        // `sort_subroutines` materializes each Arc body into a mutable
-        // Vec, invokes the sort closure, and rebuilds the Arc. A bug in
-        // that rebuild cycle (e.g., swapping Arc pointers instead of
-        // re-sorting) would leave the order unchanged.
-        let body = vec![
-            make_rule(1, TypeKind::Byte { signed: false }, "c", vec![]),
-            make_rule(1, TypeKind::Byte { signed: false }, "a", vec![]),
-            make_rule(1, TypeKind::Byte { signed: false }, "b", vec![]),
-        ];
-        let name_rule = make_rule(
-            0,
-            TypeKind::Meta(MetaType::Name("sorted".to_string())),
-            "",
-            body,
-        );
-        let (_, mut table) = extract_name_table(vec![name_rule]);
-
-        table.sort_subroutines(|rules| rules.sort_by(|x, y| x.message.cmp(&y.message)));
-
-        let after = table.get("sorted").expect("subroutine retained");
-        let messages: Vec<&str> = after.iter().map(|r| r.message.as_str()).collect();
-        assert_eq!(messages, vec!["a", "b", "c"]);
-    }
-
-    #[test]
-    fn test_sort_subroutines_on_empty_table_is_noop() {
-        let (_, mut table) = extract_name_table(vec![]);
-        // The closure should never fire for an empty table.
-        table.sort_subroutines(|_| unreachable!("empty table must not invoke sort_fn"));
-        assert!(table.get("any").is_none());
-    }
-
-    #[test]
-    fn test_sort_subroutines_preserves_merge_policy() {
-        // After `sort_subroutines`, `merge` must still honor first-wins.
-        let first = make_rule(
-            0,
-            TypeKind::Meta(MetaType::Name("dup".to_string())),
-            "",
-            vec![make_rule(
-                1,
-                TypeKind::Byte { signed: false },
-                "first",
-                vec![],
-            )],
-        );
-        let second = make_rule(
-            0,
-            TypeKind::Meta(MetaType::Name("dup".to_string())),
-            "",
-            vec![make_rule(
-                1,
-                TypeKind::Byte { signed: false },
-                "second",
-                vec![],
-            )],
-        );
-        let (_, mut table_a) = extract_name_table(vec![first]);
-        table_a.sort_subroutines(|_| {}); // no-op sort to trigger rebuild
-        let (_, table_b) = extract_name_table(vec![second]);
-        table_a.merge(table_b);
-
-        let subroutine = table_a.get("dup").expect("dup kept from first table");
-        assert_eq!(subroutine[0].message, "first");
     }
 }

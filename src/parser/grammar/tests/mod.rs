@@ -223,11 +223,15 @@ fn test_parse_offset_with_remaining_input() {
 
 #[test]
 fn test_parse_offset_edge_cases() {
-    // Zero with different formats
+    // Zero with different formats. `-0` / `-0x0` are the magic(5)
+    // "0 bytes from end of file" form (the EOF position, `buffer.len()`),
+    // NOT absolute offset 0 -- the leading `-` is significant even though
+    // `-0 == 0` numerically. They encode `FromEnd(0)`; unsigned `0` / `0x0`
+    // stay `Absolute(0)`. See gzip's `>>-0 offset >48` trailing-size gate.
     assert_eq!(parse_offset("0"), Ok(("", OffsetSpec::Absolute(0))));
-    assert_eq!(parse_offset("-0"), Ok(("", OffsetSpec::Absolute(0))));
+    assert_eq!(parse_offset("-0"), Ok(("", OffsetSpec::FromEnd(0))));
     assert_eq!(parse_offset("0x0"), Ok(("", OffsetSpec::Absolute(0))));
-    assert_eq!(parse_offset("-0x0"), Ok(("", OffsetSpec::Absolute(0))));
+    assert_eq!(parse_offset("-0x0"), Ok(("", OffsetSpec::FromEnd(0))));
 
     // Large offsets
     assert_eq!(

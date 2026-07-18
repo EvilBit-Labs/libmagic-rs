@@ -217,3 +217,89 @@ fn test_searchbug_matches_full_result_string() {
         .expect("evaluate_buffer on searchbug.testfile");
     assert_eq!(result.description.trim(), expected.trim());
 }
+
+/// End-to-end regression for the gzip multi-fragment description, the shape
+/// that surfaced four interlocking evaluation bugs (PR #376):
+///
+/// 1. `stop_at_first_match` must be TOP-LEVEL only -- every matching child
+///    sibling under the matched parent must render (not truncate after the
+///    first), so `default`, the `use` subroutine detail, and the trailing
+///    `offset` size all appear.
+/// 2. The `offset` pseudo-type must apply its comparison operator
+///    (`offset >48`) against the resolved position, not treat `>48` as
+///    message text.
+/// 3. `-0` must resolve to the EOF position (`buffer.len()`) via
+///    `FromEnd(0)`, so `>>-0 offset >48` gates on file length.
+/// 4. Continuation/child rules and `name`-block bodies must stay in FILE
+///    order (non-recursive strength sort), so the low-strength `default`
+///    is not suppressed by a higher-strength `offset` sibling sorted ahead
+///    of it, and the gzip-info detail fragments render in source order.
+///
+/// Verified byte-for-byte against `file -b` on real gzip files; this test
+/// pins a synthetic buffer so the parity survives without the system DB.
+/// Uses the default config (`stop_at_first_match: true`) deliberately, to
+/// prove children still render fully under first-match short-circuiting.
+#[test]
+fn test_gzip_multipart_description_end_to_end() {
+    let temp_dir = TempDir::new().unwrap();
+    let magic_path = temp_dir.path().join("gzip.magic");
+
+    let mut f = fs::File::create(&magic_path).unwrap();
+    // Minimal gzip shape mirroring /usr/share/file/magic/compress.
+    writeln!(f, r"0	string	\037\213").unwrap();
+    writeln!(f, r"# no FNAME/FCOMMENT bit -> binary gzip").unwrap();
+    writeln!(
+        f,
+        r"# (real rule masks with &0x18; a bare `byte 0` suffices here)"
+    )
+    .unwrap();
+    writeln!(f, r"# FLG byte at offset 3").unwrap();
+    writeln!(f, r">3	byte	0").unwrap();
+    writeln!(f, r">>10	default	x	gzip compressed data").unwrap();
+    writeln!(f, r">>>0	use	gzip-info").unwrap();
+    // -0 == EOF position; `offset >48` gates the trailing size on file length.
+    writeln!(f, r">>-0	offset	>48").unwrap();
+    writeln!(f, r">>>-4	ulelong	x	\b, original size modulo 2^32 %u").unwrap();
+    writeln!(f, r">>-0	offset	<48	\b, truncated").unwrap();
+    writeln!(f, r"0	name	gzip-info").unwrap();
+    writeln!(f, r">9	byte	3	\b, from Unix").unwrap();
+    drop(f);
+
+    let db = MagicDatabase::load_from_file(&magic_path).unwrap();
+
+    // 64-byte synthetic gzip: magic, CM=deflate, FLG=0, ..., OS=3 (Unix),
+    // trailing little-endian original-size = 1000 in the last 4 bytes.
+    let mut buf = vec![0u8; 64];
+    buf[0] = 0x1f;
+    buf[1] = 0x8b;
+    buf[2] = 0x08; // CM = deflate
+    buf[3] = 0x00; // FLG = 0
+    buf[9] = 0x03; // OS = Unix
+    buf[60] = 0xE8; // 1000 = 0x000003E8, little-endian in last 4 bytes
+    buf[61] = 0x03;
+
+    let result = db.evaluate_buffer(&buf).unwrap();
+    assert_eq!(
+        result.description, "gzip compressed data, from Unix, original size modulo 2^32 1000",
+        "all four fragments must render in file order; got {:?}",
+        result.description
+    );
+
+    // A short (< 48-byte) buffer must take the `<48` truncated branch, not
+    // the size branch -- proving the FromEnd(0)+comparison gate both ways.
+    let mut short = vec![0u8; 20];
+    short[0] = 0x1f;
+    short[1] = 0x8b;
+    short[9] = 0x03;
+    let short_result = db.evaluate_buffer(&short).unwrap();
+    assert!(
+        short_result.description.contains("truncated"),
+        "a <48-byte gzip must hit the `offset <48` truncated branch; got {:?}",
+        short_result.description
+    );
+    assert!(
+        !short_result.description.contains("original size"),
+        "the size branch must not fire for a truncated file; got {:?}",
+        short_result.description
+    );
+}

@@ -70,18 +70,71 @@ fn test_offset_out_of_bounds_graceful_skip() {
 }
 
 #[test]
-fn test_offset_non_x_operator_is_skipped() {
-    // magic(5) only allows `x` on an `offset` rule. Anything else is
-    // semantically undefined -> debug-log + skip.
-    let mut rule = offset_rule(0, "bogus", vec![]);
-    rule.op = Operator::Equal;
-    rule.value = Value::Uint(5);
-    let rules = vec![rule];
+fn test_offset_comparison_operator_gates_match() {
+    // The magic(5) `offset` pseudo-type compares the RESOLVED offset value
+    // against the operand. `offset =N` matches only when the resolved
+    // position equals N. Here the offset spec resolves to position 0, so
+    // `offset =5` must NOT match but `offset =0` must. (This replaced the
+    // earlier "non-x operator is skipped" contract: comparison operators on
+    // `offset` are now honored -- gzip's `>>-0 offset >48` depends on it.)
+    let mut miss = offset_rule(0, "no", vec![]);
+    miss.op = Operator::Equal;
+    miss.value = Value::Uint(5);
     let mut context = EvaluationContext::new(EvaluationConfig::default());
-    let matches = evaluate_rules(&rules, &[0u8; 4], &mut context).unwrap();
+    let matches = evaluate_rules(&[miss], &[0u8; 4], &mut context).unwrap();
     assert!(
         matches.is_empty(),
-        "offset rule with non-AnyValue operator must be skipped"
+        "offset =5 must not match when the resolved offset is 0"
+    );
+
+    let mut hit = offset_rule(0, "yes", vec![]);
+    hit.op = Operator::Equal;
+    hit.value = Value::Uint(0);
+    context.reset();
+    let matches = evaluate_rules(&[hit], &[0u8; 4], &mut context).unwrap();
+    assert_eq!(
+        matches.len(),
+        1,
+        "offset =0 must match at resolved offset 0"
+    );
+    assert_eq!(matches[0].message, "yes");
+}
+
+#[test]
+fn test_offset_from_end_zero_compares_against_file_size() {
+    // gzip's trailing-size gate: `>>-0 offset >48` reads the EOF position
+    // (`buffer.len()`, via FromEnd(0)) and compares it against 48. A file
+    // longer than 48 bytes matches `>48` (and its "original size" child
+    // renders); a shorter file matches the sibling `<48` "truncated" branch.
+    // This pins the -0 -> FromEnd(0) -> buffer.len() resolution together with
+    // the offset-comparison semantics.
+    let mut gt = offset_rule(0, "big", vec![byte_eq_rule(0, 0x00, "orig-size")]);
+    gt.offset = OffsetSpec::FromEnd(0);
+    gt.op = Operator::GreaterThan;
+    gt.value = Value::Uint(48);
+
+    let config = EvaluationConfig {
+        stop_at_first_match: false,
+        ..EvaluationConfig::default()
+    };
+
+    // 64-byte buffer > 48 -> matches, child renders.
+    let mut context = EvaluationContext::new(config.clone());
+    let matches = evaluate_rules(&[gt.clone()], &[0u8; 64], &mut context).unwrap();
+    assert_eq!(
+        matches.len(),
+        2,
+        "offset >48 matches a 64-byte file + child"
+    );
+    assert_eq!(matches[0].value, Value::Uint(64), "resolved offset is EOF");
+    assert_eq!(matches[1].message, "orig-size");
+
+    // 32-byte buffer < 48 -> no match.
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[gt], &[0u8; 32], &mut context).unwrap();
+    assert!(
+        matches.is_empty(),
+        "offset >48 must not match a 32-byte file"
     );
 }
 

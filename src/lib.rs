@@ -249,7 +249,15 @@ impl MagicDatabase {
     pub fn with_builtin_rules_and_config(config: EvaluationConfig) -> Result<Self> {
         config.validate()?;
         let mut rules = crate::builtin_rules::get_builtin_rules();
-        crate::evaluator::strength::sort_rules_by_strength_recursive(&mut rules);
+        // Sort only the TOP-LEVEL rules by strength (libmagic's
+        // `apprentice_sort` orders whole magic entries by their first line's
+        // strength). Continuation/child rules are NOT reordered -- they run
+        // in file order, which is load-bearing for order-sensitive directives
+        // like `default`/`clear` and for multi-fragment descriptions whose
+        // pieces must render in source order (e.g. gzip's "last modified,
+        // max compression, from Unix"). See the non-recursive contract note
+        // on `sort_rules_by_strength`.
+        crate::evaluator::strength::sort_rules_by_strength(&mut rules);
         let root_rules: std::sync::Arc<[MagicRule]> =
             std::sync::Arc::from(rules.into_boxed_slice());
         Ok(Self {
@@ -314,15 +322,20 @@ impl MagicDatabase {
         })?;
         let parser::ParsedMagic {
             mut rules,
-            mut name_table,
+            name_table,
         } = parsed;
-        crate::evaluator::strength::sort_rules_by_strength_recursive(&mut rules);
-        // Each named subroutine body must be sorted by the same strength
-        // ordering so evaluation of a `use` site is deterministic and
-        // matches the ordering applied to top-level rules.
-        name_table.sort_subroutines(|rules| {
-            crate::evaluator::strength::sort_rules_by_strength_recursive(rules);
-        });
+        // Sort only the TOP-LEVEL rules by strength, mirroring libmagic's
+        // `apprentice_sort` (which orders whole magic entries by their first
+        // line's strength and never reorders continuation lines). Child rules
+        // and `name`-block subroutine bodies stay in file order: they are
+        // continuation-level rules, and their order is load-bearing for
+        // `default`/`clear` firing and for multi-fragment descriptions that
+        // must render in source order (e.g. the `gzip-info` subroutine's
+        // "last modified, max compression, from Unix"). Strength-sorting them
+        // reorders a comparison-bearing sibling ahead of a low-strength
+        // `default`, wrongly suppressing the `default` message. See the
+        // non-recursive contract note on `sort_rules_by_strength`.
+        crate::evaluator::strength::sort_rules_by_strength(&mut rules);
 
         let root_rules: std::sync::Arc<[MagicRule]> =
             std::sync::Arc::from(rules.into_boxed_slice());
