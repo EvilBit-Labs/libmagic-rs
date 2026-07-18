@@ -125,7 +125,21 @@ pub fn read_string_exact(
             offset,
             buffer_len: buffer.len(),
         })?;
-    Ok(Value::String(bytes_to_string_fast(slice)))
+    // This path exists for BYTE-EXACT `string PATTERN` comparison (GOTCHAS
+    // S6.4), so it must not corrupt the read with lossy UTF-8 replacement.
+    // When the slice is valid UTF-8, return `Value::String` (so `%s` output on
+    // the matched value renders normally). When it is NOT -- e.g. a rule with a
+    // high-byte value like gzip's `0 string \037\213` (bytes 0x1f 0x8b, where
+    // 0x8b is invalid UTF-8) -- return the RAW bytes as `Value::Bytes` instead.
+    // A lossy `String` decode would turn 0x8b into U+FFFD (3 bytes 0xEF BF BD),
+    // which never equals the raw-byte pattern, so the rule would silently never
+    // match. `apply_equal` / `compare_values` compare `Bytes` and `String` by
+    // underlying byte sequence (GOTCHAS S2.3), so either variant compares
+    // correctly against a `String` or `Bytes` pattern operand.
+    match std::str::from_utf8(slice) {
+        Ok(valid) => Ok(Value::String(valid.to_string())),
+        Err(_) => Ok(Value::Bytes(slice.to_vec())),
+    }
 }
 
 /// Compare a magic-rule `pattern` against `buffer[offset..]` using libmagic

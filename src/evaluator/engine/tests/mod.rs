@@ -3641,6 +3641,42 @@ fn test_signed_masked_long_matches_macho_signature_end_to_end() {
     );
 }
 
+/// Regression (end-to-end): a `string` rule whose value contains a byte
+/// `>= 0x80` (invalid UTF-8) must still match the raw file bytes. The gzip
+/// signature `0 string \037\213` (bytes 0x1f 0x8b, `\213` = octal 0x8b) used
+/// to silently never match: `read_string_exact` decoded the file bytes via
+/// lossy UTF-8, turning 0x8b into U+FFFD, which never equalled the raw-byte
+/// pattern -- so gzip (and any high-byte string signature) classified as
+/// `data`. `read_string_exact` now returns the raw bytes as `Value::Bytes`
+/// for non-UTF-8 slices; `apply_equal` compares Bytes/String by byte sequence.
+#[test]
+fn test_string_rule_with_high_byte_value_matches_raw_bytes_end_to_end() {
+    use crate::parser::grammar::parse_magic_rule;
+
+    // gzip magic: 0x1f 0x8b via octal escapes.
+    let (_, rule) = parse_magic_rule("0\tstring\t\\037\\213\tgzip compressed data")
+        .expect("gzip magic rule must parse");
+    let buffer = [0x1f_u8, 0x8b, 0x08, 0x00]; // real gzip header prefix
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches =
+        evaluate_rules(&[rule], &buffer, &mut context).expect("evaluation must not error");
+    assert!(
+        matches.iter().any(|m| m.message.contains("gzip")),
+        "a high-byte string value must match the raw file bytes, got: {matches:?}"
+    );
+
+    // Negative control: a buffer without the signature must not match.
+    let (_, rule2) =
+        parse_magic_rule("0\tstring\t\\037\\213\tgzip compressed data").expect("rule must parse");
+    let other = [0x1f_u8, 0x9d, 0x00, 0x00]; // 0x1f 0x9d is compress(1), not gzip
+    let mut ctx2 = EvaluationContext::new(EvaluationConfig::default());
+    let none = evaluate_rules(&[rule2], &other, &mut ctx2).expect("evaluation must not error");
+    assert!(
+        !none.iter().any(|m| m.message.contains("gzip")),
+        "a non-gzip high byte must not match the gzip signature"
+    );
+}
+
 // Flagged-string engine dispatch tests are split into
 // `string_flags_dispatch_tests.rs` (see the submodule declaration at the
 // bottom of this file). They cover the engine routing layer; lower-level
