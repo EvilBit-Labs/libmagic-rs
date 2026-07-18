@@ -9,6 +9,19 @@
 use super::preprocessing::{LineInfo, parse_magic_rule_line};
 use crate::error::ParseError;
 use crate::parser::ast::MagicRule;
+use log::warn;
+
+/// Count the leading `>`-continuation markers on a magic-rule line, i.e. its
+/// nesting level, without fully parsing the rule. Used to drop the subtree of
+/// a line that failed to parse (its deeper-indented descendants), so an
+/// orphaned child cannot silently re-attach to the wrong parent.
+fn leading_indent_level(content: &str) -> usize {
+    content
+        .trim_start()
+        .bytes()
+        .take_while(|&b| b == b'>')
+        .count()
+}
 
 /// Builds a hierarchical structure from a flat list of parsed magic rules.
 ///
@@ -39,6 +52,27 @@ use crate::parser::ast::MagicRule;
 /// - Any line contains invalid magic rule syntax
 /// - Rule parsing fails (propagated from `parse_magic_rule_line`)
 pub(crate) fn build_rule_hierarchy(lines: Vec<LineInfo>) -> Result<Vec<MagicRule>, ParseError> {
+    build_rule_hierarchy_impl(lines, false)
+}
+
+/// Line-tolerant variant of [`build_rule_hierarchy`] for the **runtime**
+/// loader: an unparseable rule (and its subtree) is skipped with a warning
+/// instead of aborting the whole file, matching GNU `file`. This lets a real
+/// system magic file that contains a construct this parser cannot yet handle
+/// (e.g. the `compress` file's one `ustring` XZ rule) still contribute its
+/// other rules (gzip, bzip2, ...). The strict [`build_rule_hierarchy`] is kept
+/// for build-time codegen of the crate's own builtin rules, where a malformed
+/// rule should fail the build. See GOTCHAS S3.11.
+pub(crate) fn build_rule_hierarchy_tolerant(
+    lines: Vec<LineInfo>,
+) -> Result<Vec<MagicRule>, ParseError> {
+    build_rule_hierarchy_impl(lines, true)
+}
+
+fn build_rule_hierarchy_impl(
+    lines: Vec<LineInfo>,
+    tolerant: bool,
+) -> Result<Vec<MagicRule>, ParseError> {
     /// Helper to pop a rule from the stack and attach it to its parent or roots
     fn pop_and_attach(stack: &mut Vec<MagicRule>, roots: &mut Vec<MagicRule>) {
         if let Some(completed) = stack.pop() {
@@ -53,10 +87,24 @@ pub(crate) fn build_rule_hierarchy(lines: Vec<LineInfo>) -> Result<Vec<MagicRule
     let mut stack: Vec<MagicRule> = Vec::new();
     let mut roots: Vec<MagicRule> = Vec::new();
     let mut pending_strength: Option<crate::parser::ast::StrengthModifier> = None;
+    // When a rule line fails to parse we skip it AND its deeper-indented
+    // descendants (the subtree it heads), tracked by this level threshold.
+    let mut skip_subtree_deeper_than: Option<usize> = None;
 
     for line in lines {
         if line.is_comment {
             continue;
+        }
+
+        // Drop the descendants of a rule that failed to parse: any line more
+        // deeply nested than the failed line belongs to its subtree.
+        if let Some(threshold) = skip_subtree_deeper_than {
+            if leading_indent_level(&line.content) > threshold {
+                continue;
+            }
+            // Back at the failed line's level (a sibling) or shallower --
+            // resume normal processing.
+            skip_subtree_deeper_than = None;
         }
 
         // Handle strength directive: store modifier for next rule
@@ -65,7 +113,31 @@ pub(crate) fn build_rule_hierarchy(lines: Vec<LineInfo>) -> Result<Vec<MagicRule
             continue;
         }
 
-        let mut rule = parse_magic_rule_line(&line)?;
+        // Line-tolerant parsing (matches GNU `file`): a single unparseable rule
+        // no longer aborts the whole file. Skip the offending rule and its
+        // subtree with a warning, keeping the rest of the file's rules -- so a
+        // file like `compress` (whose one `ustring` XZ rule this parser cannot
+        // yet handle) still contributes its gzip/bzip2 detection instead of
+        // being dropped entirely. See GOTCHAS S3.11.
+        let mut rule = match parse_magic_rule_line(&line) {
+            Ok(rule) => rule,
+            Err(err) => {
+                if !tolerant {
+                    // Strict mode (build-time codegen): a malformed rule fails.
+                    return Err(err);
+                }
+                let preview: String = line.content.chars().take(80).collect();
+                warn!(
+                    "skipping unparseable magic rule at line {}: {err} (rule: {preview:?})",
+                    line.line_number
+                );
+                // The failed line's subtree is meaningless without it, and an
+                // orphaned strength directive must not leak onto a later rule.
+                skip_subtree_deeper_than = Some(leading_indent_level(&line.content));
+                pending_strength = None;
+                continue;
+            }
+        };
 
         // Apply pending strength modifier to this rule
         if pending_strength.is_some() {

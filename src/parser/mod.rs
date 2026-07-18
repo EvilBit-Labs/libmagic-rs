@@ -222,6 +222,25 @@ pub fn parse_text_magic_file(input: &str) -> Result<ParsedMagic, ParseError> {
     Ok(ParsedMagic { rules, name_table })
 }
 
+/// Line-tolerant variant of [`parse_text_magic_file`] for **runtime** loading
+/// of external magic files/directories.
+///
+/// Unlike [`parse_text_magic_file`] (which is fail-fast, so the crate's own
+/// build-time codegen rejects a malformed builtin rule), this skips an
+/// unparseable rule and its subtree with a `warn!` and keeps the rest of the
+/// file -- matching GNU `file`. Real system magic databases routinely mix
+/// rules this parser fully supports with a handful using constructs it does
+/// not yet handle (`guid`, `der`, middle-endian dates, some indirect-offset
+/// forms); without tolerance, one such rule would drop the entire file --
+/// e.g. losing all of `compress`'s gzip/bzip2 detection over its lone `ustring`
+/// XZ rule. See GOTCHAS S3.11.
+pub(crate) fn parse_text_magic_file_tolerant(input: &str) -> Result<ParsedMagic, ParseError> {
+    let lines = preprocess_lines(input)?;
+    let rules = hierarchy::build_rule_hierarchy_tolerant(lines)?;
+    let (rules, name_table) = name_table::extract_name_table(rules);
+    Ok(ParsedMagic { rules, name_table })
+}
+
 #[cfg(test)]
 mod unit_tests {
     use super::*;

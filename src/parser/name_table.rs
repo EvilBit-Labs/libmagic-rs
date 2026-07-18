@@ -41,6 +41,12 @@ impl NameTable {
         }
     }
 
+    /// Returns `true` if the table holds no named subroutines.
+    #[must_use]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
     /// Look up a subroutine's rule list by name.
     ///
     /// Returns an `Arc` reference so callers can clone it cheaply (reference
