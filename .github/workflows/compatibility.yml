@@ -17,7 +17,12 @@ jobs:
     compatibility-tests:
         name: Compatibility Tests (${{ matrix.os }})
         runs-on: ${{ matrix.os }}
-        timeout-minutes: 20
+        # 30m (matching benchmarks.yml) because the `cargo build --release`
+        # step on the windows-latest runner alone routinely approaches 20m on a
+        # cold dependency cache; the compatibility test itself runs in <1s. The
+        # fast Linux/macOS legs finish in ~10m, so the higher ceiling only ever
+        # affects the slow Windows leg. See PR #376.
+        timeout-minutes: 30
 
         strategy:
             fail-fast: false
