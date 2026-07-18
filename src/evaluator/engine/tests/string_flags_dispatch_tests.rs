@@ -99,19 +99,46 @@ fn test_flagged_string_not_equal_inverts_match() {
 }
 
 #[test]
-fn test_flagged_string_ordering_operator_is_rejected() {
-    // Same contract as regex/search: only Equal/NotEqual are allowed on
-    // pattern-bearing rules. GreaterThan must surface as EvaluationError.
+fn test_flagged_string_ordering_operator_uses_lexicographic_value_path() {
+    // An ORDERING operator on a flagged string is a lexicographic comparison,
+    // not a pattern match, so it routes to the value path (like an unflagged
+    // `string >VALUE`) instead of the equality-only pattern-bearing path.
+    // This is the ubiquitous `string/t >\0` / `string/b >\0` "there is
+    // non-empty text here, print it with %s" idiom (varied.script, sgml,
+    // linux, ...). Routing it to the pattern path made it a fatal
+    // `UnsupportedType` that aborted the ENTIRE file's evaluation -- e.g.
+    // `rmagic` used to error out on a Bourne-Again shell script. The `/t`/`/b`
+    // flags are MIME-output hints with no ordering effect. (Case-fold flags
+    // like `/c` are also not applied to ordering, but such rules do not occur
+    // in real magic files; the value path's byte-lexicographic compare is the
+    // correct behavior for the flags that actually pair with `<`/`>`.)
     let rule = make_flagged_string_rule(
-        "foo",
-        StringFlags::default().with_ignore_lowercase(true),
+        "\0",
+        StringFlags::default().with_text_test(true),
         Operator::GreaterThan,
     );
     let mut context = EvaluationContext::new(EvaluationConfig::default());
-    let result = evaluate_single_rule(&rule, b"FOObar", &mut context);
+    let matches = evaluate_rules(&[rule], b"FOObar", &mut context)
+        .expect("ordering operator on a flagged string must not fatally abort");
+    assert_eq!(
+        matches.len(),
+        1,
+        "a non-empty string is lexicographically greater than the null byte"
+    );
+
+    // Negative control: an empty buffer has no string > \\0, so no match --
+    // and still no abort.
+    let rule2 = make_flagged_string_rule(
+        "\0",
+        StringFlags::default().with_text_test(true),
+        Operator::GreaterThan,
+    );
+    let mut ctx2 = EvaluationContext::new(EvaluationConfig::default());
+    let empty = evaluate_rules(&[rule2], b"", &mut ctx2)
+        .expect("ordering operator must not abort even on an empty buffer");
     assert!(
-        matches!(result, Err(LibmagicError::EvaluationError(_))),
-        "expected EvaluationError for ordering operator on flagged string"
+        empty.is_empty(),
+        "no string is present in an empty buffer, so `>\\0` must not match"
     );
 }
 

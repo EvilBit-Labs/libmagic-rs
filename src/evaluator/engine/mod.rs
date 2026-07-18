@@ -260,10 +260,24 @@ fn evaluate_single_rule_with_anchor(
         }
         // Flagged `string` rules route through the pattern-bearing path
         // (see GOTCHAS S2.4 for the contract) so `compare_string_with_flags`
-        // can do the case-fold / whitespace-flexible match in one pass.
-        // Default-flag strings (the common case) take the existing
-        // value-rule fast path with byte-exact `apply_equal`.
-        TypeKind::String { flags, .. } if !flags.is_empty() => {
+        // can do the case-fold / whitespace-flexible match in one pass --
+        // but ONLY for the equality operators the pattern path supports.
+        // An ORDERING operator on a flagged string (e.g. the ubiquitous
+        // `string/t >\0` / `string/b >\0` "non-empty text here, print it with
+        // %s" idiom in `varied.script`, `sgml`, `linux`, ...) is a
+        // lexicographic comparison, not a pattern match; routing it to the
+        // pattern path made it a fatal `UnsupportedType` abort that killed the
+        // whole file's evaluation. The `/t`/`/b` flags are MIME-output hints
+        // with no comparison effect, so such a rule behaves like an unflagged
+        // `string >VALUE` and belongs on the value path. Default-flag strings
+        // (the common case) also take that value-rule fast path.
+        TypeKind::String { flags, .. }
+            if !flags.is_empty()
+                && matches!(
+                    rule.op,
+                    crate::parser::ast::Operator::Equal | crate::parser::ast::Operator::NotEqual
+                ) =>
+        {
             evaluate_pattern_rule(rule, buffer, absolute_offset, max_string_length)?
         }
         _ => evaluate_value_rule(rule, buffer, absolute_offset, max_string_length)?,
