@@ -1289,6 +1289,22 @@ fn parse_bare_string_value(input: &str) -> IResult<&str, Value> {
             break;
         }
         if ch == '\\' {
+            // magic(5) `\ ` (backslash-space): a literal space byte that does
+            // NOT terminate the bareword token. Handled before the other
+            // escape forms because `parse_escape_sequence` does not cover it,
+            // and the lone-backslash fallback below would keep the `\` and
+            // then break at the following space (line "ch.is_whitespace()")
+            // -- truncating e.g. the search pattern `%\ -*-latex-*-` down to
+            // `%`, which false-matches almost any binary (a `%` byte appears
+            // in nearly every file, so `search "%"` mislabels gzip/JPEG/etc.
+            // as "LaTeX document text"). GNU `file`'s getstr resolves `\ ` to
+            // a bare space the same way. `\` and ` ` are both ASCII, so the
+            // 2-byte advance stays on a char boundary.
+            if remaining.as_bytes().get(1) == Some(&b' ') {
+                bytes.push(b' ');
+                remaining = &remaining[2..];
+                continue;
+            }
             // Try a hex byte (`\xNN`) first since `parse_escape_sequence`
             // doesn't recognise it.
             if let Ok((rest, b)) = value::parse_hex_byte_with_prefix(remaining) {

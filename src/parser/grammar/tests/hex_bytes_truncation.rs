@@ -203,3 +203,48 @@ fn search_rule_with_malformed_hex_lookalike_literal_matches_buffer_containing_it
         "a buffer containing only the truncated 1-byte prefix must not match, got {no_match:?}"
     );
 }
+
+#[test]
+fn bareword_escaped_space_does_not_truncate_the_token() {
+    // magic(5) `\ ` (backslash-space) is a literal space that must NOT
+    // terminate a bareword string/search value. The real GNU `file` `tex`
+    // rule `0 search/4096 %\ -*-latex-*- LaTeX document text` must parse
+    // with the FULL 13-byte pattern "% -*-latex-*-" as the value and
+    // "LaTeX document text" as the message. Before the fix the token
+    // truncated at the escaped space to "%", turning the rule into
+    // `search "%"` -- which false-matches nearly any binary (a `%` byte
+    // appears in almost every file), mislabeling gzip/JPEG/etc. as LaTeX.
+    let input = r"0 search/4096 %\ -*-latex-*- LaTeX document text";
+    let (remaining, rule) = parse_magic_rule(input).expect(input);
+    assert_eq!(remaining, "");
+    assert_eq!(
+        rule.value,
+        Value::String("% -*-latex-*-".to_string()),
+        "the escaped space must be a literal space inside the value, not a token terminator"
+    );
+    assert_eq!(rule.message, "LaTeX document text");
+
+    // Match correctness: the rule must fire ONLY when the full literal is
+    // present, and must NOT fire on a buffer that merely contains a `%`.
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let hit = evaluate_rules(
+        std::slice::from_ref(&rule),
+        b"junk % -*-latex-*- more",
+        &mut context,
+    )
+    .expect("evaluation must not error");
+    assert_eq!(hit.len(), 1, "must match when the full pattern is present");
+    assert_eq!(hit[0].message, "LaTeX document text");
+
+    context.reset();
+    let miss = evaluate_rules(
+        std::slice::from_ref(&rule),
+        b"100% binary \x1f\x8b data with a percent",
+        &mut context,
+    )
+    .expect("evaluation must not error");
+    assert!(
+        miss.is_empty(),
+        "a buffer with a bare `%` (but not the full pattern) must NOT match, got {miss:?}"
+    );
+}
