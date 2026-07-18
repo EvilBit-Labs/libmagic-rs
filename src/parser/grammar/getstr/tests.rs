@@ -61,6 +61,17 @@ fn getstr_resolver_content_fidelity_table() {
         // word-boundary meaning is never triggered -- no `\xHH`
         // re-encoding is needed since 0x08 < 0x80.
         (r"\b", "\x08"),
+        // Remaining named control escapes (getstr `case 'a'`/`'f'`/`'n'`/
+        // `'r'`/`'v'`) completing the coverage `\t`/`\b` started above --
+        // each is a distinct match arm in `resolve_getstr_escape`'s
+        // `named_byte` table (getstr/mod.rs ~L155-164); a transposition
+        // between any two of these bytes (e.g. `\n`<->`\r`) must fail its
+        // own row rather than being masked by only testing two of seven.
+        (r"\a", "\x07"),
+        (r"\f", "\x0C"),
+        (r"\n", "\n"),
+        (r"\r", "\r"),
+        (r"\v", "\x0B"),
     ];
 
     for &(input, expected) in cases {
@@ -120,6 +131,81 @@ fn getstr_resolver_stops_at_unescaped_whitespace() {
 fn getstr_resolver_rejects_empty_or_whitespace_only_input() {
     assert!(parse_regex_getstr_value("").is_err());
     assert!(parse_regex_getstr_value("   ").is_err());
+}
+
+/// R2/highest-value coverage gap: a pattern that resolves to NOTHING at
+/// all -- a lone trailing backslash with no character following it (an
+/// incomplete escape, getstr's `case '\0': ... goto out;`, getstr/mod.rs
+/// ~L123-127) -- must hit the `resolved.is_empty()` -> `Err` path
+/// (~L135-139), not silently succeed with an empty pattern. An empty
+/// `Value::String("")` regex pattern would compile (the empty regex
+/// matches everything, zero-width) and every rule using it would
+/// "succeed" nonsensically instead of being rejected at parse time. This
+/// is exactly the class of fatal-abort-turned-silent-wrong-answer bug
+/// this PR exists to close: a graceful `Err` here is the correct,
+/// desired outcome, not a bug.
+#[test]
+fn getstr_resolver_rejects_lone_trailing_backslash_incomplete_escape() {
+    let result = parse_regex_getstr_value("\\");
+    assert!(
+        result.is_err(),
+        "a lone trailing backslash with nothing following it must be rejected \
+         (incomplete escape resolves to zero characters), got {result:?}"
+    );
+}
+
+/// End-to-end guard for the same condition through the full
+/// `parse_magic_rule` pipeline (`grammar/mod.rs` ~L1198-1201): when the
+/// getstr resolver rejects a bareword regex pattern, `parse_magic_rule`
+/// does NOT propagate that error unconditionally -- it retries via
+/// `parse_value(input).map_err(|_| orig_err)?`, using `orig_err` (the
+/// getstr failure) only if the fallback ALSO fails.
+///
+/// For a lone trailing backslash specifically, this test confirms
+/// (empirically, not by assumption) that the fallback SUCCEEDS: a bare
+/// `\` with nothing following is captured by `parse_value`'s
+/// hex/mixed-ascii branch as a single raw byte (`Value::Bytes([0x5c])`),
+/// exactly like the analogous `search` cross-wiring guard above
+/// (`parse_magic_rule_search_with_same_escaped_pattern_is_unaffected`).
+/// The overall pipeline is therefore graceful in the strongest sense --
+/// it recovers to a well-formed `Ok` rule rather than needing to fall
+/// back to an `Err` -- and, critically, it never panics.
+#[test]
+fn parse_magic_rule_regex_lone_trailing_backslash_pattern_recovers_via_value_fallback() {
+    let input = "0 regex \\";
+    let (remaining, rule) = parse_magic_rule(input)
+        .expect("the parse_value fallback must recover a bare trailing backslash gracefully");
+    assert_eq!(remaining, "");
+    assert!(matches!(rule.typ, TypeKind::Regex { .. }));
+    assert_eq!(
+        rule.value,
+        Value::Bytes(vec![0x5c]),
+        "parse_value's hex/mixed-ascii fallback captures the lone backslash as a raw byte"
+    );
+}
+
+/// A genuinely-Err round trip: when the value token is truly EMPTY (no
+/// pattern at all follows the `regex` keyword -- not even a lone
+/// backslash), BOTH the getstr resolver (`input.is_empty()` guard,
+/// getstr/mod.rs ~L104) AND the `parse_value` fallback (`parse_value`'s
+/// own explicit empty-input check, `grammar/value.rs` ~L366-371) reject
+/// it, so `parse_magic_rule` has no recovery path and returns `Err`
+/// gracefully -- never a panic.
+///
+/// Per GOTCHAS S3.11, `parse_text_magic_file` is fail-fast: in a real
+/// magic file, a single rule like this would abort the WHOLE file load
+/// rather than being skipped. This test only pins that the failure mode
+/// at the single-rule parser level is a clean `Err`; it does not claim
+/// any file-level skip-and-continue behavior exists (it does not).
+#[test]
+fn parse_magic_rule_regex_empty_pattern_errs_gracefully() {
+    let input = "0 regex ";
+    let result = parse_magic_rule(input);
+    assert!(
+        result.is_err(),
+        "a regex rule with a completely empty value token must be rejected \
+         gracefully (Err), never panic: got {result:?}"
+    );
 }
 
 // ---------------------------------------------------------------------

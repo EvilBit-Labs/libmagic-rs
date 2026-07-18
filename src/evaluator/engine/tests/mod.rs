@@ -2921,6 +2921,389 @@ fn test_buffer_overrun_still_skipped_after_pattern_operand_guard_added() {
     );
 }
 
+// -----------------------------------------------------------------------
+// C2 hardening: the missing-pattern-operand skip is asserted end-to-end
+// only for `Regex` above. `Search` and flagged `String` share the SAME
+// allowlisted consts (`types::SEARCH_MISSING_PATTERN_MSG` /
+// `types::FLAGGED_STRING_MISSING_PATTERN_MSG`) and the same three engine
+// catch sites, so this closes R2 for every pattern-bearing type and
+// guards the C1 const extraction against silent drift.
+// -----------------------------------------------------------------------
+
+/// Builds a `TypeKind::Search` rule whose `value` is `Value::Uint(0)` --
+/// neither `Value::String` nor `Value::Bytes` -- so `read_pattern_match`
+/// always returns `Err(UnsupportedType { type_name:
+/// SEARCH_MISSING_PATTERN_MSG })`.
+fn broken_pattern_search_rule(message: &str, level: u32) -> MagicRule {
+    MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Search {
+            range: ::std::num::NonZeroUsize::new(16).unwrap(),
+            flags: SearchFlags::default(),
+        },
+        op: Operator::Equal,
+        value: Value::Uint(0),
+        message: message.to_string(),
+        children: vec![],
+        level,
+        strength_modifier: None,
+        value_transform: None,
+    }
+}
+
+/// Builds a flagged `TypeKind::String` rule (non-empty `flags`, routing
+/// through the pattern-bearing path per GOTCHAS S2.4) whose `value` is
+/// `Value::Uint(0)`, so `read_pattern_match` always returns
+/// `Err(UnsupportedType { type_name: FLAGGED_STRING_MISSING_PATTERN_MSG })`.
+fn broken_pattern_flagged_string_rule(message: &str, level: u32) -> MagicRule {
+    MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::String {
+            max_length: None,
+            flags: StringFlags {
+                ignore_lowercase: true,
+                ..StringFlags::default()
+            },
+        },
+        op: Operator::Equal,
+        value: Value::Uint(0),
+        message: message.to_string(),
+        children: vec![],
+        level,
+        strength_modifier: None,
+        value_transform: None,
+    }
+}
+
+/// Top-level site: a pattern-less `search` rule is skipped, not fatal.
+#[test]
+fn test_pattern_operand_skip_at_top_level_site_search() {
+    let broken = broken_pattern_search_rule("broken top-level search", 0);
+    let sibling = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'a')),
+        message: "leading a".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context =
+        EvaluationContext::new(EvaluationConfig::default().with_stop_at_first_match(false));
+    let matches = evaluate_rules(&[broken, sibling], b"abc", &mut context)
+        .expect("top-level pattern-less search must be skipped, not fatal");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the sibling match, got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "leading a");
+}
+
+/// Child-recursion site: a pattern-less `search` rule under a matched
+/// parent must not abort the parent's match.
+#[test]
+fn test_pattern_operand_skip_under_matched_parent_child_recursion_site_search() {
+    let broken_child = broken_pattern_search_rule("broken child search", 1);
+    let parent = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'a')),
+        message: "parent byte".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[parent], b"abc", &mut context)
+        .expect("a broken child search must not abort evaluation of the parent");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the parent match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "parent byte");
+}
+
+/// `evaluate_children_or_warn` site: a pattern-less `search` rule as a
+/// child of `default` must not abort the `default` match.
+#[test]
+fn test_pattern_operand_skip_under_default_children_or_warn_site_search() {
+    let broken_child = broken_pattern_search_rule("broken default child search", 1);
+    let default_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Meta(MetaType::Default),
+        op: Operator::AnyValue,
+        value: Value::Uint(0),
+        message: "default fallback".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[default_rule], b"anything", &mut context)
+        .expect("a broken child search under `default` must not abort evaluation");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the default match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "default fallback");
+}
+
+/// Top-level site: a pattern-less flagged `string` rule is skipped, not
+/// fatal.
+#[test]
+fn test_pattern_operand_skip_at_top_level_site_flagged_string() {
+    let broken = broken_pattern_flagged_string_rule("broken top-level flagged string", 0);
+    let sibling = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'a')),
+        message: "leading a".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context =
+        EvaluationContext::new(EvaluationConfig::default().with_stop_at_first_match(false));
+    let matches = evaluate_rules(&[broken, sibling], b"abc", &mut context)
+        .expect("top-level pattern-less flagged string must be skipped, not fatal");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the sibling match, got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "leading a");
+}
+
+/// Child-recursion site: a pattern-less flagged `string` rule under a
+/// matched parent must not abort the parent's match.
+#[test]
+fn test_pattern_operand_skip_under_matched_parent_child_recursion_site_flagged_string() {
+    let broken_child = broken_pattern_flagged_string_rule("broken child flagged string", 1);
+    let parent = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'a')),
+        message: "parent byte".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[parent], b"abc", &mut context)
+        .expect("a broken child flagged string must not abort evaluation of the parent");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the parent match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "parent byte");
+}
+
+/// `evaluate_children_or_warn` site: a pattern-less flagged `string` rule
+/// as a child of `default` must not abort the `default` match.
+#[test]
+fn test_pattern_operand_skip_under_default_children_or_warn_site_flagged_string() {
+    let broken_child = broken_pattern_flagged_string_rule("broken default child flagged string", 1);
+    let default_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Meta(MetaType::Default),
+        op: Operator::AnyValue,
+        value: Value::Uint(0),
+        message: "default fallback".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[default_rule], b"anything", &mut context)
+        .expect("a broken child flagged string under `default` must not abort evaluation");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the default match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "default fallback");
+}
+
+// -----------------------------------------------------------------------
+// E hardening: the compile-failure (warn!) skip is proven end-to-end only
+// at the top-level dispatch site above
+// (`test_pathological_regex_compile_failure_is_skipped_not_fatal`). Add
+// the two missing sites for 3-site parity with the missing-pattern
+// (debug!) coverage.
+// -----------------------------------------------------------------------
+
+/// Builds a `TypeKind::Regex` rule whose pattern is syntactically valid
+/// (`Value::String`, so U1's `Value::Bytes` backstop is irrelevant here)
+/// but rejected by the `REGEX_COMPILE_SIZE_LIMIT` (1 MiB) CWE-1333
+/// denial-of-service guard at compile time.
+fn pathological_regex_rule(message: &str, level: u32) -> MagicRule {
+    MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Regex {
+            flags: crate::parser::ast::RegexFlags::default(),
+            count: crate::parser::ast::RegexCount::Default,
+        },
+        op: Operator::Equal,
+        value: Value::String("a{1000000}".to_string()),
+        message: message.to_string(),
+        children: vec![],
+        level,
+        strength_modifier: None,
+        value_transform: None,
+    }
+}
+
+/// Child-recursion site: a regex compile-size rejection under a matched
+/// parent must not abort the parent's match.
+#[test]
+fn test_pathological_regex_compile_failure_skipped_under_matched_parent_child_recursion_site() {
+    let broken_child = pathological_regex_rule("broken compile child regex", 1);
+    let parent = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'a')),
+        message: "parent byte".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[parent], b"aaaa", &mut context)
+        .expect("a regex compile-size rejection under a matched parent must not abort evaluation");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the parent match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "parent byte");
+}
+
+/// `evaluate_children_or_warn` site: a regex compile-size rejection as a
+/// child of `default` must not abort the `default` match.
+#[test]
+fn test_pathological_regex_compile_failure_skipped_under_default_children_or_warn_site() {
+    let broken_child = pathological_regex_rule("broken compile default child regex", 1);
+    let default_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Meta(MetaType::Default),
+        op: Operator::AnyValue,
+        value: Value::Uint(0),
+        message: "default fallback".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[default_rule], b"aaaa", &mut context)
+        .expect("a regex compile-size rejection under default children must not abort evaluation");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the default match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "default fallback");
+}
+
+// -----------------------------------------------------------------------
+// H hardening: pin the debug!/warn! log-level contract with a real
+// log-capture seam (`testing_logger`, which captures the `log` facade
+// this crate uses -- not `tracing`). Previously these contracts were
+// asserted by code inspection only.
+// -----------------------------------------------------------------------
+
+/// Test-only helper: `testing_logger::CapturedLog` does not implement
+/// `Debug`, so format captured logs manually for failure messages.
+fn format_logs(logs: &[testing_logger::CapturedLog]) -> String {
+    logs.iter()
+        .map(|l| format!("{:?}: {}", l.level, l.body))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The ordinary missing-pattern-operand skip (top-level site) logs at
+/// `debug!`, not `warn!` -- it is an expected, low-severity data
+/// condition, not a security-relevant signal.
+#[test]
+fn test_missing_pattern_operand_skip_logs_at_debug_level() {
+    testing_logger::setup();
+    let rule = broken_pattern_regex_rule("broken top-level regex", 0);
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[rule], b"anything to scan", &mut context)
+        .expect("pattern-less regex must be skipped, not fatal");
+    assert!(matches.is_empty());
+    testing_logger::validate(|captured_logs| {
+        let skip_logs: Vec<_> = captured_logs
+            .iter()
+            .filter(|l| l.body.contains("Skipping top-level rule"))
+            .collect();
+        assert_eq!(
+            skip_logs.len(),
+            1,
+            "expected exactly one skip log entry, got {:?}",
+            format_logs(captured_logs)
+        );
+        assert_eq!(
+            skip_logs[0].level,
+            log::Level::Debug,
+            "missing-pattern-operand skip must log at debug!, not warn! -- \
+             got {:?}: {:?}",
+            skip_logs[0].level,
+            skip_logs[0].body
+        );
+    });
+}
+
+/// A regex compile-size rejection (`REGEX_COMPILE_SIZE_LIMIT`,
+/// CWE-1333) logs at `warn!`, not `debug!` -- a malicious or pathological
+/// magic file's rejection must stay visible in logs even though
+/// evaluation of the rest of the file continues.
+#[test]
+fn test_regex_compile_failure_skip_logs_at_warn_level() {
+    testing_logger::setup();
+    let rule = pathological_regex_rule("pathological regex", 0);
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[rule], b"aaaa", &mut context)
+        .expect("a regex compile-size rejection must be skipped, not fatal");
+    assert!(matches.is_empty());
+    testing_logger::validate(|captured_logs| {
+        let skip_logs: Vec<_> = captured_logs
+            .iter()
+            .filter(|l| l.body.contains("regex compile failure"))
+            .collect();
+        assert_eq!(
+            skip_logs.len(),
+            1,
+            "expected exactly one compile-failure log entry, got {:?}",
+            format_logs(captured_logs)
+        );
+        assert_eq!(
+            skip_logs[0].level,
+            log::Level::Warn,
+            "regex compile-failure skip must log at warn!, not debug! -- \
+             got {:?}: {:?}",
+            skip_logs[0].level,
+            skip_logs[0].body
+        );
+    });
+}
+
 /// A child rule with `OffsetSpec::Relative(0)` after a parent search match
 /// must land at `match_index + pattern.len()` — NOT at `window_end` (the
 /// pre-fix window-size advance would land on a completely different byte).

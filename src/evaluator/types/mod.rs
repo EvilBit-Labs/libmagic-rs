@@ -101,6 +101,27 @@ pub enum TypeReadError {
     },
 }
 
+/// Diagnostic string for `TypeKind::Regex` evaluated without a usable
+/// `String`/`Bytes` pattern operand. Shared by every construction site
+/// (`read_typed_value_with_pattern` and `read_pattern_match`'s `Regex`
+/// arms) AND [`is_missing_pattern_operand`], so the two can never drift
+/// out of sync (a hardening item from the multi-agent review of the
+/// fix-system-magic-regex-graceful PR: the message previously existed as
+/// five independent string-literal copies across the two construction
+/// sites and the predicate).
+pub(crate) const REGEX_MISSING_PATTERN_MSG: &str = "regex without string pattern";
+
+/// Diagnostic string for `TypeKind::Search` evaluated without a usable
+/// `String`/`Bytes` pattern operand. See [`REGEX_MISSING_PATTERN_MSG`] for
+/// the single-source-of-truth rationale.
+pub(crate) const SEARCH_MISSING_PATTERN_MSG: &str = "search without string/bytes pattern";
+
+/// Diagnostic string for a flagged `TypeKind::String` evaluated without a
+/// usable `String`/`Bytes` pattern operand. See
+/// [`REGEX_MISSING_PATTERN_MSG`] for the single-source-of-truth rationale.
+pub(crate) const FLAGGED_STRING_MISSING_PATTERN_MSG: &str =
+    "string with flags requires string/bytes pattern";
+
 /// Returns `true` if `type_name` (the free-form diagnostic string carried by
 /// [`TypeReadError::UnsupportedType`]) describes a pattern-bearing type
 /// (`Regex`, `Search`, or a flagged `String`) that was evaluated without a
@@ -118,9 +139,7 @@ pub enum TypeReadError {
 pub(crate) fn is_missing_pattern_operand(type_name: &str) -> bool {
     matches!(
         type_name,
-        "regex without string pattern"
-            | "search without string/bytes pattern"
-            | "string with flags requires string/bytes pattern"
+        REGEX_MISSING_PATTERN_MSG | SEARCH_MISSING_PATTERN_MSG | FLAGGED_STRING_MISSING_PATTERN_MSG
     )
 }
 
@@ -321,7 +340,7 @@ pub(crate) fn read_typed_value_with_pattern(
                 Some(Value::Bytes(b)) => Cow::Owned(decode_regex_bytes_pattern(b)),
                 _ => {
                     return Err(TypeReadError::UnsupportedType {
-                        type_name: "regex without string pattern".to_string(),
+                        type_name: REGEX_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };
@@ -339,7 +358,7 @@ pub(crate) fn read_typed_value_with_pattern(
                 Some(Value::Bytes(b)) => b.as_slice(),
                 _ => {
                     return Err(TypeReadError::UnsupportedType {
-                        type_name: "search without string/bytes pattern".to_string(),
+                        type_name: SEARCH_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };
@@ -403,7 +422,7 @@ pub(crate) fn read_pattern_match(
                 Some(Value::Bytes(b)) => Cow::Owned(decode_regex_bytes_pattern(b)),
                 _ => {
                     return Err(TypeReadError::UnsupportedType {
-                        type_name: "regex without string pattern".to_string(),
+                        type_name: REGEX_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };
@@ -415,7 +434,7 @@ pub(crate) fn read_pattern_match(
                 Some(Value::Bytes(b)) => b.as_slice(),
                 _ => {
                     return Err(TypeReadError::UnsupportedType {
-                        type_name: "search without string/bytes pattern".to_string(),
+                        type_name: SEARCH_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };
@@ -443,7 +462,7 @@ pub(crate) fn read_pattern_match(
                 Some(Value::Bytes(b)) => b.as_slice(),
                 _ => {
                     return Err(TypeReadError::UnsupportedType {
-                        type_name: "string with flags requires string/bytes pattern".to_string(),
+                        type_name: FLAGGED_STRING_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };

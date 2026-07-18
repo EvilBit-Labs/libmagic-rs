@@ -1435,3 +1435,67 @@ fn test_bytes_consumed_string_with_bytes_pattern_is_exact_length() {
         "usize::MAX offset must return 0 via checked_add"
     );
 }
+
+// -----------------------------------------------------------------------
+// H hardening: pin the `decode_regex_bytes_pattern` warn!-on-real-
+// substitution contract (KTD6) with a real log-capture seam
+// (`testing_logger`), rather than code inspection only.
+// -----------------------------------------------------------------------
+
+/// Test-only helper: `testing_logger::CapturedLog` does not implement
+/// `Debug`, so format captured logs manually for failure messages.
+fn format_logs(logs: &[testing_logger::CapturedLog]) -> String {
+    logs.iter()
+        .map(|l| format!("{:?}: {}", l.level, l.body))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// A `Value::Bytes` regex pattern containing a byte `>= 0x80` that is not
+/// valid UTF-8 triggers a real lossy substitution (`from_utf8_lossy`
+/// replaces it with U+FFFD); `decode_regex_bytes_pattern` must `warn!`
+/// because the compiled regex now silently diverges from the raw bytes
+/// the target buffer is matched against.
+#[test]
+fn decode_regex_bytes_pattern_warns_on_real_utf8_substitution() {
+    testing_logger::setup();
+    let decoded = decode_regex_bytes_pattern(&[0xFF, b'a']);
+    // Sanity: the function is still infallible and produces SOME string
+    // (the lossy replacement), never panics.
+    assert!(decoded.contains('a'));
+    testing_logger::validate(|captured_logs| {
+        let warn_logs: Vec<_> = captured_logs
+            .iter()
+            .filter(|l| l.body.contains("not valid UTF-8"))
+            .collect();
+        assert_eq!(
+            warn_logs.len(),
+            1,
+            "expected exactly one lossy-substitution warning, got {:?}",
+            format_logs(captured_logs)
+        );
+        assert_eq!(
+            warn_logs[0].level,
+            log::Level::Warn,
+            "lossy UTF-8 substitution must log at warn!, not another level -- got {:?}",
+            warn_logs[0].level
+        );
+    });
+}
+
+/// The converse: valid-UTF-8 bytes must NOT trigger the substitution
+/// warning at all -- the guard is keyed on `str::from_utf8` actually
+/// failing, not merely on the input being `Value::Bytes`.
+#[test]
+fn decode_regex_bytes_pattern_does_not_warn_on_valid_utf8() {
+    testing_logger::setup();
+    let decoded = decode_regex_bytes_pattern(b"hello[0-9]+");
+    assert_eq!(decoded, "hello[0-9]+");
+    testing_logger::validate(|captured_logs| {
+        assert!(
+            captured_logs.is_empty(),
+            "valid UTF-8 bytes must not trigger any log entry, got {:?}",
+            format_logs(captured_logs)
+        );
+    });
+}

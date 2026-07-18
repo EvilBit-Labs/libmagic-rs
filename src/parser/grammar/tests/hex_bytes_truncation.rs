@@ -37,6 +37,8 @@
 //! be hex digits, not just a hex-looking prefix of it.
 
 use super::*;
+use crate::EvaluationConfig;
+use crate::evaluator::{EvaluationContext, evaluate_rules};
 
 #[test]
 fn mixed_escape_and_literal_token_is_captured_whole() {
@@ -160,4 +162,44 @@ fn search_rule_with_malformed_hex_lookalike_literal_captures_whole_value() {
          via the bareword string fallback, not truncated to a partial Value::Bytes"
     );
     assert_eq!(rule.message, "real message");
+}
+
+/// U7 (plan scenario "Search literal round-trip"): parse-correctness must
+/// translate to MATCH-correctness, not just parse-shape. The corrected
+/// whole-token literal from the test above (`ab[cd`, previously truncated
+/// to a 1-byte `Value::Bytes` by the confirmed `parse_hex_bytes_no_prefix`
+/// bug) is driven through the full evaluator against a buffer that
+/// CONTAINS the literal, asserting the rule actually matches. Without this
+/// test, a regression that silently reintroduces truncation (e.g. back to
+/// a 1-byte value matching `\xab` alone) could still parse successfully
+/// while producing wrong evaluation results -- the "non-crashing wrong
+/// answer" failure mode the plan's Verification Contract calls out.
+#[test]
+fn search_rule_with_malformed_hex_lookalike_literal_matches_buffer_containing_it() {
+    let input = "0 search/16 ab[cd real message";
+    let (_, rule) = parse_magic_rule(input).expect(input);
+    assert_eq!(rule.value, Value::String("ab[cd".to_string()));
+
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+
+    // Positive: the buffer contains the whole "ab[cd" literal -- must match.
+    let matches = evaluate_rules(std::slice::from_ref(&rule), b"xxab[cdyy", &mut context)
+        .expect("evaluation must not error");
+    assert_eq!(
+        matches.len(),
+        1,
+        "the whole 5-byte literal must match when present in the buffer, got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "real message");
+
+    // Negative: a buffer containing only the truncated 1-byte value
+    // (`0xab`) followed by DIFFERENT bytes (not `[cd`) must NOT match --
+    // proving the rule requires the full literal, not just its prefix.
+    context.reset();
+    let no_match = evaluate_rules(std::slice::from_ref(&rule), b"xxab99yy", &mut context)
+        .expect("evaluation must not error");
+    assert!(
+        no_match.is_empty(),
+        "a buffer containing only the truncated 1-byte prefix must not match, got {no_match:?}"
+    );
 }
