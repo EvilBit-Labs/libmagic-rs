@@ -82,6 +82,18 @@ jobs:
         runs-on: ${{ matrix.os }}
         needs: test
         timeout-minutes: 20
+        # `mise.toml` sets `exec_auto_install = true`, so `mise x` would
+        # otherwise auto-install the ENTIRE tool set before running. Several
+        # `cargo:` dev tools (cargo-audit, mdbook-*, git-cliff, ...) have no
+        # prebuilt binary on macOS/Windows and mise's cargo-install fallback
+        # is disabled, so that auto-install fatally fails on those runners
+        # (it only ever "passed" on ubuntu because every tool has a prebuilt,
+        # and this job never ran before -- it is gated on `test`, which was
+        # red until now). Disable exec-time auto-install so `mise x` uses only
+        # the scoped `install_args` tools (rust + cargo-nextest), which is all
+        # these steps need.
+        env:
+            MISE_EXEC_AUTO_INSTALL: "false"
         steps:
             - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
             - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
