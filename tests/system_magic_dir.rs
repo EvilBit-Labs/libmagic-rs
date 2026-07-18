@@ -45,23 +45,24 @@
 //!
 //! `EvaluationConfig::default()` sets `stop_at_first_match: true`
 //! (GOTCHAS S13.2): the evaluator halts at the *first* top-level rule
-//! that matches, in strength-sorted order. The full system DB contains
-//! thousands of rules across hundreds of files, and several unrelated
-//! top-level rules (for example the message-less `c-lang` gating
-//! `search` rules used purely to trigger child regex rules, see
-//! `/usr/share/file/magic/c-lang`) legitimately match with an *empty*
-//! message before the `assembler` rules are ever tried alphabetically.
-//! With the default config, this can shadow the assembler detection
-//! entirely -- not because the regex fix is wrong (the isolated-file
-//! evaluation with only `assembler` loaded proves it fires correctly),
-//! but because an unrelated rule earlier in strength order wins the
-//! first-match race. The parity checks therefore load with
+//! whose match (or a descendant's) carries usable description text, in
+//! strength-sorted order. The full system DB contains thousands of rules
+//! across hundreds of files, and an unrelated but *message-bearing*
+//! top-level rule can legitimately match a curated sample earlier in
+//! strength order than the `assembler` rules, halting evaluation before
+//! the assembler signal is reached. (Note: since the S13.2 fix,
+//! *message-less* gating rules -- e.g. the `c-lang` `search` rules that
+//! merely trigger child regex rules -- no longer shadow anything; they
+//! do not stop evaluation. The remaining first-match race is purely
+//! between message-bearing rules.) The parity checks therefore load with
 //! `with_stop_at_first_match(false)` and search the full match list for
 //! the `"assembler source text"` message, which is the behaviorally
 //! correct way to ask "did the assembler signal fire anywhere," matching
 //! what GNU `file`'s own multi-entry evaluation effectively does when it
 //! prints `"assembler source text, ASCII text"` (two independent magic
-//! entries, concatenated).
+//! entries, concatenated). The default-config tests further below
+//! instead exercise the exact `stop_at_first_match: true` path the CLI
+//! uses.
 
 use libmagic_rs::{EvaluationConfig, MagicDatabase};
 use std::path::Path;
