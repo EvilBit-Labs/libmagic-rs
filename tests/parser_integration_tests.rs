@@ -413,6 +413,40 @@ fn test_string_numeric_ordering_end_to_end_composes_with_full_field_render() {
     );
 }
 
+/// GOTCHAS S6.7: a top-level `string` signature whose bareword value carries
+/// a non-UTF-8 high byte (OS/2 INF's `HSP\x01\x9b\x00`, where `0x9b` is
+/// invalid UTF-8) must match. Before the fix, `parse_bare_string_value`
+/// lossy-decoded the value to a `Value::String` (0x9b -> U+FFFD), which both
+/// inflated the pattern length (6 -> 8) and changed the byte, so the rule
+/// silently never matched and the file classified as `data`. Real `file`
+/// prints `OS/2 INF (My Help File)`; this pins the full output including the
+/// `>107 string >0 (%s)` title child.
+#[test]
+fn os2_inf_high_byte_signature_matches() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let magic_file = create_test_magic_file(
+        temp_dir.path(),
+        "os2",
+        "0 string HSP\\x01\\x9b\\x00 OS/2 INF\n>107 string >0 (%s)\n",
+    );
+    let db = MagicDatabase::load_from_file(&magic_file).expect("Failed to load database");
+
+    // Signature (6 bytes) + filler to offset 107 + NUL-terminated title.
+    let mut bytes = vec![0x48, 0x53, 0x50, 0x01, 0x9b, 0x00];
+    bytes.resize(107, 0x00);
+    bytes.extend_from_slice(b"My Help File\x00");
+    let file = create_test_binary_file(temp_dir.path(), "os2inf.bin", &bytes);
+
+    let result = db
+        .evaluate_file(&file)
+        .expect("Failed to evaluate OS/2 INF file");
+    assert_eq!(
+        result.description, "OS/2 INF (My Help File)",
+        "high-byte signature must match and render the title child, got: {}",
+        result.description
+    );
+}
+
 #[test]
 #[ignore = "Parser does not decode \\xNN escape sequences inside string values yet; rules match 'data' instead of the expected magic type. Re-enable once grammar supports hex escapes in parse_value()."]
 fn test_end_to_end_directory_to_evaluation() {

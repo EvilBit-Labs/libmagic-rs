@@ -1400,12 +1400,24 @@ fn parse_bare_string_value(input: &str) -> IResult<&str, Value> {
         )));
     }
 
-    // The downstream comparison is `Value::String` against the buffer's
-    // bytes. Use `from_utf8_lossy` so non-UTF-8 byte sequences (like
-    // `\xff`) round-trip as best they can; the buffer-side read uses
-    // the same lossy conversion, so equality still holds.
-    let value = String::from_utf8_lossy(&bytes).into_owned();
-    Ok((remaining, Value::String(value)))
+    // Mirror `read_string_exact` (evaluator/types/string.rs): when the
+    // resolved bytes are valid UTF-8, return `Value::String` so `%s`
+    // output renders normally; when they are NOT -- e.g. a bareword like
+    // OS/2 INF's `HSP\x01\x9b\x00` (0x9b is invalid UTF-8), or an octal
+    // form like `AB\376` -- return the RAW bytes as `Value::Bytes`. A
+    // lossy `String` decode would turn 0x9b into U+FFFD (3 bytes 0xEF BF
+    // BD), which BOTH inflates the pattern's byte length (6 -> 8, so
+    // `read_string_exact` reads the wrong number of bytes) AND changes the
+    // byte value at that position, so the rule would silently never match.
+    // Cross-type `String`/`Bytes` equality and ordering (GOTCHAS S2.3)
+    // compare by byte sequence, so either variant compares correctly
+    // against the read value. This completes the read/parse symmetry:
+    // `read_string_exact` was fixed to return `Value::Bytes` on non-UTF-8
+    // slices, but the parse side kept lossy-decoding until this change.
+    match String::from_utf8(bytes) {
+        Ok(s) => Ok((remaining, Value::String(s))),
+        Err(e) => Ok((remaining, Value::Bytes(e.into_bytes()))),
+    }
 }
 
 /// Parse a comment line (starts with #)

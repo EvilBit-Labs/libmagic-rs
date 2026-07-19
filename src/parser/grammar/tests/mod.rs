@@ -1989,6 +1989,47 @@ fn test_string_family_value_preserves_quoted_and_hex_bytes() {
 }
 
 #[test]
+fn parse_bare_string_value_high_byte_returns_bytes_not_lossy_string() {
+    // GOTCHAS S6.7: a bareword string value whose resolved bytes contain a
+    // high byte (>= 0x80) that is not valid UTF-8 must be captured as
+    // `Value::Bytes` holding the RAW bytes, never lossy-decoded into a
+    // `Value::String` (which turns the byte into U+FFFD -- 3 bytes -- and
+    // both inflates the pattern length and changes the byte, so the rule
+    // silently never matches). This is the parse-side mirror of
+    // `read_string_exact` (S6.4). The signature begins with literal ASCII
+    // (`HSP`), so it bypasses `parse_mixed_hex_ascii` (which requires a
+    // leading `\`) and lands in `parse_bare_string_value`.
+    //
+    // Table: (input, expected value). Covers both high-byte escape forms
+    // (hex `\x9b`, octal `\376`) plus the all-ASCII control that must stay
+    // a `Value::String`.
+    let cases: &[(&str, Value)] = &[
+        // OS/2 INF top-level signature: HSP\x01\x9b\x00 -> raw bytes.
+        (
+            "0 string HSP\\x01\\x9b\\x00 OS/2 INF",
+            Value::Bytes(vec![0x48, 0x53, 0x50, 0x01, 0x9b, 0x00]),
+        ),
+        // Octal high byte embedded after leading ASCII: AB\376 -> raw bytes.
+        (
+            "0 string AB\\376 thing",
+            Value::Bytes(vec![0x41, 0x42, 0xFE]),
+        ),
+        // All-ASCII bareword (no high byte) stays a String -- %s renders.
+        ("0 string HSP header", Value::String("HSP".to_string())),
+    ];
+
+    for (input, expected) in cases {
+        let (_, rule) =
+            parse_magic_rule(input).unwrap_or_else(|e| panic!("parse failed for {input:?}: {e:?}"));
+        assert_eq!(
+            rule.value, *expected,
+            "value mismatch for {input:?}: got {:?}, expected {expected:?}",
+            rule.value
+        );
+    }
+}
+
+#[test]
 fn test_parse_magic_rule_hex_offset() {
     let input = "0x10 belong 0x12345678 Test data";
     let (remaining, rule) = parse_magic_rule(input).unwrap();
