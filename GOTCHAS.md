@@ -458,3 +458,27 @@ For a `string` rule compared with an **ordering** operator (`<`/`>`/`<=`/`>=`), 
 **`%.Ns` precision** (`src/output/format.rs`): `Spec` now carries `precision: Option<usize>`, parsed from the `.<digits>` run (capped at `MAX_FORMAT_WIDTH`; a bare `.` is precision 0). It is honored **only for `%s`** (`Conv::Str`) via `render_str_spec`, which truncates the rendered string to at most `precision` **characters** (char-wise, not byte-wise: C's `%.Ns` is byte-wise, but our value is a Rust `String` and a byte cut could split a multi-byte UTF-8 sequence; identical for the ASCII version/name fields that use precision). Width padding is applied AFTER truncation, so `%4.4s`/`%-.4s` now render correctly (`%s` previously dropped width entirely). Numeric conversions still ignore precision. Regression guard: `test_string_precision_truncation`.
 
 This is display-detail only -- the match DECISION is unchanged. The remaining `, ASCII text` suffix that real `file` appends (`XML 1.0 document text, ASCII text`) is combined magic + `file_ascmagic` text classification, a separate feature (see S13.3).
+
+## 15. Offset Resolution at EOF
+
+### 15.1 `offset == buffer.len()` Is a Valid Resolution Target (Width Enforced at Read Time)
+
+`resolve_absolute_offset` (`src/evaluator/offset/absolute.rs`) permits `offset == buffer_len` -- the EOF position -- and rejects only `offset > buffer_len`. The positive branch uses `>` (not `>=`). This mirrors libmagic's structure: **offset resolution is permissive; each type read enforces its own width.** Do not "tighten" this back to `>=` -- it silently drops legitimate EOF-anchored children.
+
+**Verified against real `file` (file-5.41)** with a custom magic file (`0 string XY PARENT` + `>2 byte x byte=%d` + `>2 string x [%s,`):
+
+- On a 2-byte buffer (child offset 2 == EOF): `file` prints `PARENT [,` -- the **numeric** child (`byte x`) is **dropped** (its width-checked read has no bytes at EOF -> non-match), while the **`string x`** child renders an **empty** `%s`.
+- On a 3-byte buffer (child offset 2 < EOF): both children render.
+
+The motivating real-world case is LUKS: `luks:10` is `>8 string x [%s,`, and on a header truncated to exactly 8 bytes GNU `file` prints `LUKS encrypted file, ver 1 [,`. Before this fix, offset resolution rejected `offset == 8` and the trailing detail was silently dropped (rmagic printed only `LUKS encrypted file, ver 1`). The empty-field cascade continues at `>40`/`>72` for headers truncated exactly at those offsets (`[, ,`, `[, , ]`), matching `file` byte-for-byte.
+
+**Why it is safe (blast radius):** the only two production callers are in `offset/mod.rs` (`Absolute(N)` and negative-`FromEnd`), and only the positive branch changed (`FromEnd` uses the negative branch, already `>`). At `offset == len`:
+
+- **Fixed-width readers** (`byte`/`short`/`long`/`quad`/`float`/`double`/`date`/`qdate`) use bounds-safe `.get()` / `read_bytes_at` -> `BufferOverrun` -> non-match. Outcome is **unchanged** from before (the child was dropped either way).
+- **`read_string`** (`src/evaluator/types/string.rs`) also relaxed its entry guard to `offset > buffer.len()`; at EOF `&buffer[len..]` is a valid empty slice -> `Value::String("")`. This is the ONLY reader whose *outcome* changes (empty render instead of drop).
+- **`read_string16`** and **`read_pstring`** keep their `>=`/prefix-length guards, so they return `BufferOverrun` (non-match) at EOF -- they need at least one code unit / their length prefix, matching libmagic. Not relaxed (no observed rule needs it; YAGNI).
+- **Anchor-advance** (`string_bytes_consumed`, GOTCHAS S3.8) uses `buffer.get(offset..)` and already returns `0` at `offset == len`, so the anchor lands exactly at `len` -- consistent with the 0-byte read. No divergent guard.
+
+**Empty-buffer edge:** `resolve_absolute_offset(0, b"")` now returns `Ok(0)` (0 == 0). A top-level `0 string x` would therefore match an empty file with an empty string -- but **no system-DB rule uses a top-level `string`-family `x`** (verified by grep), and GNU `file` still classifies an empty file as `empty`. rmagic's ascmagic "empty" fallback (S13.3) is unaffected. A numeric top-level rule on an empty buffer still fails its width-checked read (non-match), so empty-file classification is unchanged.
+
+Corpus differential (before/after, 394 small/truncated real files vs GNU `file`): exactly 2 rows changed (both truncated LUKS fixtures), both moving from a dropped detail to exact `file` parity. Zero regressions. The change is monotonic -- it can only *add* an empty string-child render at EOF, never remove or alter existing output. Regressions: `test_resolve_absolute_offset_at_eof_is_permitted` and the updated resolver tests (`absolute.rs`); `test_read_string_offset_at_buffer_end_is_empty_string` (`string.rs`); end-to-end `child_at_eof_numeric_dropped_string_renders_empty` and `luks_truncated_header_renders_empty_cipher_field` (`tests/parser_integration_tests.rs`).

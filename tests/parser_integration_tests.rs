@@ -447,6 +447,71 @@ fn os2_inf_high_byte_signature_matches() {
     );
 }
 
+/// GOTCHAS S15.1: a child rule whose resolved offset lands exactly at EOF
+/// (`offset == buffer.len()`) is permitted. Verified against real `file`
+/// (file-5.41) with a custom magic file: a numeric child (`byte x`) at EOF is
+/// DROPPED (its width-checked read fails), while a `string x` child at EOF
+/// renders an EMPTY string. Before the fix, offset resolution rejected
+/// `offset == len` and silently dropped BOTH children.
+#[test]
+fn child_at_eof_numeric_dropped_string_renders_empty() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    // Parent matches "XY" at 0; both children resolve to offset 2. "XY" is
+    // used (not "AB") because A/B are hex digits and a bareword of pure hex
+    // letters parses as `Value::Bytes`, not a string literal (GOTCHAS S3.12).
+    let magic_file = create_test_magic_file(
+        temp_dir.path(),
+        "eof",
+        "0 string XY PARENT\n>2 byte x byte=%d\n>2 string x [%s,\n",
+    );
+    let db = MagicDatabase::load_from_file(&magic_file).expect("Failed to load database");
+
+    // 2-byte buffer: offset 2 == EOF. Numeric child dropped, string empty.
+    let at_eof = create_test_binary_file(temp_dir.path(), "twobyte", b"XY");
+    let r = db.evaluate_file(&at_eof).expect("evaluate at-EOF file");
+    assert_eq!(
+        r.description, "PARENT [,",
+        "at offset==EOF: byte child must drop, string child must render empty, got: {}",
+        r.description
+    );
+
+    // 3-byte buffer: offset 2 < EOF. Both children render ('Z' == 90).
+    let before_eof = create_test_binary_file(temp_dir.path(), "threebyte", b"XYZ");
+    let r = db
+        .evaluate_file(&before_eof)
+        .expect("evaluate before-EOF file");
+    assert_eq!(
+        r.description, "PARENT byte=90 [Z,",
+        "at offset<EOF: both children render, got: {}",
+        r.description
+    );
+}
+
+/// GOTCHAS S15.1 (LUKS motivating case): a LUKS header truncated to exactly 8
+/// bytes has its cipher-name field (`>8 string x [%s,`) start exactly at EOF.
+/// Real `file` prints `LUKS encrypted file, ver 1 [,`; before the fix rmagic
+/// dropped the trailing detail and printed only `LUKS encrypted file, ver 1`.
+#[test]
+fn luks_truncated_header_renders_empty_cipher_field() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let magic_file = create_test_magic_file(
+        temp_dir.path(),
+        "luks",
+        "0 string LUKS\\xba\\xbe LUKS encrypted file,\n>6 beshort x ver %d\n>8 string x [%s,\n",
+    );
+    let db = MagicDatabase::load_from_file(&magic_file).expect("Failed to load database");
+
+    // 8-byte header: magic (6) + beshort version 1 (2). Offset 8 == EOF.
+    let bytes = vec![0x4c, 0x55, 0x4b, 0x53, 0xba, 0xbe, 0x00, 0x01];
+    let file = create_test_binary_file(temp_dir.path(), "luks_trunc.img", &bytes);
+    let r = db.evaluate_file(&file).expect("evaluate truncated LUKS");
+    assert_eq!(
+        r.description, "LUKS encrypted file, ver 1 [,",
+        "truncated LUKS must render empty cipher field `[,` like GNU file, got: {}",
+        r.description
+    );
+}
+
 #[test]
 #[ignore = "Parser does not decode \\xNN escape sequences inside string values yet; rules match 'data' instead of the expected magic type. Re-enable once grammar supports hex escapes in parse_value()."]
 fn test_end_to_end_directory_to_evaluation() {
