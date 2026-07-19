@@ -1898,15 +1898,31 @@ fn test_parse_magic_rule_string_value() {
     assert_eq!(rule.message, "ZIP archive");
 }
 
-/// A bareword value on a string-family type with an ordering operator must
-/// parse as `Value::String`, not `Value::Uint`/`Value::Float`. Previously
-/// `parse_value`'s numeric branches captured `0`/`0.6.1`/`20011231` as
-/// numbers, so the subsequent `String`-vs-number comparison never matched
-/// and real `>0` idioms (`\b, name %s`, version compares) silently failed.
+/// A bareword value on a string-family type must parse as `Value::String`,
+/// not `Value::Uint`/`Value::Float` -- for BOTH equality and ordering
+/// operators, since `parse_string_family_value` never inspects the
+/// operator. Previously `parse_value`'s numeric branches captured
+/// `0`/`0.6.1`/`20011231` as numbers, so the subsequent `String`-vs-number
+/// comparison never matched and real `>0`/`000` idioms (`\b, name %s`,
+/// `face %s`, version compares) silently failed.
+///
+/// The `search` case deliberately uses an EQUALITY operator: `search` is a
+/// pattern-bearing type, and a non-equality operator on it is an intentional
+/// `UnsupportedType` fatal gap (GOTCHAS S2.4), so `search >100` -- while it
+/// now correctly PARSES to `Value::String("100")` -- is not a construct that
+/// evaluates. No real magic rule uses `search`/`regex` with an ordering
+/// operator on a numeric bareword; the only real hit (`search/1 >\0`) is a
+/// `\0`->`Value::Bytes` value on the unchanged hex branch.
 #[test]
 fn test_string_family_bareword_numeric_value_parses_as_string() {
     // (input, expected value, expected op)
     let cases: &[(&str, Value, Operator)] = &[
+        // Bare equality (no operator token) -- also changed from Uint(0).
+        (
+            "0 string 000 face %s",
+            Value::String("000".to_string()),
+            Operator::Equal,
+        ),
         (
             "0 string >0 \\b, name %s",
             Value::String("0".to_string()),
@@ -1915,11 +1931,6 @@ fn test_string_family_bareword_numeric_value_parses_as_string() {
         (
             "0 string >0.6.1 version %s",
             Value::String("0.6.1".to_string()),
-            Operator::GreaterThan,
-        ),
-        (
-            "0 string >000 face %s",
-            Value::String("000".to_string()),
             Operator::GreaterThan,
         ),
         (
@@ -1933,10 +1944,11 @@ fn test_string_family_bareword_numeric_value_parses_as_string() {
             Operator::LessThan,
         ),
         // search-family bareword numeric value is likewise a string.
+        // Equality op (not ordering): search is pattern-bearing, see S2.4.
         (
-            "0 search/16 >100 hit %s",
+            "0 search/16 100 hit %s",
             Value::String("100".to_string()),
-            Operator::GreaterThan,
+            Operator::Equal,
         ),
     ];
 
