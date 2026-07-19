@@ -1898,6 +1898,84 @@ fn test_parse_magic_rule_string_value() {
     assert_eq!(rule.message, "ZIP archive");
 }
 
+/// A bareword value on a string-family type with an ordering operator must
+/// parse as `Value::String`, not `Value::Uint`/`Value::Float`. Previously
+/// `parse_value`'s numeric branches captured `0`/`0.6.1`/`20011231` as
+/// numbers, so the subsequent `String`-vs-number comparison never matched
+/// and real `>0` idioms (`\b, name %s`, version compares) silently failed.
+#[test]
+fn test_string_family_bareword_numeric_value_parses_as_string() {
+    // (input, expected value, expected op)
+    let cases: &[(&str, Value, Operator)] = &[
+        (
+            "0 string >0 \\b, name %s",
+            Value::String("0".to_string()),
+            Operator::GreaterThan,
+        ),
+        (
+            "0 string >0.6.1 version %s",
+            Value::String("0.6.1".to_string()),
+            Operator::GreaterThan,
+        ),
+        (
+            "0 string >000 face %s",
+            Value::String("000".to_string()),
+            Operator::GreaterThan,
+        ),
+        (
+            "0 string >20011231 date %s",
+            Value::String("20011231".to_string()),
+            Operator::GreaterThan,
+        ),
+        (
+            "0 string <9 low %s",
+            Value::String("9".to_string()),
+            Operator::LessThan,
+        ),
+        // search-family bareword numeric value is likewise a string.
+        (
+            "0 search/16 >100 hit %s",
+            Value::String("100".to_string()),
+            Operator::GreaterThan,
+        ),
+    ];
+
+    for (input, expected_value, expected_op) in cases {
+        let (_, rule) =
+            parse_magic_rule(input).unwrap_or_else(|e| panic!("parse failed for {input:?}: {e:?}"));
+        assert_eq!(
+            rule.value, *expected_value,
+            "value mismatch for {input:?}: got {:?}",
+            rule.value
+        );
+        assert_eq!(rule.op, *expected_op, "operator mismatch for {input:?}");
+    }
+}
+
+/// The fix must not change the two branches that were already correct for
+/// string-family values: quoted strings stay `Value::String`, and
+/// hex/escape byte sequences stay `Value::Bytes` (e.g. gzip's `\037\213`).
+/// Hex-*letter* barewords also stay `Value::Bytes` per GOTCHAS S3.12 --
+/// only the numeric subset changes.
+#[test]
+fn test_string_family_value_preserves_quoted_and_hex_bytes() {
+    // Quoted numeric string stays a String, not a number.
+    let (_, rule) = parse_magic_rule("0 string \"0\" literal").unwrap();
+    assert_eq!(rule.value, Value::String("0".to_string()));
+
+    // Octal-escape byte sequence stays Bytes (gzip magic).
+    let (_, rule) = parse_magic_rule("0 string \\037\\213 gzip").unwrap();
+    assert_eq!(rule.value, Value::Bytes(vec![0x1f, 0x8b]));
+
+    // Mixed hex/ascii escape stays Bytes (ELF magic).
+    let (_, rule) = parse_magic_rule("0 string \\177ELF elf").unwrap();
+    assert_eq!(rule.value, Value::Bytes(vec![0x7f, b'E', b'L', b'F']));
+
+    // Hex-letter bareword stays Bytes (boundary, unchanged -- GOTCHAS S3.12).
+    let (_, rule) = parse_magic_rule("0 string >AB thing").unwrap();
+    assert_eq!(rule.value, Value::Bytes(vec![0xAB]));
+}
+
 #[test]
 fn test_parse_magic_rule_hex_offset() {
     let input = "0x10 belong 0x12345678 Test data";

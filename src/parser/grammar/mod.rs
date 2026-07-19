@@ -1222,10 +1222,7 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
             }
         }
     } else if is_string_family_type {
-        match parse_value(input) {
-            Ok(ok) => ok,
-            Err(orig_err) => parse_bare_string_value(input).map_err(|_| orig_err)?,
-        }
+        parse_string_family_value(input)?
     } else {
         parse_value(input)?
     };
@@ -1250,6 +1247,54 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
     };
 
     Ok((input, rule))
+}
+
+/// Parse the comparison value for a string-family type.
+///
+/// libmagic never interprets a `string`/`pstring`/`string16`/`search`
+/// comparison value as a number: `0 string >0` compares against the
+/// literal ASCII byte `'0'` (0x30), and `>0.6.1` against the literal
+/// characters `0.6.1` -- not the integer 0 or the float 0.6. The generic
+/// [`parse_value`] tries its float and integer branches (see
+/// `value::parse_value`) before falling through, so a bareword like `0` or
+/// `0.6.1` was captured as `Value::Uint`/`Value::Float`. A subsequent
+/// comparison against the string field read from the file then yields no
+/// ordering (`String` vs `Uint`/`Float` is incomparable), so the rule
+/// silently never matched -- breaking real `>0` idioms such as
+/// `\b, name %s` / `face %s` / `palette %s` and version compares like
+/// `>0.6.1 ... version %s`.
+///
+/// This parser mirrors [`parse_value`]'s ordering for the two branches
+/// that are correct for string-family values -- a leading whitespace trim,
+/// then a quoted string (-> `Value::String`), then a hex/escape byte
+/// sequence (-> `Value::Bytes`, e.g. gzip's `\037\213` or `\177ELF`) -- but
+/// replaces the numeric (float/integer) branches with
+/// [`parse_bare_string_value`], so every remaining bareword resolves to a
+/// `Value::String`. The leading `multispace0` is load-bearing: it ensures
+/// the hex branch sees byte-identical input to what `parse_value` fed it,
+/// so an escape-heavy value cannot fall through to the lossy-UTF-8
+/// `parse_bare_string_value` path and corrupt a high byte (see the
+/// `high-byte-utf8-corruption-class` note).
+///
+/// Hex-*letter* barewords (`>AB`, `cafebabe`) still resolve to
+/// `Value::Bytes` via the unchanged hex branch, matching GOTCHAS S3.12 --
+/// only the numeric subset changes here.
+///
+/// # Errors
+/// Returns a nom parsing error only when the value is empty/whitespace-only
+/// (via [`parse_bare_string_value`]); quoted and hex forms are attempted
+/// first and never error out of this function on a non-empty token.
+fn parse_string_family_value(input: &str) -> IResult<&str, Value> {
+    // Trim leading whitespace up front so the hex branch below receives the
+    // same (trimmed) input `parse_value` would have handed it.
+    let (input, _) = multispace0(input)?;
+    if let Ok((rest, s)) = value::parse_quoted_string(input) {
+        return Ok((rest, Value::String(s)));
+    }
+    if let Ok((rest, bytes)) = value::parse_hex_bytes(input) {
+        return Ok((rest, Value::Bytes(bytes)));
+    }
+    parse_bare_string_value(input)
 }
 
 /// Parse a bare (unquoted) single-token string literal as a `Value::String`.

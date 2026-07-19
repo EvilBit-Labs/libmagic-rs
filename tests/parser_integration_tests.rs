@@ -372,6 +372,47 @@ fn test_end_to_end_text_file_to_evaluation() {
     );
 }
 
+/// End-to-end proof that the string `>NUMERIC` parse fix (task #19) and the
+/// string ordering-op full-field render / prefix-limited compare (task #18)
+/// compose through real magic-file syntax.
+///
+/// `0 string >0.6.1 version %s` is parsed straight from text (so the value
+/// must survive as `Value::String("0.6.1")`, not a number), then evaluated:
+/// - `0.6.2` matches (`0.6.2` > `0.6.1`) and renders the FULL field
+///   (`version 0.6.2 release`), exercising the #18 full-field display read.
+/// - `0.6.10` does NOT match: the comparison is prefix-limited to
+///   `pattern.len()`, so the compared prefix `0.6.1` equals the pattern and
+///   `>` is false -- matching real `file` (file-5.41). It falls through to
+///   the ascmagic text fallback instead of a spurious `version ...`.
+#[test]
+fn test_string_numeric_ordering_end_to_end_composes_with_full_field_render() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let magic_file = create_test_magic_file(temp_dir.path(), "ver", "0 string >0.6.1 version %s\n");
+    let db = MagicDatabase::load_from_file(&magic_file).expect("Failed to load database");
+
+    // 0.6.2 > 0.6.1 -> matches, renders the full string field.
+    let match_file = create_test_binary_file(temp_dir.path(), "v62", b"0.6.2 release");
+    let matched = db
+        .evaluate_file(&match_file)
+        .expect("Failed to evaluate matching file");
+    assert_eq!(
+        matched.description, "version 0.6.2 release",
+        "0.6.2 must match >0.6.1 and render the full field, got: {}",
+        matched.description
+    );
+
+    // 0.6.10: compared prefix `0.6.1` == pattern, so `>` is false. No match.
+    let nomatch_file = create_test_binary_file(temp_dir.path(), "v610", b"0.6.10 release");
+    let unmatched = db
+        .evaluate_file(&nomatch_file)
+        .expect("Failed to evaluate non-matching file");
+    assert!(
+        !unmatched.description.contains("version"),
+        "0.6.10 must NOT match >0.6.1 (prefix-limited compare), got: {}",
+        unmatched.description
+    );
+}
+
 #[test]
 #[ignore = "Parser does not decode \\xNN escape sequences inside string values yet; rules match 'data' instead of the expected magic type. Re-enable once grammar supports hex escapes in parse_value()."]
 fn test_end_to_end_directory_to_evaluation() {
