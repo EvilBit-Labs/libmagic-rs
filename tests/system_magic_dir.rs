@@ -470,6 +470,80 @@ fn test_default_config_plain_ascii_text_no_longer_blank() {
     assert_eq!(result.description, "ASCII text");
 }
 
+/// Default-config regression for the message-bearing `clear` fix
+/// (GOTCHAS S13.6): a C source file with `#include` must classify as
+/// `c program text` -- the trailing `program text` fragment comes from
+/// c-lang's `>>&0 clear x program text` child, which rmagic previously
+/// dropped (printing only `c`).
+///
+/// This is the CRITICAL companion to the synthetic
+/// `test_clear_with_message_emits_and_still_resets_flag` in
+/// `tests/meta_types_integration.rs`: that test runs with
+/// `stop_at_first_match(false)` on a hand-built chain, whereas the real
+/// bug -- and the CLI -- runs under the DEFAULT config
+/// (`stop_at_first_match: true`) against the full c-lang chain with
+/// competing top-level `pragma`/`endif` rules. Without this test a
+/// refactor of stop-at-first-match could silently regress c.c back to
+/// `c` while the synthetic test keeps passing.
+///
+/// Host-gated on real `file` parity over the SAME `--magic-file` dir
+/// (macOS ships the c-lang source rules there; a host whose
+/// `/usr/share/file/magic/` lacks them makes `file` not say
+/// "c program text" either, so the assertion is vacuous rather than a
+/// false failure). Asserts `contains`, not `==`: real `file` also
+/// appends `, ASCII text` (the deferred combined-classification garnish,
+/// intentionally absent in rmagic).
+#[test]
+fn test_default_config_c_source_is_c_program_text() {
+    let system_dir = Path::new(SYSTEM_MAGIC_DIR);
+    if !has_system_magic_dir(system_dir) {
+        eprintln!(
+            "SKIP: {SYSTEM_MAGIC_DIR} not present on this host -- \
+             default-config c-source test skipped cleanly"
+        );
+        return;
+    }
+
+    // Default config: do NOT override stop_at_first_match -- this is the
+    // exact path the CLI and the original bug exercise.
+    let db = MagicDatabase::load_from_file(system_dir)
+        .expect("loading the system magic directory must not fail");
+
+    let c_source = b"#include <stdio.h>\nint main(void){return 0;}\n";
+    let result = db
+        .evaluate_buffer(c_source)
+        .expect("evaluation must not fatally error");
+
+    if has_file_binary() {
+        let temp_dir = tempfile::TempDir::new().expect("failed to create temp dir");
+        let sample_path = temp_dir.path().join("sample.c");
+        std::fs::write(&sample_path, c_source).expect("failed to write sample");
+
+        let output = Command::new("file")
+            .arg("--magic-file")
+            .arg(SYSTEM_MAGIC_DIR)
+            .arg(&sample_path)
+            .output()
+            .expect("failed to invoke the `file` binary");
+        let file_desc = String::from_utf8_lossy(&output.stdout);
+
+        // Only assert parity when the host's own `file` (using the SAME
+        // magic dir) detects the c-lang chain. This keeps the test
+        // host-independent: where the c-lang rules are absent, `file`
+        // won't say "c program text" and neither must rmagic.
+        if file_desc.contains("c program text") {
+            assert!(
+                result.description.contains("c program text"),
+                "message-bearing `clear` regression: rmagic must emit \
+                 \"c program text\" for a C source under the default config, \
+                 got: {:?} (file said: {:?})",
+                result.description,
+                file_desc.trim()
+            );
+        }
+    }
+}
+
 /// Binary content must still fall back to `"data"` under the default
 /// config -- the text/data fallback must not misclassify binary content
 /// as text.
