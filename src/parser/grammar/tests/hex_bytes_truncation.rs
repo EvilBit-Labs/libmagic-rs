@@ -248,3 +248,55 @@ fn bareword_escaped_space_does_not_truncate_the_token() {
         "a buffer with a bare `%` (but not the full pattern) must NOT match, got {miss:?}"
     );
 }
+
+#[test]
+fn bareword_value_beginning_with_backslash_resolves_full_token_and_matches_xml() {
+    // The system-DB sgml rule `0 string \<?xml\ version=` begins with a
+    // backslash, so its bareword value is captured by `parse_value`'s
+    // `parse_mixed_hex_ascii` branch (which fires whenever the token
+    // starts with `\`) BEFORE the `parse_bare_string_value` fallback is
+    // reached. Before the getstr-parity fix in `parse_mixed_hex_ascii`,
+    // the unrecognized `\<` escape survived as a literal 0x5c byte and the
+    // escaped space `\ ` terminated the token: the value truncated to
+    // `Value::Bytes(b"\\<?xml\\")` and ` version=` leaked into the rule's
+    // message -- so real `<?xml ...` documents (and every XML plist) fell
+    // through to "ASCII text" instead of "XML document text".
+    //
+    // After the fix, `\<` -> `<` and `\ ` -> a literal space that
+    // CONTINUES the token, so the full 14-byte pattern `<?xml version=`
+    // is captured and the message is clean.
+    let input = r"0 string \<?xml\ version= XML document text";
+    let (remaining, rule) = parse_magic_rule(input).expect(input);
+    assert_eq!(remaining, "");
+    assert_eq!(
+        rule.value,
+        Value::Bytes(b"<?xml version=".to_vec()),
+        "the whole getstr-resolved pattern must be captured: `\\<` drops the \
+         backslash and `\\ ` is a literal space that does not terminate the token"
+    );
+    assert_eq!(rule.message, "XML document text");
+
+    // Match correctness: a real XML document must match; a non-XML text
+    // buffer must not.
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let hit = evaluate_rules(
+        std::slice::from_ref(&rule),
+        br#"<?xml version="1.0" encoding="UTF-8"?>"#,
+        &mut context,
+    )
+    .expect("evaluation must not error");
+    assert_eq!(hit.len(), 1, "a real <?xml document must match");
+    assert_eq!(hit[0].message, "XML document text");
+
+    context.reset();
+    let miss = evaluate_rules(
+        std::slice::from_ref(&rule),
+        b"plain ASCII text with no xml prolog",
+        &mut context,
+    )
+    .expect("evaluation must not error");
+    assert!(
+        miss.is_empty(),
+        "a non-XML text buffer must NOT match, got {miss:?}"
+    );
+}

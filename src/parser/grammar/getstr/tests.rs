@@ -251,31 +251,31 @@ fn parse_magic_rule_regex_quoted_pattern_unaffected_by_getstr_routing() {
 }
 
 #[test]
-fn parse_magic_rule_search_with_same_escaped_pattern_is_unaffected() {
-    // Cross-wiring guard: the SAME escaped source text, when used on a
-    // `search` rule instead of `regex`, must keep parsing exactly as it
-    // did before this fix -- i.e. NOT through the getstr resolver. This
-    // pins the current (unchanged) `parse_hex_bytes` behavior, which
-    // notably does NOT drop the backslash on `\^` the way getstr does
-    // (see module docs on `parse_bare_string_value` for the contrast) --
-    // this is the concrete divergence this test protects against
-    // silently changing for `search`.
+fn parse_magic_rule_search_with_same_escaped_pattern_drops_unknown_escape_backslash() {
+    // The SAME escaped source text, used on a `search` rule instead of
+    // `regex`, still goes through `parse_hex_bytes`/`parse_mixed_hex_ascii`
+    // (not the getstr resolver, which is regex-only) and still yields
+    // `Value::Bytes`. But `parse_mixed_hex_ascii`'s unrecognized-escape
+    // fallback now matches GNU `file` getstr: the standalone backslash on
+    // `\^` is DROPPED and `^` is kept literally, exactly as the `regex`
+    // path resolves it (see
+    // `parse_magic_rule_regex_escaped_pattern_yields_string_not_bytes`
+    // above -- same bytes, different Value variant). `\040`->space and
+    // `\t`->tab are recognized escapes (unchanged); `\\.`->`\.` is an
+    // escaped backslash then a literal dot (unchanged). This is the
+    // getstr-parity fix that also lets `0 string \<?xml\ version=` match
+    // XML documents (the escaped space no longer truncates the token).
     let input = r"0 search/80 \^[\040\t]{0,50}\\.asciiz test";
     let (remaining, rule) = parse_magic_rule(input).expect(input);
     assert_eq!(remaining, "");
     assert!(matches!(rule.typ, TypeKind::Search { .. }));
     match &rule.value {
         Value::Bytes(bytes) => {
-            // `search` still goes through `parse_hex_bytes`/
-            // `parse_mixed_hex_ascii`, which resolves `\040` and `\t`
-            // the same way (recognized escapes) but treats the
-            // unrecognized `\^` escape differently: the standalone
-            // backslash survives as its own literal byte (0x5C) rather
-            // than being dropped, because `parse_escape_sequence` fails
-            // to recognize `\^` and the byte-level fallback in
-            // `parse_mixed_hex_ascii` just copies the backslash
-            // character through as an ordinary ASCII byte.
-            assert_eq!(bytes, b"\\^[ \t]{0,50}\\.asciiz");
+            assert_eq!(
+                bytes, b"^[ \t]{0,50}\\.asciiz",
+                "unrecognized `\\^` escape drops the backslash (getstr parity), \
+                 matching the regex path's resolved bytes"
+            );
         }
         other => panic!("expected search to still produce Value::Bytes, got {other:?}"),
     }
