@@ -479,7 +479,60 @@ fn evaluate_value_rule(
         }
         op => operators::apply_operator(op, &transformed_value, expected_ref),
     };
-    Ok((matched, transformed_value))
+
+    // libmagic renders the FULL string field (`p->s`) for a matched string
+    // comparison, while the comparison itself is prefix-limited to
+    // `pattern.len()` (`file_strncmp` with `vallen`). The comparison above
+    // already read exactly `pattern.len()` bytes -- correct and unchanged --
+    // but for an ORDERING operator the rendered detail needs the whole field,
+    // not the compared prefix. sgml's `>15 string/t >\0 %.3s document text`
+    // is the motivating case: comparing `>\0` reads 1 byte ("1"), but the
+    // `%.3s` must render the full field ("1.0") to produce `XML 1.0 ...`.
+    // Re-read the full field for DISPLAY only; the `matched` decision above is
+    // left byte-identical, so this cannot change any match result.
+    let display_value = string_ordering_display_value(
+        rule,
+        buffer,
+        absolute_offset,
+        max_string_length,
+        transformed_value,
+    );
+    Ok((matched, display_value))
+}
+
+/// Compute the DISPLAY value for a value-rule match, decoupling it from the
+/// value used in the comparison.
+///
+/// For a `string` rule compared with an ORDERING operator (`<`/`>`/`<=`/`>=`),
+/// libmagic renders the full string field (`p->s`, read until NUL/EOF) even
+/// though the comparison is prefix-limited to `pattern.len()`. This re-reads
+/// that full field so `%s`/`%.Ns` format specifiers render the whole value
+/// rather than only the compared prefix. For every other type or operator the
+/// compared value already IS the field libmagic renders, so `compared` is
+/// returned unchanged.
+///
+/// Only `TypeKind::String` needs this: `PString` (`read_pstring`) and
+/// `String16` (`read_string16`) already read their full field independent of
+/// `pattern.len()`, and numeric types render the whole value.
+///
+/// On a display-side read error after a successful match, the compared value
+/// is returned rather than propagating -- a matched rule must not abort on a
+/// display-only read.
+fn string_ordering_display_value(
+    rule: &MagicRule,
+    buffer: &[u8],
+    absolute_offset: usize,
+    max_string_length: usize,
+    compared: crate::parser::ast::Value,
+) -> crate::parser::ast::Value {
+    use crate::parser::ast::Operator::{GreaterEqual, GreaterThan, LessEqual, LessThan};
+
+    let is_ordering = matches!(rule.op, LessThan | GreaterThan | LessEqual | GreaterEqual);
+    if is_ordering && matches!(rule.typ, TypeKind::String { .. }) {
+        types::read_string(buffer, absolute_offset, Some(max_string_length)).unwrap_or(compared)
+    } else {
+        compared
+    }
 }
 
 /// Logs the graceful skip of a pattern-bearing-type rule whose

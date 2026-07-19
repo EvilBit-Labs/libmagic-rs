@@ -184,6 +184,95 @@ fn test_flagged_string_w_whitespace_consumes_extra_file_bytes_for_anchor() {
 }
 
 #[test]
+fn test_string_ordering_renders_full_field_not_compared_prefix() {
+    // libmagic compares a `string >VALUE` rule prefix-limited to
+    // `pattern.len()` (`file_strncmp` with `vallen`) but RENDERS the full
+    // string field (`p->s`). The engine must therefore return the full field
+    // as the match's DISPLAY value, not just the compared prefix -- otherwise
+    // sgml's `>15 string/t >\0 %.3s ...` renders the XML version `1` instead
+    // of `1.0`. Here the pattern is 5 bytes ("0.6.1") but the display value
+    // must be the whole field.
+    let rule = make_flagged_string_rule("0.6.1", StringFlags::default(), Operator::GreaterThan);
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[rule], b"0.6.2 and more text", &mut context).unwrap();
+    assert_eq!(matches.len(), 1, "0.6.2 > 0.6.1 must match");
+    assert_eq!(
+        matches[0].value,
+        Value::String("0.6.2 and more text".to_string()),
+        "display value must be the FULL string field, not the compared 5-byte prefix"
+    );
+}
+
+#[test]
+fn test_string_ordering_comparison_stays_prefix_limited() {
+    // Guard against a future revert to full-field COMPARISON. libmagic
+    // compares only the first `pattern.len()` bytes: buffer "0.6.10" has
+    // prefix "0.6.1" == pattern, so `> 0.6.1` is FALSE even though the full
+    // string "0.6.10" sorts after "0.6.1". Verified against the real `file`
+    // binary (file-5.41): `0.6.10` does NOT match `>0.6.1`, but `0.6.2` does.
+    let rule = make_flagged_string_rule("0.6.1", StringFlags::default(), Operator::GreaterThan);
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let no_match = evaluate_rules(&[rule], b"0.6.10more", &mut context).unwrap();
+    assert!(
+        no_match.is_empty(),
+        "prefix '0.6.1' equals the pattern, so `> 0.6.1` must be false (prefix-limited compare)"
+    );
+
+    // Positive control: a genuinely-greater prefix matches.
+    let rule2 = make_flagged_string_rule("0.6.1", StringFlags::default(), Operator::GreaterThan);
+    let mut ctx2 = EvaluationContext::new(EvaluationConfig::default());
+    let m = evaluate_rules(&[rule2], b"0.6.2", &mut ctx2).unwrap();
+    assert_eq!(m.len(), 1, "0.6.2 > 0.6.1 within the compared prefix");
+}
+
+#[test]
+fn test_string_ordering_full_field_display_does_not_move_relative_anchor() {
+    // The full-field DISPLAY read must not disturb the relative-offset
+    // anchor: `bytes_consumed_with_pattern` re-derives the advance from the
+    // PATTERN (5 bytes for "0.6.1"), never from the display value. A child at
+    // Relative(0) must resolve to offset 5 (just past the compared prefix),
+    // NOT to the full-field length. Pins the advisor's anchor-stability
+    // concern for the decoupled display read.
+    let child = MagicRule {
+        offset: OffsetSpec::Relative(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'X')),
+        message: "at-offset-5".to_string(),
+        children: vec![],
+        level: 1,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let parent = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default(),
+        },
+        op: Operator::GreaterThan,
+        value: Value::String("0.6.1".to_string()),
+        message: "ver".to_string(),
+        children: vec![child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context =
+        EvaluationContext::new(EvaluationConfig::default().with_stop_at_first_match(false));
+    // buffer: bytes 0..4 = "0.6.2" (matches >0.6.1), byte 5 = 'X' (child
+    // target), then a long tail that becomes the full-field display value.
+    let matches =
+        evaluate_rules(&[parent], b"0.6.2X and a long trailing field", &mut context).unwrap();
+    assert_eq!(matches.len(), 2, "parent + child must both match");
+    assert_eq!(matches[1].message, "at-offset-5");
+    assert_eq!(
+        matches[1].offset, 5,
+        "child must resolve just past the 5-byte pattern, not the full field"
+    );
+}
+
+#[test]
 fn test_flagged_string_any_value_operator_does_not_panic_end_to_end() {
     // Regression: `0 string/b x` -- a flagged string with the AnyValue (`x`)
     // operator, a common message-less gating rule (e.g. compress's zlib

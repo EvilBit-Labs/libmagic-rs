@@ -162,6 +162,11 @@ struct Spec {
     left_align: bool,
     alt_form: bool,
     width: usize,
+    /// `.<digits>` precision. Currently honored only for `%s` (`Conv::Str`),
+    /// where it truncates the rendered string to at most `precision`
+    /// characters -- e.g. sgml's `%.3s` renders the XML version `1.0` from a
+    /// longer field. `None` means no precision was given (no truncation).
+    precision: Option<usize>,
     conv: Conv,
     /// Byte index of the character *after* this specifier in the template.
     end: usize,
@@ -222,13 +227,23 @@ fn parse_spec(bytes: &[u8], start: usize) -> Option<Spec> {
         i += 1;
     }
 
-    // Precision (`.<digits>`): parsed and skipped -- no current consumer
-    // requires precision handling, and numeric rendering is whole-value.
+    // Precision (`.<digits>`). Captured for `%s` truncation (see `render`);
+    // numeric rendering is still whole-value and ignores it. A bare `.` with
+    // no digits means precision 0 (C semantics). The digit run is capped at
+    // MAX_FORMAT_WIDTH for the same crafted-input protection as `width`.
+    let mut precision: Option<usize> = None;
     if i < bytes.len() && bytes[i] == b'.' {
         i += 1;
+        let mut prec: usize = 0;
         while i < bytes.len() && bytes[i].is_ascii_digit() {
+            let digit = (bytes[i] - b'0') as usize;
+            prec = prec
+                .saturating_mul(10)
+                .saturating_add(digit)
+                .min(MAX_FORMAT_WIDTH);
             i += 1;
         }
+        precision = Some(prec);
     }
 
     // Length modifier (`h`, `hh`, `l`, `ll`, `j`, `z`, `t`). We consume
@@ -263,6 +278,7 @@ fn parse_spec(bytes: &[u8], start: usize) -> Option<Spec> {
         left_align,
         alt_form,
         width,
+        precision,
         conv,
         end: i,
     })
@@ -273,7 +289,7 @@ fn parse_spec(bytes: &[u8], start: usize) -> Option<Spec> {
 fn render(spec: &Spec, value: &Value, type_kind: &TypeKind) -> Option<String> {
     match spec.conv {
         Conv::Percent => Some("%".to_string()),
-        Conv::Str => Some(render_string(value)),
+        Conv::Str => Some(render_str_spec(spec, value)),
         Conv::Signed => {
             let n = coerce_to_i64(value)?;
             Some(pad_numeric(&n.to_string(), spec))
@@ -322,6 +338,28 @@ fn render(spec: &Spec, value: &Value, type_kind: &TypeKind) -> Option<String> {
             Some(pad_non_numeric(&char::from(byte).to_string(), spec))
         }
     }
+}
+
+/// Render a `%s` specifier: base string, then optional `.<precision>`
+/// truncation, then width padding.
+///
+/// Precision truncates to at most `precision` characters. Truncation is
+/// **char-wise**, not byte-wise: C's `%.Ns` truncates by bytes, but our value
+/// is a Rust `String` and a byte-wise cut could split a multi-byte UTF-8
+/// sequence. For the ASCII version/name fields that use precision in the magic
+/// corpus (`%.3s`, `%-.4s`, `%.10s`) the two are identical; char-wise is the
+/// safe choice for the rare non-ASCII case.
+///
+/// Width padding (via [`pad_non_numeric`]) is applied after truncation so
+/// `%4.4s` and `%-.4s` render correctly -- previously `%s` dropped width
+/// entirely.
+fn render_str_spec(spec: &Spec, value: &Value) -> String {
+    let base = render_string(value);
+    let truncated = match spec.precision {
+        Some(p) if base.chars().count() > p => base.chars().take(p).collect(),
+        _ => base,
+    };
+    pad_non_numeric(&truncated, spec)
 }
 
 /// Render a [`Value`] for `%s`. Strings pass through; byte sequences are
@@ -588,6 +626,48 @@ mod tests {
             },
         );
         assert_eq!(out, "data=abc");
+    }
+
+    #[test]
+    fn test_string_precision_truncation() {
+        // `%.Ns` truncates the rendered string to at most N characters.
+        // sgml's `>15 string/t >\0 %.3s document text` is the motivating
+        // rule: the full XML-version field is `1.0" encoding=...` but `%.3s`
+        // must render only `1.0` so the description reads `XML 1.0 ...`.
+        let str_t = TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default(),
+        };
+        // (template, value, expected)
+        let cases: &[(&str, &str, &str)] = &[
+            // The XML case: full field truncated to 3 chars.
+            (
+                "%.3s document text",
+                "1.0\" encoding=\"UTF-8\"?>",
+                "1.0 document text",
+            ),
+            // Precision shorter than the string truncates.
+            ("%.1s", "1.0", "1"),
+            // Precision >= length is a no-op (no padding without width).
+            ("%.10s", "abc", "abc"),
+            ("%.3s", "abc", "abc"),
+            // Precision 0 renders the empty string.
+            ("%.0s", "abc", ""),
+            // Left-align precision (`-` is a no-op here since no width).
+            ("%-.4s", "versionX", "vers"),
+            // Width padding is applied AFTER truncation: `%4.4s` on "ab"
+            // truncates to "ab" (no-op) then right-pads to width 4.
+            ("[%4.4s]", "ab", "[  ab]"),
+            // `%-4.2s`: truncate "hello" to "he", then left-pad to width 4.
+            ("[%-4.2s]", "hello", "[he  ]"),
+        ];
+        for (template, value, expected) in cases {
+            let out = format_magic_message(template, &Value::String((*value).to_string()), &str_t);
+            assert_eq!(
+                out, *expected,
+                "template {template:?} on value {value:?} should render {expected:?}",
+            );
+        }
     }
 
     #[test]
