@@ -571,31 +571,38 @@ fn parse_name_or_use_meta<'a>(
         )));
     }
 
-    // Consume horizontal whitespace after the identifier. Real-world
-    // magic files sometimes append a descriptive message after a
-    // `name`/`use` directive (e.g. `0 name xbase-prf dBase Printer
-    // Form`). magic(5) does not officially document this, but GNU
-    // `file` tolerates it -- the trailing text is silently ignored
-    // because `name`/`use` rules don't have a message slot in the
-    // softmagic struct. We do the same: consume horizontal whitespace
-    // and a single optional trailing token, stopping at end-of-line.
+    // Handle the trailing text after the identifier. The two directives
+    // diverge here, matching GNU `file`:
+    //
+    // - `use`: magic(5) has no message slot for a `use` site, and GNU
+    //   `file` never emits a use-site's own description (verified: a
+    //   `use foo BAR` renders no `BAR`). Drop the trailing text up to
+    //   end-of-line so the caller parses an empty message.
+    // - `name`: the `name` line's OWN description IS emitted when the
+    //   subroutine is invoked via `use` -- Mach-O universal `0 name
+    //   mach-o \b [`, `0 name matlab4 Matlab v4 mat-file`, `0 name
+    //   algol_68 Algol 68 source text`, etc. PRESERVE the trailing text
+    //   so the caller's `parse_message` captures it as the rule message
+    //   (later stored in the name table by `extract_name_table` and
+    //   emitted at the `use` site). Dropping it here is what previously
+    //   made rmagic omit those fragments (e.g. the leading `[` of the
+    //   Mach-O universal bracket detail).
+    //
     // We deliberately do NOT reject embedded whitespace inside the
     // identifier itself (which would be a real malformed rule like
-    // `part 2`); that's enforced earlier when `take_while` truncates
-    // the identifier on the first non-id character.
+    // `part 2`); that's enforced earlier when `take_while` truncates the
+    // identifier on the first non-id character.
     let mut tail = after_id;
-    while let Some(rest) = tail.strip_prefix(' ').or_else(|| tail.strip_prefix('\t')) {
-        tail = rest;
-    }
-    // Skip any trailing text (descriptive label) up to end-of-line.
-    if let Some(next_char) = tail.chars().next()
-        && !matches!(next_char, '\n' | '\r')
-    {
-        // Drop the rest of the line silently. magic(5)'s `name`/`use`
-        // directives have no message slot, so anything after the
-        // identifier is informational only.
-        let line_end = tail.find(['\n', '\r']).unwrap_or(tail.len());
-        tail = &tail[line_end..];
+    if type_name == "use" {
+        while let Some(rest) = tail.strip_prefix(' ').or_else(|| tail.strip_prefix('\t')) {
+            tail = rest;
+        }
+        if let Some(next_char) = tail.chars().next()
+            && !matches!(next_char, '\n' | '\r')
+        {
+            let line_end = tail.find(['\n', '\r']).unwrap_or(tail.len());
+            tail = &tail[line_end..];
+        }
     }
 
     let meta = if type_name == "name" {

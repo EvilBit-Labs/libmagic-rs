@@ -331,6 +331,13 @@ fn evaluate_use_rule(
         warn!("use directive references unknown name '{name}'");
         return Ok((None, Vec::new()));
     };
+    // The `name` line can carry its own description (e.g. Mach-O universal
+    // `0 name mach-o \b [`, `0 name matlab4 Matlab v4 mat-file`). GNU `file`
+    // emits it ahead of the subroutine body, attached with no separating
+    // space. Capture it here while the env borrow is live; the owned `String`
+    // lets us drop that borrow before mutating the context below. `None` for
+    // a bare `name <id>`.
+    let name_message = env.name_table.name_message(name);
     // `NameTable::get` returns an `Arc<[MagicRule]>`, so this clone is a
     // reference-count increment rather than a deep copy of the rule tree.
     // The Arc is cloned here to release the immutable borrow of `context`
@@ -368,7 +375,40 @@ fn evaluate_use_rule(
         (matches, terminal)
     };
 
-    Ok((Some(terminal_anchor), subroutine_matches))
+    // Prepend the `name` line's own description (if any) ahead of the body's
+    // matches, matching GNU `file`: `use mach-o` emits the mach-o subroutine's
+    // `\b [` before the per-arch body. The name line reads no bytes, so this
+    // synthetic match carries a dummy value and does NOT touch the anchor
+    // (`terminal_anchor` still comes from the body's evaluation). To reproduce
+    // `file`'s no-separator attachment (`ParentSUBMSG`, not `Parent SUBMSG`),
+    // ensure the message begins with the `\b` no-separator marker
+    // (`concatenate_messages` strips a leading literal `\b` / U+0008); a name
+    // message that already starts with one (mach-o's `\b [`) is left as-is so
+    // it is not double-marked.
+    let matches = match name_message {
+        Some(msg) if !msg.is_empty() => {
+            let attached = if msg.starts_with('\u{0008}') || msg.starts_with("\\b") {
+                msg
+            } else {
+                format!("\\b{msg}")
+            };
+            let name_match = RuleMatch::new(
+                attached,
+                absolute_offset,
+                rule.level,
+                crate::parser::ast::Value::Uint(0),
+                rule.typ.clone(),
+                RuleMatch::calculate_confidence(rule.level),
+            );
+            let mut combined = Vec::with_capacity(subroutine_matches.len() + 1);
+            combined.push(name_match);
+            combined.extend(subroutine_matches);
+            combined
+        }
+        _ => subroutine_matches,
+    };
+
+    Ok((Some(terminal_anchor), matches))
 }
 
 /// Evaluate a pattern-bearing rule (`TypeKind::Regex` / `TypeKind::Search`).

@@ -391,3 +391,87 @@ fn test_gzip_multipart_description_end_to_end() {
         short_result.description
     );
 }
+
+/// A `name` subroutine's OWN description (the text on the `name` line) is
+/// emitted when the subroutine is invoked via `use`, ahead of the body's
+/// matches and attached with NO separating space -- matching GNU `file`.
+///
+/// libmagic drops a `use`-site's own message but emits the `name` line's
+/// description (verified against file-5.41). rmagic previously dropped BOTH,
+/// so subroutine name-line fragments -- Mach-O universal `\b [`, `matlab4
+/// Matlab v4 mat-file`, `algol_68 Algol 68 source text` -- silently vanished.
+///
+/// Buffer `ZQX9...` matches the parent `0 string ZQXNAME9`; the `>8 byte`
+/// child reads the value at offset 8. Expected strings are the EXACT
+/// `file -b` output for the equivalent single-file magic (see the
+/// fix-system-magic-regex-graceful name-message investigation).
+#[test]
+fn test_use_emits_name_line_message_with_no_separator() {
+    // (magic body, expected description). One temp file per case keeps the
+    // magic isolated from stop-at-first-match cross-talk.
+    let cases: &[(&str, &str)] = &[
+        // A: plain name message attaches with no leading space -> `ParentSUBMSG`.
+        (
+            "0 string ZQXNAME9 Parent\n>0 use submsgtest\n0 name submsgtest SUBMSG\n>8 byte x child=%d\n",
+            "ParentSUBMSG child=5",
+        ),
+        // B: mach-o-style `\b [` -> the `\b` no-separator marker + literal ` [`.
+        (
+            "0 string ZQXNAME9 Parent\n>0 use submsgtest\n0 name submsgtest \\b [\n>8 byte x child=%d\n",
+            "Parent [ child=5",
+        ),
+        // C: the `use` site's OWN message (USEMSG) is DROPPED; only the name
+        // line's NAMEMSG is emitted.
+        (
+            "0 string ZQXNAME9 Parent\n>0 use submsgtest USEMSG\n0 name submsgtest NAMEMSG\n>8 byte x child=%d\n",
+            "ParentNAMEMSG child=5",
+        ),
+        // D: name message with no body still emits.
+        (
+            "0 string ZQXNAME9 Parent\n>0 use submsgtest\n0 name submsgtest NAMEONLY\n",
+            "ParentNAMEONLY",
+        ),
+    ];
+
+    let temp_dir = TempDir::new().unwrap();
+    // 9-byte buffer: "ZQXNAME9" (8 bytes) matches the parent, byte at offset 8
+    // is 0x05 so `child=%d` renders `child=5`.
+    let buf = b"ZQXNAME9\x05";
+
+    for (i, (magic, expected)) in cases.iter().enumerate() {
+        let magic_path = temp_dir.path().join(format!("namemsg_{i}.magic"));
+        fs::write(&magic_path, magic).unwrap();
+        let db = MagicDatabase::load_from_file(&magic_path).unwrap();
+        let result = db.evaluate_buffer(buf).unwrap();
+        assert_eq!(
+            result.description, *expected,
+            "case {i}: name-line message spacing must match GNU `file` for magic {magic:?}"
+        );
+    }
+}
+
+/// End-to-end regression for the Mach-O universal bracket detail: a nested
+/// `use` chain where the outer subroutine's name line carries `\b [`, an inner
+/// `use` supplies the arch label, and a `\b]` closes the bracket.
+///
+/// Before the name-line-message fix, the outer `[` was dropped and the output
+/// was malformed (`LABEL]`); after, the brackets balance (`[...LABEL]`),
+/// matching the shape GNU `file` produces for a real fat binary. (The full
+/// per-arch `:Mach-O 64-bit executable` inner classification needs the
+/// separate indirect-offset cluster and is tracked in its own issue.)
+#[test]
+fn test_use_nested_name_message_balances_brackets() {
+    let temp_dir = TempDir::new().unwrap();
+    let magic_path = temp_dir.path().join("nested.magic");
+    let magic = "0 string ZQXNAME9 Parent:\n\
+                 >0 use outer\n\
+                 0 name outer \\b [\n\
+                 >0 use inner\n\
+                 >8 byte x \\b]\n\
+                 0 name inner INNERCPU\n";
+    fs::write(&magic_path, magic).unwrap();
+    let db = MagicDatabase::load_from_file(&magic_path).unwrap();
+    let result = db.evaluate_buffer(b"ZQXNAME9\x05").unwrap();
+    // Matches `file -b` on the equivalent single-file magic: `Parent: [INNERCPU]`.
+    assert_eq!(result.description, "Parent: [INNERCPU]");
+}
