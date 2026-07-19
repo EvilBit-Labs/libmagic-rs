@@ -892,10 +892,52 @@ pub fn evaluate_rules(
 
         // `Clear` resets the per-level "sibling matched" flag so a
         // subsequent `default` sibling can fire even if an earlier
-        // sibling matched. It does not produce a match, evaluate
-        // children, or advance the anchor.
+        // sibling matched. Matching libmagic's `FILE_CLEAR`, the flag is
+        // unconditionally reset and NEVER re-set to `true` afterward
+        // (clear does not participate in the "a sibling matched" chain).
+        //
+        // libmagic's `FILE_CLEAR` also COUNTS as a match -- its `x` test
+        // always succeeds -- and `mprint` renders its description when it
+        // is non-empty. So a `clear` carrying message text must emit that
+        // text (c-lang's `>>&0 clear x program text` is the only such rule
+        // in the system DB, producing the "program text" fragment of
+        // `c program text`). Verified against real `file` (file-5.41):
+        // a message-bearing `clear` child prints its message AND still
+        // resets the flag so a trailing `default` sibling fires.
+        //
+        // Emission is guarded on a non-empty message so the many bare
+        // `clear x` flag-reset directives throughout the system DB (apple,
+        // coff, elf, pmem, ...) behave exactly as before -- no match, no
+        // anchor advance. `clear` is 0-width, so the previous-match anchor
+        // is intentionally not advanced in either case. Children are
+        // evaluated for a message-bearing clear for libmagic fidelity;
+        // `evaluate_children_or_warn` is a no-op when there are none.
         if let TypeKind::Meta(MetaType::Clear) = &rule.typ {
             sibling_matched = false;
+
+            if !rule.message.is_empty() {
+                let matches_before = matches.len();
+
+                let match_result = RuleMatch::new(
+                    rule.message.clone(),
+                    context.last_match_end(),
+                    rule.level,
+                    crate::parser::ast::Value::Uint(0),
+                    rule.typ.clone(),
+                    RuleMatch::calculate_confidence(rule.level),
+                );
+                matches.push(match_result);
+
+                evaluate_children_or_warn(rule, "clear", buffer, context, &mut matches)?;
+
+                if stop_at_first_match_applies
+                    && matches.len() > matches_before
+                    && context.should_stop_at_first_match()
+                    && has_message_bearing_match(&matches, matches_before)
+                {
+                    break;
+                }
+            }
             continue;
         }
 

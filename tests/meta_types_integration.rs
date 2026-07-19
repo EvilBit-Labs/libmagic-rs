@@ -154,6 +154,94 @@ fn test_default_clear_synthetic_scenario() {
     );
 }
 
+/// A message-bearing `clear x` directive must EMIT its own message, matching
+/// libmagic's `FILE_CLEAR` (the `x` test always succeeds and `mprint` renders
+/// a non-empty description). This is the mechanism behind GNU `file`'s
+/// `c-lang` chain: for a plain C source file the `>>&0 clear x program text`
+/// child appends "program text", producing `c program text` (rmagic
+/// previously dropped it and printed only `c`).
+///
+/// This also pins the coexistence verified against real `file` (file-5.41):
+/// the message-bearing clear prints its message AND still resets the per-level
+/// sibling-matched flag so a trailing `default` sibling fires. The child-level
+/// structure mirrors c-lang -- the directives are children of a matched
+/// top-level rule, so each `default`'s sibling-matched check is evaluated at
+/// the child level.
+#[test]
+fn test_clear_with_message_emits_and_still_resets_flag() {
+    let temp_dir = TempDir::new().unwrap();
+    let magic_path = temp_dir.path().join("clear_msg.magic");
+
+    // Top-level signature matches, then four children at the same level:
+    //   default (fires -- nothing matched at the child level yet),
+    //   clear x CLEARED-MSG (emits its message, resets the flag),
+    //   default (fires again because clear reset the flag).
+    // Verified against real `file`:
+    //   MATCH-A DEF-SKIPPED CLEARED-MSG DEF-FIRES
+    let mut f = fs::File::create(&magic_path).unwrap();
+    writeln!(f, r"0 string ZQX9 MATCH-A").unwrap();
+    writeln!(f, r">4 default x DEF-ONE").unwrap();
+    writeln!(f, r">4 clear x CLEARED-MSG").unwrap();
+    writeln!(f, r">4 default x DEF-TWO").unwrap();
+
+    // Evaluate every matching sibling (the default config stops at the first
+    // top-level match, which would hide the child chain).
+    let config = EvaluationConfig::default().with_stop_at_first_match(false);
+    let db = MagicDatabase::load_from_file_with_config(&magic_path, config).unwrap();
+
+    let buf = b"ZQX9rest-of-data";
+    let result = db.evaluate_buffer(buf).unwrap();
+
+    // Primary regression: the clear's own message text is present.
+    assert!(
+        result.description.contains("CLEARED-MSG"),
+        "message-bearing clear must emit its message, got: {}",
+        result.description
+    );
+    // The first child default fires (no sibling matched at the child level
+    // before it).
+    assert!(
+        result.description.contains("DEF-ONE"),
+        "first child default should fire, got: {}",
+        result.description
+    );
+    // Coexistence: clear reset the flag, so the trailing default still fires.
+    assert!(
+        result.description.contains("DEF-TWO"),
+        "clear must reset sibling-matched so the trailing default fires, got: {}",
+        result.description
+    );
+}
+
+/// A bare `clear x` directive with NO message text must remain a pure
+/// flag-reset: it emits no description fragment and does not advance the
+/// previous-match anchor, exactly as before message-emission was added. This
+/// guards the blast radius of `test_clear_with_message_emits_and_still_resets_flag`
+/// -- the system magic DB contains ten message-less `clear x` directives
+/// (apple, coff, elf, pmem, ...) whose output must be unchanged.
+#[test]
+fn test_message_less_clear_emits_nothing() {
+    let temp_dir = TempDir::new().unwrap();
+    let magic_path = temp_dir.path().join("clear_bare.magic");
+
+    // A matched parent whose only child is a bare `clear x` (no message).
+    // The description must be exactly the parent's text with no trailing
+    // fragment or stray whitespace from the clear.
+    let mut f = fs::File::create(&magic_path).unwrap();
+    writeln!(f, r"0 string ZQX9 PARENT").unwrap();
+    writeln!(f, r">4 clear x").unwrap();
+
+    let config = EvaluationConfig::default().with_stop_at_first_match(false);
+    let db = MagicDatabase::load_from_file_with_config(&magic_path, config).unwrap();
+
+    let result = db.evaluate_buffer(b"ZQX9rest").unwrap();
+    assert_eq!(
+        result.description, "PARENT",
+        "a message-less clear must contribute no text, got: {}",
+        result.description
+    );
+}
+
 /// Synthetic end-to-end coverage of the `indirect` directive: a rule with
 /// `TypeKind::Meta(MetaType::Indirect)` re-applies the loaded magic
 /// database starting at the resolved offset. The dispatch is wired
