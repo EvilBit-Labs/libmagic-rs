@@ -195,9 +195,11 @@ fn test_metadata_populated_for_buffer() {
 #[test]
 fn test_metadata_for_no_match() {
     let db = MagicDatabase::with_builtin_rules().unwrap();
+    // Plain ASCII content with no rule match falls back to "ASCII text"
+    // (GOTCHAS S13.2), matching GNU `file` -- not the old hardcoded "data".
     let result = db.evaluate_buffer(b"nothing matches this").unwrap();
 
-    assert_eq!(result.description, "data");
+    assert_eq!(result.description, "ASCII text");
     assert!(result.metadata.rules_evaluated > 0);
 }
 
@@ -209,7 +211,10 @@ fn test_metadata_for_no_match() {
 fn test_evaluate_empty_buffer() {
     let db = MagicDatabase::with_builtin_rules().unwrap();
     let result = db.evaluate_buffer(b"").unwrap();
-    assert_eq!(result.description, "data");
+    // The text/data fallback (GOTCHAS S13.2) reports "empty" for a
+    // zero-byte buffer, matching GNU `file`'s literal output -- not the
+    // old hardcoded "data".
+    assert_eq!(result.description, "empty");
 }
 
 #[test]

@@ -304,9 +304,20 @@ fn test_with_builtin_rules() {
         zip_result.description
     );
 
-    // Test unknown data falls back to "data"
-    let unknown_result = db.evaluate_buffer(b"random unknown content").unwrap();
-    assert_eq!(unknown_result.description, "data");
+    // Unmatched plain ASCII content falls back to the text/data
+    // classifier's "ASCII text" result, matching GNU `file` (verified:
+    // `file` reports "ASCII text, with no line terminators" for this
+    // exact buffer) -- NOT the old hardcoded "data" this test asserted
+    // before the text/data fallback (GOTCHAS S13.2 / issue: blank output
+    // for readable files) was implemented.
+    let unknown_text_result = db.evaluate_buffer(b"random unknown content").unwrap();
+    assert_eq!(unknown_text_result.description, "ASCII text");
+
+    // Genuinely binary, unmatched content still falls back to "data".
+    let unknown_binary_result = db
+        .evaluate_buffer(&[0x00, 0x01, 0x02, 0xFF, 0xFE, 0x10])
+        .unwrap();
+    assert_eq!(unknown_binary_result.description, "data");
 }
 
 #[test]
@@ -367,7 +378,13 @@ fn test_evaluation_result_confidence_from_matches() {
 fn test_evaluation_result_no_match_has_zero_confidence() {
     let db = MagicDatabase::with_builtin_rules().expect("builtin rules should load");
 
-    let unknown_result = db.evaluate_buffer(b"random unknown content").unwrap();
+    // Genuinely binary content so no built-in rule matches and the
+    // text/data fallback (GOTCHAS S13.2) reports "data" -- confirming
+    // confidence is 0.0 for a fallback-classified result, not just an
+    // empty-matches result.
+    let unknown_result = db
+        .evaluate_buffer(&[0x00, 0x01, 0x02, 0xFF, 0xFE, 0x10])
+        .unwrap();
 
     assert_eq!(unknown_result.description, "data");
     assert!((unknown_result.confidence - 0.0).abs() < 0.001);
@@ -422,6 +439,42 @@ fn test_concatenate_messages_with_backspace() {
 
     let result = MagicDatabase::concatenate_messages(&matches);
     assert_eq!(result, "ELF, 64-bit"); // No space before comma
+}
+
+/// Regression: the `\b` no-separator marker reaches concatenation as the
+/// LITERAL two-character sequence `\b` (backslash + 'b'), NOT a U+0008 byte,
+/// because the message parser preserves description text verbatim (matching
+/// GNU `file`, which keeps the desc literal and special-cases a leading `\b`
+/// at print time). Real rules like msdos's `\b, for MS Windows` and the
+/// Mach-O universal-binary `\b]` were rendering the literal marker into the
+/// output ("PE STUB    \b, for MS Windows", "...architectures: \b]") until
+/// concatenation learned to strip the literal `\b` too (GOTCHAS S14.1).
+#[test]
+fn test_concatenate_messages_with_literal_backslash_b_marker() {
+    let matches = vec![
+        evaluator::RuleMatch {
+            message: "PE STUB".to_string(),
+            offset: 0,
+            level: 0,
+            value: Value::Uint(0),
+            type_kind: TypeKind::Byte { signed: false },
+            confidence: 0.3,
+        },
+        evaluator::RuleMatch {
+            // Literal backslash + 'b', exactly as `parse_message` produces it.
+            message: "\\b, for MS Windows".to_string(),
+            offset: 4,
+            level: 1,
+            value: Value::Uint(0),
+            type_kind: TypeKind::Byte { signed: false },
+            confidence: 0.5,
+        },
+    ];
+    let result = MagicDatabase::concatenate_messages(&matches);
+    assert_eq!(
+        result, "PE STUB, for MS Windows",
+        "literal \\b marker must suppress the space and not appear in the output"
+    );
 }
 
 /// Regression test for review finding M5 / GOTCHAS S14.1: the `\b`

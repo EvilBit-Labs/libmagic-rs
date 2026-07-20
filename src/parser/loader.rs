@@ -79,6 +79,21 @@ fn read_magic_file_bounded(path: &Path) -> Result<String, ParseError> {
     }
 }
 
+/// Whether `contents` contains at least one actual rule line -- a non-blank
+/// line that is neither a comment (`#`) nor a `!:` metadata directive
+/// (`!:mime`, `!:strength`, ...). Used by [`load_magic_directory`] to tell a
+/// file whose rules were all skipped as unparseable (unusable) apart from a
+/// genuinely empty, comment-only, or directive-only file (valid, contributes
+/// no rules). `!:` directives are stripped during preprocessing and are not
+/// rules, so counting them here would misclassify a directive-only file as
+/// "had rules but all were skipped".
+fn has_rule_lines(contents: &str) -> bool {
+    contents.lines().any(|line| {
+        let trimmed = line.trim();
+        !trimmed.is_empty() && !trimmed.starts_with('#') && !trimmed.starts_with("!:")
+    })
+}
+
 /// Loads and parses all magic files from a directory, merging them into a single rule set.
 ///
 /// This function reads all regular files in the specified directory, parses each as a magic file,
@@ -146,6 +161,9 @@ fn read_magic_file_bounded(path: &Path) -> Result<String, ParseError> {
 /// # Panics
 ///
 /// This function does not panic under normal operation.
+// Directory iteration + per-file parse + error aggregation runs slightly over
+// the 100-line lint; splitting this module is tracked in #391.
+#[allow(clippy::too_many_lines)]
 pub fn load_magic_directory(dir_path: &Path) -> Result<ParsedMagic, ParseError> {
     use std::fs;
 
@@ -195,6 +213,11 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<ParsedMagic, ParseError> 
     let mut all_rules = Vec::new();
     let mut merged_table = NameTable::empty();
     let mut parse_failures: Vec<(PathBuf, ParseError)> = Vec::new();
+    // Files that parsed (line-tolerantly) but contributed no usable rule or
+    // name despite having non-empty content -- i.e. every rule was skipped as
+    // unparseable. Tracked so an all-unusable directory is still reported as a
+    // failure even though tolerant parsing returns Ok for each such file.
+    let mut empty_files: Vec<PathBuf> = Vec::new();
     let mut any_success = false;
     let file_count = file_paths.len();
 
@@ -211,46 +234,69 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<ParsedMagic, ParseError> 
             }
         };
 
-        // Parse the file
-        match super::parse_text_magic_file(&contents) {
+        // Parse the file (line-tolerant: unparseable rules are skipped with a
+        // warning rather than dropping the whole file).
+        match super::parse_text_magic_file_tolerant(&contents) {
             Ok(parsed) => {
-                any_success = true;
-                all_rules.extend(parsed.rules);
-                merged_table.merge(parsed.name_table);
+                if parsed.rules.is_empty() && parsed.name_table.is_empty() {
+                    // Contributed nothing usable. If the file had actual rule
+                    // lines (not just comments/blank lines), they were all
+                    // skipped as unparseable -- record it so an entirely-
+                    // unusable directory is still reported as a failure. A
+                    // genuinely empty or comment-only file is valid and is NOT
+                    // recorded (it simply contributes no rules).
+                    if has_rule_lines(&contents) {
+                        empty_files.push(path);
+                    }
+                } else {
+                    any_success = true;
+                    all_rules.extend(parsed.rules);
+                    merged_table.merge(parsed.name_table);
+                }
             }
             Err(e) => {
-                // Track parse failures for reporting
+                // Hard (preprocess-level) failure -- track for reporting.
                 parse_failures.push((path, e));
             }
         }
     }
 
-    // If all files failed to parse, return an error.
-    // Use `any_success` rather than `all_rules.is_empty()` so that directories
-    // whose files parse successfully but contain only meta-type definitions
-    // (e.g. a directory of pure `name`-subroutine files) are not mistaken for
-    // complete failure.
-    if !any_success && !parse_failures.is_empty() {
+    // A directory has loaded only if some file contributed a usable rule or
+    // name-table entry. `any_success` (not `all_rules.is_empty()`) so that a
+    // directory of pure `name`-subroutine files is not mistaken for failure.
+    // With line-tolerant parsing, a file whose rules were all skipped returns
+    // Ok with nothing; a directory where every content-bearing file is like
+    // that (or fails preprocessing) has loaded nothing and is reported as a
+    // failure -- preserving the pre-tolerance contract for a wholly-unusable
+    // directory.
+    if !any_success && (!parse_failures.is_empty() || !empty_files.is_empty()) {
         use std::fmt::Write;
 
-        let failure_details: Vec<String> = parse_failures
+        let mut problems: Vec<String> = parse_failures
             .iter()
-            .take(3) // Limit to first 3 failures for brevity
             .map(|(path, e)| format!("  - {}: {}", path.display(), e))
             .collect();
+        problems.extend(
+            empty_files
+                .iter()
+                .map(|path| format!("  - {}: no usable rules (all skipped)", path.display())),
+        );
 
-        let mut message = format!("All {file_count} magic file(s) in directory failed to parse");
-        if !failure_details.is_empty() {
+        let mut message = format!(
+            "All {file_count} magic file(s) in directory failed to parse or produced no usable rules"
+        );
+        let shown = problems.iter().take(3).cloned().collect::<Vec<_>>();
+        if !shown.is_empty() {
             message.push_str(":\n");
-            message.push_str(&failure_details.join("\n"));
-            if parse_failures.len() > 3 {
+            message.push_str(&shown.join("\n"));
+            if problems.len() > 3 {
                 // fmt::Write to a String is infallible; discard the Result
                 // rather than unwrap so the no-panic policy holds regardless.
                 #[allow(clippy::let_underscore_must_use)]
                 let _ = write!(
                     message,
                     "\n  ... and {} more",
-                    parse_failures.len().saturating_sub(3)
+                    problems.len().saturating_sub(3)
                 );
             }
         }
@@ -371,7 +417,7 @@ pub fn load_magic_file(path: &Path) -> Result<ParsedMagic, ParseError> {
         MagicFileFormat::Text => {
             // Read file contents (size-bounded) and parse as text magic file
             let content = read_magic_file_bounded(path)?;
-            super::parse_text_magic_file(&content)
+            super::parse_text_magic_file_tolerant(&content)
         }
         MagicFileFormat::Directory => {
             // Load all magic files from directory
@@ -462,6 +508,48 @@ mod tests {
             parsed.rules.len(),
             0,
             "Empty files should contribute no rules"
+        );
+    }
+
+    #[test]
+    fn test_load_directory_all_content_bearing_but_all_rules_skipped_errors() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+        // Two files that BOTH have content (non-comment rule lines) but whose
+        // every rule is unparseable. Under line-tolerant parsing (GOTCHAS S3.11)
+        // each file returns Ok with zero rules, but the directory contributed
+        // nothing usable, so `load_magic_directory` must still Err -- preserving
+        // the pre-tolerance "all failed" contract via the `empty_files` /
+        // `has_rule_lines` tracking. This is distinct from a directory of
+        // genuinely-empty/comment-only files (test_load_directory_empty_files),
+        // which is a valid no-op success, and from the mixed valid+invalid case
+        // (test_load_directory_non_critical_error_parse), which succeeds because
+        // one file contributed a rule.
+        fs::write(
+            temp_dir.path().join("bad1.magic"),
+            "notanoffset badtype whatever\nalso not a valid rule line\n",
+        )
+        .expect("Failed to write bad1");
+        fs::write(
+            temp_dir.path().join("bad2.magic"),
+            "still invalid syntax here\n",
+        )
+        .expect("Failed to write bad2");
+
+        let err = load_magic_directory(temp_dir.path()).expect_err(
+            "a directory whose content-bearing files all parse to zero rules must fail",
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("failed to parse"),
+            "error must report the all-failed contract: {msg}"
+        );
+        assert!(
+            msg.contains("no usable rules (all skipped)"),
+            "error must attribute the content-bearing-but-all-skipped files: {msg}"
         );
     }
 
@@ -661,27 +749,110 @@ mod tests {
     }
 
     #[test]
-    fn test_load_magic_file_parse_error_propagation() {
+    fn test_load_magic_file_tolerates_unparseable_rule_and_keeps_valid_ones() {
         use std::fs;
         use tempfile::TempDir;
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let invalid_file = temp_dir.path().join("invalid.magic");
+        let mixed_file = temp_dir.path().join("mixed.magic");
 
-        // Create file with invalid syntax (missing offset)
-        fs::write(&invalid_file, "string test invalid\n").expect("Failed to write invalid file");
+        // A valid rule, an unparseable rule (missing offset), then another valid
+        // rule. Runtime loading is line-tolerant (GNU `file` semantics, GOTCHAS
+        // S3.11): the bad rule is skipped with a warning and the valid rules on
+        // either side survive, instead of the whole file being dropped. (This
+        // is what lets real system magic files keep their common-format
+        // detection despite a stray construct this parser cannot yet handle.)
+        fs::write(
+            &mixed_file,
+            "0 string GOOD1 first good rule\nstring test invalid\n0 string GOOD2 second good rule\n",
+        )
+        .expect("Failed to write file");
 
-        // Attempt to load file with parse errors
-        let result = load_magic_file(&invalid_file);
-
-        assert!(result.is_err(), "Should fail for file with parse errors");
-
-        // Error should be a parse error (not I/O error)
-        let error = result.unwrap_err();
-        let error_msg = format!("{error:?}");
+        let parsed = load_magic_file(&mixed_file)
+            .expect("runtime load must tolerate an unparseable rule, not abort the whole file");
+        let msgs: Vec<&str> = parsed.rules.iter().map(|r| r.message.as_str()).collect();
         assert!(
-            error_msg.contains("InvalidSyntax") || error_msg.contains("syntax"),
-            "Error should be parse error: {error_msg}",
+            msgs.contains(&"first good rule"),
+            "a valid rule before the bad one must survive: {msgs:?}"
+        );
+        assert!(
+            msgs.contains(&"second good rule"),
+            "a valid rule after the bad one must survive: {msgs:?}"
+        );
+        assert_eq!(
+            parsed.rules.len(),
+            2,
+            "the unparseable rule must be dropped, keeping exactly the two valid ones: {msgs:?}"
+        );
+    }
+
+    #[test]
+    fn test_load_magic_file_drops_subtree_of_unparseable_rule_without_reattaching() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let file = temp_dir.path().join("subtree.magic");
+
+        // A valid parent, then an UNPARSEABLE rule (no valid offset) that owns a
+        // `>`-indented child, then a valid sibling back at the original level.
+        // GOTCHAS S3.11: when the bad rule is skipped, its deeper-indented
+        // subtree must be dropped WITH it (`skip_subtree_deeper_than` in
+        // `hierarchy.rs`). The orphaned child must NOT silently re-attach to the
+        // previous level-0 rule (`GOOD1`) nor survive as a stray top-level rule,
+        // and the trailing `GOOD2` proves the skip threshold resets so a later
+        // sibling at the original indent still parses.
+        fs::write(
+            &file,
+            "0 string GOOD1 parent rule\n\
+             notanoffset badtype orphan parent\n\
+             >0 byte x orphaned child that must be dropped\n\
+             0 string GOOD2 sibling after the dropped subtree\n",
+        )
+        .expect("Failed to write file");
+
+        let parsed = load_magic_file(&file)
+            .expect("runtime load must tolerate the unparseable rule and its subtree");
+
+        let top_msgs: Vec<&str> = parsed.rules.iter().map(|r| r.message.as_str()).collect();
+        assert_eq!(
+            parsed.rules.len(),
+            2,
+            "exactly the two valid top-level rules survive: {top_msgs:?}"
+        );
+        assert!(
+            top_msgs.contains(&"parent rule"),
+            "the valid rule before the bad one must survive: {top_msgs:?}"
+        );
+        assert!(
+            top_msgs.contains(&"sibling after the dropped subtree"),
+            "the sibling after the dropped subtree must parse (threshold reset): {top_msgs:?}"
+        );
+
+        // The orphaned child must appear NOWHERE: not re-attached to the
+        // preceding level-0 rule, and not as any surviving rule's child.
+        let good1 = parsed
+            .rules
+            .iter()
+            .find(|r| r.message == "parent rule")
+            .expect("GOOD1 must be present");
+        assert!(
+            good1.children.is_empty(),
+            "the dropped child must not re-attach to the previous level-0 rule: {:?}",
+            good1
+                .children
+                .iter()
+                .map(|c| c.message.as_str())
+                .collect::<Vec<_>>()
+        );
+        let orphan_reattached = parsed
+            .rules
+            .iter()
+            .flat_map(|r| r.children.iter())
+            .any(|c| c.message.contains("orphaned child"));
+        assert!(
+            !orphan_reattached,
+            "the orphaned child of the unparseable rule must be dropped entirely"
         );
     }
 

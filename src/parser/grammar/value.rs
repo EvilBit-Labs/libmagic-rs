@@ -67,6 +67,33 @@ pub(super) fn parse_mixed_hex_ascii(input: &str) -> IResult<&str, Vec<u8>> {
         } else if let Ok((new_remaining, hex_byte)) = parse_hex_byte_with_prefix(remaining) {
             bytes.push(hex_byte);
             remaining = new_remaining;
+        } else if let Some(rest) = remaining.strip_prefix('\\') {
+            // Unrecognized escape: GNU `file`'s getstr DROPS the backslash
+            // and keeps the following character literally (`\^` -> `^`,
+            // `\<` -> `<`, `\ ` -> a literal space that CONTINUES the token
+            // instead of terminating it). Recognized escapes (octal `\NNN`,
+            // `\xNN`, `\n`/`\r`/`\t`/`\\`/`\"`/`\'`/`\0`) were already
+            // consumed by the two branches above, so this fires only for a
+            // backslash escaping a non-special character. Without this, a
+            // string-family bareword beginning with a backslash (e.g. the
+            // sgml rule `0 string \<?xml\ version=`) was captured here as a
+            // truncated `Value::Bytes` -- the `\` survived as a literal
+            // 0x5c byte and the escaped space terminated the token, so
+            // ` version=` leaked into the rule's message and XML documents
+            // fell through to "ASCII text". Mirrors the same drop-backslash
+            // rule in `parse_bare_string_value` (grammar/mod.rs) and the
+            // getstr resolver (grammar/getstr); those three sites share the
+            // policy but keep separate escape tables (see GOTCHAS S2.12).
+            // A lone trailing backslash (nothing follows) stays a literal
+            // 0x5c byte -- required by the `0 regex \` recovery contract.
+            if let Some(next) = rest.chars().next() {
+                let mut buf = [0u8; 4];
+                bytes.extend_from_slice(next.encode_utf8(&mut buf).as_bytes());
+                remaining = &rest[next.len_utf8()..];
+            } else {
+                bytes.push(b'\\');
+                remaining = rest;
+            }
         } else if let Ok((new_remaining, ascii_char)) =
             none_of::<&str, &str, NomError<&str>>(" \t\n\r")(remaining)
         {
@@ -89,6 +116,24 @@ pub(super) fn parse_mixed_hex_ascii(input: &str) -> IResult<&str, Vec<u8>> {
     }
 }
 
+/// Returns `true` if `rest` starts at a legitimate value-token boundary:
+/// end of input, whitespace, or a closing quote (`"`, matching the
+/// pre-existing `parse_hex_bytes("ab\"")` contract for a value embedded
+/// just before a quote).
+///
+/// Used by [`parse_hex_bytes_no_prefix`] to reject a hex-digit run that
+/// is immediately followed by more non-whitespace, non-hex-digit
+/// characters (e.g. `4a[42`) instead of silently truncating to the
+/// hex-looking prefix and leaking the remainder (`[42`) back to the
+/// caller -- see the U7 audit in `grammar/tests/hex_bytes_truncation.rs`
+/// for the confirmed bug this guards against.
+fn is_hex_token_boundary(rest: &str) -> bool {
+    match rest.chars().next() {
+        None => true,
+        Some(c) => c.is_whitespace() || c == '"',
+    }
+}
+
 /// Parse a hex byte sequence without prefix (only if it looks like pure hex bytes)
 pub(super) fn parse_hex_bytes_no_prefix(input: &str) -> IResult<&str, Vec<u8>> {
     // Only parse as hex bytes if:
@@ -96,6 +141,9 @@ pub(super) fn parse_hex_bytes_no_prefix(input: &str) -> IResult<&str, Vec<u8>> {
     // 2. All characters are hex digits
     // 3. Doesn't start with 0x (that's a number)
     // 4. Contains at least one non-decimal digit (a-f, A-F)
+    // 5. The hex-digit run is immediately followed by a legitimate token
+    //    boundary (whitespace, a closing quote, or end of input) -- NOT
+    //    silently truncated mid-token (see `is_hex_token_boundary`).
 
     if input.starts_with("0x") || input.starts_with('-') {
         return Err(nom::Err::Error(NomError::new(
@@ -124,6 +172,20 @@ pub(super) fn parse_hex_bytes_no_prefix(input: &str) -> IResult<&str, Vec<u8>> {
         )));
     }
 
+    let remaining = input.strip_prefix(hex_chars.as_str()).unwrap_or(input);
+    if !is_hex_token_boundary(remaining) {
+        // The token is not purely hex digits (e.g. `4a[42`) -- reject
+        // rather than truncate. Letting this succeed would silently
+        // shrink the parsed value to the hex-looking prefix and leak
+        // the rest of the token as if it were separate input (which,
+        // through `parse_magic_rule`, gets misinterpreted as the start
+        // of the rule's message text).
+        return Err(nom::Err::Error(NomError::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )));
+    }
+
     // Parse pairs of hex digits. Floor division is intended: an odd
     // trailing digit is handled below and only affects the capacity hint.
     #[allow(clippy::integer_division)]
@@ -142,7 +204,6 @@ pub(super) fn parse_hex_bytes_no_prefix(input: &str) -> IResult<&str, Vec<u8>> {
         bytes.push(byte_val);
     }
 
-    let remaining = &input[hex_chars.len()..];
     Ok((remaining, bytes))
 }
 

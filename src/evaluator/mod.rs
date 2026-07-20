@@ -18,6 +18,25 @@ pub mod types;
 
 pub use engine::{evaluate_rules, evaluate_rules_with_config, evaluate_single_rule};
 
+/// Strip a single leading GNU `file` no-separator marker from `s`, if present.
+///
+/// The marker (GOTCHAS S14.1) suppresses the separating space when a
+/// description is appended to a sibling's text. It reaches evaluator code in
+/// two forms: the raw byte `U+0008` (backspace), used for programmatically
+/// constructed messages, and -- far more commonly -- the literal
+/// two-character sequence `\b` (backslash + `'b'`), because the message parser
+/// preserves description text verbatim (matching GNU `file`, which keeps the
+/// desc literal and special-cases a leading `\b` at print time).
+///
+/// Returns `Some(rest)` with the marker removed when one is present, else
+/// `None`. This is the single source of truth for the two-form marker so the
+/// three call sites (`concatenate_messages` output rendering,
+/// `is_message_bearing` gating, and `evaluate_use_rule` name-message
+/// attachment) cannot drift on which forms they recognize.
+pub(crate) fn strip_no_separator_marker(s: &str) -> Option<&str> {
+    s.strip_prefix('\u{0008}').or_else(|| s.strip_prefix("\\b"))
+}
+
 /// Shared environment attached to an [`EvaluationContext`] so the engine can
 /// resolve whole-database operations (currently: `Use` subroutine lookups;
 /// eventually `indirect` whole-tree re-entry).
@@ -102,6 +121,18 @@ pub struct EvaluationContext {
     /// because top-level rules in the re-entered database should
     /// chain sibling anchors like any other top-level evaluation.
     indirect_reentry: bool,
+    /// Endian-flip state for `use \^name` subroutine invocation (magic(5)
+    /// `\^` prefix; libmagic `softmagic.c` `cvt_flip`). When true, every
+    /// endian-bearing typed read inside the current subroutine body
+    /// (`short`/`long`/`quad`/`float`/`double`/date families) has its
+    /// declared little/big endianness swapped before the read. A `use
+    /// \^name` site *toggles* this flag (not sets it) and the toggle
+    /// propagates into nested `use` calls, matching libmagic's `flip =
+    /// !flip` parameter threading. Saved and restored around the
+    /// subroutine call by the `SubroutineScope` RAII guard in
+    /// `engine/mod.rs`. Native-endian types and `String16` are never
+    /// flipped (they are absent from `cvt_flip`).
+    flip_endian: bool,
 }
 
 impl EvaluationContext {
@@ -154,7 +185,24 @@ impl EvaluationContext {
             rule_env: None,
             base_offset: 0,
             indirect_reentry: false,
+            flip_endian: false,
         }
+    }
+
+    /// Read-only access to the `use \^name` endian-flip state. True only
+    /// while evaluating a subroutine body reached through an odd number of
+    /// `\^`-prefixed `use` invocations.
+    #[must_use]
+    pub(crate) const fn flip_endian(&self) -> bool {
+        self.flip_endian
+    }
+
+    /// Set the endian-flip state.
+    ///
+    /// `pub(crate)` and owned by the engine's `SubroutineScope` RAII guard
+    /// -- no external caller should set this directly.
+    pub(crate) fn set_flip_endian(&mut self, flip: bool) {
+        self.flip_endian = flip;
     }
 
     /// Read-only access to the subroutine base offset. Non-zero only
@@ -375,6 +423,7 @@ impl EvaluationContext {
         self.recursion_depth = 0;
         self.base_offset = 0;
         self.indirect_reentry = false;
+        self.flip_endian = false;
     }
 }
 

@@ -85,18 +85,27 @@ struct SubroutineScope<'a> {
     context: &'a mut EvaluationContext,
     saved_anchor: usize,
     saved_base: usize,
+    saved_flip: bool,
 }
 
 impl<'a> SubroutineScope<'a> {
-    fn enter(context: &'a mut EvaluationContext, use_site: usize) -> Self {
+    /// Enter a subroutine body. `flip_use` is the `\^` prefix on the
+    /// invoking `use` site; the effective flip inside the body is the
+    /// caller's flip state XOR `flip_use` -- matching libmagic's `flip =
+    /// !flip` toggle, which nests: a `\^use` inside an already-flipped
+    /// subroutine un-flips. Restored on drop along with anchor and base.
+    fn enter(context: &'a mut EvaluationContext, use_site: usize, flip_use: bool) -> Self {
         let saved_anchor = context.last_match_end();
         let saved_base = context.base_offset();
+        let saved_flip = context.flip_endian();
         context.set_last_match_end(use_site);
         context.set_base_offset(use_site);
+        context.set_flip_endian(saved_flip ^ flip_use);
         Self {
             context,
             saved_anchor,
             saved_base,
+            saved_flip,
         }
     }
 
@@ -109,6 +118,7 @@ impl Drop for SubroutineScope<'_> {
     fn drop(&mut self) {
         self.context.set_last_match_end(self.saved_anchor);
         self.context.set_base_offset(self.saved_base);
+        self.context.set_flip_endian(self.saved_flip);
     }
 }
 
@@ -207,6 +217,7 @@ fn evaluate_single_rule_with_anchor(
     last_match_end: usize,
     base_offset: usize,
     max_string_length: usize,
+    flip_endian: bool,
 ) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
     use crate::parser::ast::TypeKind;
 
@@ -246,7 +257,7 @@ fn evaluate_single_rule_with_anchor(
             );
             return Ok(None);
         }
-        TypeKind::Meta(MetaType::Use(_)) => {
+        TypeKind::Meta(MetaType::Use { .. }) => {
             // `Use` is dispatched inline by `evaluate_rules` so it can
             // push the subroutine's matches into the caller's match
             // vector. Reaching this arm means the rule went through the
@@ -260,18 +271,38 @@ fn evaluate_single_rule_with_anchor(
         }
         // Flagged `string` rules route through the pattern-bearing path
         // (see GOTCHAS S2.4 for the contract) so `compare_string_with_flags`
-        // can do the case-fold / whitespace-flexible match in one pass.
-        // Default-flag strings (the common case) take the existing
-        // value-rule fast path with byte-exact `apply_equal`.
-        TypeKind::String { flags, .. } if !flags.is_empty() => {
+        // can do the case-fold / whitespace-flexible match in one pass --
+        // but ONLY for the equality operators the pattern path supports.
+        // An ORDERING operator on a flagged string (e.g. the ubiquitous
+        // `string/t >\0` / `string/b >\0` "non-empty text here, print it with
+        // %s" idiom in `varied.script`, `sgml`, `linux`, ...) is a
+        // lexicographic comparison, not a pattern match; routing it to the
+        // pattern path made it a fatal `UnsupportedType` abort that killed the
+        // whole file's evaluation. The `/t`/`/b` flags are MIME-output hints
+        // with no comparison effect, so such a rule behaves like an unflagged
+        // `string >VALUE` and belongs on the value path. Default-flag strings
+        // (the common case) also take that value-rule fast path.
+        TypeKind::String { flags, .. }
+            if !flags.is_empty()
+                && matches!(
+                    rule.op,
+                    crate::parser::ast::Operator::Equal | crate::parser::ast::Operator::NotEqual
+                ) =>
+        {
             evaluate_pattern_rule(rule, buffer, absolute_offset, max_string_length)?
         }
-        _ => evaluate_value_rule(rule, buffer, absolute_offset, max_string_length)?,
+        _ => evaluate_value_rule(
+            rule,
+            buffer,
+            absolute_offset,
+            max_string_length,
+            flip_endian,
+        )?,
     };
     Ok(matched.then_some((absolute_offset, read_value)))
 }
 
-/// Evaluate a `TypeKind::Meta(MetaType::Use(name))` rule inline.
+/// Evaluate a `TypeKind::Meta(MetaType::Use { name, .. })` rule inline.
 ///
 /// Looks up `name` in the context's rule environment, temporarily sets the
 /// GNU `file` previous-match anchor to the resolved offset, and recursively
@@ -294,6 +325,7 @@ fn evaluate_single_rule_with_anchor(
 fn evaluate_use_rule(
     rule: &MagicRule,
     name: &str,
+    flip_endian: bool,
     buffer: &[u8],
     context: &mut EvaluationContext,
 ) -> Result<(Option<usize>, Vec<RuleMatch>), LibmagicError> {
@@ -317,6 +349,13 @@ fn evaluate_use_rule(
         warn!("use directive references unknown name '{name}'");
         return Ok((None, Vec::new()));
     };
+    // The `name` line can carry its own description (e.g. Mach-O universal
+    // `0 name mach-o \b [`, `0 name matlab4 Matlab v4 mat-file`). GNU `file`
+    // emits it ahead of the subroutine body, attached with no separating
+    // space. Capture it here while the env borrow is live; the owned `String`
+    // lets us drop that borrow before mutating the context below. `None` for
+    // a bare `name <id>`.
+    let name_message = env.name_table.name_message(name);
     // `NameTable::get` returns an `Arc<[MagicRule]>`, so this clone is a
     // reference-count increment rather than a deep copy of the rule tree.
     // The Arc is cloned here to release the immutable borrow of `context`
@@ -347,14 +386,47 @@ fn evaluate_use_rule(
     // anchor INSIDE the scope (before Drop restores the caller's value)
     // preserves it for the caller.
     let (subroutine_matches, terminal_anchor) = {
-        let mut scope = SubroutineScope::enter(context, absolute_offset);
+        let mut scope = SubroutineScope::enter(context, absolute_offset, flip_endian);
         let mut guard = RecursionGuard::enter(scope.context())?;
         let matches = evaluate_rules(&subroutine_rules, buffer, guard.context())?;
         let terminal = guard.context().last_match_end();
         (matches, terminal)
     };
 
-    Ok((Some(terminal_anchor), subroutine_matches))
+    // Prepend the `name` line's own description (if any) ahead of the body's
+    // matches, matching GNU `file`: `use mach-o` emits the mach-o subroutine's
+    // `\b [` before the per-arch body. The name line reads no bytes, so this
+    // synthetic match carries a dummy value and does NOT touch the anchor
+    // (`terminal_anchor` still comes from the body's evaluation). To reproduce
+    // `file`'s no-separator attachment (`ParentSUBMSG`, not `Parent SUBMSG`),
+    // ensure the message begins with the `\b` no-separator marker
+    // (`concatenate_messages` strips a leading literal `\b` / U+0008); a name
+    // message that already starts with one (mach-o's `\b [`) is left as-is so
+    // it is not double-marked.
+    let matches = match name_message {
+        Some(msg) if !msg.is_empty() => {
+            let attached = if crate::evaluator::strip_no_separator_marker(&msg).is_some() {
+                msg
+            } else {
+                format!("\\b{msg}")
+            };
+            let name_match = RuleMatch::new(
+                attached,
+                absolute_offset,
+                rule.level,
+                crate::parser::ast::Value::Uint(0),
+                rule.typ.clone(),
+                RuleMatch::calculate_confidence(rule.level),
+            );
+            let mut combined = Vec::with_capacity(subroutine_matches.len() + 1);
+            combined.push(name_match);
+            combined.extend(subroutine_matches);
+            combined
+        }
+        _ => subroutine_matches,
+    };
+
+    Ok((Some(terminal_anchor), matches))
 }
 
 /// Evaluate a pattern-bearing rule (`TypeKind::Regex` / `TypeKind::Search`).
@@ -419,11 +491,25 @@ fn evaluate_value_rule(
     buffer: &[u8],
     absolute_offset: usize,
     max_string_length: usize,
+    flip_endian: bool,
 ) -> Result<(bool, crate::parser::ast::Value), LibmagicError> {
+    // Apply the `use \^name` endian flip (issue #236) at read time, exactly
+    // as libmagic's `cvt_flip(m->type, flip)` does in `softmagic.c`. Only the
+    // typed READ needs the flipped endianness -- `bit_width()`,
+    // `coerce_value_to_type` (the literal's numeric value is endian-invariant),
+    // the relative-offset `bytes_consumed` advance, and the string-ordering
+    // display read are all endian-invariant, so they keep `rule.typ`.
+    // `flip_type_endian` is a cheap no-op clone for the common `flip == false`
+    // path.
+    let read_typ: std::borrow::Cow<'_, crate::parser::ast::TypeKind> = if flip_endian {
+        std::borrow::Cow::Owned(types::flip_type_endian(&rule.typ))
+    } else {
+        std::borrow::Cow::Borrowed(&rule.typ)
+    };
     let read_value = types::read_typed_value_with_pattern(
         buffer,
         absolute_offset,
-        &rule.typ,
+        read_typ.as_ref(),
         Some(&rule.value),
         max_string_length,
     )
@@ -450,9 +536,173 @@ fn evaluate_value_rule(
             expected_ref,
             rule.typ.bit_width(),
         ),
+        // Masked equality (`type&MASK VALUE`) must re-normalize the masked
+        // result to the type's natural width so a signed read whose high bits
+        // are cleared by the mask still compares equal to the sign-extended
+        // rule literal (e.g. the Mach-O `0 lelong&0xfffffffe 0xfeedface`
+        // rule). See `apply_bitwise_and_mask_with_width`.
+        crate::parser::ast::Operator::BitwiseAndMask(mask) => {
+            operators::apply_bitwise_and_mask_with_width(
+                *mask,
+                &transformed_value,
+                expected_ref,
+                rule.typ.bit_width(),
+            )
+        }
         op => operators::apply_operator(op, &transformed_value, expected_ref),
     };
-    Ok((matched, transformed_value))
+
+    // libmagic renders the FULL string field (`p->s`) for a matched string
+    // comparison, while the comparison itself is prefix-limited to
+    // `pattern.len()` (`file_strncmp` with `vallen`). The comparison above
+    // already read exactly `pattern.len()` bytes -- correct and unchanged --
+    // but for an ORDERING operator the rendered detail needs the whole field,
+    // not the compared prefix. sgml's `>15 string/t >\0 %.3s document text`
+    // is the motivating case: comparing `>\0` reads 1 byte ("1"), but the
+    // `%.3s` must render the full field ("1.0") to produce `XML 1.0 ...`.
+    // Re-read the full field for DISPLAY only; the `matched` decision above is
+    // left byte-identical, so this cannot change any match result.
+    let display_value = string_ordering_display_value(
+        rule,
+        buffer,
+        absolute_offset,
+        max_string_length,
+        transformed_value,
+    );
+    Ok((matched, display_value))
+}
+
+/// Compute the DISPLAY value for a value-rule match, decoupling it from the
+/// value used in the comparison.
+///
+/// For a `string` rule compared with an ORDERING operator (`<`/`>`/`<=`/`>=`),
+/// libmagic renders the full string field (`p->s`, read until NUL/EOF) even
+/// though the comparison is prefix-limited to `pattern.len()`. This re-reads
+/// that full field so `%s`/`%.Ns` format specifiers render the whole value
+/// rather than only the compared prefix. For every other type or operator the
+/// compared value already IS the field libmagic renders, so `compared` is
+/// returned unchanged.
+///
+/// Only `TypeKind::String` needs this: `PString` (`read_pstring`) and
+/// `String16` (`read_string16`) already read their full field independent of
+/// `pattern.len()`, and numeric types render the whole value.
+///
+/// On a display-side read error after a successful match, the compared value
+/// is returned rather than propagating -- a matched rule must not abort on a
+/// display-only read.
+fn string_ordering_display_value(
+    rule: &MagicRule,
+    buffer: &[u8],
+    absolute_offset: usize,
+    max_string_length: usize,
+    compared: crate::parser::ast::Value,
+) -> crate::parser::ast::Value {
+    use crate::parser::ast::Operator::{GreaterEqual, GreaterThan, LessEqual, LessThan};
+
+    let is_ordering = matches!(rule.op, LessThan | GreaterThan | LessEqual | GreaterEqual);
+    if is_ordering && matches!(rule.typ, TypeKind::String { .. }) {
+        match types::read_string(buffer, absolute_offset, Some(max_string_length)) {
+            Ok(full_field) => full_field,
+            // A matched rule must not abort on a display-only read (the compared
+            // prefix was already read successfully at this offset moments ago),
+            // so fall back to it -- but `debug!` first rather than swallowing the
+            // error silently, matching this file's graceful-skip logging
+            // discipline. A latent regression here (e.g. `max_string_length`
+            // disagreeing with the original read) would otherwise render the
+            // truncated prefix with no trace of why the full field was dropped.
+            Err(e) => {
+                debug!(
+                    "string_ordering_display_value: full-field read failed at offset {absolute_offset} for rule '{}': {e}; rendering compared prefix",
+                    rule.message
+                );
+                compared
+            }
+        }
+    } else {
+        compared
+    }
+}
+
+/// Logs the graceful skip of a pattern-bearing-type rule whose
+/// `TypeReadError::UnsupportedType` condition falls in the narrow
+/// missing-pattern-operand or regex-compile-failure allowlist (see
+/// `types::is_missing_pattern_operand` / `types::is_regex_compile_failure`).
+///
+/// Shared by all three engine catch sites (`evaluate_children_or_warn`, the
+/// top-level dispatch match, and the inline child-recursion match) so a
+/// future rewording of the log message only needs one touch point (DRY,
+/// AGENTS.md). Split by KTD5 (fix-system-magic-regex-graceful plan): the
+/// ordinary missing-pattern case is `debug!`-logged (an expected,
+/// low-severity data condition -- e.g. the root-cause parser
+/// miscategorization this plan also fixes), while a regex compile failure
+/// (which includes the `REGEX_COMPILE_SIZE_LIMIT` CWE-1333 denial-of-service guard) is
+/// `warn!`-logged so a malicious or pathological magic file's rejection is
+/// not silently invisible, even though the rest of the file's evaluation
+/// continues (R1: no fatal abort of the whole evaluation).
+fn log_pattern_operand_skip(site_label: &str, rule_message: &str, type_name: &str) {
+    if types::is_regex_compile_failure(type_name) {
+        warn!(
+            "Skipping {site_label} rule '{rule_message}' due to regex compile failure: {type_name} -- this may indicate a malicious or pathological magic file"
+        );
+    } else {
+        debug!("Skipping {site_label} rule '{rule_message}': {type_name}");
+    }
+}
+
+/// Whether `message` carries any usable description text.
+///
+/// A message is considered message-less (and thus does not count as
+/// "producing output") if, after trimming ASCII/Unicode whitespace and
+/// stripping a leading GNU `file` no-separator marker (see GOTCHAS S14.1),
+/// nothing remains. This covers three shapes GNU `file` magic files use
+/// for structural/gating rules that carry no description of their own:
+/// a genuinely empty message (`""`), a whitespace-only message, and a
+/// `\b`-only message (used purely to suppress a separator when appended
+/// to a sibling's text -- with nothing else to append, it contributes no
+/// content either).
+///
+/// The marker is recognized in BOTH forms -- the raw byte `U+0008` and the
+/// literal `\b` (backslash + `'b'`) -- via the shared
+/// [`crate::evaluator::strip_no_separator_marker`], so this predicate agrees
+/// with `concatenate_messages`: a message that renders to empty there (e.g.
+/// exactly `"\b"`, the literal marker) is classified message-less here and
+/// therefore cannot win the `stop_at_first_match` race and shadow a later,
+/// more specific rule that would produce real output (the S13.2 bug class).
+fn is_message_bearing(message: &str) -> bool {
+    let trimmed = message.trim_matches(|c: char| c.is_whitespace() || c == '\u{8}');
+    let stripped = crate::evaluator::strip_no_separator_marker(trimmed).unwrap_or(trimmed);
+    !stripped
+        .trim_matches(|c: char| c.is_whitespace() || c == '\u{8}')
+        .is_empty()
+}
+
+/// Whether any match in `matches[from..]` carries usable description text
+/// (see [`is_message_bearing`]).
+///
+/// Used to decide whether a top-level rule's match -- together with any
+/// descendant matches produced by its children -- should be treated as
+/// the "winning" match for `stop_at_first_match` purposes. GNU `file`
+/// magic files commonly use message-less top-level rules purely as
+/// gating conditions for child rules (for example the `c-lang` search
+/// rules that test for `#include`/`pragma`/etc. before dispatching to a
+/// message-bearing regex child); under the old all-or-nothing contract, a
+/// message-less rule matching first under `stop_at_first_match: true`
+/// would silently shadow a later, more specific rule that actually
+/// produces a description (GOTCHAS S13.2, the assembler-source-text /
+/// plain-ASCII-text blank-output bug). A rule only "wins" the race if it
+/// (or a descendant) contributes real output text; otherwise evaluation
+/// continues to the next top-level sibling.
+///
+/// Takes `from` (the length of `matches` before this rule's dispatch) and
+/// slices via `.get()` (rather than the caller indexing `matches[from..]`
+/// directly) so this is panic-free per the project's bounds-checking
+/// discipline; `from` is always `<= matches.len()` by construction (it is
+/// captured from `matches.len()` earlier in the same call), so `.get()`
+/// always returns `Some`, but the panic-free form is required regardless.
+fn has_message_bearing_match(matches: &[RuleMatch], from: usize) -> bool {
+    matches
+        .get(from..)
+        .is_some_and(|tail| tail.iter().any(|m| is_message_bearing(&m.message)))
 }
 
 /// Evaluate a rule's children under the standard recursion-guard/graceful-skip discipline.
@@ -533,6 +783,22 @@ fn evaluate_children_or_warn(
                 "Discarding child evaluation under {} rule '{}' due to unexpected error: {} -- parent match is still emitted",
                 rule_kind, rule.message, e
             );
+        }
+        // Narrow graceful-skip (KTD4): a pattern-bearing type evaluated
+        // without a usable pattern operand, or a regex compile failure
+        // (including the REGEX_COMPILE_SIZE_LIMIT DoS guard), must not
+        // abort the whole evaluation -- see `log_pattern_operand_skip` and
+        // the top-level dispatch match below for the full contract. This
+        // arm is defensive: under the current implementation, individual
+        // child failures are already caught and logged inside the
+        // recursive `evaluate_rules` call (they never propagate here); it
+        // guards against a future change to that strategy.
+        Err(LibmagicError::EvaluationError(crate::error::EvaluationError::TypeReadError(
+            crate::evaluator::types::TypeReadError::UnsupportedType { ref type_name },
+        ))) if types::is_missing_pattern_operand(type_name)
+            || types::is_regex_compile_failure(type_name) =>
+        {
+            log_pattern_operand_skip(rule_kind, &rule.message, type_name);
         }
         Err(e) => return Err(e),
     }
@@ -676,6 +942,22 @@ pub fn evaluate_rules(
     let is_indirect_reentry = context.take_indirect_reentry();
     let is_child_sibling_list = context.recursion_depth() > 0 && !is_indirect_reentry;
 
+    // `stop_at_first_match` is a TOP-LEVEL classification concept (see the
+    // `EvaluationConfig::stop_at_first_match` doc): once an outermost rule --
+    // or an indirect re-entry, which is itself a fresh top-level
+    // classification -- produces a message-bearing match, we stop trying
+    // other top-level candidates. It must NOT short-circuit a child /
+    // continuation sibling list or a `use` subroutine body: every matching
+    // sibling there contributes a detail fragment to the description (e.g.
+    // gzip's "max compression", "from Unix", "original size modulo 2^32 N"),
+    // and truncating them silently drops multi-part descriptions. This
+    // mirrors libmagic, where continuation levels always evaluate every
+    // sibling and only the top-level `match()` loop stops at first success.
+    // (An earlier revision applied the break at every recursion level, which
+    // violated the documented top-level-only contract and truncated gzip's
+    // trailing detail after its first message-bearing child.)
+    let stop_at_first_match_applies = !is_child_sibling_list;
+
     // Entry-point timeout check: ensures every recursive descent is bounded
     // and that evaluations of small rule sets (< 16 rules) are still guarded.
     // Without this, the periodic every-16-rules check below never fires for
@@ -708,10 +990,52 @@ pub fn evaluate_rules(
 
         // `Clear` resets the per-level "sibling matched" flag so a
         // subsequent `default` sibling can fire even if an earlier
-        // sibling matched. It does not produce a match, evaluate
-        // children, or advance the anchor.
+        // sibling matched. Matching libmagic's `FILE_CLEAR`, the flag is
+        // unconditionally reset and NEVER re-set to `true` afterward
+        // (clear does not participate in the "a sibling matched" chain).
+        //
+        // libmagic's `FILE_CLEAR` also COUNTS as a match -- its `x` test
+        // always succeeds -- and `mprint` renders its description when it
+        // is non-empty. So a `clear` carrying message text must emit that
+        // text (c-lang's `>>&0 clear x program text` is the only such rule
+        // in the system DB, producing the "program text" fragment of
+        // `c program text`). Verified against real `file` (file-5.41):
+        // a message-bearing `clear` child prints its message AND still
+        // resets the flag so a trailing `default` sibling fires.
+        //
+        // Emission is guarded on a non-empty message so the many bare
+        // `clear x` flag-reset directives throughout the system DB (apple,
+        // coff, elf, pmem, ...) behave exactly as before -- no match, no
+        // anchor advance. `clear` is 0-width, so the previous-match anchor
+        // is intentionally not advanced in either case. Children are
+        // evaluated for a message-bearing clear for libmagic fidelity;
+        // `evaluate_children_or_warn` is a no-op when there are none.
         if let TypeKind::Meta(MetaType::Clear) = &rule.typ {
             sibling_matched = false;
+
+            if !rule.message.is_empty() {
+                let matches_before = matches.len();
+
+                let match_result = RuleMatch::new(
+                    rule.message.clone(),
+                    context.last_match_end(),
+                    rule.level,
+                    crate::parser::ast::Value::Uint(0),
+                    rule.typ.clone(),
+                    RuleMatch::calculate_confidence(rule.level),
+                );
+                matches.push(match_result);
+
+                evaluate_children_or_warn(rule, "clear", buffer, context, &mut matches)?;
+
+                if stop_at_first_match_applies
+                    && matches.len() > matches_before
+                    && context.should_stop_at_first_match()
+                    && has_message_bearing_match(&matches, matches_before)
+                {
+                    break;
+                }
+            }
             continue;
         }
 
@@ -741,7 +1065,11 @@ pub fn evaluate_rules(
 
                 sibling_matched = true;
 
-                if matches.len() > matches_before && context.should_stop_at_first_match() {
+                if stop_at_first_match_applies
+                    && matches.len() > matches_before
+                    && context.should_stop_at_first_match()
+                    && has_message_bearing_match(&matches, matches_before)
+                {
                     break;
                 }
             }
@@ -870,7 +1198,11 @@ pub fn evaluate_rules(
             // recursion-guard pattern used by every other successful rule.
             evaluate_children_or_warn(rule, "indirect", buffer, context, &mut matches)?;
 
-            if matches.len() > matches_before && context.should_stop_at_first_match() {
+            if stop_at_first_match_applies
+                && matches.len() > matches_before
+                && context.should_stop_at_first_match()
+                && has_message_bearing_match(&matches, matches_before)
+            {
                 break;
             }
             continue;
@@ -888,14 +1220,6 @@ pub fn evaluate_rules(
         // rather than erroring -- a rogue rule shouldn't poison the rest
         // of the evaluation.
         if let TypeKind::Meta(MetaType::Offset) = &rule.typ {
-            if !matches!(rule.op, crate::parser::ast::Operator::AnyValue) {
-                debug!(
-                    "offset rule '{}': non-`x` operator {:?} not supported; skipping",
-                    rule.message, rule.op
-                );
-                continue;
-            }
-
             // Resolve the offset first so a malformed offset surfaces as
             // a graceful skip rather than a hard error. Mirrors the
             // `Indirect` dispatch above.
@@ -918,6 +1242,26 @@ pub fn evaluate_rules(
                 Err(e) => return Err(e),
             };
 
+            // The magic(5) `offset` pseudo-type treats the resolved offset
+            // itself as the read value. `offset x` is a bare AnyValue
+            // placeholder that always matches (used purely to report the
+            // position via `%lld`). A comparison operator (`offset >48`,
+            // `offset <48`, `offset =N`, ...) tests the resolved offset
+            // against the operand -- e.g. gzip's `>>-0 offset >48` gates
+            // the trailing "original size modulo 2^32" trailer on the file
+            // being long enough to carry it, and its `>>-0 offset <48`
+            // sibling reports "truncated" otherwise. Skip the rule (a
+            // non-match) when the comparison fails so the false branch and
+            // its children do not render.
+            let offset_value = crate::parser::ast::Value::Uint(absolute_offset as u64);
+            let offset_matched = match &rule.op {
+                crate::parser::ast::Operator::AnyValue => true,
+                op => operators::apply_operator(op, &offset_value, &rule.value),
+            };
+            if !offset_matched {
+                continue;
+            }
+
             let matches_before = matches.len();
 
             // Advance the anchor BEFORE emitting the match so sibling
@@ -930,7 +1274,7 @@ pub fn evaluate_rules(
                 rule.message.clone(),
                 absolute_offset,
                 rule.level,
-                crate::parser::ast::Value::Uint(absolute_offset as u64),
+                offset_value,
                 rule.typ.clone(),
                 RuleMatch::calculate_confidence(rule.level),
             );
@@ -942,7 +1286,11 @@ pub fn evaluate_rules(
             // by every other successful rule.
             evaluate_children_or_warn(rule, "offset", buffer, context, &mut matches)?;
 
-            if matches.len() > matches_before && context.should_stop_at_first_match() {
+            if stop_at_first_match_applies
+                && matches.len() > matches_before
+                && context.should_stop_at_first_match()
+                && has_message_bearing_match(&matches, matches_before)
+            {
                 break;
             }
             continue;
@@ -960,9 +1308,9 @@ pub fn evaluate_rules(
         // continuation rules (siblings and descendants of the `use` site)
         // that depend on the anchor the subroutine left behind; skipping
         // them produces user-visible false negatives.
-        if let TypeKind::Meta(MetaType::Use(name)) = &rule.typ {
+        if let TypeKind::Meta(MetaType::Use { name, flip_endian }) = &rule.typ {
             let matches_before = matches.len();
-            let use_resolved = match evaluate_use_rule(rule, name, buffer, context) {
+            let use_resolved = match evaluate_use_rule(rule, name, *flip_endian, buffer, context) {
                 Ok((Some(terminal_anchor), subroutine_matches)) => {
                     matches.extend(subroutine_matches);
 
@@ -1015,8 +1363,14 @@ pub fn evaluate_rules(
             // other successful rule kind: if this `use` site contributed
             // any matches (either from the subroutine or from its own
             // children) and the caller configured first-match
-            // short-circuiting, halt evaluation of further siblings.
-            if matches.len() > matches_before && context.should_stop_at_first_match() {
+            // short-circuiting, halt evaluation of further siblings --
+            // but only once one of those matches actually carries usable
+            // description text (see `has_message_bearing_match`).
+            if stop_at_first_match_applies
+                && matches.len() > matches_before
+                && context.should_stop_at_first_match()
+                && has_message_bearing_match(&matches, matches_before)
+            {
                 break;
             }
             continue;
@@ -1031,6 +1385,7 @@ pub fn evaluate_rules(
             context.last_match_end(),
             context.base_offset(),
             context.max_string_length(),
+            context.flip_endian(),
         ) {
             Ok(data) => data,
             Err(
@@ -1046,18 +1401,47 @@ pub fn evaluate_rules(
                 | LibmagicError::IoError(_)),
             ) => {
                 // Expected data-dependent evaluation errors -- skip gracefully.
-                // TypeReadError::UnsupportedType is intentionally NOT caught here
-                // so that evaluator capability gaps propagate as errors.
+                // TypeReadError::UnsupportedType is intentionally NOT caught
+                // here (except the narrow exception in the arm immediately
+                // below) so that evaluator capability gaps propagate as
+                // errors.
                 debug!("Skipping rule '{}': {}", rule.message, e);
                 continue;
             }
+            // Narrow graceful-skip (KTD4, fix-system-magic-regex-graceful
+            // plan): a pattern-bearing type (`Regex`/`Search`/flagged
+            // `String`) evaluated without a usable `String`/`Bytes` pattern
+            // operand, or a regex compile failure (including the
+            // `REGEX_COMPILE_SIZE_LIMIT` CWE-1333 DoS guard), must not
+            // abort the whole file's evaluation (R1/R2). This is
+            // deliberately an exhaustive allowlist keyed on the
+            // `UnsupportedType` diagnostic string
+            // (`types::is_missing_pattern_operand` /
+            // `types::is_regex_compile_failure`), not a broadening of the
+            // general `UnsupportedType` exclusion above -- any OTHER
+            // `UnsupportedType` (an unwired `TypeKind` variant, a
+            // non-Equal/NotEqual operator on a pattern-bearing type, etc.)
+            // still falls through to the catch-all below and propagates
+            // (R3). See `log_pattern_operand_skip` for the debug!/warn!
+            // split.
+            Err(LibmagicError::EvaluationError(crate::error::EvaluationError::TypeReadError(
+                crate::evaluator::types::TypeReadError::UnsupportedType { ref type_name },
+            ))) if types::is_missing_pattern_operand(type_name)
+                || types::is_regex_compile_failure(type_name) =>
+            {
+                log_pattern_operand_skip("top-level", &rule.message, type_name);
+                continue;
+            }
             Err(e) => {
-                // Unexpected errors (InternalError, UnsupportedType, etc.) should propagate
+                // Unexpected errors (InternalError, other UnsupportedType
+                // conditions, etc.) should propagate.
                 return Err(e);
             }
         };
 
         if let Some((absolute_offset, read_value)) = match_data {
+            let matches_before = matches.len();
+
             // Advance the GNU `file` previous-match anchor BEFORE recursing
             // into children, so children and their descendants see the new
             // anchor. The anchor is updated unconditionally to the end of
@@ -1131,6 +1515,27 @@ pub fn evaluate_rules(
                             rule.message, e
                         );
                     }
+                    // Narrow graceful-skip (KTD4): same allowlist as the
+                    // top-level dispatch match above and
+                    // `evaluate_children_or_warn` -- a pattern-bearing type
+                    // evaluated without a usable pattern operand, or a
+                    // regex compile failure, must not abort the parent's
+                    // match. Defensive: individual child failures are
+                    // already caught inside the recursive `evaluate_rules`
+                    // call and never reach here under the current
+                    // implementation; this arm guards against a future
+                    // change to that strategy.
+                    Err(LibmagicError::EvaluationError(
+                        crate::error::EvaluationError::TypeReadError(
+                            crate::evaluator::types::TypeReadError::UnsupportedType {
+                                ref type_name,
+                            },
+                        ),
+                    )) if types::is_missing_pattern_operand(type_name)
+                        || types::is_regex_compile_failure(type_name) =>
+                    {
+                        log_pattern_operand_skip("child", &rule.message, type_name);
+                    }
                     Err(e) => {
                         // Unexpected errors in children (including RecursionLimitExceeded)
                         // should propagate. The guard drops here, decrementing the depth.
@@ -1140,8 +1545,16 @@ pub fn evaluate_rules(
                 // `guard` drops here, decrementing the recursion depth.
             }
 
-            // Stop at first match if configured to do so
-            if context.should_stop_at_first_match() {
+            // Stop at first match if configured to do so -- but only once
+            // this rule (or one of its descendants) actually contributed
+            // usable description text. A message-less match (e.g. a
+            // gating rule used purely to trigger a child) must not shadow
+            // a later, more specific top-level rule that would otherwise
+            // produce real output (GOTCHAS S13.2).
+            if stop_at_first_match_applies
+                && context.should_stop_at_first_match()
+                && has_message_bearing_match(&matches, matches_before)
+            {
                 break;
             }
         }
