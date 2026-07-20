@@ -72,8 +72,28 @@ fn test_mime_disabled_returns_none() {
 fn test_mime_unknown_data_returns_none() {
     let config = EvaluationConfig::default().with_mime_types(true);
     let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
-    let result = db.evaluate_buffer(b"random unknown content").unwrap();
+    // Genuinely binary content so no built-in rule matches AND the
+    // text/data fallback (GOTCHAS S13.2) reports "data", which has no
+    // MIME mapping. `b"random unknown content"` is plain ASCII and would
+    // instead fall back to "ASCII text", which correctly maps to
+    // "text/plain" (matching GNU `file --mime-type`'s own output for
+    // ASCII text) -- see `test_mime_unknown_ascii_text_returns_text_plain`.
+    let result = db
+        .evaluate_buffer(&[0x00, 0x01, 0x02, 0xFF, 0xFE, 0x80, 0x81])
+        .unwrap();
     assert_eq!(result.mime_type, None);
+}
+
+/// Companion to `test_mime_unknown_data_returns_none`: plain ASCII
+/// content that no built-in rule matches falls back to "ASCII text"
+/// (GOTCHAS S13.2), which correctly maps to "text/plain" -- matching GNU
+/// `file --mime-type`'s own output for ASCII text.
+#[test]
+fn test_mime_unknown_ascii_text_returns_text_plain() {
+    let config = EvaluationConfig::default().with_mime_types(true);
+    let db = MagicDatabase::with_builtin_rules_and_config(config).unwrap();
+    let result = db.evaluate_buffer(b"random unknown content").unwrap();
+    assert_eq!(result.mime_type.as_deref(), Some("text/plain"));
 }
 
 // ============================================================

@@ -630,6 +630,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "testing_logger",
  "thiserror",
 ]
 
@@ -1090,6 +1091,15 @@ name = "termtree"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
+
+[[package]]
+name = "testing_logger"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d92b727cb45d33ae956f7f46b966b25f1bc712092aeef9dba5ac798fc89f720"
+dependencies = [
+ "log",
+]
 
 [[package]]
 name = "thiserror"

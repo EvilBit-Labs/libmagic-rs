@@ -13,8 +13,8 @@ mod comparison;
 mod equality;
 
 pub use bitwise::{
-    apply_bitwise_and, apply_bitwise_and_mask, apply_bitwise_not, apply_bitwise_not_with_width,
-    apply_bitwise_xor,
+    apply_bitwise_and, apply_bitwise_and_mask, apply_bitwise_and_mask_with_width,
+    apply_bitwise_not, apply_bitwise_not_with_width, apply_bitwise_xor,
 };
 pub use comparison::{
     apply_greater_equal, apply_greater_than, apply_less_equal, apply_less_than, compare_values,
@@ -641,11 +641,14 @@ mod tests {
                 "NotEqual should be true for different values: {left:?} != {right:?}"
             );
 
-            // BitwiseAnd behavior depends on the value types and content
+            // BitwiseAnd behavior depends on the value types and content.
+            // Semantics: (left & right) == right -- ALL bits set in `right`
+            // (the mask) must also be set in `left` (see GOTCHAS S13.3 and
+            // bitwise.rs::apply_bitwise_and doc comment).
             let bitwise_result = apply_operator(&Operator::BitwiseAnd, &left, &right);
             match (&left, &right) {
                 (Value::Uint(a), Value::Uint(b)) => {
-                    let expected = (a & b) != 0;
+                    let expected = (a & b) == *b;
                     assert_eq!(
                         bitwise_result, expected,
                         "BitwiseAnd for Uint({a}) & Uint({b}) should be {expected}"
@@ -653,18 +656,31 @@ mod tests {
                 }
                 (Value::Int(a), Value::Int(b)) => {
                     #[allow(clippy::cast_sign_loss)]
-                    let expected = ((*a as u64) & (*b as u64)) != 0;
+                    let expected = {
+                        let (a, b) = (*a as u64, *b as u64);
+                        (a & b) == b
+                    };
                     assert_eq!(
                         bitwise_result, expected,
                         "BitwiseAnd for Int({a}) & Int({b}) should be {expected}"
                     );
                 }
-                (Value::Uint(a), Value::Int(b)) | (Value::Int(b), Value::Uint(a)) => {
+                (Value::Uint(a), Value::Int(b)) => {
                     #[allow(clippy::cast_sign_loss)]
-                    let expected = (a & (*b as u64)) != 0;
+                    let b = *b as u64;
+                    let expected = (a & b) == b;
                     assert_eq!(
                         bitwise_result, expected,
                         "BitwiseAnd for mixed Uint/Int should be {expected}"
+                    );
+                }
+                (Value::Int(a), Value::Uint(b)) => {
+                    #[allow(clippy::cast_sign_loss)]
+                    let a = *a as u64;
+                    let expected = (a & b) == *b;
+                    assert_eq!(
+                        bitwise_result, expected,
+                        "BitwiseAnd for mixed Int/Uint should be {expected}"
                     );
                 }
                 _ => {

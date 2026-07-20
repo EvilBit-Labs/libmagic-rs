@@ -286,8 +286,13 @@ pub(super) fn parse_attached_operator(input: &str) -> IResult<&str, Option<Opera
 
 /// Parse a `search` suffix `/N[/<flags>]` where `N` is a non-zero count.
 ///
-/// Per GNU `file` magic(5), the range is mandatory; bare `search` and
-/// `search/0` are parse errors, enforced here via `NonZeroUsize`. The
+/// This helper handles ONLY the ranged form (a `/` follows the keyword).
+/// `search/0` is rejected via `NonZeroUsize` (a zero-width scan is
+/// unrepresentable). A bare `search` (no `/` suffix) never reaches this
+/// function: the caller (`parse_type_and_operator`) accepts it directly and
+/// records `range: None` = scan-to-EOF. magic(5) documents the count as
+/// required, but the reference `file` binary accepts the bare form
+/// (`str_range == 0`), so rmagic follows the implementation there. The
 /// range accepts both decimal (`search/256`) and hexadecimal
 /// (`search/0xffff`, `search/0x93e4f`) literals -- many real magic files
 /// use hex for large search windows (e.g., archive:254 scans up to
