@@ -99,9 +99,25 @@ pub fn resolve_absolute_offset(offset: i64, buffer: &[u8]) -> Result<usize, Offs
     let buffer_len = buffer.len();
 
     if offset >= 0 {
-        // Positive offset from start
+        // Positive offset from start.
+        //
+        // The bound is `>` (not `>=`): `offset == buffer_len` is the EOF
+        // position and is a VALID resolution target, matching libmagic's
+        // model where offset resolution is permissive and each type read
+        // enforces its own width. Verified against real `file` (file-5.41):
+        // for a rule whose child offset lands exactly at EOF, a numeric
+        // child (`byte x`, `short x`, ...) is dropped -- its width-checked
+        // read fails at EOF and produces a non-match -- while a `string x`
+        // child renders an EMPTY string. LUKS's `>8 string x [%s,` on a
+        // header truncated to 8 bytes prints `[,` in GNU `file`; without
+        // permitting `offset == buffer_len` here, that child was silently
+        // dropped at offset resolution. Width enforcement now lives entirely
+        // in the readers: fixed-width readers use bounds-safe `.get()` /
+        // `read_bytes_at` (BufferOverrun -> non-match at EOF), and
+        // `read_string` returns an empty string at `offset == buffer_len`.
+        // See GOTCHAS S15.1.
         let abs_offset = usize::try_from(offset).map_err(|_| OffsetError::ArithmeticOverflow)?;
-        if abs_offset >= buffer_len {
+        if abs_offset > buffer_len {
             return Err(OffsetError::BufferOverrun {
                 offset: abs_offset,
                 buffer_len,
@@ -157,16 +173,27 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_absolute_offset_out_of_bounds_positive() {
-        let buffer = b"Hello";
+    fn test_resolve_absolute_offset_at_eof_is_permitted() {
+        let buffer = b"Hello"; // len 5
 
-        // Test positive offset beyond buffer
-        let result = resolve_absolute_offset(5, buffer);
+        // `offset == buffer_len` is the EOF position and resolves
+        // successfully -- libmagic permits it, deferring width enforcement
+        // to the type read (a numeric read fails at EOF -> non-match; a
+        // `string x` read yields an empty string). See GOTCHAS S15.1.
+        assert_eq!(resolve_absolute_offset(5, buffer).unwrap(), 5);
+    }
+
+    #[test]
+    fn test_resolve_absolute_offset_out_of_bounds_positive() {
+        let buffer = b"Hello"; // len 5
+
+        // Strictly beyond EOF (offset > buffer_len) is a genuine overrun.
+        let result = resolve_absolute_offset(6, buffer);
         assert!(result.is_err());
 
         match result.unwrap_err() {
             OffsetError::BufferOverrun { offset, buffer_len } => {
-                assert_eq!(offset, 5);
+                assert_eq!(offset, 6);
                 assert_eq!(buffer_len, 5);
             }
             _ => panic!("Expected BufferOverrun error"),
@@ -201,8 +228,14 @@ mod tests {
     fn test_resolve_absolute_offset_empty_buffer() {
         let buffer = b"";
 
-        // Any offset in empty buffer should fail
-        assert!(resolve_absolute_offset(0, buffer).is_err());
+        // `offset == buffer_len` holds trivially for an empty buffer
+        // (0 == 0), so offset 0 resolves to the EOF position 0 -- the type
+        // read then decides: a numeric read finds no bytes (non-match) and
+        // a `string x` read yields an empty string. No system-DB rule uses
+        // a top-level `0 string x`, and GNU `file` still classifies an
+        // empty file as "empty" (verified). See GOTCHAS S15.1.
+        assert_eq!(resolve_absolute_offset(0, buffer).unwrap(), 0);
+        // Strictly past EOF still fails.
         assert!(resolve_absolute_offset(1, buffer).is_err());
         assert!(resolve_absolute_offset(-1, buffer).is_err());
     }
@@ -214,9 +247,12 @@ mod tests {
         // Valid cases
         assert_eq!(resolve_absolute_offset(0, buffer).unwrap(), 0);
         assert_eq!(resolve_absolute_offset(-1, buffer).unwrap(), 0);
+        // offset == buffer_len (1) is the EOF position, now permitted
+        // (width enforced at read time). See GOTCHAS S15.1.
+        assert_eq!(resolve_absolute_offset(1, buffer).unwrap(), 1);
 
-        // Invalid cases
-        assert!(resolve_absolute_offset(1, buffer).is_err());
+        // Invalid cases: strictly past EOF.
+        assert!(resolve_absolute_offset(2, buffer).is_err());
         assert!(resolve_absolute_offset(-2, buffer).is_err());
     }
 
@@ -235,8 +271,10 @@ mod tests {
         assert_eq!(resolve_absolute_offset(-512, &large_buffer).unwrap(), 512);
         assert_eq!(resolve_absolute_offset(-1024, &large_buffer).unwrap(), 0);
 
-        // Test out of bounds
-        assert!(resolve_absolute_offset(1024, &large_buffer).is_err());
+        // offset == buffer_len (1024) is the EOF position, now permitted.
+        assert_eq!(resolve_absolute_offset(1024, &large_buffer).unwrap(), 1024);
+        // Strictly past EOF still fails.
+        assert!(resolve_absolute_offset(1025, &large_buffer).is_err());
         assert!(resolve_absolute_offset(-1025, &large_buffer).is_err());
     }
 
@@ -252,9 +290,13 @@ mod tests {
             let result = resolve_absolute_offset(offset, buffer);
             // Should either succeed with valid offset or fail gracefully
             if let Ok(resolved) = result {
-                // If it succeeds, the resolved offset must be within buffer bounds
+                // If it succeeds, the resolved offset must be at most the
+                // buffer length. `offset == buffer_len` (the EOF position)
+                // is a valid resolution target now that width enforcement
+                // lives in the type read (GOTCHAS S15.1); anything strictly
+                // greater is a genuine overrun and would have errored.
                 assert!(
-                    resolved < buffer.len(),
+                    resolved <= buffer.len(),
                     "Resolved offset {resolved} exceeds buffer length {}",
                     buffer.len()
                 );

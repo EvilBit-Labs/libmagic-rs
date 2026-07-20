@@ -16,11 +16,30 @@ use log::warn;
 
 use crate::parser::ast::{MagicRule, MetaType, TypeKind};
 
+/// One named subroutine: the `name` line's own description plus its body.
+///
+/// A magic(5) `name` line can carry a description of its own (e.g. the
+/// Mach-O universal subroutine `0 name mach-o \b [`, `0 name matlab4
+/// Matlab v4 mat-file`). GNU `file` emits that description when the
+/// subroutine is invoked via `use`, *before* the body's matches, and
+/// attaches it with no separating space (see [`extract_name_table`] and
+/// the `use` dispatch in `evaluator::engine`). We keep it here so the
+/// evaluator can reproduce that output; bare `name <id>` lines store an
+/// empty string and contribute nothing.
+#[derive(Debug, Clone)]
+struct Subroutine {
+    /// The `name` line's own description text (verbatim, including any
+    /// leading `\b` no-separator marker). Empty for a bare `name <id>`.
+    name_message: String,
+    /// The subroutine body -- the `name` rule's children.
+    rules: Arc<[MagicRule]>,
+}
+
 /// A lookup table mapping subroutine names to their child rule lists.
 ///
 /// Built by [`extract_name_table`] from a parsed magic file's top-level
 /// rule list. The evaluator consults this table when it encounters a
-/// `TypeKind::Meta(MetaType::Use(name))` rule to retrieve the rules that
+/// `TypeKind::Meta(MetaType::Use { name, .. })` rule to retrieve the rules that
 /// should be evaluated as if inlined at the `use` site.
 ///
 /// Subroutine bodies are stored as `Arc<[MagicRule]>` so the evaluator can
@@ -29,7 +48,7 @@ use crate::parser::ast::{MagicRule, MetaType, TypeKind};
 /// corpora where the same subroutine may be invoked many times per evaluation.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct NameTable {
-    inner: HashMap<String, Arc<[MagicRule]>>,
+    inner: HashMap<String, Subroutine>,
 }
 
 impl NameTable {
@@ -41,6 +60,12 @@ impl NameTable {
         }
     }
 
+    /// Returns `true` if the table holds no named subroutines.
+    #[must_use]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
     /// Look up a subroutine's rule list by name.
     ///
     /// Returns an `Arc` reference so callers can clone it cheaply (reference
@@ -48,23 +73,24 @@ impl NameTable {
     /// before mutably borrowing any surrounding context.
     #[must_use]
     pub(crate) fn get(&self, name: &str) -> Option<Arc<[MagicRule]>> {
-        self.inner.get(name).cloned()
+        self.inner.get(name).map(|s| Arc::clone(&s.rules))
     }
 
-    /// Sort all subroutine rule bodies in place by the provided comparator.
+    /// Return the `name` line's own description for a subroutine, if it
+    /// carries one.
     ///
-    /// Used by `MagicDatabase` after load to apply strength-based ordering to
-    /// each subroutine body, matching the ordering applied to top-level rules.
-    /// Because subroutine bodies are stored as `Arc<[MagicRule]>` (immutable
-    /// slices), sorting requires materializing a `Vec`, sorting it, and
-    /// rebuilding the `Arc`. This is a one-time cost per load, not per
-    /// evaluation.
-    pub(crate) fn sort_subroutines(&mut self, mut sort_fn: impl FnMut(&mut Vec<MagicRule>)) {
-        for arc in self.inner.values_mut() {
-            let mut vec: Vec<MagicRule> = arc.iter().cloned().collect();
-            sort_fn(&mut vec);
-            *arc = Arc::from(vec);
-        }
+    /// GNU `file` emits this description when the subroutine is invoked via
+    /// `use`, ahead of the body's matches. Returns `None` when the name is
+    /// unknown or the `name` line was a bare `name <id>` with no description.
+    /// The returned string is cloned (name descriptions are short, e.g.
+    /// `\b [`), so the caller can drop the table borrow before mutating the
+    /// evaluation context.
+    #[must_use]
+    pub(crate) fn name_message(&self, name: &str) -> Option<String> {
+        self.inner
+            .get(name)
+            .filter(|s| !s.name_message.is_empty())
+            .map(|s| s.name_message.clone())
     }
 
     /// Merge another name table into this one.
@@ -73,12 +99,12 @@ impl NameTable {
     /// table is merged into the accumulating table. On key collisions,
     /// the first-seen definition is kept and a warning is emitted.
     pub(crate) fn merge(&mut self, other: Self) {
-        for (name, rules) in other.inner {
+        for (name, subroutine) in other.inner {
             if self.inner.contains_key(&name) {
                 warn!("duplicate name definition '{name}' across magic files; keeping first");
                 continue;
             }
-            self.inner.insert(name, rules);
+            self.inner.insert(name, subroutine);
         }
     }
 }
@@ -106,8 +132,22 @@ pub(crate) fn extract_name_table(rules: Vec<MagicRule>) -> (Vec<MagicRule>, Name
             }
             // Recursively scrub nested Name rules from the subroutine's
             // children (shouldn't appear in practice, but be defensive).
+            // Capture the `name` line's OWN description (`rule.message`)
+            // alongside the body: GNU `file` emits it when the subroutine is
+            // invoked via `use` (e.g. Mach-O universal `\b [`, `matlab4
+            // Matlab v4 mat-file`). Dropping it here is what made rmagic omit
+            // those fragments. Bare `name <id>` lines have an empty message
+            // and contribute nothing.
+            let name = name.clone();
+            let name_message = rule.message;
             let children = scrub_nested_names(rule.children, rule.level);
-            table.inner.insert(name.clone(), Arc::from(children));
+            table.inner.insert(
+                name,
+                Subroutine {
+                    name_message,
+                    rules: Arc::from(children),
+                },
+            );
         } else {
             let scrubbed_children = scrub_nested_names(rule.children, rule.level);
             kept.push(MagicRule {
@@ -184,6 +224,37 @@ mod tests {
         let subroutine = table.get("sub").expect("sub subroutine");
         assert_eq!(subroutine.len(), 1);
         assert_eq!(subroutine[0].message, "child");
+    }
+
+    #[test]
+    fn test_extract_captures_name_line_message() {
+        // A `name` line with its own description (e.g. Mach-O universal
+        // `0 name mach-o \b [`) must have that description stored so the
+        // evaluator can emit it at the `use` site. A bare `name <id>` stores
+        // no message (`name_message` returns `None`).
+        let child = make_rule(1, TypeKind::Byte { signed: false }, "child", vec![]);
+        let name_rule = make_rule(
+            0,
+            TypeKind::Meta(MetaType::Name("mach-o".to_string())),
+            "\\b [",
+            vec![child],
+        );
+        let bare = make_rule(
+            0,
+            TypeKind::Meta(MetaType::Name("bare".to_string())),
+            "",
+            vec![make_rule(1, TypeKind::Byte { signed: false }, "c2", vec![])],
+        );
+        let (rules, table) = extract_name_table(vec![name_rule, bare]);
+        assert!(rules.is_empty());
+        // Body is still reachable via `get`, unchanged.
+        assert_eq!(table.get("mach-o").expect("mach-o body").len(), 1);
+        // The name-line message is captured and returned.
+        assert_eq!(table.name_message("mach-o").as_deref(), Some("\\b ["));
+        // Bare `name <id>` has no message.
+        assert_eq!(table.name_message("bare"), None);
+        // Unknown name has no message.
+        assert_eq!(table.name_message("nope"), None);
     }
 
     #[test]
@@ -275,73 +346,5 @@ mod tests {
         table_a.merge(table_b);
         let subroutine = table_a.get("dup").expect("dup kept from first table");
         assert_eq!(subroutine[0].message, "first-child");
-    }
-
-    #[test]
-    fn test_sort_subroutines_reorders_rule_bodies() {
-        // `sort_subroutines` materializes each Arc body into a mutable
-        // Vec, invokes the sort closure, and rebuilds the Arc. A bug in
-        // that rebuild cycle (e.g., swapping Arc pointers instead of
-        // re-sorting) would leave the order unchanged.
-        let body = vec![
-            make_rule(1, TypeKind::Byte { signed: false }, "c", vec![]),
-            make_rule(1, TypeKind::Byte { signed: false }, "a", vec![]),
-            make_rule(1, TypeKind::Byte { signed: false }, "b", vec![]),
-        ];
-        let name_rule = make_rule(
-            0,
-            TypeKind::Meta(MetaType::Name("sorted".to_string())),
-            "",
-            body,
-        );
-        let (_, mut table) = extract_name_table(vec![name_rule]);
-
-        table.sort_subroutines(|rules| rules.sort_by(|x, y| x.message.cmp(&y.message)));
-
-        let after = table.get("sorted").expect("subroutine retained");
-        let messages: Vec<&str> = after.iter().map(|r| r.message.as_str()).collect();
-        assert_eq!(messages, vec!["a", "b", "c"]);
-    }
-
-    #[test]
-    fn test_sort_subroutines_on_empty_table_is_noop() {
-        let (_, mut table) = extract_name_table(vec![]);
-        // The closure should never fire for an empty table.
-        table.sort_subroutines(|_| unreachable!("empty table must not invoke sort_fn"));
-        assert!(table.get("any").is_none());
-    }
-
-    #[test]
-    fn test_sort_subroutines_preserves_merge_policy() {
-        // After `sort_subroutines`, `merge` must still honor first-wins.
-        let first = make_rule(
-            0,
-            TypeKind::Meta(MetaType::Name("dup".to_string())),
-            "",
-            vec![make_rule(
-                1,
-                TypeKind::Byte { signed: false },
-                "first",
-                vec![],
-            )],
-        );
-        let second = make_rule(
-            0,
-            TypeKind::Meta(MetaType::Name("dup".to_string())),
-            "",
-            vec![make_rule(
-                1,
-                TypeKind::Byte { signed: false },
-                "second",
-                vec![],
-            )],
-        );
-        let (_, mut table_a) = extract_name_table(vec![first]);
-        table_a.sort_subroutines(|_| {}); // no-op sort to trigger rebuild
-        let (_, table_b) = extract_name_table(vec![second]);
-        table_a.merge(table_b);
-
-        let subroutine = table_a.get("dup").expect("dup kept from first table");
-        assert_eq!(subroutine[0].message, "first");
     }
 }

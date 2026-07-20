@@ -1,14 +1,21 @@
 
-# Rust toolchain is declared "latest" here but the concrete version
-# lives in `mise.lock` (see `[[tools.rust]] version = ...`).
-# `mise.lock` is committed to the repo so every developer and CI run
-# resolves to the same Rust version regardless of when they install.
-# When bumping rustc: run `mise upgrade rust`, then commit the
-# updated `mise.lock`. Review finding D-M1 clarified that mise.lock
-# is the reproducibility source of truth, not mise.toml or
-# rust-toolchain.toml.
+# Rust toolchain tracks `stable`, and this MUST stay consistent with
+# `rust-toolchain.toml` (also `stable`). mise honors rust-toolchain.toml as an
+# idiomatic version file (`idiomatic_version_file_enable_tools = ["rust"]`), so
+# the two files declaring DIFFERENT channels previously made mise resolve two
+# separate rust toolchains, and a redundant `rustup component add` step re-added
+# rustfmt/clippy a second time -- the duplicate component installs collided on
+# the hosted CI runner (`detected conflict` / `Directory not empty`), breaking
+# every job at toolchain setup. Keeping a single consistent `stable`
+# declaration -- one `[[tools.rust]]` entry in mise.lock, no redundant
+# component-add step -- is what avoids that. `mise.lock` is committed so a
+# given commit resolves a consistent toolchain across machines; note `stable`
+# is a moving channel, so this is stable-tracking rather than a frozen version
+# pin -- the resolved rustc advances whenever the lockfile is refreshed. When
+# bumping rustc: run `mise upgrade rust` and commit `mise.lock`; update
+# Cargo.toml `rust-version` if the MSRV moves.
 [tools]
-rust                        = { version = "latest", components = "llvm-tools,cargo,rustfmt,clippy", profile = "default", targets = "aarch64-apple-darwin,aarch64-unknown-linux-gnu,aarch64-pc-windows-msvc,x86_64-apple-darwin,x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl,x86_64-pc-windows-msvc" }
+rust                        = { version = "stable", components = "llvm-tools,cargo,rustfmt,clippy", profile = "default", targets = "aarch64-apple-darwin,aarch64-unknown-linux-gnu,aarch64-pc-windows-msvc,x86_64-apple-darwin,x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl,x86_64-pc-windows-msvc" }
 cargo-binstall              = "1.20.1"
 cargo-insta                 = "1.48.0"
 "cargo:cargo-audit"         = "0.22.2"

@@ -1,22 +1,9 @@
 {
-    "hooks": {
-        "PreToolUse": [
-            {
-                "matcher": "Bash",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": "bash .claude/hooks/enforce-dco-signoff.sh"
-                    }
-                ]
-            }
-        ]
-    },
     "enabledPlugins": {
         "rust-analyzer-lsp@claude-plugins-official": true,
         "security-guidance@claude-plugins-official": true,
         "rust-cli-developer@geoffjay-claude-plugins": true,
         "systems-programming@claude-code-workflows": true,
-        "everything-claude-code@everything-claude-code": true
+        "ecc@ecc": true
     }
 }

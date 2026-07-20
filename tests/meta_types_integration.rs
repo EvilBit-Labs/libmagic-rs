@@ -154,6 +154,94 @@ fn test_default_clear_synthetic_scenario() {
     );
 }
 
+/// A message-bearing `clear x` directive must EMIT its own message, matching
+/// libmagic's `FILE_CLEAR` (the `x` test always succeeds and `mprint` renders
+/// a non-empty description). This is the mechanism behind GNU `file`'s
+/// `c-lang` chain: for a plain C source file the `>>&0 clear x program text`
+/// child appends "program text", producing `c program text` (rmagic
+/// previously dropped it and printed only `c`).
+///
+/// This also pins the coexistence verified against real `file` (file-5.41):
+/// the message-bearing clear prints its message AND still resets the per-level
+/// sibling-matched flag so a trailing `default` sibling fires. The child-level
+/// structure mirrors c-lang -- the directives are children of a matched
+/// top-level rule, so each `default`'s sibling-matched check is evaluated at
+/// the child level.
+#[test]
+fn test_clear_with_message_emits_and_still_resets_flag() {
+    let temp_dir = TempDir::new().unwrap();
+    let magic_path = temp_dir.path().join("clear_msg.magic");
+
+    // Top-level signature matches, then four children at the same level:
+    //   default (fires -- nothing matched at the child level yet),
+    //   clear x CLEARED-MSG (emits its message, resets the flag),
+    //   default (fires again because clear reset the flag).
+    // Verified against real `file`:
+    //   MATCH-A DEF-SKIPPED CLEARED-MSG DEF-FIRES
+    let mut f = fs::File::create(&magic_path).unwrap();
+    writeln!(f, r"0 string ZQX9 MATCH-A").unwrap();
+    writeln!(f, r">4 default x DEF-ONE").unwrap();
+    writeln!(f, r">4 clear x CLEARED-MSG").unwrap();
+    writeln!(f, r">4 default x DEF-TWO").unwrap();
+
+    // Evaluate every matching sibling (the default config stops at the first
+    // top-level match, which would hide the child chain).
+    let config = EvaluationConfig::default().with_stop_at_first_match(false);
+    let db = MagicDatabase::load_from_file_with_config(&magic_path, config).unwrap();
+
+    let buf = b"ZQX9rest-of-data";
+    let result = db.evaluate_buffer(buf).unwrap();
+
+    // Primary regression: the clear's own message text is present.
+    assert!(
+        result.description.contains("CLEARED-MSG"),
+        "message-bearing clear must emit its message, got: {}",
+        result.description
+    );
+    // The first child default fires (no sibling matched at the child level
+    // before it).
+    assert!(
+        result.description.contains("DEF-ONE"),
+        "first child default should fire, got: {}",
+        result.description
+    );
+    // Coexistence: clear reset the flag, so the trailing default still fires.
+    assert!(
+        result.description.contains("DEF-TWO"),
+        "clear must reset sibling-matched so the trailing default fires, got: {}",
+        result.description
+    );
+}
+
+/// A bare `clear x` directive with NO message text must remain a pure
+/// flag-reset: it emits no description fragment and does not advance the
+/// previous-match anchor, exactly as before message-emission was added. This
+/// guards the blast radius of `test_clear_with_message_emits_and_still_resets_flag`
+/// -- the system magic DB contains ten message-less `clear x` directives
+/// (apple, coff, elf, pmem, ...) whose output must be unchanged.
+#[test]
+fn test_message_less_clear_emits_nothing() {
+    let temp_dir = TempDir::new().unwrap();
+    let magic_path = temp_dir.path().join("clear_bare.magic");
+
+    // A matched parent whose only child is a bare `clear x` (no message).
+    // The description must be exactly the parent's text with no trailing
+    // fragment or stray whitespace from the clear.
+    let mut f = fs::File::create(&magic_path).unwrap();
+    writeln!(f, r"0 string ZQX9 PARENT").unwrap();
+    writeln!(f, r">4 clear x").unwrap();
+
+    let config = EvaluationConfig::default().with_stop_at_first_match(false);
+    let db = MagicDatabase::load_from_file_with_config(&magic_path, config).unwrap();
+
+    let result = db.evaluate_buffer(b"ZQX9rest").unwrap();
+    assert_eq!(
+        result.description, "PARENT",
+        "a message-less clear must contribute no text, got: {}",
+        result.description
+    );
+}
+
 /// Synthetic end-to-end coverage of the `indirect` directive: a rule with
 /// `TypeKind::Meta(MetaType::Indirect)` re-applies the loaded magic
 /// database starting at the resolved offset. The dispatch is wired
@@ -216,4 +304,174 @@ fn test_searchbug_matches_full_result_string() {
         .evaluate_buffer(&bytes)
         .expect("evaluate_buffer on searchbug.testfile");
     assert_eq!(result.description.trim(), expected.trim());
+}
+
+/// End-to-end regression for the gzip multi-fragment description, the shape
+/// that surfaced four interlocking evaluation bugs (PR #376):
+///
+/// 1. `stop_at_first_match` must be TOP-LEVEL only -- every matching child
+///    sibling under the matched parent must render (not truncate after the
+///    first), so `default`, the `use` subroutine detail, and the trailing
+///    `offset` size all appear.
+/// 2. The `offset` pseudo-type must apply its comparison operator
+///    (`offset >48`) against the resolved position, not treat `>48` as
+///    message text.
+/// 3. `-0` must resolve to the EOF position (`buffer.len()`) via
+///    `FromEnd(0)`, so `>>-0 offset >48` gates on file length.
+/// 4. Continuation/child rules and `name`-block bodies must stay in FILE
+///    order (non-recursive strength sort), so the low-strength `default`
+///    is not suppressed by a higher-strength `offset` sibling sorted ahead
+///    of it, and the gzip-info detail fragments render in source order.
+///
+/// Verified byte-for-byte against `file -b` on real gzip files; this test
+/// pins a synthetic buffer so the parity survives without the system DB.
+/// Uses the default config (`stop_at_first_match: true`) deliberately, to
+/// prove children still render fully under first-match short-circuiting.
+#[test]
+fn test_gzip_multipart_description_end_to_end() {
+    let temp_dir = TempDir::new().unwrap();
+    let magic_path = temp_dir.path().join("gzip.magic");
+
+    let mut f = fs::File::create(&magic_path).unwrap();
+    // Minimal gzip shape mirroring /usr/share/file/magic/compress.
+    writeln!(f, r"0	string	\037\213").unwrap();
+    writeln!(f, r"# no FNAME/FCOMMENT bit -> binary gzip").unwrap();
+    writeln!(
+        f,
+        r"# (real rule masks with &0x18; a bare `byte 0` suffices here)"
+    )
+    .unwrap();
+    writeln!(f, r"# FLG byte at offset 3").unwrap();
+    writeln!(f, r">3	byte	0").unwrap();
+    writeln!(f, r">>10	default	x	gzip compressed data").unwrap();
+    writeln!(f, r">>>0	use	gzip-info").unwrap();
+    // -0 == EOF position; `offset >48` gates the trailing size on file length.
+    writeln!(f, r">>-0	offset	>48").unwrap();
+    writeln!(f, r">>>-4	ulelong	x	\b, original size modulo 2^32 %u").unwrap();
+    writeln!(f, r">>-0	offset	<48	\b, truncated").unwrap();
+    writeln!(f, r"0	name	gzip-info").unwrap();
+    writeln!(f, r">9	byte	3	\b, from Unix").unwrap();
+    drop(f);
+
+    let db = MagicDatabase::load_from_file(&magic_path).unwrap();
+
+    // 64-byte synthetic gzip: magic, CM=deflate, FLG=0, ..., OS=3 (Unix),
+    // trailing little-endian original-size = 1000 in the last 4 bytes.
+    let mut buf = vec![0u8; 64];
+    buf[0] = 0x1f;
+    buf[1] = 0x8b;
+    buf[2] = 0x08; // CM = deflate
+    buf[3] = 0x00; // FLG = 0
+    buf[9] = 0x03; // OS = Unix
+    buf[60] = 0xE8; // 1000 = 0x000003E8, little-endian in last 4 bytes
+    buf[61] = 0x03;
+
+    let result = db.evaluate_buffer(&buf).unwrap();
+    assert_eq!(
+        result.description, "gzip compressed data, from Unix, original size modulo 2^32 1000",
+        "all four fragments must render in file order; got {:?}",
+        result.description
+    );
+
+    // A short (< 48-byte) buffer must take the `<48` truncated branch, not
+    // the size branch -- proving the FromEnd(0)+comparison gate both ways.
+    let mut short = vec![0u8; 20];
+    short[0] = 0x1f;
+    short[1] = 0x8b;
+    short[9] = 0x03;
+    let short_result = db.evaluate_buffer(&short).unwrap();
+    assert!(
+        short_result.description.contains("truncated"),
+        "a <48-byte gzip must hit the `offset <48` truncated branch; got {:?}",
+        short_result.description
+    );
+    assert!(
+        !short_result.description.contains("original size"),
+        "the size branch must not fire for a truncated file; got {:?}",
+        short_result.description
+    );
+}
+
+/// A `name` subroutine's OWN description (the text on the `name` line) is
+/// emitted when the subroutine is invoked via `use`, ahead of the body's
+/// matches and attached with NO separating space -- matching GNU `file`.
+///
+/// libmagic drops a `use`-site's own message but emits the `name` line's
+/// description (verified against file-5.41). rmagic previously dropped BOTH,
+/// so subroutine name-line fragments -- Mach-O universal `\b [`, `matlab4
+/// Matlab v4 mat-file`, `algol_68 Algol 68 source text` -- silently vanished.
+///
+/// Buffer `ZQX9...` matches the parent `0 string ZQXNAME9`; the `>8 byte`
+/// child reads the value at offset 8. Expected strings are the EXACT
+/// `file -b` output for the equivalent single-file magic (see the
+/// fix-system-magic-regex-graceful name-message investigation).
+#[test]
+fn test_use_emits_name_line_message_with_no_separator() {
+    // (magic body, expected description). One temp file per case keeps the
+    // magic isolated from stop-at-first-match cross-talk.
+    let cases: &[(&str, &str)] = &[
+        // A: plain name message attaches with no leading space -> `ParentSUBMSG`.
+        (
+            "0 string ZQXNAME9 Parent\n>0 use submsgtest\n0 name submsgtest SUBMSG\n>8 byte x child=%d\n",
+            "ParentSUBMSG child=5",
+        ),
+        // B: mach-o-style `\b [` -> the `\b` no-separator marker + literal ` [`.
+        (
+            "0 string ZQXNAME9 Parent\n>0 use submsgtest\n0 name submsgtest \\b [\n>8 byte x child=%d\n",
+            "Parent [ child=5",
+        ),
+        // C: the `use` site's OWN message (USEMSG) is DROPPED; only the name
+        // line's NAMEMSG is emitted.
+        (
+            "0 string ZQXNAME9 Parent\n>0 use submsgtest USEMSG\n0 name submsgtest NAMEMSG\n>8 byte x child=%d\n",
+            "ParentNAMEMSG child=5",
+        ),
+        // D: name message with no body still emits.
+        (
+            "0 string ZQXNAME9 Parent\n>0 use submsgtest\n0 name submsgtest NAMEONLY\n",
+            "ParentNAMEONLY",
+        ),
+    ];
+
+    let temp_dir = TempDir::new().unwrap();
+    // 9-byte buffer: "ZQXNAME9" (8 bytes) matches the parent, byte at offset 8
+    // is 0x05 so `child=%d` renders `child=5`.
+    let buf = b"ZQXNAME9\x05";
+
+    for (i, (magic, expected)) in cases.iter().enumerate() {
+        let magic_path = temp_dir.path().join(format!("namemsg_{i}.magic"));
+        fs::write(&magic_path, magic).unwrap();
+        let db = MagicDatabase::load_from_file(&magic_path).unwrap();
+        let result = db.evaluate_buffer(buf).unwrap();
+        assert_eq!(
+            result.description, *expected,
+            "case {i}: name-line message spacing must match GNU `file` for magic {magic:?}"
+        );
+    }
+}
+
+/// End-to-end regression for the Mach-O universal bracket detail: a nested
+/// `use` chain where the outer subroutine's name line carries `\b [`, an inner
+/// `use` supplies the arch label, and a `\b]` closes the bracket.
+///
+/// Before the name-line-message fix, the outer `[` was dropped and the output
+/// was malformed (`LABEL]`); after, the brackets balance (`[...LABEL]`),
+/// matching the shape GNU `file` produces for a real fat binary. (The full
+/// per-arch `:Mach-O 64-bit executable` inner classification needs the
+/// separate indirect-offset cluster and is tracked in its own issue.)
+#[test]
+fn test_use_nested_name_message_balances_brackets() {
+    let temp_dir = TempDir::new().unwrap();
+    let magic_path = temp_dir.path().join("nested.magic");
+    let magic = "0 string ZQXNAME9 Parent:\n\
+                 >0 use outer\n\
+                 0 name outer \\b [\n\
+                 >0 use inner\n\
+                 >8 byte x \\b]\n\
+                 0 name inner INNERCPU\n";
+    fs::write(&magic_path, magic).unwrap();
+    let db = MagicDatabase::load_from_file(&magic_path).unwrap();
+    let result = db.evaluate_buffer(b"ZQXNAME9\x05").unwrap();
+    // Matches `file -b` on the equivalent single-file magic: `Parent: [INNERCPU]`.
+    assert_eq!(result.description, "Parent: [INNERCPU]");
 }

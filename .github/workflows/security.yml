@@ -35,7 +35,7 @@ jobs:
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Run cargo deny check
-              run: cargo deny check
+              run: mise x -- cargo deny check
 
             - name: Run cargo outdated (informational only)
               # Dropping --exit-code=1: a plain upstream dep release is
@@ -43,8 +43,8 @@ jobs:
               # eroded trust in the security dashboard. cargo audit and
               # cargo deny above are the authoritative gates. (Review
               # finding D-M2.)
-              run: cargo outdated --depth=1
+              run: mise x -- cargo outdated --depth=1
               continue-on-error: true
 
             - name: Run dist plan
-              run: dist plan
+              run: mise x -- dist plan

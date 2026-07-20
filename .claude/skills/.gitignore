@@ -1,0 +1,8 @@
+**/*
+!.gitignore
+!api-design/
+!tdd-workflow/
+!security-review/
+!strategic-compact/
+!verification-loop/
+!SKILL.md
