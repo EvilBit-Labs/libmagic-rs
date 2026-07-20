@@ -80,13 +80,17 @@ fn read_magic_file_bounded(path: &Path) -> Result<String, ParseError> {
 }
 
 /// Whether `contents` contains at least one actual rule line -- a non-blank
-/// line that is not a comment (`#`). Used by [`load_magic_directory`] to tell a
+/// line that is neither a comment (`#`) nor a `!:` metadata directive
+/// (`!:mime`, `!:strength`, ...). Used by [`load_magic_directory`] to tell a
 /// file whose rules were all skipped as unparseable (unusable) apart from a
-/// genuinely empty or comment-only file (valid, contributes nothing).
+/// genuinely empty, comment-only, or directive-only file (valid, contributes
+/// no rules). `!:` directives are stripped during preprocessing and are not
+/// rules, so counting them here would misclassify a directive-only file as
+/// "had rules but all were skipped".
 fn has_rule_lines(contents: &str) -> bool {
     contents.lines().any(|line| {
         let trimmed = line.trim();
-        !trimmed.is_empty() && !trimmed.starts_with('#')
+        !trimmed.is_empty() && !trimmed.starts_with('#') && !trimmed.starts_with("!:")
     })
 }
 
@@ -157,6 +161,9 @@ fn has_rule_lines(contents: &str) -> bool {
 /// # Panics
 ///
 /// This function does not panic under normal operation.
+// Directory iteration + per-file parse + error aggregation runs slightly over
+// the 100-line lint; splitting this module is tracked in #391.
+#[allow(clippy::too_many_lines)]
 pub fn load_magic_directory(dir_path: &Path) -> Result<ParsedMagic, ParseError> {
     use std::fs;
 
@@ -275,7 +282,9 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<ParsedMagic, ParseError> 
                 .map(|path| format!("  - {}: no usable rules (all skipped)", path.display())),
         );
 
-        let mut message = format!("All {file_count} magic file(s) in directory failed to parse");
+        let mut message = format!(
+            "All {file_count} magic file(s) in directory failed to parse or produced no usable rules"
+        );
         let shown = problems.iter().take(3).cloned().collect::<Vec<_>>();
         if !shown.is_empty() {
             message.push_str(":\n");

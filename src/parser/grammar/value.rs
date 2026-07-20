@@ -172,7 +172,7 @@ pub(super) fn parse_hex_bytes_no_prefix(input: &str) -> IResult<&str, Vec<u8>> {
         )));
     }
 
-    let remaining = &input[hex_chars.len()..];
+    let remaining = input.strip_prefix(hex_chars.as_str()).unwrap_or(input);
     if !is_hex_token_boundary(remaining) {
         // The token is not purely hex digits (e.g. `4a[42`) -- reject
         // rather than truncate. Letting this succeed would silently

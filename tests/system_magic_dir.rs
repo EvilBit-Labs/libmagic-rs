@@ -75,12 +75,15 @@ use std::process::Command;
 /// against.
 const SYSTEM_MAGIC_DIR: &str = "/usr/share/file/magic/";
 
-/// Whether `path` (a system magic directory candidate) exists. Factored
-/// out into its own function so the "clean skip" branch is exercised by
-/// an isolated unit test below, independent of whether the actual host
-/// happens to have the system DB installed.
+/// Whether `path` (a system magic directory candidate) exists AND is a
+/// directory. Uses `is_dir()` rather than `exists()` so a regular file (or a
+/// broken mountpoint) at the path does not pass the gate and then fail later
+/// when loaded as a directory. Factored out into its own function so the
+/// "clean skip" branch is exercised by an isolated unit test below,
+/// independent of whether the actual host happens to have the system DB
+/// installed.
 fn has_system_magic_dir(path: &Path) -> bool {
-    path.exists()
+    path.is_dir()
 }
 
 /// Whether the `file` binary is available on `PATH`, checked via
@@ -100,9 +103,14 @@ fn has_file_binary() -> bool {
 /// always runs (never gated) and always passes.
 #[test]
 fn test_skip_gate_is_reachable_for_a_missing_directory() {
-    let fake_path = Path::new("/definitely/does/not/exist/on/any/host/libmagic-rs-test");
+    // Use a TempDir and a known-nonexistent child rather than a hard-coded
+    // absolute path: the latter isn't guaranteed absent on every host or
+    // container, which could make this test flaky. The child is never
+    // created, so the gate must report false deterministically.
+    let temp = tempfile::TempDir::new().expect("create temp dir");
+    let fake_path = temp.path().join("libmagic-rs-nonexistent-child");
     assert!(
-        !has_system_magic_dir(fake_path),
+        !has_system_magic_dir(&fake_path),
         "the gate helper must report false for a path that does not exist"
     );
 }

@@ -125,7 +125,7 @@ pub(super) fn parse_regex_getstr_value(input: &str) -> IResult<&str, Value> {
             break;
         }
         if ch == '\\' {
-            let after_backslash = &remaining[ch.len_utf8()..];
+            let after_backslash = remaining.strip_prefix('\\').unwrap_or(remaining);
             if let Some(rest) = resolve_getstr_escape(&mut resolved, after_backslash) {
                 remaining = rest;
             } else {
@@ -138,7 +138,7 @@ pub(super) fn parse_regex_getstr_value(input: &str) -> IResult<&str, Value> {
             continue;
         }
         resolved.push(ch);
-        remaining = &remaining[ch.len_utf8()..];
+        remaining = remaining.strip_prefix(ch).unwrap_or(remaining);
     }
 
     if resolved.is_empty() {
@@ -158,7 +158,7 @@ pub(super) fn parse_regex_getstr_value(input: &str) -> IResult<&str, Value> {
 /// escape -- see [`parse_regex_getstr_value`]).
 fn resolve_getstr_escape<'a>(resolved: &mut String, rest: &'a str) -> Option<&'a str> {
     let c = rest.chars().next()?;
-    let after = &rest[c.len_utf8()..];
+    let after = rest.strip_prefix(c).unwrap_or(rest);
 
     // Named single-character control escapes (getstr `case 'a'`..`'v'`).
     let named_byte = match c {
@@ -211,7 +211,7 @@ fn resolve_octal_escape(first: char, rest: &str) -> (u8, &str) {
             break;
         }
         val = (val << 3) | next.to_digit(8).unwrap_or(0);
-        remaining = &remaining[next.len_utf8()..];
+        remaining = remaining.strip_prefix(next).unwrap_or(remaining);
     }
 
     // A 3-digit octal escape can exceed 255 (e.g. `\777` = 511); getstr
@@ -231,7 +231,7 @@ fn resolve_hex_escape(rest: &str) -> (u8, &str) {
     let Some(high) = first.to_digit(16) else {
         return (b'x', rest);
     };
-    let after_first = &rest[first.len_utf8()..];
+    let after_first = rest.strip_prefix(first).unwrap_or(rest);
 
     let Some(second) = after_first.chars().next() else {
         #[allow(clippy::cast_possible_truncation)]
@@ -242,7 +242,7 @@ fn resolve_hex_escape(rest: &str) -> (u8, &str) {
         return (high as u8, after_first);
     };
 
-    let after_second = &after_first[second.len_utf8()..];
+    let after_second = after_first.strip_prefix(second).unwrap_or(after_first);
     #[allow(clippy::cast_possible_truncation)]
     let byte = ((high << 4) | low) as u8;
     (byte, after_second)

@@ -355,9 +355,14 @@ fn render(spec: &Spec, value: &Value, type_kind: &TypeKind) -> Option<String> {
 /// entirely.
 fn render_str_spec(spec: &Spec, value: &Value) -> String {
     let base = render_string(value);
+    // Truncate to `p` chars in a single pass bounded by `p` (no preceding full
+    // `chars().count()` pass, and no byte slicing -- the repo forbids `&s[n..]`
+    // for UTF-8 safety). `take(p)` stops after at most `p` chars regardless of
+    // string length; when `p >= len` this collects an identical copy, which is
+    // a cheap, correct no-op for the rare precision case.
     let truncated = match spec.precision {
-        Some(p) if base.chars().count() > p => base.chars().take(p).collect(),
-        _ => base,
+        Some(p) => base.chars().take(p).collect::<String>(),
+        None => base,
     };
     pad_non_numeric(&truncated, spec)
 }
@@ -656,9 +661,11 @@ mod tests {
             // Left-align precision (`-` is a no-op here since no width).
             ("%-.4s", "versionX", "vers"),
             // Width padding is applied AFTER truncation: `%4.4s` on "ab"
-            // truncates to "ab" (no-op) then right-pads to width 4.
+            // truncates to "ab" (no-op) then right-aligns to width 4 (pads on
+            // the LEFT).
             ("[%4.4s]", "ab", "[  ab]"),
-            // `%-4.2s`: truncate "hello" to "he", then left-pad to width 4.
+            // `%-4.2s`: truncate "hello" to "he", then `-` left-aligns to
+            // width 4 (pads on the RIGHT).
             ("[%-4.2s]", "hello", "[he  ]"),
         ];
         for (template, value, expected) in cases {

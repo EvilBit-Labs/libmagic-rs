@@ -8,10 +8,12 @@
 # the hosted CI runner (`detected conflict` / `Directory not empty`), breaking
 # every job at toolchain setup. Keeping a single consistent `stable`
 # declaration -- one `[[tools.rust]]` entry in mise.lock, no redundant
-# component-add step -- is what avoids that. `mise.lock` is committed so every
-# install resolves the same concrete stable build. When bumping rustc: run
-# `mise upgrade rust` and commit `mise.lock`; update Cargo.toml `rust-version`
-# if the MSRV moves.
+# component-add step -- is what avoids that. `mise.lock` is committed so a
+# given commit resolves a consistent toolchain across machines; note `stable`
+# is a moving channel, so this is stable-tracking rather than a frozen version
+# pin -- the resolved rustc advances whenever the lockfile is refreshed. When
+# bumping rustc: run `mise upgrade rust` and commit `mise.lock`; update
+# Cargo.toml `rust-version` if the MSRV moves.
 [tools]
 rust                        = { version = "stable", components = "llvm-tools,cargo,rustfmt,clippy", profile = "default", targets = "aarch64-apple-darwin,aarch64-unknown-linux-gnu,aarch64-pc-windows-msvc,x86_64-apple-darwin,x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl,x86_64-pc-windows-msvc" }
 cargo-binstall              = "1.20.1"

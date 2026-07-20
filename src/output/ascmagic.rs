@@ -73,8 +73,17 @@ pub fn classify_fallback(buffer: &[u8]) -> &'static str {
         return "ASCII text";
     }
 
+    // Valid non-ASCII UTF-8 only counts as text when every low byte (< 0x80) is
+    // itself text-safe. A NUL or other binary control byte is a strong binary
+    // signal even inside an otherwise-valid UTF-8 buffer -- GNU `file`
+    // classifies such input as data, and the ASCII branch above already treats
+    // these bytes as non-text. High bytes (>= 0x80) are exempt from the check
+    // because they are the UTF-8 continuation/lead bytes the `from_utf8` gate
+    // validates. Without this, a valid-UTF-8 buffer carrying an embedded NUL
+    // would be mislabelled "UTF-8 Unicode text".
     let has_non_ascii_byte = buffer.iter().any(|&b| b >= 0x80);
-    if has_non_ascii_byte && std::str::from_utf8(buffer).is_ok() {
+    let no_binary_control_byte = buffer.iter().all(|&b| b >= 0x80 || is_text_safe_byte(b));
+    if has_non_ascii_byte && no_binary_control_byte && std::str::from_utf8(buffer).is_ok() {
         return "UTF-8 Unicode text";
     }
 

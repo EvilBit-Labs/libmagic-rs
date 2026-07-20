@@ -286,10 +286,19 @@ pub(crate) fn read_typed_value(
 /// divergence is visible in logs rather than a silent wrong answer.
 fn decode_regex_bytes_pattern(bytes: &[u8]) -> String {
     if std::str::from_utf8(bytes).is_err() {
+        // The pattern originates from an untrusted magic DB and can be
+        // arbitrarily long, so log only its length and a bounded preview
+        // rather than the whole buffer -- otherwise a pathological pattern
+        // could flood logs / churn memory (CWE-117-adjacent). 32 bytes is
+        // enough to identify the offending rule without dumping it.
+        const PREVIEW_LEN: usize = 32;
+        let preview = bytes.get(..PREVIEW_LEN.min(bytes.len())).unwrap_or(bytes);
+        let truncated = if bytes.len() > PREVIEW_LEN { "..." } else { "" };
         log::warn!(
-            "regex pattern given as raw bytes {bytes:?} is not valid UTF-8; \
-             lossily reinterpreting as text before compiling (bytes >= 0x80 \
-             become U+FFFD and will not byte-match the target buffer)"
+            "regex pattern given as {} raw bytes (preview: {preview:?}{truncated}) is not \
+             valid UTF-8; lossily reinterpreting as text before compiling (bytes >= 0x80 \
+             become U+FFFD and will not byte-match the target buffer)",
+            bytes.len()
         );
     }
     String::from_utf8_lossy(bytes).into_owned()

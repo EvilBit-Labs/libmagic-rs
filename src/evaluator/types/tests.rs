@@ -1124,11 +1124,10 @@ fn test_read_pattern_match_regex_bytes_pattern_miss() {
 
 /// KTD6: a `Value::Bytes` regex pattern containing a byte that is not
 /// valid UTF-8 must not panic. `String::from_utf8_lossy` substitutes
-/// U+FFFD for the invalid byte before compiling -- this test only pins the
+/// U+FFFD for the invalid byte before compiling -- this test pins the
 /// no-panic / graceful-result contract; the `warn!` emission itself is
-/// verified by code inspection of `decode_regex_bytes_pattern` since this
-/// crate has no log-capturing test seam (no `test-log`/`tracing-test`
-/// dev-dependency).
+/// asserted separately via the `testing_logger`-based tests further down
+/// this module (see `format_logs` and its callers).
 #[test]
 fn test_read_pattern_match_regex_bytes_invalid_utf8_does_not_panic() {
     let typ = regex_type();
