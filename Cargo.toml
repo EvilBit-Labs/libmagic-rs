@@ -231,6 +231,11 @@ testing_logger = "0.1.1"
 [lints]
 workspace = true
 
+# Opt this package into the workspace lint table below. Without this,
+# [workspace.lints] is inert and none of the security lints apply.
+[lints]
+workspace = true
+
 [[bench]]
 name = "parser_bench"
 harness = false
