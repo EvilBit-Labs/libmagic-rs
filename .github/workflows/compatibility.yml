@@ -10,6 +10,13 @@ on:
         - cron: "0 2 * * *"
     workflow_dispatch:
 
+# Cancel superseded runs on the same ref so rapid pushes don't pile up
+# concurrent cold-cache `mise-action` installs racing on the shared cache
+# (matches ci.yml / security.yml).
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
 env:
     CARGO_TERM_COLOR: always
 
