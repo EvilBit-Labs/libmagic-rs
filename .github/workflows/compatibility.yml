@@ -10,6 +10,13 @@ on:
         - cron: "0 2 * * *"
     workflow_dispatch:
 
+# Cancel superseded runs on the same ref so rapid pushes don't pile up
+# concurrent cold-cache `mise-action` installs racing on the shared cache
+# (matches ci.yml / security.yml).
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
 env:
     CARGO_TERM_COLOR: always
 
@@ -17,7 +24,12 @@ jobs:
     compatibility-tests:
         name: Compatibility Tests (${{ matrix.os }})
         runs-on: ${{ matrix.os }}
-        timeout-minutes: 20
+        # 30m (matching benchmarks.yml) because the `cargo build --release`
+        # step on the windows-latest runner alone routinely approaches 20m on a
+        # cold dependency cache; the compatibility test itself runs in <1s. The
+        # fast Linux/macOS legs finish in ~10m, so the higher ceiling only ever
+        # affects the slow Windows leg. See PR #376.
+        timeout-minutes: 30
 
         strategy:
             fail-fast: false
@@ -27,9 +39,12 @@ jobs:
         steps:
             - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-            - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+            - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
+                  # Only rust + just are needed here; avoid the full mise tool
+                  # set whose no-prebuilt cargo tools fail to install on runners.
+                  install_args: rust just
                   cache: true
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -37,10 +52,10 @@ jobs:
               run: just verify-compatibility-tests
 
             - name: Build rmagic
-              run: cargo build --release
+              run: mise x -- cargo build --release
 
             - name: Run compatibility tests
-              run: cargo test test_compatibility_with_original_libmagic -- --ignored --nocapture
+              run: mise x -- cargo test test_compatibility_with_original_libmagic -- --ignored --nocapture
 
             - name: Upload test results on failure
               if: failure()

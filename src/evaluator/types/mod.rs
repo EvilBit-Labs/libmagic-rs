@@ -26,6 +26,66 @@ pub(crate) use search::read_search;
 use string::string16_bytes_consumed;
 pub(crate) use string::{read_pstring, read_string, read_string_exact, read_string16};
 
+/// Swap the declared endianness of an endian-bearing [`TypeKind`] for the
+/// magic(5) `use \^name` endian flip (issue #236).
+///
+/// This mirrors libmagic's `cvt_flip` in `src/softmagic.c` exactly: only the
+/// explicit little/big-endian numeric, float, and date families are swapped
+/// (`short`/`long`/`quad`/`float`/`double` and the `date`/`ldate`/`qdate`/
+/// `qldate` families). `Endianness::Native` is left untouched (libmagic has
+/// no `FILE_SHORT`/`FILE_LONG` case in `cvt_flip`), `String16` is deliberately
+/// NOT flipped (also absent from `cvt_flip`), and every non-endian type is
+/// returned unchanged. The `signed`/`utc` attributes are preserved.
+///
+/// The evaluator calls this at read time only when the `\^` flip is active for
+/// the current subroutine body, so the common (unflipped) path never allocates
+/// a flipped clone.
+pub(crate) fn flip_type_endian(typ: &TypeKind) -> TypeKind {
+    use crate::parser::ast::Endianness;
+
+    /// Swap Little<->Big; leave Native alone (matches `cvt_flip`, which only
+    /// has explicit BE/LE cases).
+    const fn swap(e: Endianness) -> Endianness {
+        match e {
+            Endianness::Little => Endianness::Big,
+            Endianness::Big => Endianness::Little,
+            Endianness::Native => Endianness::Native,
+        }
+    }
+
+    match *typ {
+        TypeKind::Short { endian, signed } => TypeKind::Short {
+            endian: swap(endian),
+            signed,
+        },
+        TypeKind::Long { endian, signed } => TypeKind::Long {
+            endian: swap(endian),
+            signed,
+        },
+        TypeKind::Quad { endian, signed } => TypeKind::Quad {
+            endian: swap(endian),
+            signed,
+        },
+        TypeKind::Float { endian } => TypeKind::Float {
+            endian: swap(endian),
+        },
+        TypeKind::Double { endian } => TypeKind::Double {
+            endian: swap(endian),
+        },
+        TypeKind::Date { endian, utc } => TypeKind::Date {
+            endian: swap(endian),
+            utc,
+        },
+        TypeKind::QDate { endian, utc } => TypeKind::QDate {
+            endian: swap(endian),
+            utc,
+        },
+        // Byte, String, String16, PString, Regex, Search, Meta: unchanged.
+        // (`String16` is intentionally absent from libmagic's `cvt_flip`.)
+        ref other => other.clone(),
+    }
+}
+
 /// Reads a fixed-size byte array from the buffer at the given offset.
 ///
 /// This is a shared helper for numeric, date, and float type readers that
@@ -101,6 +161,63 @@ pub enum TypeReadError {
     },
 }
 
+/// Diagnostic string for `TypeKind::Regex` evaluated without a usable
+/// `String`/`Bytes` pattern operand. Shared by every construction site
+/// (`read_typed_value_with_pattern` and `read_pattern_match`'s `Regex`
+/// arms) AND [`is_missing_pattern_operand`], so the two can never drift
+/// out of sync (a hardening item from the multi-agent review of the
+/// fix-system-magic-regex-graceful PR: the message previously existed as
+/// five independent string-literal copies across the two construction
+/// sites and the predicate).
+pub(crate) const REGEX_MISSING_PATTERN_MSG: &str = "regex without string pattern";
+
+/// Diagnostic string for `TypeKind::Search` evaluated without a usable
+/// `String`/`Bytes` pattern operand. See [`REGEX_MISSING_PATTERN_MSG`] for
+/// the single-source-of-truth rationale.
+pub(crate) const SEARCH_MISSING_PATTERN_MSG: &str = "search without string/bytes pattern";
+
+/// Diagnostic string for a flagged `TypeKind::String` evaluated without a
+/// usable `String`/`Bytes` pattern operand. See
+/// [`REGEX_MISSING_PATTERN_MSG`] for the single-source-of-truth rationale.
+pub(crate) const FLAGGED_STRING_MISSING_PATTERN_MSG: &str =
+    "string with flags requires string/bytes pattern";
+
+/// Returns `true` if `type_name` (the free-form diagnostic string carried by
+/// [`TypeReadError::UnsupportedType`]) describes a pattern-bearing type
+/// (`Regex`, `Search`, or a flagged `String`) that was evaluated without a
+/// usable `String`/`Bytes` pattern operand.
+///
+/// This is the narrow "missing pattern" condition the engine's graceful skip
+/// (GOTCHAS S2.1, S2.4) targets -- deliberately an exhaustive allowlist of
+/// the exact messages this module emits for that condition, not a substring
+/// heuristic, so a genuine evaluator capability gap (an unwired `TypeKind`
+/// variant, or a non-equality operator on a pattern-bearing type) is never
+/// accidentally swallowed. See `is_regex_compile_failure` for the sibling
+/// "compile failure" condition, and the fix-system-magic-regex-graceful
+/// plan (KTD4/KTD5, requirement R3) for the full rationale.
+#[must_use]
+pub(crate) fn is_missing_pattern_operand(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        REGEX_MISSING_PATTERN_MSG | SEARCH_MISSING_PATTERN_MSG | FLAGGED_STRING_MISSING_PATTERN_MSG
+    )
+}
+
+/// Returns `true` if `type_name` describes a regex compile failure, as
+/// opposed to a missing pattern operand.
+///
+/// Compile failures include the `REGEX_COMPILE_SIZE_LIMIT` (1 MiB) denial-of-service guard
+/// (CWE-1333) from `evaluator::types::regex`. Both conditions flow
+/// through the same [`TypeReadError::UnsupportedType`] variant and are
+/// gracefully skipped by the engine, but a compile failure is logged at
+/// `warn!` rather than `debug!` so a malicious or pathological magic file's
+/// rejection is not silently invisible even though evaluation of the rest
+/// of the file continues (KTD5).
+#[must_use]
+pub(crate) fn is_regex_compile_failure(type_name: &str) -> bool {
+    type_name.starts_with("regex compile error:")
+}
+
 /// Default `max_string_length` used by [`read_typed_value`] when callers
 /// do not supply an explicit cap. Matches
 /// `EvaluationConfig::default().max_string_length` so call sites that
@@ -148,6 +265,43 @@ pub(crate) fn read_typed_value(
     type_kind: &TypeKind,
 ) -> Result<Value, TypeReadError> {
     read_typed_value_with_pattern(buffer, offset, type_kind, None, DEFAULT_MAX_STRING_LENGTH)
+}
+
+/// Decodes a `Value::Bytes` regex pattern operand into a `String` for
+/// compilation (KTD1/KTD6 of the fix-system-magic-regex-graceful plan).
+///
+/// Regex patterns are normally captured by the parser as `Value::String`,
+/// but escape-heavy patterns (e.g. `\^[\040\t]{0,50}\\.asciiz`) can
+/// currently be miscategorized as `Value::Bytes` by `parse_value`'s
+/// hex/mixed-ascii branch. This backstop lets such patterns compile
+/// instead of fatally erroring (GOTCHAS S2.4), mirroring the existing
+/// `TypeKind::Search` arms' dual `String`/`Bytes` acceptance.
+///
+/// `String::from_utf8_lossy` never panics, but on a real substitution --
+/// any byte `>= 0x80` that is not valid UTF-8 -- it silently replaces the
+/// byte with U+FFFD while the target buffer is still matched against its
+/// *raw* bytes. The two sides then diverge silently: the compiled regex
+/// no longer represents the same bytes the file comparison expects. Detect
+/// a real substitution with `str::from_utf8` first and `warn!` so the
+/// divergence is visible in logs rather than a silent wrong answer.
+fn decode_regex_bytes_pattern(bytes: &[u8]) -> String {
+    if std::str::from_utf8(bytes).is_err() {
+        // The pattern originates from an untrusted magic DB and can be
+        // arbitrarily long, so log only its length and a bounded preview
+        // rather than the whole buffer -- otherwise a pathological pattern
+        // could flood logs / churn memory (CWE-117-adjacent). 32 bytes is
+        // enough to identify the offending rule without dumping it.
+        const PREVIEW_LEN: usize = 32;
+        let preview = bytes.get(..PREVIEW_LEN.min(bytes.len())).unwrap_or(bytes);
+        let truncated = if bytes.len() > PREVIEW_LEN { "..." } else { "" };
+        log::warn!(
+            "regex pattern given as {} raw bytes (preview: {preview:?}{truncated}) is not \
+             valid UTF-8; lossily reinterpreting as text before compiling (bytes >= 0x80 \
+             become U+FFFD and will not byte-match the target buffer)",
+            bytes.len()
+        );
+    }
+    String::from_utf8_lossy(bytes).into_owned()
 }
 
 /// Reads bytes according to the specified `TypeKind`, threading a
@@ -246,11 +400,16 @@ pub(crate) fn read_typed_value_with_pattern(
             *length_includes_itself,
         ),
         TypeKind::Regex { flags, count } => {
-            let pattern_str = match pattern {
-                Some(Value::String(s)) => s.as_str(),
+            // Dual `String`/`Bytes` acceptance mirrors the `Search` arm
+            // directly below (GOTCHAS S2.4). The `String` fast path stays
+            // allocation-free via `Cow::Borrowed`; `Bytes` goes through
+            // `decode_regex_bytes_pattern` (KTD6 lossy-substitution guard).
+            let pattern_str: Cow<'_, str> = match pattern {
+                Some(Value::String(s)) => Cow::Borrowed(s.as_str()),
+                Some(Value::Bytes(b)) => Cow::Owned(decode_regex_bytes_pattern(b)),
                 _ => {
                     return Err(TypeReadError::UnsupportedType {
-                        type_name: "regex without string pattern".to_string(),
+                        type_name: REGEX_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };
@@ -259,7 +418,7 @@ pub(crate) fn read_typed_value_with_pattern(
             // shape. The engine path goes through `read_pattern_match`
             // directly and preserves the `Option` so it can distinguish a
             // zero-width match from a miss.
-            Ok(read_regex(buffer, offset, pattern_str, *flags, *count)?
+            Ok(read_regex(buffer, offset, &pattern_str, *flags, *count)?
                 .unwrap_or_else(|| Value::String(String::new())))
         }
         TypeKind::Search { range, flags } => {
@@ -268,7 +427,7 @@ pub(crate) fn read_typed_value_with_pattern(
                 Some(Value::Bytes(b)) => b.as_slice(),
                 _ => {
                     return Err(TypeReadError::UnsupportedType {
-                        type_name: "search without string/bytes pattern".to_string(),
+                        type_name: SEARCH_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };
@@ -324,15 +483,19 @@ pub(crate) fn read_pattern_match(
     }
     match type_kind {
         TypeKind::Regex { flags, count } => {
-            let pattern_str = match pattern {
-                Some(Value::String(s)) => s.as_str(),
+            // Dual `String`/`Bytes` acceptance mirrors the `Search` arm
+            // directly below (GOTCHAS S2.4); see `decode_regex_bytes_pattern`
+            // for the KTD6 lossy-substitution `warn!` guard.
+            let pattern_str: Cow<'_, str> = match pattern {
+                Some(Value::String(s)) => Cow::Borrowed(s.as_str()),
+                Some(Value::Bytes(b)) => Cow::Owned(decode_regex_bytes_pattern(b)),
                 _ => {
                     return Err(TypeReadError::UnsupportedType {
-                        type_name: "regex without string pattern".to_string(),
+                        type_name: REGEX_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };
-            read_regex(buffer, offset, pattern_str, *flags, *count)
+            read_regex(buffer, offset, &pattern_str, *flags, *count)
         }
         TypeKind::Search { range, flags } => {
             let pattern_bytes: &[u8] = match pattern {
@@ -340,7 +503,7 @@ pub(crate) fn read_pattern_match(
                 Some(Value::Bytes(b)) => b.as_slice(),
                 _ => {
                     return Err(TypeReadError::UnsupportedType {
-                        type_name: "search without string/bytes pattern".to_string(),
+                        type_name: SEARCH_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };
@@ -368,7 +531,7 @@ pub(crate) fn read_pattern_match(
                 Some(Value::Bytes(b)) => b.as_slice(),
                 _ => {
                     return Err(TypeReadError::UnsupportedType {
-                        type_name: "string with flags requires string/bytes pattern".to_string(),
+                        type_name: FLAGGED_STRING_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };
@@ -476,18 +639,16 @@ fn flagged_string_bytes_consumed(
         Some(Value::String(s)) => s.as_bytes(),
         Some(Value::Bytes(b)) => b.as_slice(),
         _ => {
-            // Invariant: the engine only calls `bytes_consumed_with_pattern`
-            // after a successful `read_pattern_match`, which validated the
-            // pattern shape. If we reach this arm, a future caller violated
-            // the contract. Fire the debug-only assert for test/dev builds
-            // AND a release-time `warn!` so production runs surface the
-            // anchor-corruption signature (relative-offset child rules
-            // would read from the un-advanced anchor) rather than going
-            // silent. Returns 0 to preserve buffer safety.
-            debug_assert!(
-                false,
-                "flagged_string_bytes_consumed: missing string/bytes pattern ({pattern:?}) -- read_pattern_match should have rejected this"
-            );
+            // The dispatcher (`bytes_consumed_with_pattern`) only routes here
+            // when a string/bytes pattern is present (the Equal/NotEqual
+            // pattern-match path), so this arm is not normally reachable. It is
+            // handled defensively rather than with a `debug_assert!(false)`: a
+            // panic in library code is forbidden by the no-panic policy, and a
+            // flagged string reaching the consume side without a string pattern
+            // (e.g. an AnyValue/ordering operator misrouted by a future change)
+            // must degrade -- warn and return 0 (buffer-safe; the relative-
+            // offset anchor simply does not advance for that rule) rather than
+            // crash.
             log::warn!(
                 "flagged_string_bytes_consumed: missing string/bytes pattern ({pattern:?}); \
                  relative-offset anchor will not advance for this rule"
@@ -673,7 +834,16 @@ pub(crate) fn bytes_consumed_with_pattern(
 
     match type_kind {
         TypeKind::String { max_length, flags } => {
-            if !flags.is_empty() {
+            // Route to the flag-aware consumer ONLY when there is a string/bytes
+            // pattern to walk -- i.e. the Equal/NotEqual pattern-match path.
+            // For an AnyValue (`x`) or ordering operator on a flagged string
+            // (e.g. `0 string/b x`, `>15 string/t >\0`), the engine reads the
+            // string via the plain value path (the /t, /b, /c... flags do not
+            // change how many bytes are consumed), so fall through to the normal
+            // string logic. Without this guard the pattern walker hit its
+            // missing-pattern branch and panicked in debug builds. Mirrors the
+            // engine's `TypeKind::String { flags }` operator-based dispatch.
+            if !flags.is_empty() && matches!(pattern, Some(Value::String(_) | Value::Bytes(_))) {
                 return flagged_string_bytes_consumed(buffer, offset, *max_length, *flags, pattern);
             }
             // For the (`max_length: None`, string literal pattern)
@@ -735,16 +905,33 @@ pub(crate) fn bytes_consumed_with_pattern(
             Some(Value::String(s)) => {
                 regex::regex_bytes_consumed(buffer, offset, s.as_str(), *flags, *count)
             }
+            // U1 (fix-system-magic-regex-graceful): `Value::Bytes` regex
+            // patterns are now accepted by `read_typed_value_with_pattern`/
+            // `read_pattern_match` (GOTCHAS S2.4), so this consume-side
+            // helper must mirror that acceptance -- otherwise a
+            // successful Bytes-pattern regex match would hit the
+            // `debug_assert` below and silently fail to advance the
+            // anchor. Decode via the same `decode_regex_bytes_pattern`
+            // helper used by the read paths so both sides agree on what
+            // the pattern text is.
+            Some(Value::Bytes(b)) => {
+                let decoded = decode_regex_bytes_pattern(b);
+                regex::regex_bytes_consumed(buffer, offset, &decoded, *flags, *count)
+            }
             // Invariant: the engine only calls `bytes_consumed_with_pattern`
             // after a successful `read_typed_value_with_pattern`/`read_pattern_match`,
-            // which requires `Some(Value::String(_))` for regex. If we land
-            // here the invariant is broken by a new caller and the anchor
-            // would silently stall instead of advancing. Fire a debug_assert
-            // so the mismatch is caught in dev/test builds.
+            // which requires `Some(Value::String(_) | Value::Bytes(_))` for
+            // regex, so this arm is not normally reachable. Handle it
+            // defensively rather than with a `debug_assert!(false)` (which
+            // would panic in dev/test, violating the no-panic policy and the
+            // `prop_arbitrary_rule_evaluation_never_panics` invariant): `warn!`
+            // so a release build's silent stale-anchor is visible in logs, and
+            // return 0 (buffer-safe; the relative-offset anchor simply does not
+            // advance for this rule). Mirrors `flagged_string_bytes_consumed`.
             other => {
-                debug_assert!(
-                    false,
-                    "bytes_consumed_with_pattern: TypeKind::Regex without Value::String pattern ({other:?}) -- engine invariant violated"
+                log::warn!(
+                    "bytes_consumed_with_pattern: TypeKind::Regex without Value::String/Bytes pattern ({other:?}); \
+                     relative-offset anchor will not advance for this rule"
                 );
                 0
             }
@@ -756,10 +943,13 @@ pub(crate) fn bytes_consumed_with_pattern(
             Some(Value::Bytes(b)) => {
                 search::search_bytes_consumed(buffer, offset, b.as_slice(), *range, *flags)
             }
+            // Same invariant and defensive rationale as the `Regex` arm above:
+            // `warn!` + return 0 rather than `debug_assert!(false)`, so a
+            // release build's silent stale-anchor is visible in logs.
             other => {
-                debug_assert!(
-                    false,
-                    "bytes_consumed_with_pattern: TypeKind::Search without Value::String/Bytes pattern ({other:?}) -- engine invariant violated"
+                log::warn!(
+                    "bytes_consumed_with_pattern: TypeKind::Search without Value::String/Bytes pattern ({other:?}); \
+                     relative-offset anchor will not advance for this rule"
                 );
                 0
             }

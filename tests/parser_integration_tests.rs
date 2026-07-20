@@ -196,7 +196,7 @@ fn test_name_use_round_trip() {
     assert!(
         matches!(
             parsed.rules[0].typ,
-            TypeKind::Meta(MetaType::Use(ref n)) if n == "part2"
+            TypeKind::Meta(MetaType::Use { name: ref n, .. }) if n == "part2"
         ),
         "remaining top-level rule must be the use invocation"
     );
@@ -369,6 +369,146 @@ fn test_end_to_end_text_file_to_evaluation() {
         result.description.contains("ZIP"),
         "Should detect ZIP archive, got: {}",
         result.description
+    );
+}
+
+/// End-to-end proof that the string `>NUMERIC` parse fix (task #19) and the
+/// string ordering-op full-field render / prefix-limited compare (task #18)
+/// compose through real magic-file syntax.
+///
+/// `0 string >0.6.1 version %s` is parsed straight from text (so the value
+/// must survive as `Value::String("0.6.1")`, not a number), then evaluated:
+/// - `0.6.2` matches (`0.6.2` > `0.6.1`) and renders the FULL field
+///   (`version 0.6.2 release`), exercising the #18 full-field display read.
+/// - `0.6.10` does NOT match: the comparison is prefix-limited to
+///   `pattern.len()`, so the compared prefix `0.6.1` equals the pattern and
+///   `>` is false -- matching real `file` (file-5.41). It falls through to
+///   the ascmagic text fallback instead of a spurious `version ...`.
+#[test]
+fn test_string_numeric_ordering_end_to_end_composes_with_full_field_render() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let magic_file = create_test_magic_file(temp_dir.path(), "ver", "0 string >0.6.1 version %s\n");
+    let db = MagicDatabase::load_from_file(&magic_file).expect("Failed to load database");
+
+    // 0.6.2 > 0.6.1 -> matches, renders the full string field.
+    let match_file = create_test_binary_file(temp_dir.path(), "v62", b"0.6.2 release");
+    let matched = db
+        .evaluate_file(&match_file)
+        .expect("Failed to evaluate matching file");
+    assert_eq!(
+        matched.description, "version 0.6.2 release",
+        "0.6.2 must match >0.6.1 and render the full field, got: {}",
+        matched.description
+    );
+
+    // 0.6.10: compared prefix `0.6.1` == pattern, so `>` is false. No match.
+    let nomatch_file = create_test_binary_file(temp_dir.path(), "v610", b"0.6.10 release");
+    let unmatched = db
+        .evaluate_file(&nomatch_file)
+        .expect("Failed to evaluate non-matching file");
+    assert!(
+        !unmatched.description.contains("version"),
+        "0.6.10 must NOT match >0.6.1 (prefix-limited compare), got: {}",
+        unmatched.description
+    );
+}
+
+/// GOTCHAS S6.7: a top-level `string` signature whose bareword value carries
+/// a non-UTF-8 high byte (OS/2 INF's `HSP\x01\x9b\x00`, where `0x9b` is
+/// invalid UTF-8) must match. Before the fix, `parse_bare_string_value`
+/// lossy-decoded the value to a `Value::String` (0x9b -> U+FFFD), which both
+/// inflated the pattern length (6 -> 8) and changed the byte, so the rule
+/// silently never matched and the file classified as `data`. Real `file`
+/// prints `OS/2 INF (My Help File)`; this pins the full output including the
+/// `>107 string >0 (%s)` title child.
+#[test]
+fn os2_inf_high_byte_signature_matches() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let magic_file = create_test_magic_file(
+        temp_dir.path(),
+        "os2",
+        "0 string HSP\\x01\\x9b\\x00 OS/2 INF\n>107 string >0 (%s)\n",
+    );
+    let db = MagicDatabase::load_from_file(&magic_file).expect("Failed to load database");
+
+    // Signature (6 bytes) + filler to offset 107 + NUL-terminated title.
+    let mut bytes = vec![0x48, 0x53, 0x50, 0x01, 0x9b, 0x00];
+    bytes.resize(107, 0x00);
+    bytes.extend_from_slice(b"My Help File\x00");
+    let file = create_test_binary_file(temp_dir.path(), "os2inf.bin", &bytes);
+
+    let result = db
+        .evaluate_file(&file)
+        .expect("Failed to evaluate OS/2 INF file");
+    assert_eq!(
+        result.description, "OS/2 INF (My Help File)",
+        "high-byte signature must match and render the title child, got: {}",
+        result.description
+    );
+}
+
+/// GOTCHAS S15.1: a child rule whose resolved offset lands exactly at EOF
+/// (`offset == buffer.len()`) is permitted. Verified against real `file`
+/// (file-5.41) with a custom magic file: a numeric child (`byte x`) at EOF is
+/// DROPPED (its width-checked read fails), while a `string x` child at EOF
+/// renders an EMPTY string. Before the fix, offset resolution rejected
+/// `offset == len` and silently dropped BOTH children.
+#[test]
+fn child_at_eof_numeric_dropped_string_renders_empty() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    // Parent matches "XY" at 0; both children resolve to offset 2. "XY" is
+    // used (not "AB") because A/B are hex digits and a bareword of pure hex
+    // letters parses as `Value::Bytes`, not a string literal (GOTCHAS S3.12).
+    let magic_file = create_test_magic_file(
+        temp_dir.path(),
+        "eof",
+        "0 string XY PARENT\n>2 byte x byte=%d\n>2 string x [%s,\n",
+    );
+    let db = MagicDatabase::load_from_file(&magic_file).expect("Failed to load database");
+
+    // 2-byte buffer: offset 2 == EOF. Numeric child dropped, string empty.
+    let at_eof = create_test_binary_file(temp_dir.path(), "twobyte", b"XY");
+    let r = db.evaluate_file(&at_eof).expect("evaluate at-EOF file");
+    assert_eq!(
+        r.description, "PARENT [,",
+        "at offset==EOF: byte child must drop, string child must render empty, got: {}",
+        r.description
+    );
+
+    // 3-byte buffer: offset 2 < EOF. Both children render ('Z' == 90).
+    let before_eof = create_test_binary_file(temp_dir.path(), "threebyte", b"XYZ");
+    let r = db
+        .evaluate_file(&before_eof)
+        .expect("evaluate before-EOF file");
+    assert_eq!(
+        r.description, "PARENT byte=90 [Z,",
+        "at offset<EOF: both children render, got: {}",
+        r.description
+    );
+}
+
+/// GOTCHAS S15.1 (LUKS motivating case): a LUKS header truncated to exactly 8
+/// bytes has its cipher-name field (`>8 string x [%s,`) start exactly at EOF.
+/// Real `file` prints `LUKS encrypted file, ver 1 [,`; before the fix rmagic
+/// dropped the trailing detail and printed only `LUKS encrypted file, ver 1`.
+#[test]
+fn luks_truncated_header_renders_empty_cipher_field() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let magic_file = create_test_magic_file(
+        temp_dir.path(),
+        "luks",
+        "0 string LUKS\\xba\\xbe LUKS encrypted file,\n>6 beshort x ver %d\n>8 string x [%s,\n",
+    );
+    let db = MagicDatabase::load_from_file(&magic_file).expect("Failed to load database");
+
+    // 8-byte header: magic (6) + beshort version 1 (2). Offset 8 == EOF.
+    let bytes = vec![0x4c, 0x55, 0x4b, 0x53, 0xba, 0xbe, 0x00, 0x01];
+    let file = create_test_binary_file(temp_dir.path(), "luks_trunc.img", &bytes);
+    let r = db.evaluate_file(&file).expect("evaluate truncated LUKS");
+    assert_eq!(
+        r.description, "LUKS encrypted file, ver 1 [,",
+        "truncated LUKS must render empty cipher field `[,` like GNU file, got: {}",
+        r.description
     );
 }
 

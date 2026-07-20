@@ -140,7 +140,7 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
             // `use` dispatches into a subroutine whose specificity is
             // opaque from the call site -- give it a moderate weight so
             // it sorts above pure no-ops but below real type-bearing rules.
-            crate::parser::ast::MetaType::Use(_) => 5,
+            crate::parser::ast::MetaType::Use { .. } => 5,
             // `indirect` re-evaluates the root rule set at the resolved
             // offset; same rationale as `use` for the moderate weight.
             crate::parser::ast::MetaType::Indirect => 5,
@@ -953,6 +953,69 @@ mod tests {
     }
 
     #[test]
+    fn test_sort_rules_by_strength_preserves_child_file_order() {
+        // libmagic's `apprentice_sort` orders whole top-level magic entries by
+        // their first line's strength but NEVER reorders continuation
+        // (child) lines. `sort_rules_by_strength` is non-recursive to match:
+        // it sorts only the top-level slice, leaving each rule's `children`
+        // in source order. This is load-bearing for `default`/`clear` firing
+        // and for multi-fragment descriptions (e.g. gzip's detail siblings).
+        //
+        // Build one top-level rule whose children are, in file order, a
+        // low-strength `default` FIRST and a high-strength byte comparison
+        // SECOND. A recursive sort would swap them (byte outranks default),
+        // wrongly letting the comparison sibling suppress the `default`.
+        let low_first = {
+            let mut r = make_rule(
+                TypeKind::Meta(crate::parser::ast::MetaType::Default),
+                Operator::AnyValue,
+                OffsetSpec::Absolute(0),
+                Value::Uint(0),
+            );
+            r.message = "default-child".to_string();
+            r.level = 1;
+            r
+        };
+        let high_second = {
+            let mut r = make_rule(
+                TypeKind::Long {
+                    endian: crate::parser::ast::Endianness::Big,
+                    signed: false,
+                },
+                Operator::Equal,
+                OffsetSpec::Absolute(0),
+                Value::Uint(0xDEAD_BEEF),
+            );
+            r.message = "strong-child".to_string();
+            r.level = 1;
+            r
+        };
+        let mut parent = make_rule(
+            TypeKind::Byte { signed: true },
+            Operator::Equal,
+            OffsetSpec::Absolute(0),
+            Value::Uint(0),
+        );
+        parent.message = "parent".to_string();
+        parent.children = vec![low_first, high_second];
+
+        let mut rules = vec![parent];
+        sort_rules_by_strength(&mut rules);
+
+        let child_order: Vec<&str> = rules[0]
+            .children
+            .iter()
+            .map(|c| c.message.as_str())
+            .collect();
+        assert_eq!(
+            child_order,
+            vec!["default-child", "strong-child"],
+            "child rules must stay in file order; the non-recursive sort must \
+             not reorder continuation rules by strength"
+        );
+    }
+
+    #[test]
     fn test_sort_rules_by_strength_with_modifier() {
         let mut rules = vec![
             {
@@ -1146,7 +1209,13 @@ mod tests {
     #[test]
     fn test_meta_use_and_indirect_sort_above_default() {
         use crate::parser::ast::MetaType;
-        let use_rule = meta_rule(MetaType::Use("sub".to_string()), "use");
+        let use_rule = meta_rule(
+            MetaType::Use {
+                name: "sub".to_string(),
+                flip_endian: false,
+            },
+            "use",
+        );
         let indirect_rule = meta_rule(MetaType::Indirect, "indirect");
         let default_rule = meta_rule(MetaType::Default, "default");
         let clear_rule = meta_rule(MetaType::Clear, "clear");

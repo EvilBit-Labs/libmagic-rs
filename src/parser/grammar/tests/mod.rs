@@ -1,6 +1,7 @@
 // Copyright (c) 2025-2026 the libmagic-rs contributors
 // SPDX-License-Identifier: Apache-2.0
 
+mod hex_bytes_truncation;
 mod indirect_offset;
 mod meta_types;
 
@@ -222,11 +223,15 @@ fn test_parse_offset_with_remaining_input() {
 
 #[test]
 fn test_parse_offset_edge_cases() {
-    // Zero with different formats
+    // Zero with different formats. `-0` / `-0x0` are the magic(5)
+    // "0 bytes from end of file" form (the EOF position, `buffer.len()`),
+    // NOT absolute offset 0 -- the leading `-` is significant even though
+    // `-0 == 0` numerically. They encode `FromEnd(0)`; unsigned `0` / `0x0`
+    // stay `Absolute(0)`. See gzip's `>>-0 offset >48` trailing-size gate.
     assert_eq!(parse_offset("0"), Ok(("", OffsetSpec::Absolute(0))));
-    assert_eq!(parse_offset("-0"), Ok(("", OffsetSpec::Absolute(0))));
+    assert_eq!(parse_offset("-0"), Ok(("", OffsetSpec::FromEnd(0))));
     assert_eq!(parse_offset("0x0"), Ok(("", OffsetSpec::Absolute(0))));
-    assert_eq!(parse_offset("-0x0"), Ok(("", OffsetSpec::Absolute(0))));
+    assert_eq!(parse_offset("-0x0"), Ok(("", OffsetSpec::FromEnd(0))));
 
     // Large offsets
     assert_eq!(
@@ -1893,6 +1898,137 @@ fn test_parse_magic_rule_string_value() {
     assert_eq!(rule.message, "ZIP archive");
 }
 
+/// A bareword value on a string-family type must parse as `Value::String`,
+/// not `Value::Uint`/`Value::Float` -- for BOTH equality and ordering
+/// operators, since `parse_string_family_value` never inspects the
+/// operator. Previously `parse_value`'s numeric branches captured
+/// `0`/`0.6.1`/`20011231` as numbers, so the subsequent `String`-vs-number
+/// comparison never matched and real `>0`/`000` idioms (`\b, name %s`,
+/// `face %s`, version compares) silently failed.
+///
+/// The `search` case deliberately uses an EQUALITY operator: `search` is a
+/// pattern-bearing type, and a non-equality operator on it is an intentional
+/// `UnsupportedType` fatal gap (GOTCHAS S2.4), so `search >100` -- while it
+/// now correctly PARSES to `Value::String("100")` -- is not a construct that
+/// evaluates. No real magic rule uses `search`/`regex` with an ordering
+/// operator on a numeric bareword; the only real hit (`search/1 >\0`) is a
+/// `\0`->`Value::Bytes` value on the unchanged hex branch.
+#[test]
+fn test_string_family_bareword_numeric_value_parses_as_string() {
+    // (input, expected value, expected op)
+    let cases: &[(&str, Value, Operator)] = &[
+        // Bare equality (no operator token) -- also changed from Uint(0).
+        (
+            "0 string 000 face %s",
+            Value::String("000".to_string()),
+            Operator::Equal,
+        ),
+        (
+            "0 string >0 \\b, name %s",
+            Value::String("0".to_string()),
+            Operator::GreaterThan,
+        ),
+        (
+            "0 string >0.6.1 version %s",
+            Value::String("0.6.1".to_string()),
+            Operator::GreaterThan,
+        ),
+        (
+            "0 string >20011231 date %s",
+            Value::String("20011231".to_string()),
+            Operator::GreaterThan,
+        ),
+        (
+            "0 string <9 low %s",
+            Value::String("9".to_string()),
+            Operator::LessThan,
+        ),
+        // search-family bareword numeric value is likewise a string.
+        // Equality op (not ordering): search is pattern-bearing, see S2.4.
+        (
+            "0 search/16 100 hit %s",
+            Value::String("100".to_string()),
+            Operator::Equal,
+        ),
+    ];
+
+    for (input, expected_value, expected_op) in cases {
+        let (_, rule) =
+            parse_magic_rule(input).unwrap_or_else(|e| panic!("parse failed for {input:?}: {e:?}"));
+        assert_eq!(
+            rule.value, *expected_value,
+            "value mismatch for {input:?}: got {:?}",
+            rule.value
+        );
+        assert_eq!(rule.op, *expected_op, "operator mismatch for {input:?}");
+    }
+}
+
+/// The fix must not change the two branches that were already correct for
+/// string-family values: quoted strings stay `Value::String`, and
+/// hex/escape byte sequences stay `Value::Bytes` (e.g. gzip's `\037\213`).
+/// Hex-*letter* barewords also stay `Value::Bytes` per GOTCHAS S3.12 --
+/// only the numeric subset changes.
+#[test]
+fn test_string_family_value_preserves_quoted_and_hex_bytes() {
+    // Quoted numeric string stays a String, not a number.
+    let (_, rule) = parse_magic_rule("0 string \"0\" literal").unwrap();
+    assert_eq!(rule.value, Value::String("0".to_string()));
+
+    // Octal-escape byte sequence stays Bytes (gzip magic).
+    let (_, rule) = parse_magic_rule("0 string \\037\\213 gzip").unwrap();
+    assert_eq!(rule.value, Value::Bytes(vec![0x1f, 0x8b]));
+
+    // Mixed hex/ascii escape stays Bytes (ELF magic).
+    let (_, rule) = parse_magic_rule("0 string \\177ELF elf").unwrap();
+    assert_eq!(rule.value, Value::Bytes(vec![0x7f, b'E', b'L', b'F']));
+
+    // Hex-letter bareword stays Bytes (boundary, unchanged -- GOTCHAS S3.12).
+    let (_, rule) = parse_magic_rule("0 string >AB thing").unwrap();
+    assert_eq!(rule.value, Value::Bytes(vec![0xAB]));
+}
+
+#[test]
+fn parse_bare_string_value_high_byte_returns_bytes_not_lossy_string() {
+    // GOTCHAS S6.7: a bareword string value whose resolved bytes contain a
+    // high byte (>= 0x80) that is not valid UTF-8 must be captured as
+    // `Value::Bytes` holding the RAW bytes, never lossy-decoded into a
+    // `Value::String` (which turns the byte into U+FFFD -- 3 bytes -- and
+    // both inflates the pattern length and changes the byte, so the rule
+    // silently never matches). This is the parse-side mirror of
+    // `read_string_exact` (S6.4). The signature begins with literal ASCII
+    // (`HSP`), so it bypasses `parse_mixed_hex_ascii` (which requires a
+    // leading `\`) and lands in `parse_bare_string_value`.
+    //
+    // Table: (input, expected value). Covers both high-byte escape forms
+    // (hex `\x9b`, octal `\376`) plus the all-ASCII control that must stay
+    // a `Value::String`.
+    let cases: &[(&str, Value)] = &[
+        // OS/2 INF top-level signature: HSP\x01\x9b\x00 -> raw bytes.
+        (
+            "0 string HSP\\x01\\x9b\\x00 OS/2 INF",
+            Value::Bytes(vec![0x48, 0x53, 0x50, 0x01, 0x9b, 0x00]),
+        ),
+        // Octal high byte embedded after leading ASCII: AB\376 -> raw bytes.
+        (
+            "0 string AB\\376 thing",
+            Value::Bytes(vec![0x41, 0x42, 0xFE]),
+        ),
+        // All-ASCII bareword (no high byte) stays a String -- %s renders.
+        ("0 string HSP header", Value::String("HSP".to_string())),
+    ];
+
+    for (input, expected) in cases {
+        let (_, rule) =
+            parse_magic_rule(input).unwrap_or_else(|e| panic!("parse failed for {input:?}: {e:?}"));
+        assert_eq!(
+            rule.value, *expected,
+            "value mismatch for {input:?}: got {:?}, expected {expected:?}",
+            rule.value
+        );
+    }
+}
+
 #[test]
 fn test_parse_magic_rule_hex_offset() {
     let input = "0x10 belong 0x12345678 Test data";
@@ -2503,7 +2639,7 @@ fn test_parse_type_and_operator_regex_and_search_suffixes() {
     }
     fn sr(n: usize) -> TypeKind {
         TypeKind::Search {
-            range: NonZeroUsize::new(n).unwrap(),
+            range: NonZeroUsize::new(n),
             flags: SearchFlags::default(),
         }
     }
@@ -2540,6 +2676,16 @@ fn test_parse_type_and_operator_regex_and_search_suffixes() {
         ("search/256", sr(256), ""),
         ("search/1", sr(1), ""),
         ("search/256 =", sr(256), "="),
+        // Bare `search` (no `/N`) parses with an open (`None`) range =
+        // scan-to-EOF, matching GNU `file`'s implementation.
+        (
+            "search",
+            TypeKind::Search {
+                range: None,
+                flags: SearchFlags::default(),
+            },
+            "",
+        ),
     ];
     for &(input, ref expected_kind, expected_rest) in cases {
         let (rest, (kind, op, _)) = parse_type_and_operator(input).expect(input);
@@ -2550,11 +2696,22 @@ fn test_parse_type_and_operator_regex_and_search_suffixes() {
 }
 
 #[test]
-fn test_parse_type_and_operator_search_requires_range() {
-    // Bare `search` (no /N suffix) is a hard parse error per GNU `file`.
-    assert!(parse_type_and_operator("search").is_err());
-    // `search/0` is also rejected -- `NonZeroUsize` makes a zero-width
-    // scan unrepresentable.
+fn test_parse_type_and_operator_bare_search_accepted_zero_rejected() {
+    use crate::parser::ast::TypeKind;
+    // Bare `search` (no /N suffix) is ACCEPTED and parses to an open
+    // (`None`) range = scan-to-EOF. magic(5) documents the count as
+    // required, but the reference `file` binary accepts the bare form
+    // (`str_range == 0`); rmagic follows the implementation. Real system
+    // magic uses this (e.g. pdf `>8 search /Count`, `0 search
+    // ##fileformat=VCFv`).
+    let (_, (kind, _, _)) =
+        parse_type_and_operator("search").expect("bare search must parse (scan-to-EOF)");
+    assert!(
+        matches!(kind, TypeKind::Search { range: None, .. }),
+        "bare search must yield range None, got {kind:?}"
+    );
+    // `search/0` is still rejected -- an explicit zero-width scan is
+    // unrepresentable (`NonZeroUsize`).
     assert!(parse_type_and_operator("search/0").is_err());
 }
 
@@ -2666,7 +2823,7 @@ fn test_parse_magic_rule_regex_and_search() {
     assert_eq!(
         rule.typ,
         TypeKind::Search {
-            range: NonZeroUsize::new(256).unwrap(),
+            range: NonZeroUsize::new(256),
             flags: SearchFlags::default(),
         }
     );

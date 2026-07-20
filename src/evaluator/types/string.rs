@@ -62,17 +62,23 @@ const STRING16_MAX_UNITS: usize = 8192;
 ///
 /// # Errors
 ///
-/// Returns `TypeReadError::BufferOverrun` if the offset is greater than or equal to the buffer
-/// length.
-// Slicing is invariant-safe: `offset < buffer.len()` is checked at entry;
-// `search_len` and `read_length` are clamped by `min`/`memchr` results.
+/// Returns `TypeReadError::BufferOverrun` only when the offset is strictly
+/// greater than the buffer length. `offset == buffer.len()` is the EOF
+/// position and yields an empty string (0 readable bytes), matching
+/// libmagic's `string` behavior: a `string x` child whose offset lands
+/// exactly at EOF renders an empty `%s` rather than being dropped (e.g.
+/// LUKS's `>8 string x [%s,` on an 8-byte-truncated header prints `[,`).
+/// See GOTCHAS S15.1.
+// Slicing is invariant-safe: `offset <= buffer.len()` is checked at entry, so
+// `&buffer[offset..]` is at worst an empty slice; `search_len` and
+// `read_length` are clamped by `min`/`memchr` results.
 #[allow(clippy::indexing_slicing)]
 pub fn read_string(
     buffer: &[u8],
     offset: usize,
     max_length: Option<usize>,
 ) -> Result<Value, TypeReadError> {
-    if offset >= buffer.len() {
+    if offset > buffer.len() {
         return Err(TypeReadError::BufferOverrun {
             offset,
             buffer_len: buffer.len(),
@@ -125,7 +131,21 @@ pub fn read_string_exact(
             offset,
             buffer_len: buffer.len(),
         })?;
-    Ok(Value::String(bytes_to_string_fast(slice)))
+    // This path exists for BYTE-EXACT `string PATTERN` comparison (GOTCHAS
+    // S6.4), so it must not corrupt the read with lossy UTF-8 replacement.
+    // When the slice is valid UTF-8, return `Value::String` (so `%s` output on
+    // the matched value renders normally). When it is NOT -- e.g. a rule with a
+    // high-byte value like gzip's `0 string \037\213` (bytes 0x1f 0x8b, where
+    // 0x8b is invalid UTF-8) -- return the RAW bytes as `Value::Bytes` instead.
+    // A lossy `String` decode would turn 0x8b into U+FFFD (3 bytes 0xEF BF BD),
+    // which never equals the raw-byte pattern, so the rule would silently never
+    // match. `apply_equal` / `compare_values` compare `Bytes` and `String` by
+    // underlying byte sequence (GOTCHAS S2.3), so either variant compares
+    // correctly against a `String` or `Bytes` pattern operand.
+    match std::str::from_utf8(slice) {
+        Ok(valid) => Ok(Value::String(valid.to_string())),
+        Err(_) => Ok(Value::Bytes(slice.to_vec())),
+    }
 }
 
 /// Compare a magic-rule `pattern` against `buffer[offset..]` using libmagic
@@ -696,21 +716,19 @@ mod tests {
     }
 
     #[test]
-    fn test_read_string_empty_buffer() {
+    fn test_read_string_empty_buffer_at_eof_is_empty_string() {
+        // offset == buffer.len() (0 == 0) is the EOF position: 0 readable
+        // bytes -> empty string, NOT an error. This is what lets a
+        // `string x` child whose offset lands exactly at EOF render an
+        // empty `%s` (GNU `file` parity; GOTCHAS S15.1).
         let buffer = b"";
-        let result = read_string(buffer, 0, None);
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            TypeReadError::BufferOverrun {
-                offset: 0,
-                buffer_len: 0
-            }
-        );
+        let result = read_string(buffer, 0, None).unwrap();
+        assert_eq!(result, Value::String(String::new()));
     }
 
     #[test]
     fn test_read_string_offset_out_of_bounds() {
+        // Strictly past EOF (offset > buffer.len()) is still an overrun.
         let buffer = b"Hello";
         let result = read_string(buffer, 10, None);
         assert!(result.is_err());
@@ -724,14 +742,22 @@ mod tests {
     }
 
     #[test]
-    fn test_read_string_offset_at_buffer_end() {
-        let buffer = b"Hello";
-        let result = read_string(buffer, 5, None);
-        assert!(result.is_err());
+    fn test_read_string_offset_at_buffer_end_is_empty_string() {
+        // offset == buffer.len() yields an empty string (0 readable bytes),
+        // matching libmagic's `string` behavior at EOF. See GOTCHAS S15.1.
+        let buffer = b"Hello"; // len 5
+        let result = read_string(buffer, 5, None).unwrap();
+        assert_eq!(result, Value::String(String::new()));
+        // With a max_length cap it is still empty.
+        let capped = read_string(buffer, 5, Some(8)).unwrap();
+        assert_eq!(capped, Value::String(String::new()));
+        // One byte strictly past EOF is a genuine overrun.
+        let overrun = read_string(buffer, 6, None);
+        assert!(overrun.is_err());
         assert_eq!(
-            result.unwrap_err(),
+            overrun.unwrap_err(),
             TypeReadError::BufferOverrun {
-                offset: 5,
+                offset: 6,
                 buffer_len: 5
             }
         );
@@ -861,7 +887,12 @@ mod tests {
     #[test]
     fn test_read_string_edge_case_combinations() {
         let test_cases = [
-            (b"" as &[u8], 0, None, true),
+            // offset == buffer.len() is the EOF position -> empty string,
+            // no longer an error (GOTCHAS S15.1).
+            (b"" as &[u8], 0, None, false),
+            // offset strictly past EOF is still an error.
+            (b"", 1, None, true),
+            (b"A", 2, None, true),
             (b"\x00", 0, None, false),
             (b"A", 0, Some(0), false),
             (b"AB", 1, Some(1), false),
