@@ -650,18 +650,34 @@ mod tests {
     fn test_serialize_search_codegen_has_no_expect_panic_marker() {
         use std::num::NonZeroUsize;
 
+        // Bounded `search/512`: `range` is `Option<NonZeroUsize>`, so
+        // `NonZeroUsize::new(512)` already yields `Some(_)` -- no panicking
+        // conversion and no `.unwrap_or` fallback is needed (the old
+        // `NonZeroUsize`-typed field required `.unwrap_or(MIN)`; the Option
+        // field does not).
         let typ = TypeKind::Search {
-            range: NonZeroUsize::new(512).unwrap(),
+            range: NonZeroUsize::new(512),
             flags: SearchFlags::default(),
         };
         let generated = serialize_type_kind(&typ);
         assert!(
-            !generated.contains(".expect("),
-            "serialize_type_kind must not emit .expect() (AGENTS.md panic-marker ban); got:\n{generated}"
+            !generated.contains(".expect(") && !generated.contains(".unwrap()"),
+            "serialize_type_kind must not emit a panic marker (AGENTS.md ban); got:\n{generated}"
         );
         assert!(
-            generated.contains(".unwrap_or(::std::num::NonZeroUsize::MIN)"),
-            "serialize_type_kind must emit .unwrap_or(NonZeroUsize::MIN); got:\n{generated}"
+            generated.contains("range: ::std::num::NonZeroUsize::new(512)"),
+            "bounded search must serialize range as NonZeroUsize::new(N) (an Option); got:\n{generated}"
+        );
+
+        // Bare `search` (`range: None`) must serialize as a literal `None`.
+        let bare = TypeKind::Search {
+            range: None,
+            flags: SearchFlags::default(),
+        };
+        let bare_gen = serialize_type_kind(&bare);
+        assert!(
+            bare_gen.contains("range: None"),
+            "bare search must serialize range as None (scan-to-EOF); got:\n{bare_gen}"
         );
     }
 
@@ -675,7 +691,7 @@ mod tests {
         use std::num::NonZeroUsize;
 
         let typ = TypeKind::Search {
-            range: NonZeroUsize::new(256).expect("256 is nonzero"),
+            range: NonZeroUsize::new(256),
             flags: SearchFlags::default(),
         };
         let generated = serialize_type_kind(&typ);
@@ -720,7 +736,7 @@ mod tests {
         use std::num::NonZeroUsize;
 
         let typ = TypeKind::Search {
-            range: NonZeroUsize::new(1024).expect("1024 is nonzero"),
+            range: NonZeroUsize::new(1024),
             flags: SearchFlags::default()
                 .with_start_anchor(true)
                 .with_ignore_lowercase(true),
@@ -788,7 +804,7 @@ mod tests {
 
         for flags in cases {
             let typ = TypeKind::Search {
-                range: NonZeroUsize::new(64).expect("64 is nonzero"),
+                range: NonZeroUsize::new(64),
                 flags,
             };
             let generated = serialize_type_kind(&typ);
@@ -800,11 +816,13 @@ mod tests {
                 );
             }
 
-            // The `unwrap_or` safe-fallback variant is allowed (it is not
-            // a panic marker) and is required by the NonZeroUsize idiom.
+            // `range` is now `Option<NonZeroUsize>`, so `NonZeroUsize::new(64)`
+            // already yields `Some(_)` -- no `.unwrap_or(MIN)` fallback is
+            // needed (or emitted) any more. The panic-marker checks above are
+            // the real safety property.
             assert!(
-                generated.contains(".unwrap_or(::std::num::NonZeroUsize::MIN)"),
-                "missing safe-fallback `unwrap_or`; got:\n{generated}"
+                generated.contains("range: ::std::num::NonZeroUsize::new(64)"),
+                "bounded search must serialize range as an Option-yielding NonZeroUsize::new(N); got:\n{generated}"
             );
         }
     }

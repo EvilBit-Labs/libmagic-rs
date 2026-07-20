@@ -2639,7 +2639,7 @@ fn test_parse_type_and_operator_regex_and_search_suffixes() {
     }
     fn sr(n: usize) -> TypeKind {
         TypeKind::Search {
-            range: NonZeroUsize::new(n).unwrap(),
+            range: NonZeroUsize::new(n),
             flags: SearchFlags::default(),
         }
     }
@@ -2676,6 +2676,16 @@ fn test_parse_type_and_operator_regex_and_search_suffixes() {
         ("search/256", sr(256), ""),
         ("search/1", sr(1), ""),
         ("search/256 =", sr(256), "="),
+        // Bare `search` (no `/N`) parses with an open (`None`) range =
+        // scan-to-EOF, matching GNU `file`'s implementation.
+        (
+            "search",
+            TypeKind::Search {
+                range: None,
+                flags: SearchFlags::default(),
+            },
+            "",
+        ),
     ];
     for &(input, ref expected_kind, expected_rest) in cases {
         let (rest, (kind, op, _)) = parse_type_and_operator(input).expect(input);
@@ -2686,11 +2696,22 @@ fn test_parse_type_and_operator_regex_and_search_suffixes() {
 }
 
 #[test]
-fn test_parse_type_and_operator_search_requires_range() {
-    // Bare `search` (no /N suffix) is a hard parse error per GNU `file`.
-    assert!(parse_type_and_operator("search").is_err());
-    // `search/0` is also rejected -- `NonZeroUsize` makes a zero-width
-    // scan unrepresentable.
+fn test_parse_type_and_operator_bare_search_accepted_zero_rejected() {
+    use crate::parser::ast::TypeKind;
+    // Bare `search` (no /N suffix) is ACCEPTED and parses to an open
+    // (`None`) range = scan-to-EOF. magic(5) documents the count as
+    // required, but the reference `file` binary accepts the bare form
+    // (`str_range == 0`); rmagic follows the implementation. Real system
+    // magic uses this (e.g. pdf `>8 search /Count`, `0 search
+    // ##fileformat=VCFv`).
+    let (_, (kind, _, _)) =
+        parse_type_and_operator("search").expect("bare search must parse (scan-to-EOF)");
+    assert!(
+        matches!(kind, TypeKind::Search { range: None, .. }),
+        "bare search must yield range None, got {kind:?}"
+    );
+    // `search/0` is still rejected -- an explicit zero-width scan is
+    // unrepresentable (`NonZeroUsize`).
     assert!(parse_type_and_operator("search/0").is_err());
 }
 
@@ -2802,7 +2823,7 @@ fn test_parse_magic_rule_regex_and_search() {
     assert_eq!(
         rule.typ,
         TypeKind::Search {
-            range: NonZeroUsize::new(256).unwrap(),
+            range: NonZeroUsize::new(256),
             flags: SearchFlags::default(),
         }
     );

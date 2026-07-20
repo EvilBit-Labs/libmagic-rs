@@ -287,8 +287,15 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
             )
         }
         TypeKind::Search { range, flags } => format!(
-            "TypeKind::Search {{ range: ::std::num::NonZeroUsize::new({}).unwrap_or(::std::num::NonZeroUsize::MIN), flags: crate::parser::ast::SearchFlags {{ compact_whitespace: {}, compact_optional_whitespace: {}, ignore_lowercase: {}, ignore_uppercase: {}, text_test: {}, trim: {}, bin_test: {}, full_word: {}, start_anchor: {} }} }}",
-            range.get(),
+            // `range` is `Option<NonZeroUsize>`. `NonZeroUsize::new(n)` already
+            // returns `Some(_)` for n > 0, so a `Some(range)` serializes as a
+            // `Some(..)` expression; a bare `search` (`None`) serializes as
+            // `None` (scan-to-EOF).
+            "TypeKind::Search {{ range: {}, flags: crate::parser::ast::SearchFlags {{ compact_whitespace: {}, compact_optional_whitespace: {}, ignore_lowercase: {}, ignore_uppercase: {}, text_test: {}, trim: {}, bin_test: {}, full_word: {}, start_anchor: {} }} }}",
+            match range {
+                Some(r) => format!("::std::num::NonZeroUsize::new({})", r.get()),
+                None => "None".to_string(),
+            },
             flags.compact_whitespace,
             flags.compact_optional_whitespace,
             flags.ignore_lowercase,

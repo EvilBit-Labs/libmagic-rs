@@ -161,8 +161,11 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
                 },
             )
         },
-        (1usize..=4096usize, arb_search_flags()).prop_map(|(range, flags)| TypeKind::Search {
-            range: ::std::num::NonZeroUsize::new(range).unwrap(),
+        // `0` generates the bare-`search` open window (`range: None`,
+        // scan-to-EOF); `1..=4096` generates a bounded `search/N`. Both must
+        // round-trip through codegen and never panic in evaluation.
+        (0usize..=4096usize, arb_search_flags()).prop_map(|(range, flags)| TypeKind::Search {
+            range: ::std::num::NonZeroUsize::new(range),
             flags,
         }),
         Just(TypeKind::Meta(MetaType::Default)),

@@ -2821,7 +2821,7 @@ fn test_search_rule_not_equal_succeeds_when_pattern_absent() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Search {
-            range: ::std::num::NonZeroUsize::new(64).unwrap(),
+            range: ::std::num::NonZeroUsize::new(64),
             flags: SearchFlags::default(),
         },
         op: Operator::NotEqual,
@@ -2873,7 +2873,7 @@ fn test_search_rule_with_bitwise_operator_is_rejected() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Search {
-            range: ::std::num::NonZeroUsize::new(32).unwrap(),
+            range: ::std::num::NonZeroUsize::new(32),
             flags: SearchFlags::default(),
         },
         op: Operator::BitwiseAnd,
@@ -3190,7 +3190,7 @@ fn broken_pattern_search_rule(message: &str, level: u32) -> MagicRule {
     MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Search {
-            range: ::std::num::NonZeroUsize::new(16).unwrap(),
+            range: ::std::num::NonZeroUsize::new(16),
             flags: SearchFlags::default(),
         },
         op: Operator::Equal,
@@ -3580,7 +3580,7 @@ fn test_search_parent_advances_anchor_to_match_end_not_window_end() {
     let parent = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Search {
-            range: ::std::num::NonZeroUsize::new(14).unwrap(),
+            range: ::std::num::NonZeroUsize::new(14),
             flags: SearchFlags::default(),
         },
         op: Operator::Equal,
@@ -3620,7 +3620,7 @@ fn test_search_parent_relative_child_at_positive_offset() {
     let parent = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Search {
-            range: ::std::num::NonZeroUsize::new(32).unwrap(),
+            range: ::std::num::NonZeroUsize::new(32),
             flags: SearchFlags::default(),
         },
         op: Operator::Equal,

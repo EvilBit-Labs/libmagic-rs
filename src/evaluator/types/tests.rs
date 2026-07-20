@@ -1314,7 +1314,7 @@ fn test_bytes_consumed_search_with_pattern_is_match_end() {
     // FILE_SEARCH, the anchor advances to `base + match_idx + pattern.len()`.
     let buf = b"abcWorld_xyz";
     let typ = TypeKind::Search {
-        range: ::std::num::NonZeroUsize::new(10).unwrap(),
+        range: ::std::num::NonZeroUsize::new(10),
         flags: SearchFlags::default(),
     };
     let pattern = Value::String("World".to_string());
@@ -1330,7 +1330,7 @@ fn test_bytes_consumed_search_with_pattern_is_match_end() {
 fn test_bytes_consumed_search_no_match_returns_zero() {
     let buf = b"abcdefghij";
     let typ = TypeKind::Search {
-        range: ::std::num::NonZeroUsize::new(10).unwrap(),
+        range: ::std::num::NonZeroUsize::new(10),
         flags: SearchFlags::default(),
     };
     let pattern = Value::String("XYZ".to_string());
@@ -1344,7 +1344,7 @@ fn test_bytes_consumed_search_bytes_pattern_works() {
     // Value::String pattern would.
     let buf = &[0x00, 0xff, 0xde, 0xad, 0xbe, 0xef, 0x11];
     let typ = TypeKind::Search {
-        range: ::std::num::NonZeroUsize::new(7).unwrap(),
+        range: ::std::num::NonZeroUsize::new(7),
         flags: SearchFlags::default(),
     };
     let pattern = Value::Bytes(vec![0xde, 0xad, 0xbe, 0xef]);

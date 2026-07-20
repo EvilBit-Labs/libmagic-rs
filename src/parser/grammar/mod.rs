@@ -697,17 +697,24 @@ pub fn parse_type_and_operator(
         input = rest;
     }
 
-    // Handle search suffix: required decimal range plus optional flags
-    // (e.g., `search/256`, `search/256/s`, `search/256/cs`). Per GNU
-    // `file` magic(5), the range is mandatory. `search/0` and bare
-    // `search` are rejected at parse time via `NonZeroUsize`.
-    let mut search_suffix: Option<(::std::num::NonZeroUsize, crate::parser::ast::SearchFlags)> =
-        None;
+    // Handle search suffix. `search/N[/flags]` supplies an explicit scan
+    // window (e.g., `search/256`, `search/256/s`, `search/256/cs`); the
+    // count `N` is a `NonZeroUsize`, so `search/0` is rejected. A bare
+    // `search` (no `/` suffix, e.g. `>8 search /Count`) is ALSO accepted:
+    // its `range` stays `None`, meaning scan-to-end-of-buffer. magic(5)
+    // documents the count as required, but the reference `file` binary
+    // accepts the bare form (`str_range == 0`), so we follow the
+    // implementation rather than the spec. Disambiguation is unambiguous:
+    // a ranged suffix attaches `/` directly to the keyword, while a bare
+    // search is followed by whitespace then the value.
+    let mut search_range: Option<::std::num::NonZeroUsize> = None;
+    let mut search_flags = crate::parser::ast::SearchFlags::default();
     if type_name == "search"
         && let Some(suffix_rest) = input.strip_prefix('/')
     {
-        let (rest, parsed) = parse_search_suffix(input, suffix_rest)?;
-        search_suffix = Some(parsed);
+        let (rest, (range, flags)) = parse_search_suffix(input, suffix_rest)?;
+        search_range = Some(range);
+        search_flags = flags;
         input = rest;
     }
 
@@ -782,13 +789,12 @@ pub fn parse_type_and_operator(
             flags: regex_flags,
             count: regex_count,
         },
-        "search" => {
-            // Mandatory range: reject bare `search` at parse time.
-            let (range, flags) = search_suffix.ok_or_else(|| {
-                nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Tag))
-            })?;
-            TypeKind::Search { range, flags }
-        }
+        "search" => TypeKind::Search {
+            // `None` range = bare `search` = scan-to-EOF (see the suffix
+            // handling above); `Some(n)` = `search/N`.
+            range: search_range,
+            flags: search_flags,
+        },
         _ => {
             // `type_keyword_to_kind` returns:
             //  * `Ok(Some(kind))` for every fully-specified keyword
