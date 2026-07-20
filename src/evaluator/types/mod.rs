@@ -32,7 +32,7 @@ pub(crate) use string::{read_pstring, read_string, read_string_exact, read_strin
 /// This mirrors libmagic's `cvt_flip` in `src/softmagic.c` exactly: only the
 /// explicit little/big-endian numeric, float, and date families are swapped
 /// (`short`/`long`/`quad`/`float`/`double` and the `date`/`ldate`/`qdate`/
-/// `qldate` families). [`Endianness::Native`] is left untouched (libmagic has
+/// `qldate` families). `Endianness::Native` is left untouched (libmagic has
 /// no `FILE_SHORT`/`FILE_LONG` case in `cvt_flip`), `String16` is deliberately
 /// NOT flipped (also absent from `cvt_flip`), and every non-endian type is
 /// returned unchanged. The `signed`/`utc` attributes are preserved.
