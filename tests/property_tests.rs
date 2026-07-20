@@ -173,7 +173,12 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
         Just(TypeKind::Meta(MetaType::Indirect)),
         Just(TypeKind::Meta(MetaType::Offset)),
         "[a-zA-Z_][a-zA-Z0-9_-]{0,16}".prop_map(|id| TypeKind::Meta(MetaType::Name(id))),
-        "[a-zA-Z_][a-zA-Z0-9_-]{0,16}".prop_map(|id| TypeKind::Meta(MetaType::Use(id))),
+        ("[a-zA-Z_][a-zA-Z0-9_-]{0,16}", any::<bool>()).prop_map(|(id, flip_endian)| {
+            TypeKind::Meta(MetaType::Use {
+                name: id,
+                flip_endian,
+            })
+        }),
     ]
 }
 
@@ -237,7 +242,12 @@ fn arb_meta_rule() -> impl Strategy<Value = MagicRule> {
         Just(TypeKind::Meta(MetaType::Indirect)),
         Just(TypeKind::Meta(MetaType::Offset)),
         "[a-zA-Z_][a-zA-Z0-9_-]{0,16}".prop_map(|id| TypeKind::Meta(MetaType::Name(id))),
-        "[a-zA-Z_][a-zA-Z0-9_-]{0,16}".prop_map(|id| TypeKind::Meta(MetaType::Use(id))),
+        ("[a-zA-Z_][a-zA-Z0-9_-]{0,16}", any::<bool>()).prop_map(|(id, flip_endian)| {
+            TypeKind::Meta(MetaType::Use {
+                name: id,
+                flip_endian,
+            })
+        }),
     ];
     (
         arb_offset_spec(),

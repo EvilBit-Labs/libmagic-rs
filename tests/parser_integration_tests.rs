@@ -196,7 +196,7 @@ fn test_name_use_round_trip() {
     assert!(
         matches!(
             parsed.rules[0].typ,
-            TypeKind::Meta(MetaType::Use(ref n)) if n == "part2"
+            TypeKind::Meta(MetaType::Use { name: ref n, .. }) if n == "part2"
         ),
         "remaining top-level rule must be the use invocation"
     );

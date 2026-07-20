@@ -45,14 +45,20 @@ fn test_parse_magic_rule_meta_types() {
         (
             "0 use part2",
             0,
-            TypeKind::Meta(MetaType::Use("part2".to_string())),
+            TypeKind::Meta(MetaType::Use {
+                name: "part2".to_string(),
+                flip_endian: false,
+            }),
             "",
         ),
         ("0 indirect", 0, TypeKind::Meta(MetaType::Indirect), ""),
         (
             ">0 use part2",
             1,
-            TypeKind::Meta(MetaType::Use("part2".to_string())),
+            TypeKind::Meta(MetaType::Use {
+                name: "part2".to_string(),
+                flip_endian: false,
+            }),
             "",
         ),
     ];
@@ -131,7 +137,7 @@ fn test_parse_magic_rule_meta_name_use_reject_malformed_identifiers() {
         let (_, rule) = parse_magic_rule(input)
             .unwrap_or_else(|e| panic!("trailing text after id should parse {input:?}: {e:?}"));
         match &rule.typ {
-            TypeKind::Meta(MetaType::Name(id) | MetaType::Use(id)) => {
+            TypeKind::Meta(MetaType::Name(id) | MetaType::Use { name: id, .. }) => {
                 assert_eq!(
                     id, expected_id,
                     "identifier should stop at first whitespace for {input:?}"
@@ -152,7 +158,40 @@ fn test_parse_magic_rule_meta_name_use_reject_malformed_identifiers() {
         TypeKind::Meta(MetaType::Name("part2".to_string()))
     );
     let (_, rule) = parse_magic_rule("0 use part2\t").expect("trailing tab is ok");
-    assert_eq!(rule.typ, TypeKind::Meta(MetaType::Use("part2".to_string())));
+    assert_eq!(
+        rule.typ,
+        TypeKind::Meta(MetaType::Use {
+            name: "part2".to_string(),
+            flip_endian: false
+        })
+    );
+}
+
+#[test]
+fn test_parse_use_caret_prefix_sets_flip_endian() {
+    // magic(5) `use \^name` (the `\^` endian-flip prefix, issue #236) parses
+    // to `MetaType::Use { flip_endian: true }`; the `\^` is consumed and the
+    // bare identifier is preserved. A plain `use name` stays `flip_endian:
+    // false`. This is the real `images` TIFF `>(4.L) use \^tiff_ifd` shape.
+    let (_, flipped) = parse_magic_rule(">0 use \\^tiff_ifd").expect("flip use parses");
+    assert_eq!(
+        flipped.typ,
+        TypeKind::Meta(MetaType::Use {
+            name: "tiff_ifd".to_string(),
+            flip_endian: true,
+        }),
+        "`use \\^name` must set flip_endian and strip the \\^ prefix"
+    );
+
+    let (_, plain) = parse_magic_rule(">0 use tiff_ifd").expect("plain use parses");
+    assert_eq!(
+        plain.typ,
+        TypeKind::Meta(MetaType::Use {
+            name: "tiff_ifd".to_string(),
+            flip_endian: false,
+        }),
+        "a plain `use name` must leave flip_endian false"
+    );
 }
 
 #[test]
@@ -218,7 +257,10 @@ fn test_parse_text_magic_file_meta_roundtrip() {
 
     assert_eq!(
         rules[0].typ,
-        TypeKind::Meta(MetaType::Use("subroutine".to_string()))
+        TypeKind::Meta(MetaType::Use {
+            name: "subroutine".to_string(),
+            flip_endian: false,
+        })
     );
     assert_eq!(rules[1].typ, TypeKind::Meta(MetaType::Default));
     assert_eq!(rules[2].typ, TypeKind::Meta(MetaType::Clear));

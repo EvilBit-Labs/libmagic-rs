@@ -26,6 +26,66 @@ pub(crate) use search::read_search;
 use string::string16_bytes_consumed;
 pub(crate) use string::{read_pstring, read_string, read_string_exact, read_string16};
 
+/// Swap the declared endianness of an endian-bearing [`TypeKind`] for the
+/// magic(5) `use \^name` endian flip (issue #236).
+///
+/// This mirrors libmagic's `cvt_flip` in `src/softmagic.c` exactly: only the
+/// explicit little/big-endian numeric, float, and date families are swapped
+/// (`short`/`long`/`quad`/`float`/`double` and the `date`/`ldate`/`qdate`/
+/// `qldate` families). [`Endianness::Native`] is left untouched (libmagic has
+/// no `FILE_SHORT`/`FILE_LONG` case in `cvt_flip`), `String16` is deliberately
+/// NOT flipped (also absent from `cvt_flip`), and every non-endian type is
+/// returned unchanged. The `signed`/`utc` attributes are preserved.
+///
+/// The evaluator calls this at read time only when the `\^` flip is active for
+/// the current subroutine body, so the common (unflipped) path never allocates
+/// a flipped clone.
+pub(crate) fn flip_type_endian(typ: &TypeKind) -> TypeKind {
+    use crate::parser::ast::Endianness;
+
+    /// Swap Little<->Big; leave Native alone (matches `cvt_flip`, which only
+    /// has explicit BE/LE cases).
+    const fn swap(e: Endianness) -> Endianness {
+        match e {
+            Endianness::Little => Endianness::Big,
+            Endianness::Big => Endianness::Little,
+            Endianness::Native => Endianness::Native,
+        }
+    }
+
+    match *typ {
+        TypeKind::Short { endian, signed } => TypeKind::Short {
+            endian: swap(endian),
+            signed,
+        },
+        TypeKind::Long { endian, signed } => TypeKind::Long {
+            endian: swap(endian),
+            signed,
+        },
+        TypeKind::Quad { endian, signed } => TypeKind::Quad {
+            endian: swap(endian),
+            signed,
+        },
+        TypeKind::Float { endian } => TypeKind::Float {
+            endian: swap(endian),
+        },
+        TypeKind::Double { endian } => TypeKind::Double {
+            endian: swap(endian),
+        },
+        TypeKind::Date { endian, utc } => TypeKind::Date {
+            endian: swap(endian),
+            utc,
+        },
+        TypeKind::QDate { endian, utc } => TypeKind::QDate {
+            endian: swap(endian),
+            utc,
+        },
+        // Byte, String, String16, PString, Regex, Search, Meta: unchanged.
+        // (`String16` is intentionally absent from libmagic's `cvt_flip`.)
+        ref other => other.clone(),
+    }
+}
+
 /// Reads a fixed-size byte array from the buffer at the given offset.
 ///
 /// This is a shared helper for numeric, date, and float type readers that

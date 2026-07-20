@@ -526,26 +526,16 @@ fn parse_name_or_use_meta<'a>(
 
     // magic(5) allows a `\^` prefix on a `use` identifier to mean "invoke
     // the named subroutine but flip the endianness of every read inside
-    // it". We do not yet implement the endian flip semantically (tracked
-    // as issue #236), but the file must still load: consume the prefix
-    // and treat the rest of the identifier as a normal `use` reference.
-    // Emit a warn! so users see why their LE/BE detection paired with
-    // `use \^name` produces wrong metadata at default log levels.
-    let input = if type_name == "use" {
-        if let Some(rest) = input.strip_prefix("\\^") {
-            warn!(
-                "use directive with `\\^` prefix: endian-flip semantics \
-                 are not yet implemented (issue #236). Subroutine reads \
-                 will use their declared endianness; metadata fields may \
-                 be incorrect. Identifier: {:?}",
-                rest.split_whitespace().next().unwrap_or("")
-            );
-            rest
-        } else {
-            input
-        }
-    } else {
+    // it" (libmagic `softmagic.c` `cvt_flip`). Consume the prefix and
+    // record it on `MetaType::Use::flip_endian` so the evaluator can apply
+    // the flip (issue #236). The `\^` prefix is meaningless on `name`
+    // declarations, so only `use` is inspected.
+    let (input, use_flip_endian) = if type_name == "use" {
         input
+            .strip_prefix("\\^")
+            .map_or((input, false), |rest| (rest, true))
+    } else {
+        (input, false)
     };
 
     let (after_id, id) =
@@ -608,7 +598,10 @@ fn parse_name_or_use_meta<'a>(
     let meta = if type_name == "name" {
         MetaType::Name(id.to_string())
     } else {
-        MetaType::Use(id.to_string())
+        MetaType::Use {
+            name: id.to_string(),
+            flip_endian: use_flip_endian,
+        }
     };
     let (rest, _) = multispace0(tail)?;
     Ok((rest, (TypeKind::Meta(meta), None, None)))

@@ -315,9 +315,10 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
                 "TypeKind::Meta(MetaType::Name(String::from({})))",
                 format_string_literal(id)
             ),
-            MetaType::Use(id) => format!(
-                "TypeKind::Meta(MetaType::Use(String::from({})))",
-                format_string_literal(id)
+            MetaType::Use { name, flip_endian } => format!(
+                "TypeKind::Meta(MetaType::Use {{ name: String::from({}), flip_endian: {} }})",
+                format_string_literal(name),
+                flip_endian
             ),
         },
     }
@@ -680,7 +681,10 @@ mod tests {
         let malicious = r#""; panic!("pwned-from-use"); let _ = ""#;
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Meta(MetaType::Use(malicious.to_string())),
+            typ: TypeKind::Meta(MetaType::Use {
+                name: malicious.to_string(),
+                flip_endian: false,
+            }),
             op: Operator::AnyValue,
             value: Value::Uint(0),
             message: "meta use rule".to_string(),

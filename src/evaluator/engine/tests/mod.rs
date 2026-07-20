@@ -34,6 +34,7 @@ fn evaluate_single_rule_legacy(
         0,
         0,
         crate::evaluator::types::DEFAULT_MAX_STRING_LENGTH,
+        false,
     )
 }
 

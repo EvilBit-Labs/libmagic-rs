@@ -85,18 +85,27 @@ struct SubroutineScope<'a> {
     context: &'a mut EvaluationContext,
     saved_anchor: usize,
     saved_base: usize,
+    saved_flip: bool,
 }
 
 impl<'a> SubroutineScope<'a> {
-    fn enter(context: &'a mut EvaluationContext, use_site: usize) -> Self {
+    /// Enter a subroutine body. `flip_use` is the `\^` prefix on the
+    /// invoking `use` site; the effective flip inside the body is the
+    /// caller's flip state XOR `flip_use` -- matching libmagic's `flip =
+    /// !flip` toggle, which nests: a `\^use` inside an already-flipped
+    /// subroutine un-flips. Restored on drop along with anchor and base.
+    fn enter(context: &'a mut EvaluationContext, use_site: usize, flip_use: bool) -> Self {
         let saved_anchor = context.last_match_end();
         let saved_base = context.base_offset();
+        let saved_flip = context.flip_endian();
         context.set_last_match_end(use_site);
         context.set_base_offset(use_site);
+        context.set_flip_endian(saved_flip ^ flip_use);
         Self {
             context,
             saved_anchor,
             saved_base,
+            saved_flip,
         }
     }
 
@@ -109,6 +118,7 @@ impl Drop for SubroutineScope<'_> {
     fn drop(&mut self) {
         self.context.set_last_match_end(self.saved_anchor);
         self.context.set_base_offset(self.saved_base);
+        self.context.set_flip_endian(self.saved_flip);
     }
 }
 
@@ -207,6 +217,7 @@ fn evaluate_single_rule_with_anchor(
     last_match_end: usize,
     base_offset: usize,
     max_string_length: usize,
+    flip_endian: bool,
 ) -> Result<Option<(usize, crate::parser::ast::Value)>, LibmagicError> {
     use crate::parser::ast::TypeKind;
 
@@ -246,7 +257,7 @@ fn evaluate_single_rule_with_anchor(
             );
             return Ok(None);
         }
-        TypeKind::Meta(MetaType::Use(_)) => {
+        TypeKind::Meta(MetaType::Use { .. }) => {
             // `Use` is dispatched inline by `evaluate_rules` so it can
             // push the subroutine's matches into the caller's match
             // vector. Reaching this arm means the rule went through the
@@ -280,7 +291,13 @@ fn evaluate_single_rule_with_anchor(
         {
             evaluate_pattern_rule(rule, buffer, absolute_offset, max_string_length)?
         }
-        _ => evaluate_value_rule(rule, buffer, absolute_offset, max_string_length)?,
+        _ => evaluate_value_rule(
+            rule,
+            buffer,
+            absolute_offset,
+            max_string_length,
+            flip_endian,
+        )?,
     };
     Ok(matched.then_some((absolute_offset, read_value)))
 }
@@ -308,6 +325,7 @@ fn evaluate_single_rule_with_anchor(
 fn evaluate_use_rule(
     rule: &MagicRule,
     name: &str,
+    flip_endian: bool,
     buffer: &[u8],
     context: &mut EvaluationContext,
 ) -> Result<(Option<usize>, Vec<RuleMatch>), LibmagicError> {
@@ -368,7 +386,7 @@ fn evaluate_use_rule(
     // anchor INSIDE the scope (before Drop restores the caller's value)
     // preserves it for the caller.
     let (subroutine_matches, terminal_anchor) = {
-        let mut scope = SubroutineScope::enter(context, absolute_offset);
+        let mut scope = SubroutineScope::enter(context, absolute_offset, flip_endian);
         let mut guard = RecursionGuard::enter(scope.context())?;
         let matches = evaluate_rules(&subroutine_rules, buffer, guard.context())?;
         let terminal = guard.context().last_match_end();
@@ -473,11 +491,25 @@ fn evaluate_value_rule(
     buffer: &[u8],
     absolute_offset: usize,
     max_string_length: usize,
+    flip_endian: bool,
 ) -> Result<(bool, crate::parser::ast::Value), LibmagicError> {
+    // Apply the `use \^name` endian flip (issue #236) at read time, exactly
+    // as libmagic's `cvt_flip(m->type, flip)` does in `softmagic.c`. Only the
+    // typed READ needs the flipped endianness -- `bit_width()`,
+    // `coerce_value_to_type` (the literal's numeric value is endian-invariant),
+    // the relative-offset `bytes_consumed` advance, and the string-ordering
+    // display read are all endian-invariant, so they keep `rule.typ`.
+    // `flip_type_endian` is a cheap no-op clone for the common `flip == false`
+    // path.
+    let read_typ: std::borrow::Cow<'_, crate::parser::ast::TypeKind> = if flip_endian {
+        std::borrow::Cow::Owned(types::flip_type_endian(&rule.typ))
+    } else {
+        std::borrow::Cow::Borrowed(&rule.typ)
+    };
     let read_value = types::read_typed_value_with_pattern(
         buffer,
         absolute_offset,
-        &rule.typ,
+        read_typ.as_ref(),
         Some(&rule.value),
         max_string_length,
     )
@@ -1250,9 +1282,9 @@ pub fn evaluate_rules(
         // continuation rules (siblings and descendants of the `use` site)
         // that depend on the anchor the subroutine left behind; skipping
         // them produces user-visible false negatives.
-        if let TypeKind::Meta(MetaType::Use(name)) = &rule.typ {
+        if let TypeKind::Meta(MetaType::Use { name, flip_endian }) = &rule.typ {
             let matches_before = matches.len();
-            let use_resolved = match evaluate_use_rule(rule, name, buffer, context) {
+            let use_resolved = match evaluate_use_rule(rule, name, *flip_endian, buffer, context) {
                 Ok((Some(terminal_anchor), subroutine_matches)) => {
                     matches.extend(subroutine_matches);
 
@@ -1327,6 +1359,7 @@ pub fn evaluate_rules(
             context.last_match_end(),
             context.base_offset(),
             context.max_string_length(),
+            context.flip_endian(),
         ) {
             Ok(data) => data,
             Err(

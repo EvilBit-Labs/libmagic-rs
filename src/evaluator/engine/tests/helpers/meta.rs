@@ -33,7 +33,10 @@ pub fn use_rule(name: &str) -> MagicRule {
 pub fn use_rule_at(name: &str, offset: i64) -> MagicRule {
     MagicRule {
         offset: OffsetSpec::Absolute(offset),
-        typ: TypeKind::Meta(MetaType::Use(name.to_string())),
+        typ: TypeKind::Meta(MetaType::Use {
+            name: name.to_string(),
+            flip_endian: false,
+        }),
         op: Operator::Equal,
         value: Value::Uint(0),
         message: format!("use {name}"),

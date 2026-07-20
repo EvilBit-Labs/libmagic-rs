@@ -350,14 +350,30 @@ pub enum MetaType {
     /// previously declared via [`MetaType::Name`]. See magic(5) for the
     /// "use" type semantics.
     ///
+    /// `flip_endian` records the magic(5) `\^` prefix (`use \^name`),
+    /// which flips the endianness of every endian-bearing read inside the
+    /// invoked subroutine (libmagic `softmagic.c` `cvt_flip`; the flip
+    /// toggles and propagates into nested `use` calls). A plain `use name`
+    /// has `flip_endian: false`. See the evaluator's `flip_type_endian`
+    /// and the `SubroutineScope` guard for the runtime semantics.
+    ///
     /// # Examples
     ///
     /// ```
     /// use libmagic_rs::parser::ast::MetaType;
-    /// let meta = MetaType::Use("part2".to_string());
-    /// assert_eq!(meta, MetaType::Use("part2".to_string()));
+    /// let meta = MetaType::Use { name: "part2".to_string(), flip_endian: false };
+    /// assert_eq!(
+    ///     meta,
+    ///     MetaType::Use { name: "part2".to_string(), flip_endian: false }
+    /// );
     /// ```
-    Use(String),
+    Use {
+        /// Identifier of the named subroutine to invoke.
+        name: String,
+        /// Whether to flip endianness of reads inside the subroutine
+        /// (the magic(5) `\^` prefix).
+        flip_endian: bool,
+    },
     /// `indirect` directive: re-applies the entire magic database at the
     /// resolved offset. See magic(5) for the "indirect" type semantics.
     ///
@@ -2615,7 +2631,16 @@ mod tests {
             MetaType::Indirect,
             MetaType::Offset,
             MetaType::Name("part2".to_string()),
-            MetaType::Use("part2".to_string()),
+            MetaType::Use {
+                name: "part2".to_string(),
+                flip_endian: false,
+            },
+            // A `\^`-flipped use must be distinct from the plain form so the
+            // endian-flip flag participates in equality/serde/round-trip.
+            MetaType::Use {
+                name: "part2".to_string(),
+                flip_endian: true,
+            },
         ];
 
         for (i, variant) in cases.iter().enumerate() {
@@ -2655,7 +2680,14 @@ mod tests {
             MetaType::Indirect,
             MetaType::Offset,
             MetaType::Name("foo".to_string()),
-            MetaType::Use("bar".to_string()),
+            MetaType::Use {
+                name: "bar".to_string(),
+                flip_endian: false,
+            },
+            MetaType::Use {
+                name: "bar".to_string(),
+                flip_endian: true,
+            },
         ];
 
         for variant in cases {
@@ -2673,7 +2705,14 @@ mod tests {
             MetaType::Indirect,
             MetaType::Offset,
             MetaType::Name("x".to_string()),
-            MetaType::Use("x".to_string()),
+            MetaType::Use {
+                name: "x".to_string(),
+                flip_endian: false,
+            },
+            MetaType::Use {
+                name: "x".to_string(),
+                flip_endian: true,
+            },
         ];
         for meta in cases {
             let kind = TypeKind::Meta(meta);

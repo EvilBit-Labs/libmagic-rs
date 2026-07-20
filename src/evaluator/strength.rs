@@ -140,7 +140,7 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
             // `use` dispatches into a subroutine whose specificity is
             // opaque from the call site -- give it a moderate weight so
             // it sorts above pure no-ops but below real type-bearing rules.
-            crate::parser::ast::MetaType::Use(_) => 5,
+            crate::parser::ast::MetaType::Use { .. } => 5,
             // `indirect` re-evaluates the root rule set at the resolved
             // offset; same rationale as `use` for the moderate weight.
             crate::parser::ast::MetaType::Indirect => 5,
@@ -1209,7 +1209,13 @@ mod tests {
     #[test]
     fn test_meta_use_and_indirect_sort_above_default() {
         use crate::parser::ast::MetaType;
-        let use_rule = meta_rule(MetaType::Use("sub".to_string()), "use");
+        let use_rule = meta_rule(
+            MetaType::Use {
+                name: "sub".to_string(),
+                flip_endian: false,
+            },
+            "use",
+        );
         let indirect_rule = meta_rule(MetaType::Indirect, "indirect");
         let default_rule = meta_rule(MetaType::Default, "default");
         let clear_rule = meta_rule(MetaType::Clear, "clear");
