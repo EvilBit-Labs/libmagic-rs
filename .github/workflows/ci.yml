@@ -50,6 +50,14 @@ jobs:
 
     test:
         runs-on: ubuntu-latest
+        # Gate on `quality` so it populates the shared mise/toolchain cache
+        # FIRST. Without this, `quality` and `test` start together and both run
+        # a cold-cache `mise-action` install concurrently, racing on the same
+        # cache key (`detected conflict` / `Directory not empty`). Serializing
+        # them means `quality` writes the cache and every downstream job
+        # (`test`, and transitively `coverage` / `test-cross-platform`) restores
+        # the warm cache instead of racing to populate it.
+        needs: quality
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
