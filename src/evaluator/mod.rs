@@ -18,6 +18,25 @@ pub mod types;
 
 pub use engine::{evaluate_rules, evaluate_rules_with_config, evaluate_single_rule};
 
+/// Strip a single leading GNU `file` no-separator marker from `s`, if present.
+///
+/// The marker (GOTCHAS S14.1) suppresses the separating space when a
+/// description is appended to a sibling's text. It reaches evaluator code in
+/// two forms: the raw byte `U+0008` (backspace), used for programmatically
+/// constructed messages, and -- far more commonly -- the literal
+/// two-character sequence `\b` (backslash + `'b'`), because the message parser
+/// preserves description text verbatim (matching GNU `file`, which keeps the
+/// desc literal and special-cases a leading `\b` at print time).
+///
+/// Returns `Some(rest)` with the marker removed when one is present, else
+/// `None`. This is the single source of truth for the two-form marker so the
+/// three call sites (`concatenate_messages` output rendering,
+/// `is_message_bearing` gating, and `evaluate_use_rule` name-message
+/// attachment) cannot drift on which forms they recognize.
+pub(crate) fn strip_no_separator_marker(s: &str) -> Option<&str> {
+    s.strip_prefix('\u{0008}').or_else(|| s.strip_prefix("\\b"))
+}
+
 /// Shared environment attached to an [`EvaluationContext`] so the engine can
 /// resolve whole-database operations (currently: `Use` subroutine lookups;
 /// eventually `indirect` whole-tree re-entry).

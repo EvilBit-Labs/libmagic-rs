@@ -174,7 +174,7 @@ pub struct ParsedMagic {
     /// Top-level rules after `Name` subroutines have been removed.
     pub rules: Vec<MagicRule>,
     /// Extracted `name` subroutine definitions, consulted by the evaluator
-    /// when a rule of type `TypeKind::Meta(MetaType::Use(_))` is reached.
+    /// when a rule of type `TypeKind::Meta(MetaType::Use { .. })` is reached.
     pub(crate) name_table: name_table::NameTable,
 }
 

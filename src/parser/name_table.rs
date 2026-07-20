@@ -39,7 +39,7 @@ struct Subroutine {
 ///
 /// Built by [`extract_name_table`] from a parsed magic file's top-level
 /// rule list. The evaluator consults this table when it encounters a
-/// `TypeKind::Meta(MetaType::Use(name))` rule to retrieve the rules that
+/// `TypeKind::Meta(MetaType::Use { name, .. })` rule to retrieve the rules that
 /// should be evaluated as if inlined at the `use` site.
 ///
 /// Subroutine bodies are stored as `Arc<[MagicRule]>` so the evaluator can

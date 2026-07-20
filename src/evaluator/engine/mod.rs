@@ -302,7 +302,7 @@ fn evaluate_single_rule_with_anchor(
     Ok(matched.then_some((absolute_offset, read_value)))
 }
 
-/// Evaluate a `TypeKind::Meta(MetaType::Use(name))` rule inline.
+/// Evaluate a `TypeKind::Meta(MetaType::Use { name, .. })` rule inline.
 ///
 /// Looks up `name` in the context's rule environment, temporarily sets the
 /// GNU `file` previous-match anchor to the resolved offset, and recursively
@@ -405,7 +405,7 @@ fn evaluate_use_rule(
     // it is not double-marked.
     let matches = match name_message {
         Some(msg) if !msg.is_empty() => {
-            let attached = if msg.starts_with('\u{0008}') || msg.starts_with("\\b") {
+            let attached = if crate::evaluator::strip_no_separator_marker(&msg).is_some() {
                 msg
             } else {
                 format!("\\b{msg}")
@@ -601,7 +601,23 @@ fn string_ordering_display_value(
 
     let is_ordering = matches!(rule.op, LessThan | GreaterThan | LessEqual | GreaterEqual);
     if is_ordering && matches!(rule.typ, TypeKind::String { .. }) {
-        types::read_string(buffer, absolute_offset, Some(max_string_length)).unwrap_or(compared)
+        match types::read_string(buffer, absolute_offset, Some(max_string_length)) {
+            Ok(full_field) => full_field,
+            // A matched rule must not abort on a display-only read (the compared
+            // prefix was already read successfully at this offset moments ago),
+            // so fall back to it -- but `debug!` first rather than swallowing the
+            // error silently, matching this file's graceful-skip logging
+            // discipline. A latent regression here (e.g. `max_string_length`
+            // disagreeing with the original read) would otherwise render the
+            // truncated prefix with no trace of why the full field was dropped.
+            Err(e) => {
+                debug!(
+                    "string_ordering_display_value: full-field read failed at offset {absolute_offset} for rule '{}': {e}; rendering compared prefix",
+                    rule.message
+                );
+                compared
+            }
+        }
     } else {
         compared
     }
@@ -636,16 +652,26 @@ fn log_pattern_operand_skip(site_label: &str, rule_message: &str, type_name: &st
 /// Whether `message` carries any usable description text.
 ///
 /// A message is considered message-less (and thus does not count as
-/// "producing output") if, after trimming ASCII/Unicode whitespace and the
-/// GNU `file` backspace continuation marker (`\u{8}`, see GOTCHAS S14.1),
+/// "producing output") if, after trimming ASCII/Unicode whitespace and
+/// stripping a leading GNU `file` no-separator marker (see GOTCHAS S14.1),
 /// nothing remains. This covers three shapes GNU `file` magic files use
 /// for structural/gating rules that carry no description of their own:
 /// a genuinely empty message (`""`), a whitespace-only message, and a
 /// `\b`-only message (used purely to suppress a separator when appended
 /// to a sibling's text -- with nothing else to append, it contributes no
 /// content either).
+///
+/// The marker is recognized in BOTH forms -- the raw byte `U+0008` and the
+/// literal `\b` (backslash + `'b'`) -- via the shared
+/// [`crate::evaluator::strip_no_separator_marker`], so this predicate agrees
+/// with `concatenate_messages`: a message that renders to empty there (e.g.
+/// exactly `"\b"`, the literal marker) is classified message-less here and
+/// therefore cannot win the `stop_at_first_match` race and shadow a later,
+/// more specific rule that would produce real output (the S13.2 bug class).
 fn is_message_bearing(message: &str) -> bool {
-    !message
+    let trimmed = message.trim_matches(|c: char| c.is_whitespace() || c == '\u{8}');
+    let stripped = crate::evaluator::strip_no_separator_marker(trimmed).unwrap_or(trimmed);
+    !stripped
         .trim_matches(|c: char| c.is_whitespace() || c == '\u{8}')
         .is_empty()
 }

@@ -153,7 +153,7 @@ impl From<crate::io::IoError> for LibmagicError {
 pub struct MagicDatabase {
     /// Named subroutine definitions extracted from magic file `name` rules,
     /// keyed by identifier. The evaluator consults this table when a rule of
-    /// type `TypeKind::Meta(MetaType::Use(name))` is reached.
+    /// type `TypeKind::Meta(MetaType::Use { name, .. })` is reached.
     name_table: std::sync::Arc<crate::parser::name_table::NameTable>,
     /// Top-level rules as a shared immutable slice. This is the primary rule
     /// storage for the database. Passed through the evaluation context as part
@@ -596,9 +596,7 @@ impl MagicDatabase {
             // special-cases a leading `\b` at print time (e.g. the msdos
             // `\b, for MS Windows` and Mach-O universal `\b]` rules). We also
             // accept a bare U+0008 for programmatically-constructed messages.
-            let without_marker = rendered
-                .strip_prefix('\u{0008}')
-                .or_else(|| rendered.strip_prefix("\\b"));
+            let without_marker = crate::evaluator::strip_no_separator_marker(&rendered);
             if let Some(rest) = without_marker {
                 result.push_str(rest);
             } else if !result.is_empty() {

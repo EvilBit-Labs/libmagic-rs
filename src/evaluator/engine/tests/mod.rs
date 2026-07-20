@@ -1411,6 +1411,62 @@ fn test_evaluate_rules_whitespace_and_backspace_only_messages_do_not_stop() {
     assert_eq!(matches[2].message, "Real message");
 }
 
+/// Regression for the `is_message_bearing` literal-`\b`-marker gap (PR #376
+/// review finding). The GNU `file` no-separator marker most often reaches the
+/// evaluator as the LITERAL two-character sequence `\b` (backslash + `'b'`),
+/// not the raw `U+0008` byte, because the message parser preserves description
+/// text verbatim (GOTCHAS S14.1). A rule whose message is exactly the literal
+/// marker renders to empty in `concatenate_messages`, so it must be classified
+/// message-less here too -- otherwise it could win the `stop_at_first_match`
+/// race and shadow a later, more specific rule (the S13.2 blank-output bug
+/// class). The prior implementation only trimmed `U+0008` and would have
+/// treated `"\\b"` as message-bearing.
+#[test]
+fn test_literal_backspace_marker_message_is_message_less_and_does_not_stop() {
+    // Direct predicate: both marker forms (and whitespace-padded variants) are
+    // message-less; a marker WITH trailing content is message-bearing.
+    assert!(
+        !is_message_bearing("\\b"),
+        "the literal `\\b` marker alone must be message-less"
+    );
+    assert!(
+        !is_message_bearing("\u{8}"),
+        "the raw U+0008 marker alone must be message-less"
+    );
+    assert!(
+        !is_message_bearing("  \\b  "),
+        "a whitespace-padded literal marker must be message-less"
+    );
+    assert!(
+        is_message_bearing("\\bversion"),
+        "a literal marker WITH content must be message-bearing"
+    );
+    assert!(
+        is_message_bearing("plain"),
+        "plain text must be message-bearing"
+    );
+
+    // End-to-end: a literal-`\b`-only gating rule must NOT stop evaluation
+    // before a later real rule under stop_at_first_match.
+    let buffer = &[0xAA, 0xBB];
+    let literal_marker_only = message_only_byte_rule(0, 0xAA, "\\b");
+    let real_rule = message_only_byte_rule(1, 0xBB, "Real message");
+
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[literal_marker_only, real_rule], buffer, &mut context).unwrap();
+
+    assert_eq!(
+        matches.len(),
+        2,
+        "the literal-marker-only rule must not stop evaluation before the real rule"
+    );
+    assert_eq!(matches[1].message, "Real message");
+}
+
 /// A message-less top-level rule whose CHILD produces real output text
 /// still counts as "producing output" for `stop_at_first_match`
 /// purposes -- this is the normal, common shape for gating rules like

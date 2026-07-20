@@ -912,14 +912,17 @@ pub(crate) fn bytes_consumed_with_pattern(
             // Invariant: the engine only calls `bytes_consumed_with_pattern`
             // after a successful `read_typed_value_with_pattern`/`read_pattern_match`,
             // which requires `Some(Value::String(_) | Value::Bytes(_))` for
-            // regex. If we land here the invariant is broken by a new
-            // caller and the anchor would silently stall instead of
-            // advancing. Fire a debug_assert so the mismatch is caught in
-            // dev/test builds.
+            // regex, so this arm is not normally reachable. Handle it
+            // defensively rather than with a `debug_assert!(false)` (which
+            // would panic in dev/test, violating the no-panic policy and the
+            // `prop_arbitrary_rule_evaluation_never_panics` invariant): `warn!`
+            // so a release build's silent stale-anchor is visible in logs, and
+            // return 0 (buffer-safe; the relative-offset anchor simply does not
+            // advance for this rule). Mirrors `flagged_string_bytes_consumed`.
             other => {
-                debug_assert!(
-                    false,
-                    "bytes_consumed_with_pattern: TypeKind::Regex without Value::String/Bytes pattern ({other:?}) -- engine invariant violated"
+                log::warn!(
+                    "bytes_consumed_with_pattern: TypeKind::Regex without Value::String/Bytes pattern ({other:?}); \
+                     relative-offset anchor will not advance for this rule"
                 );
                 0
             }
@@ -931,10 +934,13 @@ pub(crate) fn bytes_consumed_with_pattern(
             Some(Value::Bytes(b)) => {
                 search::search_bytes_consumed(buffer, offset, b.as_slice(), *range, *flags)
             }
+            // Same invariant and defensive rationale as the `Regex` arm above:
+            // `warn!` + return 0 rather than `debug_assert!(false)`, so a
+            // release build's silent stale-anchor is visible in logs.
             other => {
-                debug_assert!(
-                    false,
-                    "bytes_consumed_with_pattern: TypeKind::Search without Value::String/Bytes pattern ({other:?}) -- engine invariant violated"
+                log::warn!(
+                    "bytes_consumed_with_pattern: TypeKind::Search without Value::String/Bytes pattern ({other:?}); \
+                     relative-offset anchor will not advance for this rule"
                 );
                 0
             }

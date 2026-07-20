@@ -503,6 +503,48 @@ mod tests {
     }
 
     #[test]
+    fn test_load_directory_all_content_bearing_but_all_rules_skipped_errors() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+        // Two files that BOTH have content (non-comment rule lines) but whose
+        // every rule is unparseable. Under line-tolerant parsing (GOTCHAS S3.11)
+        // each file returns Ok with zero rules, but the directory contributed
+        // nothing usable, so `load_magic_directory` must still Err -- preserving
+        // the pre-tolerance "all failed" contract via the `empty_files` /
+        // `has_rule_lines` tracking. This is distinct from a directory of
+        // genuinely-empty/comment-only files (test_load_directory_empty_files),
+        // which is a valid no-op success, and from the mixed valid+invalid case
+        // (test_load_directory_non_critical_error_parse), which succeeds because
+        // one file contributed a rule.
+        fs::write(
+            temp_dir.path().join("bad1.magic"),
+            "notanoffset badtype whatever\nalso not a valid rule line\n",
+        )
+        .expect("Failed to write bad1");
+        fs::write(
+            temp_dir.path().join("bad2.magic"),
+            "still invalid syntax here\n",
+        )
+        .expect("Failed to write bad2");
+
+        let err = load_magic_directory(temp_dir.path()).expect_err(
+            "a directory whose content-bearing files all parse to zero rules must fail",
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("failed to parse"),
+            "error must report the all-failed contract: {msg}"
+        );
+        assert!(
+            msg.contains("no usable rules (all skipped)"),
+            "error must attribute the content-bearing-but-all-skipped files: {msg}"
+        );
+    }
+
+    #[test]
     fn test_load_directory_binary_files() {
         use std::fs;
         use tempfile::TempDir;
@@ -732,6 +774,76 @@ mod tests {
             parsed.rules.len(),
             2,
             "the unparseable rule must be dropped, keeping exactly the two valid ones: {msgs:?}"
+        );
+    }
+
+    #[test]
+    fn test_load_magic_file_drops_subtree_of_unparseable_rule_without_reattaching() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let file = temp_dir.path().join("subtree.magic");
+
+        // A valid parent, then an UNPARSEABLE rule (no valid offset) that owns a
+        // `>`-indented child, then a valid sibling back at the original level.
+        // GOTCHAS S3.11: when the bad rule is skipped, its deeper-indented
+        // subtree must be dropped WITH it (`skip_subtree_deeper_than` in
+        // `hierarchy.rs`). The orphaned child must NOT silently re-attach to the
+        // previous level-0 rule (`GOOD1`) nor survive as a stray top-level rule,
+        // and the trailing `GOOD2` proves the skip threshold resets so a later
+        // sibling at the original indent still parses.
+        fs::write(
+            &file,
+            "0 string GOOD1 parent rule\n\
+             notanoffset badtype orphan parent\n\
+             >0 byte x orphaned child that must be dropped\n\
+             0 string GOOD2 sibling after the dropped subtree\n",
+        )
+        .expect("Failed to write file");
+
+        let parsed = load_magic_file(&file)
+            .expect("runtime load must tolerate the unparseable rule and its subtree");
+
+        let top_msgs: Vec<&str> = parsed.rules.iter().map(|r| r.message.as_str()).collect();
+        assert_eq!(
+            parsed.rules.len(),
+            2,
+            "exactly the two valid top-level rules survive: {top_msgs:?}"
+        );
+        assert!(
+            top_msgs.contains(&"parent rule"),
+            "the valid rule before the bad one must survive: {top_msgs:?}"
+        );
+        assert!(
+            top_msgs.contains(&"sibling after the dropped subtree"),
+            "the sibling after the dropped subtree must parse (threshold reset): {top_msgs:?}"
+        );
+
+        // The orphaned child must appear NOWHERE: not re-attached to the
+        // preceding level-0 rule, and not as any surviving rule's child.
+        let good1 = parsed
+            .rules
+            .iter()
+            .find(|r| r.message == "parent rule")
+            .expect("GOOD1 must be present");
+        assert!(
+            good1.children.is_empty(),
+            "the dropped child must not re-attach to the previous level-0 rule: {:?}",
+            good1
+                .children
+                .iter()
+                .map(|c| c.message.as_str())
+                .collect::<Vec<_>>()
+        );
+        let orphan_reattached = parsed
+            .rules
+            .iter()
+            .flat_map(|r| r.children.iter())
+            .any(|c| c.message.contains("orphaned child"));
+        assert!(
+            !orphan_reattached,
+            "the orphaned child of the unparseable rule must be dropped entirely"
         );
     }
 
