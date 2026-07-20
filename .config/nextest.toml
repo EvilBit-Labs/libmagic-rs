@@ -1,0 +1,18 @@
+# cargo-nextest configuration.
+#
+# Serialize the integration test binaries that spawn child processes (the CLI
+# under test, the system `file` binary) or manipulate the process working
+# directory. Running these concurrently causes subprocess-spawn contention and
+# cwd races -- most visibly the planted-magic CLI security regression tests,
+# which resolve behavior from a temp cwd. Under heavy full-suite parallelism
+# these produced rare, load-dependent flakes once additional process-spawning
+# binaries (the `system_magic_dir` differential-parity suite that shells out to
+# GNU `file`) were added. Pinning them to a single-threaded group makes the
+# suite deterministic while leaving the ~1500 in-process unit tests fully
+# parallel.
+[test-groups]
+serial-integration = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'binary(compatibility_tests) or binary(cli_integration) or binary(json_integration_test) or binary(security_regression) or binary(system_magic_dir)'
+test-group = 'serial-integration'

@@ -7,7 +7,13 @@
 //! pattern within a bounded window. Unlike `TypeKind::String`, which only
 //! matches at the exact offset, `search` advances through the buffer looking
 //! for the first occurrence of the pattern anywhere in the window. The
-//! search window is `buffer[offset..]` capped by the optional `range`.
+//! search window is `buffer[offset..]` capped by `range`: `Some(n)` scans at
+//! most `n` bytes, while `None` (bare `search` with no `/N` suffix) scans the
+//! whole remaining buffer. magic(5) documents the count as required, but the
+//! reference `file` binary accepts the bare form and treats it as
+//! `str_range == 0` -- scan from the offset to end-of-buffer -- so we follow
+//! the implementation. See `parser::grammar::parse_magic_rule` for the parse
+//! side and GOTCHAS S2 for the range representation.
 
 use super::TypeReadError;
 use super::string::compare_string_with_flags;
@@ -65,7 +71,7 @@ fn find_match(
     buffer: &[u8],
     offset: usize,
     pattern: &[u8],
-    range: NonZeroUsize,
+    range: Option<NonZeroUsize>,
     flags: SearchFlags,
 ) -> Result<Option<ScanHit>, TypeReadError> {
     if offset >= buffer.len() {
@@ -76,7 +82,10 @@ fn find_match(
     }
 
     let remaining = &buffer[offset..];
-    let window_len = range.get().min(remaining.len());
+    // `Some(n)` -> scan at most `n` bytes; `None` (bare `search`, no `/N`)
+    // -> scan the whole remaining buffer, matching GNU `file`'s
+    // `str_range == 0` semantics (see this module's doc header).
+    let window_len = range.map_or(remaining.len(), |r| r.get().min(remaining.len()));
     let window = &remaining[..window_len];
 
     if flags.needs_byte_compare() {
@@ -157,7 +166,7 @@ pub fn read_search(
     buffer: &[u8],
     offset: usize,
     pattern: &[u8],
-    range: NonZeroUsize,
+    range: Option<NonZeroUsize>,
     flags: SearchFlags,
 ) -> Result<Option<Value>, TypeReadError> {
     match find_match(buffer, offset, pattern, range, flags)? {
@@ -207,7 +216,7 @@ pub(super) fn search_bytes_consumed(
     buffer: &[u8],
     offset: usize,
     pattern: &[u8],
-    range: NonZeroUsize,
+    range: Option<NonZeroUsize>,
     flags: SearchFlags,
 ) -> usize {
     if buffer.get(offset..).is_none() {
@@ -238,8 +247,14 @@ pub(super) fn search_bytes_consumed(
 mod tests {
     use super::*;
 
-    fn nz(n: usize) -> NonZeroUsize {
-        NonZeroUsize::new(n).expect("non-zero in test")
+    /// Wrap a bounded range as `Some(NonZeroUsize)` for the search readers,
+    /// which now take `Option<NonZeroUsize>` (`None` = scan-to-EOF). Tests
+    /// exercising the bare-`search` open window pass `None` directly.
+    // Always returns `Some`; the `Option` return matches the reader API so
+    // call sites read as `read_search(.., nz(100), ..)` without wrapping.
+    #[allow(clippy::unnecessary_wraps)]
+    fn nz(n: usize) -> Option<NonZeroUsize> {
+        Some(NonZeroUsize::new(n).expect("non-zero in test"))
     }
 
     fn default_flags() -> SearchFlags {
@@ -280,6 +295,29 @@ mod tests {
         let buffer = b"Hello";
         let result = read_search(buffer, 0, b"lo", nz(1000), default_flags()).unwrap();
         assert_eq!(result, Some(Value::String("lo".to_string())));
+    }
+
+    #[test]
+    fn test_read_search_bare_none_scans_to_eof() {
+        // Bare `search` (range `None`) scans the whole remaining buffer,
+        // matching GNU `file`'s `str_range == 0` semantics. The needle sits
+        // far past any typical bounded window.
+        let mut buffer = vec![b'.'; 5000];
+        buffer.extend_from_slice(b"NEEDLE");
+        let result = read_search(&buffer, 0, b"NEEDLE", None, default_flags()).unwrap();
+        assert_eq!(result, Some(Value::String("NEEDLE".to_string())));
+    }
+
+    #[test]
+    fn test_search_bytes_consumed_bare_none_reports_match_end() {
+        // The scan-to-EOF window still advances the anchor to match-end, not
+        // buffer-end.
+        let buffer = b"abcWorldxyz___more_data";
+        assert_eq!(
+            search_bytes_consumed(buffer, 0, b"World", None, default_flags()),
+            8,
+            "bare search must advance to match-end (8), not buffer length"
+        );
     }
 
     #[test]

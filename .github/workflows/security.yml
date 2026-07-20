@@ -28,14 +28,14 @@ jobs:
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-            - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+            - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
                   cache: true
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Run cargo deny check
-              run: cargo deny check
+              run: mise x -- cargo deny check
 
             - name: Run cargo outdated (informational only)
               # Dropping --exit-code=1: a plain upstream dep release is
@@ -43,8 +43,8 @@ jobs:
               # eroded trust in the security dashboard. cargo audit and
               # cargo deny above are the authoritative gates. (Review
               # finding D-M2.)
-              run: cargo outdated --depth=1
+              run: mise x -- cargo outdated --depth=1
               continue-on-error: true
 
             - name: Run dist plan
-              run: dist plan
+              run: mise x -- dist plan

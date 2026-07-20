@@ -1,16 +1,24 @@
 # This file is honored by rustup users who do not go through mise.
-# CI and the mise-managed developer path pin the toolchain via
-# `mise.lock` (see `[[tools.rust]] version = "1.94.1"`), which
-# overrides this file's channel. Review finding D-M1 asked for a
-# reproducible pin; the answer is mise.lock -- not this file. Keeping
-# `channel = "stable"` here means rustup users always track the
-# latest stable compiler, while CI and mise users get the exact
-# pinned version from the lockfile.
+# CI and the mise-managed developer path resolve the toolchain via
+# `mise.lock` (see `[[tools.rust]] version = "stable"`), which overrides
+# this file's channel. Both this file and mise track the `stable` channel,
+# so rustup, CI, and mise users all build on the latest stable compiler.
+# `mise.lock` is committed so a given commit resolves a consistent toolchain
+# across machines -- but note `stable` is a moving channel, so this is
+# stable-tracking, not a frozen version pin (the resolved version advances
+# when the lockfile is refreshed).
 #
-# When bumping the pinned rustc version, update BOTH `mise.lock`
-# (via `mise upgrade rust`) and `Cargo.toml` `rust-version` if the
-# declared MSRV moves.
+# When bumping the toolchain, update `mise.lock` (via `mise upgrade rust`)
+# and `Cargo.toml` `rust-version` if the declared MSRV moves.
 [toolchain]
+# Tracks `stable`, and MUST stay consistent with mise.toml's rust channel
+# (also `stable`). mise honors this file as an idiomatic version file
+# (`idiomatic_version_file_enable_tools = ["rust"]`), so if this channel and
+# mise.toml disagree, mise resolves two separate rust toolchains and their
+# component installs collide on hosted CI runners (`detected conflict` /
+# `Directory not empty`). Keep both on `stable` with a single `[[tools.rust]]`
+# entry in mise.lock. When bumping rustc: run `mise upgrade rust`, commit the
+# refreshed mise.lock, and update Cargo.toml `rust-version` if the MSRV moves.
 channel = "stable"
 components = [ "rustfmt", "clippy", "llvm-tools-preview" ]
 targets = [

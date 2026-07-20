@@ -350,14 +350,30 @@ pub enum MetaType {
     /// previously declared via [`MetaType::Name`]. See magic(5) for the
     /// "use" type semantics.
     ///
+    /// `flip_endian` records the magic(5) `\^` prefix (`use \^name`),
+    /// which flips the endianness of every endian-bearing read inside the
+    /// invoked subroutine (libmagic `softmagic.c` `cvt_flip`; the flip
+    /// toggles and propagates into nested `use` calls). A plain `use name`
+    /// has `flip_endian: false`. See the evaluator's `flip_type_endian`
+    /// and the `SubroutineScope` guard for the runtime semantics.
+    ///
     /// # Examples
     ///
     /// ```
     /// use libmagic_rs::parser::ast::MetaType;
-    /// let meta = MetaType::Use("part2".to_string());
-    /// assert_eq!(meta, MetaType::Use("part2".to_string()));
+    /// let meta = MetaType::Use { name: "part2".to_string(), flip_endian: false };
+    /// assert_eq!(
+    ///     meta,
+    ///     MetaType::Use { name: "part2".to_string(), flip_endian: false }
+    /// );
     /// ```
-    Use(String),
+    Use {
+        /// Identifier of the named subroutine to invoke.
+        name: String,
+        /// Whether to flip endianness of reads inside the subroutine
+        /// (the magic(5) `\^` prefix).
+        flip_endian: bool,
+    },
     /// `indirect` directive: re-applies the entire magic database at the
     /// resolved offset. See magic(5) for the "indirect" type semantics.
     ///
@@ -646,14 +662,19 @@ pub enum TypeKind {
         /// three cases.
         count: RegexCount,
     },
-    /// Multi-byte pattern search within a bounded range
+    /// Multi-byte pattern search within a bounded (or open) range
     ///
-    /// Search rules look for a literal byte pattern within `range` bytes of
-    /// the offset. Unlike [`TypeKind::String`], which only matches at the
-    /// exact offset, `search` scans forward up to `range` bytes for the
-    /// first occurrence. The range is **mandatory** per GNU `file`'s
-    /// magic(5) specification and is stored as a [`NonZeroUsize`] so a
-    /// zero-range search is unrepresentable.
+    /// Search rules look for a literal byte pattern starting at the offset.
+    /// Unlike [`TypeKind::String`], which only matches at the exact offset,
+    /// `search` scans forward for the first occurrence. The window is
+    /// controlled by `range`:
+    ///
+    /// * `Some(n)` -- the `search/N` form -- scans at most `n` bytes. `n` is
+    ///   a [`NonZeroUsize`] so `search/0` is unrepresentable.
+    /// * `None` -- bare `search` with no `/N` suffix -- scans from the offset
+    ///   to end-of-buffer. magic(5) documents the count as required, but the
+    ///   reference `file` binary accepts the bare form and treats it as
+    ///   `str_range == 0` (scan-to-EOF), so we follow the implementation.
     ///
     /// # Examples
     ///
@@ -663,13 +684,20 @@ pub enum TypeKind {
     ///
     /// // `search/256` -- scan up to 256 bytes for the literal pattern.
     /// let bounded = TypeKind::Search {
-    ///     range: NonZeroUsize::new(256).unwrap(),
+    ///     range: NonZeroUsize::new(256),
+    ///     flags: libmagic_rs::parser::ast::SearchFlags::default(),
+    /// };
+    ///
+    /// // bare `search` -- scan the whole remaining buffer.
+    /// let open = TypeKind::Search {
+    ///     range: None,
     ///     flags: libmagic_rs::parser::ast::SearchFlags::default(),
     /// };
     /// ```
     Search {
-        /// Scan window width in bytes, starting at the rule's offset.
-        range: NonZeroUsize,
+        /// Scan window width in bytes starting at the rule's offset;
+        /// `None` means scan to end-of-buffer (bare `search`).
+        range: Option<NonZeroUsize>,
         /// Modifier flags from the `/[sCcWwTtBbf]` suffix on a `search`
         /// rule. The `/s` flag controls anchor advance (match-START vs
         /// match-END); the eight `StringFlags`-shared letters alter how
@@ -2603,7 +2631,16 @@ mod tests {
             MetaType::Indirect,
             MetaType::Offset,
             MetaType::Name("part2".to_string()),
-            MetaType::Use("part2".to_string()),
+            MetaType::Use {
+                name: "part2".to_string(),
+                flip_endian: false,
+            },
+            // A `\^`-flipped use must be distinct from the plain form so the
+            // endian-flip flag participates in equality/serde/round-trip.
+            MetaType::Use {
+                name: "part2".to_string(),
+                flip_endian: true,
+            },
         ];
 
         for (i, variant) in cases.iter().enumerate() {
@@ -2643,7 +2680,14 @@ mod tests {
             MetaType::Indirect,
             MetaType::Offset,
             MetaType::Name("foo".to_string()),
-            MetaType::Use("bar".to_string()),
+            MetaType::Use {
+                name: "bar".to_string(),
+                flip_endian: false,
+            },
+            MetaType::Use {
+                name: "bar".to_string(),
+                flip_endian: true,
+            },
         ];
 
         for variant in cases {
@@ -2661,7 +2705,14 @@ mod tests {
             MetaType::Indirect,
             MetaType::Offset,
             MetaType::Name("x".to_string()),
-            MetaType::Use("x".to_string()),
+            MetaType::Use {
+                name: "x".to_string(),
+                flip_endian: false,
+            },
+            MetaType::Use {
+                name: "x".to_string(),
+                flip_endian: true,
+            },
         ];
         for meta in cases {
             let kind = TypeKind::Meta(meta);
