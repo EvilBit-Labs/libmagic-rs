@@ -84,8 +84,24 @@ fn test_builtin_rules_detect_gif() {
 #[test]
 fn test_builtin_rules_unknown_fallback() {
     let db = MagicDatabase::with_builtin_rules().unwrap();
-    let result = db.evaluate_buffer(b"random bytes").unwrap();
+    // Genuinely binary content: no built-in rule matches and it is not
+    // ASCII/UTF-8 text, so the text/data fallback (GOTCHAS S13.2) reports
+    // "data". `b"random bytes"` is plain ASCII and would instead fall
+    // back to "ASCII text" -- see `test_builtin_rules_unknown_ascii_fallback`.
+    let result = db
+        .evaluate_buffer(&[0x00, 0x01, 0x02, 0xFF, 0xFE, 0x80, 0x81])
+        .unwrap();
     assert_eq!(result.description, "data");
+}
+
+/// Companion to `test_builtin_rules_unknown_fallback`: plain ASCII
+/// content that no built-in rule matches falls back to "ASCII text"
+/// (GOTCHAS S13.2), matching GNU `file`, not the old hardcoded "data".
+#[test]
+fn test_builtin_rules_unknown_ascii_fallback() {
+    let db = MagicDatabase::with_builtin_rules().unwrap();
+    let result = db.evaluate_buffer(b"random bytes").unwrap();
+    assert_eq!(result.description, "ASCII text");
 }
 
 // ============================================================
@@ -258,8 +274,10 @@ fn test_custom_rules_no_match_fallback() {
     writeln!(f, "0 string \"RARE\" Rare format").unwrap();
 
     let db = MagicDatabase::load_from_file(&magic_path).unwrap();
+    // Plain ASCII content with no rule match falls back to "ASCII text"
+    // (GOTCHAS S13.2), matching GNU `file` -- not the old hardcoded "data".
     let result = db.evaluate_buffer(b"no match here").unwrap();
-    assert_eq!(result.description, "data");
+    assert_eq!(result.description, "ASCII text");
 }
 
 // ============================================================
@@ -430,7 +448,12 @@ fn test_reuse_database_multiple_evaluations() {
 
     let elf = db.evaluate_buffer(b"\x7fELF\x02\x01\x01\x00").unwrap();
     let pdf = db.evaluate_buffer(b"%PDF-\x001.4").unwrap();
-    let unknown = db.evaluate_buffer(b"nothing here").unwrap();
+    // Genuinely binary content so the text/data fallback (GOTCHAS S13.2)
+    // reports "data" -- plain ASCII content would instead report "ASCII
+    // text".
+    let unknown = db
+        .evaluate_buffer(&[0x00, 0x01, 0x02, 0xFF, 0xFE, 0x80, 0x81])
+        .unwrap();
 
     assert!(elf.description.contains("ELF"));
     assert!(pdf.description.contains("PDF"));

@@ -124,8 +124,6 @@ docs/book/
 .envrc
 .direnv/
 
-megalinter-reports/
-
 # Override global gitignore
 !bin/
 # Added by goreleaser init:
@@ -141,13 +139,9 @@ docs/plans/
 .agents/
 .augment/
 .context/
-.cursor/
-.roo/
 .full-review/
 SECURITY_AUDIT.md
 todos/
-**/tessl__*
-.tessl/tiles/
-.tessl/RULES.md
 .claude/instincts/
 .claude/scheduled_tasks.lock
+.dosu/audit.json
