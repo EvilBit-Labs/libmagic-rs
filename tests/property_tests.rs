@@ -9,6 +9,15 @@
 //! - Metadata is consistent
 //! - Serde roundtrips preserve data
 
+// Test code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per test crate/module instead.
+#![allow(
+    clippy::let_underscore_must_use,
+    clippy::expect_used,
+    clippy::unwrap_used
+)]
+
 use proptest::prelude::*;
 
 use libmagic_rs::parser::ast::{
@@ -18,7 +27,7 @@ use libmagic_rs::{
     Endianness, EvaluationConfig, MagicDatabase, MagicRule, OffsetSpec, Operator, TypeKind, Value,
 };
 
-/// Generate a valid OffsetSpec for testing
+/// Generate a valid `OffsetSpec` for testing
 fn arb_offset_spec() -> impl Strategy<Value = OffsetSpec> {
     prop_oneof![
         (-1000i64..=1000i64).prop_map(OffsetSpec::Absolute),
@@ -81,7 +90,7 @@ fn arb_search_flags() -> impl Strategy<Value = SearchFlags> {
         )
 }
 
-/// Generate a valid TypeKind for testing
+/// Generate a valid `TypeKind` for testing
 fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
     prop_oneof![
         any::<bool>().prop_map(|signed| TypeKind::Byte { signed }),
@@ -185,15 +194,15 @@ fn arb_operator() -> impl Strategy<Value = Operator> {
 /// Generate a valid Value for testing
 fn arb_value() -> impl Strategy<Value = Value> {
     prop_oneof![
-        (0u64..=u32::MAX as u64).prop_map(Value::Uint),
-        (i32::MIN as i64..=i32::MAX as i64).prop_map(Value::Int),
+        (0u64..=u64::from(u32::MAX)).prop_map(Value::Uint),
+        (i64::from(i32::MIN)..=i64::from(i32::MAX)).prop_map(Value::Int),
         (-1e10f64..1e10f64).prop_map(Value::Float),
         prop::collection::vec(any::<u8>(), 0..32).prop_map(Value::Bytes),
         "[a-zA-Z0-9 ]{0,32}".prop_map(Value::String),
     ]
 }
 
-/// Generate a valid MagicRule for testing
+/// Generate a valid `MagicRule` for testing
 fn arb_magic_rule() -> impl Strategy<Value = MagicRule> {
     (
         arb_offset_spec(),
@@ -269,7 +278,7 @@ proptest! {
     fn prop_config_validation_consistent(
         recursion_depth in 1u32..100u32,
         string_length in 1usize..10000usize,
-        timeout in 1u64..100000u64
+        timeout in 1u64..100_000u64
     ) {
         let config = EvaluationConfig::default()
             .with_max_recursion_depth(recursion_depth)
@@ -290,7 +299,7 @@ proptest! {
         let result = db.evaluate_buffer(&buffer)
             .expect("should evaluate");
 
-        prop_assert_eq!(result.metadata.file_size as usize, buffer.len());
+        prop_assert_eq!(usize::try_from(result.metadata.file_size).ok(), Some(buffer.len()));
         prop_assert!(result.metadata.evaluation_time_ms >= 0.0);
         prop_assert!(result.metadata.rules_evaluated > 0);
     }

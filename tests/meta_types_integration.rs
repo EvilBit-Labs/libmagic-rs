@@ -82,8 +82,8 @@ fn test_default_clear_synthetic_scenario() {
     // Real rule fires when first byte is 0xAA. The default fires when
     // nothing else matched at this level. Trailing message fields show up
     // in the concatenated description.
-    writeln!(f, r#"0 byte 0xAA Real-Match"#).unwrap();
-    writeln!(f, r#"0 default x DEFAULT-FALLBACK"#).unwrap();
+    writeln!(f, r"0 byte 0xAA Real-Match").unwrap();
+    writeln!(f, r"0 default x DEFAULT-FALLBACK").unwrap();
 
     let db = MagicDatabase::load_from_file(&magic_path).unwrap();
 
@@ -121,10 +121,10 @@ fn test_default_clear_synthetic_scenario() {
     // siblings from executing).
     let clear_path = temp_dir.path().join("clear.magic");
     let mut cf = fs::File::create(&clear_path).unwrap();
-    writeln!(cf, r#"0 byte 0xAA Match-A"#).unwrap();
-    writeln!(cf, r#"0 default x DEFAULT-SKIPPED"#).unwrap();
-    writeln!(cf, r#"0 clear"#).unwrap();
-    writeln!(cf, r#"0 default x DEFAULT-FIRES"#).unwrap();
+    writeln!(cf, r"0 byte 0xAA Match-A").unwrap();
+    writeln!(cf, r"0 default x DEFAULT-SKIPPED").unwrap();
+    writeln!(cf, r"0 clear").unwrap();
+    writeln!(cf, r"0 default x DEFAULT-FIRES").unwrap();
 
     let all_matches_config = EvaluationConfig::default().with_stop_at_first_match(false);
     let clear_db =
@@ -172,8 +172,8 @@ fn test_indirect_synthetic_scenario() {
     //     fires, the sub-buffer's offset 0 is the outer buffer's offset 8,
     //     so 0x42 there triggers the same rule recursively.
     let mut f = fs::File::create(&magic_path).unwrap();
-    writeln!(f, r#"0 byte 0x42 Inner-Match"#).unwrap();
-    writeln!(f, r#"8 indirect x"#).unwrap();
+    writeln!(f, r"0 byte 0x42 Inner-Match").unwrap();
+    writeln!(f, r"8 indirect x").unwrap();
 
     let db = MagicDatabase::load_from_file(&magic_path).unwrap();
 

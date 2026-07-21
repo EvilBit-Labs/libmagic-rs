@@ -4,9 +4,21 @@
 //! I/O benchmarks for libmagic-rs
 //!
 //! Benchmarks file I/O operations including:
-//! - FileBuffer creation
+//! - `FileBuffer` creation
 //! - Memory-mapped file access
 //! - Buffer slice operations
+
+// Bench code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per crate instead.
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    clippy::let_underscore_must_use,
+    clippy::unreadable_literal,
+    clippy::cast_possible_truncation
+)]
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use libmagic_rs::io::FileBuffer;
@@ -23,7 +35,7 @@ fn create_temp_file(size: usize) -> NamedTempFile {
     file
 }
 
-/// Benchmark FileBuffer creation from files of various sizes
+/// Benchmark `FileBuffer` creation from files of various sizes
 fn bench_file_buffer_creation(c: &mut Criterion) {
     let mut group = c.benchmark_group("file_buffer_creation");
 
@@ -36,14 +48,14 @@ fn bench_file_buffer_creation(c: &mut Criterion) {
             b.iter(|| {
                 let buffer = FileBuffer::new(black_box(path)).expect("should create");
                 black_box(buffer)
-            })
+            });
         });
     }
 
     group.finish();
 }
 
-/// Benchmark slice access patterns on FileBuffer
+/// Benchmark slice access patterns on `FileBuffer`
 fn bench_buffer_access(c: &mut Criterion) {
     let temp_file = create_temp_file(1_048_576); // 1MB file
     let path = temp_file.path();
@@ -60,7 +72,7 @@ fn bench_buffer_access(c: &mut Criterion) {
                 sum = sum.wrapping_add(u64::from(byte));
             }
             black_box(sum)
-        })
+        });
     });
 
     // Random access pattern (simulating rule evaluation)
@@ -74,7 +86,7 @@ fn bench_buffer_access(c: &mut Criterion) {
                 }
             }
             black_box(sum)
-        })
+        });
     });
 
     // Slice extraction (common in rule evaluation)
@@ -87,7 +99,7 @@ fn bench_buffer_access(c: &mut Criterion) {
                 slice.get(64..128),
             ];
             black_box(slices)
-        })
+        });
     });
 
     group.finish();
@@ -117,7 +129,7 @@ fn bench_small_files(c: &mut Criterion) {
                         (None, slice.len())
                     };
                     black_box(result)
-                })
+                });
             },
         );
     }

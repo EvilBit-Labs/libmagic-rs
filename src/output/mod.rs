@@ -303,6 +303,8 @@ impl MatchResult {
         let length = match &m.value {
             Value::Bytes(b) => b.len(),
             Value::String(s) => s.len(),
+            // `bit_width()` returns multiples of 8, so the division is exact.
+            #[allow(clippy::integer_division)]
             Value::Uint(_) | Value::Int(_) | Value::Float(_) => m
                 .type_kind
                 .bit_width()
@@ -1052,7 +1054,7 @@ mod tests {
         // Verify all matches have proper rule paths
         for match_result in &result.matches {
             assert!(!match_result.rule_path.is_empty());
-            assert!(match_result.rule_path[0] == "elf");
+            assert_eq!(match_result.rule_path[0], "elf");
         }
     }
 }

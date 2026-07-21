@@ -528,6 +528,9 @@ fn flagged_string_bytes_consumed(
 /// Used for the `/T` (`STRING_TRIM`) flag on `string` rules. ASCII-only
 /// trim matches libmagic's `isspace`-based contract; full Unicode
 /// whitespace handling is out of scope.
+// Slicing is invariant-safe: `start <= end <= s.len()` by construction
+// (`position`/`rposition` results).
+#[allow(clippy::indexing_slicing)]
 fn trim_ascii_whitespace(s: &[u8]) -> &[u8] {
     let start = s
         .iter()
@@ -654,6 +657,8 @@ pub(crate) fn bytes_consumed_with_pattern(
     pattern: Option<&Value>,
 ) -> usize {
     if let Some(bits) = type_kind.bit_width() {
+        // `bit_width()` returns multiples of 8, so the division is exact.
+        #[allow(clippy::integer_division)]
         let width = (bits as usize) / 8;
         // Bounds-check the fixed-width path so a misuse (offset past end of
         // buffer, broken read-then-call invariant) cannot advance the
@@ -829,6 +834,9 @@ fn string_bytes_consumed(buffer: &[u8], offset: usize, max_length: Option<usize>
 /// caps by `max_length`, and returns `prefix_width + payload_bytes`. Returns
 /// `0` for any unexpected condition (offset past end, prefix bytes missing,
 /// `/J` underflow), since the engine only calls this after a successful read.
+// Indexing is invariant-safe: `len_bytes` is exactly `width >= 1` bytes,
+// validated by the `checked_add` + `get` above.
+#[allow(clippy::indexing_slicing)]
 fn pstring_bytes_consumed(
     buffer: &[u8],
     offset: usize,

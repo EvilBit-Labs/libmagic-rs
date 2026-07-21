@@ -20,6 +20,9 @@ use std::num::NonZeroUsize;
 /// search-side trimming for `/T` can be done without crossing module
 /// boundaries. ASCII-only is intentional: libmagic's `STRING_TRIM` uses C
 /// `isspace`, not full Unicode whitespace.
+// Slicing is invariant-safe: `start <= end <= s.len()` by construction
+// (`position`/`rposition` results).
+#[allow(clippy::indexing_slicing)]
 fn trim_ascii_whitespace(s: &[u8]) -> &[u8] {
     let start = s
         .iter()
@@ -55,6 +58,9 @@ struct ScanHit {
 /// The `flags.start_anchor` and `flags.text_test`/`flags.bin_test` fields
 /// have no effect on whether a match is found -- they only matter to
 /// [`search_bytes_consumed`] and to future MIME-output wiring respectively.
+// Slicing is invariant-safe: `offset < buffer.len()` is checked at entry
+// and `window_len` is clamped to `remaining.len()`.
+#[allow(clippy::indexing_slicing)]
 fn find_match(
     buffer: &[u8],
     offset: usize,

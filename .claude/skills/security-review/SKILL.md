@@ -58,18 +58,23 @@ let rest = input.strip_prefix("0x").unwrap_or(input);
 
 ### 2. Unsafe Code Policy
 
-#### Zero Tolerance
+#### Deny With One Vetted Exception
 
-`unsafe_code = "forbid"` is configured as a workspace lint in
-`Cargo.toml [workspace.lints]`. This is enforced at compile time across
-the workspace; there is no `#![forbid(unsafe_code)]` attribute in
-`lib.rs`. Either grep for `unsafe_code = "forbid"` in `Cargo.toml`, or
-attempt to add an `unsafe { }` block and verify the build fails.
+`unsafe_code = "deny"` is configured as a workspace lint in
+`Cargo.toml [workspace.lints]` and inherited by the package via
+`[lints] workspace = true` (verify BOTH are present -- without the
+inheritance line the entire lint table is inert). `lib.rs` additionally
+carries `#![deny(unsafe_code)]`. Exactly one `#[allow(unsafe_code)]`
+exception is sanctioned: the memmap2 `map()` call in
+`src/io/mod.rs::create_memory_mapping`, which must keep its SAFETY
+comment (GOTCHAS S8.2). Any other `unsafe` block is a finding.
 
 #### Verification Steps
 
-- [ ] `unsafe_code = "forbid"` present in `Cargo.toml [workspace.lints]`
-- [ ] No `unsafe` blocks in project source (verified by the workspace lint)
+- [ ] `unsafe_code = "deny"` present in `Cargo.toml [workspace.lints]`
+      AND `[lints] workspace = true` present in the package section
+- [ ] `grep -rn 'allow(unsafe_code)' src/` returns only the vetted
+      memmap2 site in `src/io/mod.rs`
 - [ ] Dependencies with `unsafe` are vetted (memmap2, byteorder, nom, etc.)
 - [ ] `cargo audit` passes with no vulnerabilities
 
@@ -245,7 +250,7 @@ struct Args {
 
 ## Pre-Release Security Checklist
 
-- [ ] `unsafe_code = "forbid"` enforced in workspace lints
+- [ ] `unsafe_code = "deny"` enforced via workspace lints + `[lints] workspace = true`
 - [ ] `cargo clippy -- -D warnings` passes (run via `just ci-check`)
 - [ ] `cargo audit` clean
 - [ ] `cargo deny check` passes

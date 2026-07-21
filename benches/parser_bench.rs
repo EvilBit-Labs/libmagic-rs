@@ -9,6 +9,17 @@
 //! - Built-in rules loading
 //! - Directory loading
 
+// Test/bench code is exempt from the panic-safety restriction lints (see
+// clippy.toml); these lack an allow-*-in-tests config option, so the
+// exemption is applied per crate instead.
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    clippy::let_underscore_must_use,
+    clippy::unreadable_literal
+)]
+
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use libmagic_rs::MagicDatabase;
 use std::hint::black_box;
@@ -19,7 +30,7 @@ fn bench_builtin_rules_loading(c: &mut Criterion) {
         b.iter(|| {
             let db = MagicDatabase::with_builtin_rules().expect("should load");
             black_box(db)
-        })
+        });
     });
 }
 
@@ -35,14 +46,14 @@ fn bench_magic_file_loading(c: &mut Criterion) {
     let mut group = c.benchmark_group("magic_file_loading");
 
     // Measure throughput based on file size
-    let file_size = std::fs::metadata(magic_path).map(|m| m.len()).unwrap_or(0);
+    let file_size = std::fs::metadata(magic_path).map_or(0, |m| m.len());
     group.throughput(Throughput::Bytes(file_size));
 
     group.bench_function("load_builtin_magic_file", |b| {
         b.iter(|| {
             let db = MagicDatabase::load_from_file(black_box(magic_path)).expect("should load");
             black_box(db)
-        })
+        });
     });
 
     group.finish();
@@ -65,7 +76,7 @@ fn bench_rule_parsing(c: &mut Criterion) {
         b.iter(|| {
             let db = MagicDatabase::load_from_file(black_box(&path)).expect("should load");
             black_box(db)
-        })
+        });
     });
 
     // Numeric rule with endianness
@@ -78,16 +89,16 @@ fn bench_rule_parsing(c: &mut Criterion) {
         b.iter(|| {
             let db = MagicDatabase::load_from_file(black_box(&path)).expect("should load");
             black_box(db)
-        })
+        });
     });
 
     // Complex nested rule
-    let nested_rule = r#"0 string \x7fELF ELF
+    let nested_rule = r"0 string \x7fELF ELF
 >4 byte 1 32-bit
 >4 byte 2 64-bit
 >5 byte 1 LSB
 >5 byte 2 MSB
-"#;
+";
     group.bench_function("parse_nested_rules", |b| {
         let mut temp = NamedTempFile::new().expect("temp file");
         temp.write_all(nested_rule.as_bytes()).expect("write temp");
@@ -96,7 +107,7 @@ fn bench_rule_parsing(c: &mut Criterion) {
         b.iter(|| {
             let db = MagicDatabase::load_from_file(black_box(&path)).expect("should load");
             black_box(db)
-        })
+        });
     });
 
     group.finish();
