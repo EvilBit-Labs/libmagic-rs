@@ -33,6 +33,7 @@ jobs:
                   install: true
                   install_args: just rust cargo:cargo-deny cargo:cargo-outdated cargo:cargo-dist
                   cache: true
+                  cache_key: ${{ runner.os }}-mise-security-${{ hashFiles('**/mise.toml') }}
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Run cargo deny check
