@@ -122,17 +122,17 @@ Most OWASP Top 10 categories target web applications and are not applicable to a
 
 ## 6. Supply Chain Security
 
-| Measure             | Implementation                                                                                |
-| ------------------- | --------------------------------------------------------------------------------------------- |
-| Dependency auditing | `cargo audit` and `cargo deny` run daily in CI                                                |
-| Dependency updates  | Dependabot configured for automated PRs                                                       |
-| Pinned toolchain    | Rust stable via `rust-toolchain.toml`                                                         |
-| Reproducible builds | `Cargo.lock` and `mise.lock` committed                                                        |
-| Build provenance    | Sigstore attestations via `actions/attest-build-provenance` (wrapper around `actions/attest`) |
-| SBOM generation     | `cargo-cyclonedx` produces CycloneDX SBOM per release                                         |
-| Binary auditing     | `cargo-auditable` embeds dependency metadata in binaries                                      |
-| CI integrity        | All GitHub Actions pinned to SHA hashes                                                       |
-| Code review         | Required on all PRs; automated by CodeRabbit with security-focused checks                     |
+| Measure             | Implementation                                                                    |
+| ------------------- | --------------------------------------------------------------------------------- |
+| Dependency auditing | `cargo audit` and `cargo deny` run daily in CI                                    |
+| Dependency updates  | Dependabot configured for automated PRs                                           |
+| Pinned toolchain    | Rust stable via `rust-toolchain.toml`                                             |
+| Reproducible builds | `Cargo.lock` and `mise.lock` committed                                            |
+| Build provenance    | Sigstore attestations via `actions/attest` (SHA-pinned via `dist-workspace.toml`) |
+| SBOM generation     | `cargo-cyclonedx` produces CycloneDX SBOM per release                             |
+| Binary auditing     | `cargo-auditable` embeds dependency metadata in binaries                          |
+| CI integrity        | All GitHub Actions pinned to SHA hashes                                           |
+| Code review         | Required on all PRs; automated by CodeRabbit with security-focused checks         |
 
 ## 7. Known Limitations and Residual Risk
 

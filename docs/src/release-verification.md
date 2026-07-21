@@ -7,7 +7,7 @@ All libmagic-rs release artifacts are cryptographically signed to ensure authent
 libmagic-rs uses [Sigstore](https://www.sigstore.dev/) keyless signing via GitHub Attestations. During the release build:
 
 1. `cargo-dist` builds release artifacts in GitHub Actions
-2. `actions/attest-build-provenance` generates a signed [SLSA provenance](https://slsa.dev/) attestation for each artifact
+2. `actions/attest` generates a signed [SLSA provenance](https://slsa.dev/) attestation for each artifact
 3. The attestation is stored in GitHub's attestation ledger and Sigstore's transparency log
 
 **Keyless signing** means there are no long-lived private keys to manage or compromise. Each build receives an ephemeral signing certificate tied to the GitHub Actions workflow identity.
