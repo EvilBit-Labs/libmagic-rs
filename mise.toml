@@ -1,14 +1,20 @@
 
-# Rust toolchain tracks `stable`, and this MUST stay consistent with
-# `rust-toolchain.toml` (also `stable`). mise honors rust-toolchain.toml as an
-# idiomatic version file (`idiomatic_version_file_enable_tools = ["rust"]`), so
-# the two files declaring DIFFERENT channels previously made mise resolve two
-# separate rust toolchains, and a redundant `rustup component add` step re-added
-# rustfmt/clippy a second time -- the duplicate component installs collided on
-# the hosted CI runner (`detected conflict` / `Directory not empty`), breaking
-# every job at toolchain setup. Keeping a single consistent `stable`
-# declaration -- one `[[tools.rust]]` entry in mise.lock, no redundant
-# component-add step -- is what avoids that. `mise.lock` is committed so a
+# This file is the SOLE source of truth for the rust toolchain on the mise
+# path: the `[tools] rust` entry below declares the channel, components, and
+# targets explicitly. `rust` is deliberately NOT in
+# `idiomatic_version_file_enable_tools` (see `[settings]`), so mise does not
+# also read `rust-toolchain.toml` -- that file exists for non-mise rustup users
+# only.
+#
+# Do not re-add `rust` to that list. Doing so makes mise resolve the toolchain
+# from BOTH files; when their channels drift, mise installs two separate rust
+# toolchains whose component installs collide on hosted CI runners (`detected
+# conflict` / `Directory not empty`), breaking every job at toolchain setup.
+# The same collision class is why there is no redundant `rustup component add`
+# step in CI -- components come from the entry below.
+#
+# `rust-toolchain.toml` must still track `stable` to match this file, so rustup
+# and mise users build on the same compiler. `mise.lock` is committed so a
 # given commit resolves a consistent toolchain across machines; note `stable`
 # is a moving channel, so this is stable-tracking rather than a frozen version
 # pin -- the resolved rustc advances whenever the lockfile is refreshed. When
