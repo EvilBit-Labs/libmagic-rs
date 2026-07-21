@@ -45,14 +45,20 @@ fn test_parse_magic_rule_meta_types() {
         (
             "0 use part2",
             0,
-            TypeKind::Meta(MetaType::Use("part2".to_string())),
+            TypeKind::Meta(MetaType::Use {
+                name: "part2".to_string(),
+                flip_endian: false,
+            }),
             "",
         ),
         ("0 indirect", 0, TypeKind::Meta(MetaType::Indirect), ""),
         (
             ">0 use part2",
             1,
-            TypeKind::Meta(MetaType::Use("part2".to_string())),
+            TypeKind::Meta(MetaType::Use {
+                name: "part2".to_string(),
+                flip_endian: false,
+            }),
             "",
         ),
     ];
@@ -103,24 +109,35 @@ fn test_parse_magic_rule_meta_name_use_reject_malformed_identifiers() {
     }
 
     // Identifiers followed by whitespace + descriptive text are accepted:
-    // real-world magic files use this for human-readable annotations
-    // (e.g. `/usr/share/file/magic/database` line 588 has
-    // `0 name xbase-prf dBase Printer Form`, where "dBase Printer Form"
-    // is a comment, not part of the identifier). The identifier ends at
-    // the first non-id character (space, tab) and any trailing text on
-    // the same line is discarded. Verify that this dropping happens
-    // cleanly: the parsed identifier is just the first id-token.
+    // real-world magic files use this for human-readable annotations. The
+    // identifier always ends at the first non-id character (space, tab), so
+    // `expected_id` is the first token. The trailing text handling then
+    // DIVERGES by directive, matching GNU `file`:
+    //   - `name`: the trailing text IS the subroutine's own description and
+    //     is preserved as the rule message (emitted at the `use` site, e.g.
+    //     `0 name xbase-prf dBase Printer Form`).
+    //   - `use`: a use-site has no message slot; the trailing text is
+    //     dropped (`0 use foo bar` renders no `bar`).
     let trailing_text_cases = [
-        ("0 name part 2", "part"),
-        ("0 use part2 extra", "part2"),
-        ("0 name my id", "my"),
-        ("0 use foo bar", "foo"),
+        ("0 name part 2", "part", "2"),
+        ("0 name my id", "my", "id"),
+        (
+            "0 name xbase-prf dBase Printer Form",
+            "xbase-prf",
+            "dBase Printer Form",
+        ),
+        // Mach-O universal subroutine: the `\b [` no-separator marker + `[`
+        // must survive parsing verbatim (the leading `\b` is a literal
+        // backslash-b, preserved per GOTCHAS S14.1).
+        ("0 name mach-o \\b [", "mach-o", "\\b ["),
+        ("0 use part2 extra", "part2", ""),
+        ("0 use foo bar", "foo", ""),
     ];
-    for (input, expected_id) in trailing_text_cases {
+    for (input, expected_id, expected_message) in trailing_text_cases {
         let (_, rule) = parse_magic_rule(input)
             .unwrap_or_else(|e| panic!("trailing text after id should parse {input:?}: {e:?}"));
         match &rule.typ {
-            TypeKind::Meta(MetaType::Name(id) | MetaType::Use(id)) => {
+            TypeKind::Meta(MetaType::Name(id) | MetaType::Use { name: id, .. }) => {
                 assert_eq!(
                     id, expected_id,
                     "identifier should stop at first whitespace for {input:?}"
@@ -128,6 +145,10 @@ fn test_parse_magic_rule_meta_name_use_reject_malformed_identifiers() {
             }
             other => panic!("expected Name/Use meta, got {other:?}"),
         }
+        assert_eq!(
+            rule.message, expected_message,
+            "message mismatch for {input:?} (name preserves trailing text, use drops it)"
+        );
     }
 
     // Sanity check: an identifier followed only by trailing whitespace still parses.
@@ -137,7 +158,40 @@ fn test_parse_magic_rule_meta_name_use_reject_malformed_identifiers() {
         TypeKind::Meta(MetaType::Name("part2".to_string()))
     );
     let (_, rule) = parse_magic_rule("0 use part2\t").expect("trailing tab is ok");
-    assert_eq!(rule.typ, TypeKind::Meta(MetaType::Use("part2".to_string())));
+    assert_eq!(
+        rule.typ,
+        TypeKind::Meta(MetaType::Use {
+            name: "part2".to_string(),
+            flip_endian: false
+        })
+    );
+}
+
+#[test]
+fn test_parse_use_caret_prefix_sets_flip_endian() {
+    // magic(5) `use \^name` (the `\^` endian-flip prefix, issue #236) parses
+    // to `MetaType::Use { flip_endian: true }`; the `\^` is consumed and the
+    // bare identifier is preserved. A plain `use name` stays `flip_endian:
+    // false`. This is the real `images` TIFF `>(4.L) use \^tiff_ifd` shape.
+    let (_, flipped) = parse_magic_rule(">0 use \\^tiff_ifd").expect("flip use parses");
+    assert_eq!(
+        flipped.typ,
+        TypeKind::Meta(MetaType::Use {
+            name: "tiff_ifd".to_string(),
+            flip_endian: true,
+        }),
+        "`use \\^name` must set flip_endian and strip the \\^ prefix"
+    );
+
+    let (_, plain) = parse_magic_rule(">0 use tiff_ifd").expect("plain use parses");
+    assert_eq!(
+        plain.typ,
+        TypeKind::Meta(MetaType::Use {
+            name: "tiff_ifd".to_string(),
+            flip_endian: false,
+        }),
+        "a plain `use name` must leave flip_endian false"
+    );
 }
 
 #[test]
@@ -203,7 +257,10 @@ fn test_parse_text_magic_file_meta_roundtrip() {
 
     assert_eq!(
         rules[0].typ,
-        TypeKind::Meta(MetaType::Use("subroutine".to_string()))
+        TypeKind::Meta(MetaType::Use {
+            name: "subroutine".to_string(),
+            flip_endian: false,
+        })
     );
     assert_eq!(rules[1].typ, TypeKind::Meta(MetaType::Default));
     assert_eq!(rules[2].typ, TypeKind::Meta(MetaType::Clear));

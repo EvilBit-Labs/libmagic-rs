@@ -9,6 +9,7 @@
 //! The module follows a structured approach where evaluation results contain metadata
 //! about the evaluation process and a list of matches found during rule processing.
 
+pub mod ascmagic;
 pub mod format;
 pub mod json;
 pub mod text;
@@ -1054,7 +1055,10 @@ mod tests {
         // Verify all matches have proper rule paths
         for match_result in &result.matches {
             assert!(!match_result.rule_path.is_empty());
-            assert_eq!(match_result.rule_path[0], "elf");
+            assert_eq!(
+                match_result.rule_path.first().map(String::as_str),
+                Some("elf")
+            );
         }
     }
 }

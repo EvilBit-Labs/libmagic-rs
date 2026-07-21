@@ -76,7 +76,7 @@ fn search_rule(
     MagicRule::new(
         offset,
         TypeKind::Search {
-            range: NonZeroUsize::new(range).expect("range must be non-zero"),
+            range: NonZeroUsize::new(range),
             flags: SearchFlags::default(),
         },
         Operator::Equal,
@@ -290,16 +290,33 @@ fn test_search_parser_roundtrip_with_range() {
     assert_eq!(matches[0].message, "found ABC");
 }
 
-/// Parser rejects bare `search` without range even from magic-file
-/// text -- the `NonZeroUsize` constraint is enforced at parse time.
+/// Parser ACCEPTS bare `search` (no `/N`) and records an open (`None`)
+/// range = scan-to-EOF, matching GNU `file`'s implementation (`str_range
+/// == 0`). magic(5) documents the count as required, but the reference
+/// binary accepts the bare form; real system magic relies on it (pdf
+/// `>8 search /Count`, `0 search ##fileformat=VCFv`). `search/0` is still
+/// rejected (see grammar unit tests). See GOTCHAS S2.13.
 #[test]
-fn test_search_parser_rejects_bare_search() {
-    let magic = r#"0 search "ABC" bogus"#;
-    let result = parse_text_magic_file(magic);
+fn test_search_parser_accepts_bare_search_scan_to_eof() {
+    use libmagic_rs::parser::ast::TypeKind;
+
+    let magic = r#"0 search "ABC" found ABC bare"#;
+    let ParsedMagic { rules, .. } =
+        parse_text_magic_file(magic).expect("bare `search` must parse (scan-to-EOF)");
+    assert_eq!(rules.len(), 1);
     assert!(
-        result.is_err(),
-        "bare `search` (no /N) should be a parse error"
+        matches!(rules[0].typ, TypeKind::Search { range: None, .. }),
+        "bare search must yield range None, got {:?}",
+        rules[0].typ
     );
+
+    // And it actually matches a pattern past any bounded window.
+    let mut buffer = b"prefix".to_vec();
+    buffer.extend(std::iter::repeat_n(b'.', 500));
+    buffer.extend_from_slice(b"ABC");
+    let matches = run_rules(&rules, &buffer);
+    assert_eq!(matches.len(), 1, "bare search should find ABC at EOF");
+    assert_eq!(matches[0].message, "found ABC bare");
 }
 
 /// Parser round-trip for `regex/N` (byte-count variant). Exercises the

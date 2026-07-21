@@ -1,6 +1,6 @@
 [package]
 name = "libmagic-rs"
-version = "0.10.0"
+version = "0.11.0"
 edition = "2024"
 authors = ["UncleSp1d3r <unclespid3r@evilbitlabs.io>"]
 description = "A pure-Rust implementation of libmagic for file type identification"
@@ -31,11 +31,6 @@ exclude = [
     # directory via `cargo +nightly fuzz run <target>`.
     "/fuzz",
 ]
-
-# Opt this package into the workspace lint table below. Without this,
-# [workspace.lints] is inert and none of the security lints apply.
-[lints]
-workspace = true
 
 # Workspace lint configuration
 [workspace.lints.rust]
@@ -197,7 +192,15 @@ clap = { version = "4.6.1", features = ["derive"] }
 clap-stdin = "0.8.1"
 clap_complete = "4.6.5"
 ctrlc = { version = "3.5.2", features = ["termination"] }
-env_logger = "0.11"
+# `humantime` (an env_logger default feature) is the sole path that pulls in
+# `jiff` -> `defmt` -> `bitflags 1.3.2`, which collides with the workspace's
+# `bitflags 2.x` and trips `clippy::multiple_crate_versions`. We only call
+# `env_logger::init()` and never render log timestamps, so we drop it and keep
+# color + RUST_LOG regex filtering.
+env_logger = { version = "0.11", default-features = false, features = [
+    "auto-color",
+    "regex",
+] }
 log = "0.4"
 memchr = "2.8.1"
 memmap2 = "0.9.10"
@@ -221,6 +224,12 @@ nix = { version = "0.31.3", features = ["fs"] }
 predicates = "3.1.4"
 proptest = "1.11.0"
 tempfile = "3.27.0"
+testing_logger = "0.1.1"
+
+# Opt this package into the workspace lint table below. Without this,
+# [workspace.lints] is inert and none of the security lints apply.
+[lints]
+workspace = true
 
 [[bench]]
 name = "parser_bench"

@@ -29,34 +29,50 @@ jobs:
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-            - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+            - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
+                  # Install only the tools this job uses. Installing the full
+                  # mise tool set pulls in no-prebuilt cargo tools (cargo-audit,
+                  # mdbook-*) whose cargo-install fallback fails on hosted
+                  # runners; the audit/docs workflows install those where needed.
+                  install_args: rust just
                   cache: true
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Ensure rustfmt and clippy are installed
-              run: rustup component add rustfmt clippy
-
+            # rustfmt + clippy are installed by mise's rust component set
+            # (`components = "...,rustfmt,clippy"`). A second `rustup component
+            # add` here re-added them and collided with mise's install on the
+            # hosted runner (`detected conflict` / `Directory not empty`), so it
+            # is intentionally removed.
             - name: Check formatting
               run: just lint-rust
 
     test:
         runs-on: ubuntu-latest
+        # Gate on `quality` so it populates the shared mise/toolchain cache
+        # FIRST. Without this, `quality` and `test` start together and both run
+        # a cold-cache `mise-action` install concurrently, racing on the same
+        # cache key (`detected conflict` / `Directory not empty`). Serializing
+        # them means `quality` writes the cache and every downstream job
+        # (`test`, and transitively `coverage` / `test-cross-platform`) restores
+        # the warm cache instead of racing to populate it.
+        needs: quality
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-            - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+            - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
+                  install_args: rust cargo:cargo-nextest
                   cache: true
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Run tests (all features)
-              run: cargo nextest run --all-features
+              run: mise x -- cargo nextest run --all-features
 
             - name: Build release
-              run: cargo build --release --all-features
+              run: mise x -- cargo build --release --all-features
 
     test-cross-platform:
         strategy:
@@ -74,16 +90,29 @@ jobs:
         runs-on: ${{ matrix.os }}
         needs: test
         timeout-minutes: 20
+        # `mise.toml` sets `exec_auto_install = true`, so `mise x` would
+        # otherwise auto-install the ENTIRE tool set before running. Several
+        # `cargo:` dev tools (cargo-audit, mdbook-*, git-cliff, ...) have no
+        # prebuilt binary on macOS/Windows and mise's cargo-install fallback
+        # is disabled, so that auto-install fatally fails on those runners
+        # (it only ever "passed" on ubuntu because every tool has a prebuilt,
+        # and this job never ran before -- it is gated on `test`, which was
+        # red until now). Disable exec-time auto-install so `mise x` uses only
+        # the scoped `install_args` tools (rust + cargo-nextest), which is all
+        # these steps need.
+        env:
+            MISE_EXEC_AUTO_INSTALL: "false"
         steps:
             - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-            - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+            - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
+                  install_args: rust cargo:cargo-nextest
                   cache: true
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
-            - run: cargo nextest run --all-features
-            - run: cargo build --release --all-features
+            - run: mise x -- cargo nextest run --all-features
+            - run: mise x -- cargo build --release --all-features
 
     coverage:
         runs-on: ubuntu-latest
@@ -91,22 +120,23 @@ jobs:
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-            - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+            - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
+                  install_args: rust cargo:cargo-nextest cargo:cargo-llvm-cov
                   cache: true
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Generate coverage
               # Use --test-threads=1 to prevent race conditions in stdin-mocking tests
               # that manipulate file descriptors (dup/dup2) which aren't thread-safe
-              run: cargo llvm-cov --all-features --no-report -- --test-threads=1
+              run: mise x -- cargo llvm-cov --all-features --no-report -- --test-threads=1
 
             - name: Combine coverage reports
-              run: cargo llvm-cov report --lcov --output-path lcov.info
+              run: mise x -- cargo llvm-cov report --lcov --output-path lcov.info
 
             - name: Enforce 85% coverage threshold
-              run: cargo llvm-cov report --fail-under-lines 85
+              run: mise x -- cargo llvm-cov report --fail-under-lines 85
 
             - name: Upload to Codecov
               uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0

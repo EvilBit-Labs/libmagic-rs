@@ -79,8 +79,13 @@ fn test_builtin_format_detection() {
     }
 
     // PDF and GIF are not currently detected by builtin rules, so they fall
-    // through to the "data" fallback. We verify the CLI runs without error and
-    // produces either the format name or "data".
+    // through to the text/data fallback (GOTCHAS S13.2). `PDF_HEADER`
+    // (`%PDF-1.4`) and `GIF_HEADER` (`GIF89a`) are both plain ASCII, so the
+    // fallback classifies them as "ASCII text" (matching GNU `file`'s
+    // ascmagic behavior for readable content), not "data" -- "data" is
+    // reserved for genuinely binary content. We verify the CLI runs
+    // without error and produces either the format name or the text
+    // fallback.
     let fallback_cases = [
         ("test.pdf", PDF_HEADER, "PDF"),
         ("test.gif", GIF_HEADER, "GIF"),
@@ -92,7 +97,9 @@ fn test_builtin_format_detection() {
             .args(["--use-builtin", path_str(&test_file)])
             .assert()
             .success()
-            .stdout(predicate::str::contains(format_name).or(predicate::str::contains("data")));
+            .stdout(
+                predicate::str::contains(format_name).or(predicate::str::contains("ASCII text")),
+            );
     }
 }
 
@@ -124,7 +131,15 @@ fn test_builtin_with_json() {
 #[test]
 fn test_builtin_unknown_file_returns_data() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let test_file = create_data_file(&temp_dir, "unknown.bin", b"random data here");
+    // Genuinely binary (non-ASCII, invalid-UTF-8) content so the text/data
+    // fallback (GOTCHAS S13.2) reports "data" -- an ASCII buffer would
+    // instead fall back to "ASCII text", which is what this test's name
+    // and assertion specifically exercise.
+    let test_file = create_data_file(
+        &temp_dir,
+        "unknown.bin",
+        &[0x00, 0x01, 0x02, 0xFF, 0xFE, 0x80, 0x81],
+    );
 
     rmagic_cmd()
         .args(["--use-builtin", path_str(&test_file)])
@@ -142,7 +157,10 @@ fn test_stdin_format_detection() {
     let cases: &[(&str, &[u8], Option<&str>)] = &[
         ("ELF via stdin", ELF_HEADER, Some("ELF")),
         ("PNG via stdin", PNG_SIGNATURE, Some("PNG")),
-        ("empty stdin", b"", Some("data")),
+        // Empty input falls back to "empty" (GOTCHAS S13.2 text/data
+        // fallback), matching GNU `file`'s literal output for a
+        // zero-byte input -- not the old hardcoded "data".
+        ("empty stdin", b"", Some("empty")),
         ("unknown content", b"sample data", None),
     ];
 
@@ -219,21 +237,26 @@ fn test_stdin_no_false_truncation_warning() {
 
 #[test]
 fn test_stdin_strict_mode_with_empty_input() {
-    // Empty stdin in strict mode should still succeed (empty file is valid)
+    // Empty stdin in strict mode should still succeed (empty file is
+    // valid). The text/data fallback (GOTCHAS S13.2) reports "empty" for
+    // a zero-byte buffer, matching GNU `file` -- not the old hardcoded
+    // "data".
     rmagic_cmd()
         .args(["--use-builtin", "--strict", "-"])
         .write_stdin(b"" as &[u8])
         .assert()
         .success()
-        .stdout(predicate::str::contains("stdin: data"));
+        .stdout(predicate::str::contains("stdin: empty"));
 }
 
 #[test]
 fn test_stdin_non_strict_continues_on_unknown() {
-    // Non-strict mode should continue without error on unknown content
+    // Non-strict mode should continue without error on unknown content.
+    // Genuinely binary content so the text/data fallback reports "data"
+    // rather than "ASCII text".
     rmagic_cmd()
         .args(["--use-builtin", "-"])
-        .write_stdin(b"random unrecognized content" as &[u8])
+        .write_stdin(&[0x00u8, 0x01, 0x02, 0xFF, 0xFE, 0x80, 0x81] as &[u8])
         .assert()
         .success()
         .stdout(predicate::str::contains("data"));
@@ -548,7 +571,14 @@ fn test_custom_magic_file_fallback_to_data() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let magic_content = "# Test magic file\n0 byte 0xff Marker\n";
     let magic_file = create_magic_file(&temp_dir, magic_content);
-    let data_file = create_data_file(&temp_dir, "test.bin", b"plain text");
+    // Genuinely binary content (no custom rule matches, and it is not
+    // ASCII/UTF-8 text) so the text/data fallback (GOTCHAS S13.2) reports
+    // "data" as this test's name asserts.
+    let data_file = create_data_file(
+        &temp_dir,
+        "test.bin",
+        &[0x00u8, 0x01, 0x02, 0xFF, 0xFE, 0x80, 0x81],
+    );
 
     rmagic_cmd()
         .args(["--magic-file", path_str(&magic_file), path_str(&data_file)])
@@ -590,11 +620,14 @@ fn test_empty_file() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let path = create_data_file(&temp_dir, "empty.bin", b"");
 
+    // The text/data fallback (GOTCHAS S13.2) reports "empty" for a
+    // zero-byte file, matching GNU `file`'s literal output -- not the
+    // old hardcoded "data".
     rmagic_cmd()
         .args(["--use-builtin", path_str(&path)])
         .assert()
         .success()
-        .stdout(predicate::str::contains("data"));
+        .stdout(predicate::str::contains("empty"));
 }
 
 #[test]
@@ -602,9 +635,11 @@ fn test_very_small_file() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let path = create_data_file(&temp_dir, "small.bin", b"x");
 
+    // A single printable ASCII byte falls back to "ASCII text" (GOTCHAS
+    // S13.2), matching GNU `file` -- not "data".
     rmagic_cmd()
         .args(["--use-builtin", path_str(&path)])
         .assert()
         .success()
-        .stdout(predicate::str::contains("data"));
+        .stdout(predicate::str::contains("ASCII text"));
 }

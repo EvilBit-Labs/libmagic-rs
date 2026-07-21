@@ -21,7 +21,7 @@ pub fn make_context_with_env(name_table: NameTable, root_rules: &[MagicRule]) ->
     EvaluationContext::new(EvaluationConfig::default()).with_rule_env(env)
 }
 
-/// Minimal helper: wrap a `TypeKind::Meta(MetaType::Use(name))` rule at
+/// Minimal helper: wrap a `TypeKind::Meta(MetaType::Use { name, .. })` rule at
 /// offset 0 with the given `message` and empty child list.
 pub fn use_rule(name: &str) -> MagicRule {
     use_rule_at(name, 0)
@@ -33,7 +33,10 @@ pub fn use_rule(name: &str) -> MagicRule {
 pub fn use_rule_at(name: &str, offset: i64) -> MagicRule {
     MagicRule {
         offset: OffsetSpec::Absolute(offset),
-        typ: TypeKind::Meta(MetaType::Use(name.to_string())),
+        typ: TypeKind::Meta(MetaType::Use {
+            name: name.to_string(),
+            flip_endian: false,
+        }),
         op: Operator::Equal,
         value: Value::Uint(0),
         message: format!("use {name}"),

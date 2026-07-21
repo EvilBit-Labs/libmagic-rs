@@ -34,6 +34,7 @@ fn evaluate_single_rule_legacy(
         0,
         0,
         crate::evaluator::types::DEFAULT_MAX_STRING_LENGTH,
+        false,
     )
 }
 
@@ -716,6 +717,10 @@ fn test_evaluate_single_rule_cross_type_comparison() {
 
 #[test]
 fn test_evaluate_single_rule_bitwise_and_with_shorts() {
+    // BitwiseAnd requires ALL masked bits to be set (see GOTCHAS S13.3):
+    // `(value & mask) == mask`, not merely "some bit overlaps". The mask
+    // here (0xff00) asks "is the entire high byte set" -- so the buffer's
+    // high byte must genuinely be 0xff for this to match.
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Short {
@@ -731,13 +736,22 @@ fn test_evaluate_single_rule_bitwise_and_with_shorts() {
         value_transform: None,
     };
 
-    let buffer = &[0x34, 0x12];
-    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
+    // Little-endian [0x34, 0xff] -> 0xff34; high byte is 0xff, all mask bits set.
+    let matching_buffer = &[0x34, 0xff];
+    let result = evaluate_single_rule_legacy(&rule, matching_buffer).unwrap();
     assert!(result.is_some());
+
+    // Little-endian [0x34, 0x12] -> 0x1234; high byte is 0x12, not all mask
+    // bits set, so this must NOT match under the corrected semantics.
+    let non_matching_buffer = &[0x34, 0x12];
+    let result = evaluate_single_rule_legacy(&rule, non_matching_buffer).unwrap();
+    assert!(result.is_none());
 }
 
 #[test]
 fn test_evaluate_single_rule_bitwise_and_with_longs() {
+    // Same "all masked bits set" contract as the shorts test above, applied
+    // to a 32-bit mask spanning the high word.
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Long {
@@ -753,9 +767,17 @@ fn test_evaluate_single_rule_bitwise_and_with_longs() {
         value_transform: None,
     };
 
-    let buffer = &[0x12, 0x34, 0x56, 0x78];
-    let result = evaluate_single_rule_legacy(&rule, buffer).unwrap();
+    // Big-endian [0xff, 0xff, 0x56, 0x78] -> 0xffff5678; high word is 0xffff,
+    // all mask bits set.
+    let matching_buffer = &[0xff, 0xff, 0x56, 0x78];
+    let result = evaluate_single_rule_legacy(&rule, matching_buffer).unwrap();
     assert!(result.is_some());
+
+    // Big-endian [0x12, 0x34, 0x56, 0x78] -> 0x12345678; high word is
+    // 0x1234, not all mask bits set, so this must NOT match.
+    let non_matching_buffer = &[0x12, 0x34, 0x56, 0x78];
+    let result = evaluate_single_rule_legacy(&rule, non_matching_buffer).unwrap();
+    assert!(result.is_none());
 }
 
 #[test]
@@ -1225,6 +1247,293 @@ fn test_evaluate_rules_multiple_rules_find_all() {
     assert_eq!(matches.len(), 2);
     assert_eq!(matches[0].message, "First match");
     assert_eq!(matches[1].message, "Second match");
+}
+
+/// Build a flat, top-level, message-only byte rule matching a distinct
+/// value at a distinct offset. Shared by the `stop_at_first_match`
+/// message-bearing tests below so each test only needs to state the
+/// interesting bit: which offsets carry which messages.
+fn message_only_byte_rule(offset: i64, byte: u8, message: &str) -> MagicRule {
+    MagicRule {
+        offset: OffsetSpec::Absolute(offset),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(byte)),
+        message: message.to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    }
+}
+
+/// GOTCHAS S13.2 (refined): a message-less top-level match must not
+/// shadow a later, message-bearing sibling under `stop_at_first_match:
+/// true`. This is the exact shape of the assembler-source-text /
+/// plain-ASCII-text blank-output bug -- a gating rule with no message
+/// matches first in strength order and used to terminate evaluation
+/// before the real classification rule was ever tried.
+#[test]
+fn test_evaluate_rules_message_less_match_does_not_stop_at_first_match() {
+    let buffer = &[0xAA, 0xBB, 0xCC, 0xDD];
+    let gating_rule = message_only_byte_rule(0, 0xAA, "");
+    let real_rule = message_only_byte_rule(1, 0xBB, "Second match");
+
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&[gating_rule, real_rule], buffer, &mut context).unwrap();
+
+    // Both rules matched: the message-less gating rule did not terminate
+    // the search, so the message-bearing rule behind it was reached and
+    // its match is present.
+    assert_eq!(matches.len(), 2, "both rules should have matched");
+    assert_eq!(matches[0].message, "");
+    assert_eq!(matches[1].message, "Second match");
+}
+
+/// Reverse of the above: when the message-BEARING rule comes first, the
+/// original `stop_at_first_match` short-circuit still applies -- this
+/// fix only relaxes the stop condition for message-less matches, it does
+/// not disable early-exit for the common (and performance-sensitive)
+/// case where the very first top-level rule already produces output.
+#[test]
+fn test_evaluate_rules_message_bearing_match_still_stops_at_first_match() {
+    let buffer = &[0xAA, 0xBB, 0xCC, 0xDD];
+    let real_rule = message_only_byte_rule(0, 0xAA, "First match");
+    let gating_rule = message_only_byte_rule(1, 0xBB, "");
+    let never_reached = message_only_byte_rule(2, 0xCC, "Should not be reached");
+
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(
+        &[real_rule, gating_rule, never_reached],
+        buffer,
+        &mut context,
+    )
+    .unwrap();
+
+    assert_eq!(
+        matches.len(),
+        1,
+        "evaluation must still stop right after the first message-bearing match"
+    );
+    assert_eq!(matches[0].message, "First match");
+}
+
+/// Several message-less matches in a row must all be skipped over (not
+/// discarded -- just not treated as terminating) until a message-bearing
+/// rule is reached, at which point the usual stop-at-first-match
+/// short-circuit applies again.
+#[test]
+fn test_evaluate_rules_multiple_message_less_matches_before_a_real_one() {
+    let buffer = &[0xAA, 0xBB, 0xCC, 0xDD];
+    let gating_one = message_only_byte_rule(0, 0xAA, "");
+    let gating_two = message_only_byte_rule(1, 0xBB, "");
+    let real_rule = message_only_byte_rule(2, 0xCC, "Real message");
+    let never_reached = message_only_byte_rule(3, 0xDD, "Should not be reached");
+
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(
+        &[gating_one, gating_two, real_rule, never_reached],
+        buffer,
+        &mut context,
+    )
+    .unwrap();
+
+    assert_eq!(matches.len(), 3);
+    assert_eq!(matches[0].message, "");
+    assert_eq!(matches[1].message, "");
+    assert_eq!(matches[2].message, "Real message");
+}
+
+/// Genuinely-no-usable-output case: every top-level rule matches but
+/// none of them carries a message. Under `stop_at_first_match: true`
+/// evaluation must run to exhaustion (there is nothing to stop at) --
+/// all matches are collected, and it is the caller's (here:
+/// `MagicDatabase::build_result`'s) job to fall back to text/data
+/// classification when the resulting description is empty.
+#[test]
+fn test_evaluate_rules_all_message_less_matches_runs_to_exhaustion() {
+    let buffer = &[0xAA, 0xBB];
+    let gating_one = message_only_byte_rule(0, 0xAA, "");
+    let gating_two = message_only_byte_rule(1, 0xBB, "");
+
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&[gating_one, gating_two], buffer, &mut context).unwrap();
+
+    assert_eq!(matches.len(), 2, "both message-less matches are retained");
+    assert!(matches.iter().all(|m| m.message.is_empty()));
+}
+
+/// A message consisting solely of whitespace, or solely of the GNU
+/// `file` backspace continuation marker (`\b`), is just as
+/// "message-less" as an empty string for `stop_at_first_match` purposes
+/// -- see `is_message_bearing`'s doc comment for the rationale.
+#[test]
+fn test_evaluate_rules_whitespace_and_backspace_only_messages_do_not_stop() {
+    let buffer = &[0xAA, 0xBB, 0xCC];
+    let whitespace_only = message_only_byte_rule(0, 0xAA, "   ");
+    let backspace_only = message_only_byte_rule(1, 0xBB, "\u{8}");
+    let real_rule = message_only_byte_rule(2, 0xCC, "Real message");
+
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(
+        &[whitespace_only, backspace_only, real_rule],
+        buffer,
+        &mut context,
+    )
+    .unwrap();
+
+    assert_eq!(matches.len(), 3);
+    assert_eq!(matches[2].message, "Real message");
+}
+
+/// Regression for the `is_message_bearing` literal-`\b`-marker gap (PR #376
+/// review finding). The GNU `file` no-separator marker most often reaches the
+/// evaluator as the LITERAL two-character sequence `\b` (backslash + `'b'`),
+/// not the raw `U+0008` byte, because the message parser preserves description
+/// text verbatim (GOTCHAS S14.1). A rule whose message is exactly the literal
+/// marker renders to empty in `concatenate_messages`, so it must be classified
+/// message-less here too -- otherwise it could win the `stop_at_first_match`
+/// race and shadow a later, more specific rule (the S13.2 blank-output bug
+/// class). The prior implementation only trimmed `U+0008` and would have
+/// treated `"\\b"` as message-bearing.
+#[test]
+fn test_literal_backspace_marker_message_is_message_less_and_does_not_stop() {
+    // Direct predicate: both marker forms (and whitespace-padded variants) are
+    // message-less; a marker WITH trailing content is message-bearing.
+    assert!(
+        !is_message_bearing("\\b"),
+        "the literal `\\b` marker alone must be message-less"
+    );
+    assert!(
+        !is_message_bearing("\u{8}"),
+        "the raw U+0008 marker alone must be message-less"
+    );
+    assert!(
+        !is_message_bearing("  \\b  "),
+        "a whitespace-padded literal marker must be message-less"
+    );
+    assert!(
+        is_message_bearing("\\bversion"),
+        "a literal marker WITH content must be message-bearing"
+    );
+    assert!(
+        is_message_bearing("plain"),
+        "plain text must be message-bearing"
+    );
+
+    // End-to-end: a literal-`\b`-only gating rule must NOT stop evaluation
+    // before a later real rule under stop_at_first_match.
+    let buffer = &[0xAA, 0xBB];
+    let literal_marker_only = message_only_byte_rule(0, 0xAA, "\\b");
+    let real_rule = message_only_byte_rule(1, 0xBB, "Real message");
+
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+    let matches = evaluate_rules(&[literal_marker_only, real_rule], buffer, &mut context).unwrap();
+
+    assert_eq!(
+        matches.len(),
+        2,
+        "the literal-marker-only rule must not stop evaluation before the real rule"
+    );
+    assert_eq!(matches[1].message, "Real message");
+}
+
+/// A message-less top-level rule whose CHILD produces real output text
+/// still counts as "producing output" for `stop_at_first_match`
+/// purposes -- this is the normal, common shape for gating rules like
+/// `c-lang`'s `0 search/8192 "#include"` -> `>0 regex \^#include c`
+/// chain, and must keep stopping at the first sibling that (directly or
+/// via a descendant) yields a description; only a rule with NO
+/// message-bearing output anywhere in its subtree should be skipped
+/// past.
+#[test]
+fn test_evaluate_rules_message_less_parent_with_message_bearing_child_still_stops() {
+    let child_rule = message_only_byte_rule(1, 0xBB, "child message");
+    let mut parent_rule = message_only_byte_rule(0, 0xAA, "");
+    parent_rule.children = vec![child_rule];
+
+    let never_reached = message_only_byte_rule(2, 0xCC, "Should not be reached");
+
+    let buffer = &[0xAA, 0xBB, 0xCC];
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&[parent_rule, never_reached], buffer, &mut context).unwrap();
+
+    assert_eq!(
+        matches.len(),
+        2,
+        "parent (message-less) + child (message-bearing) should be present, \
+         and evaluation should stop there"
+    );
+    assert_eq!(matches[0].message, "");
+    assert_eq!(matches[1].message, "child message");
+}
+
+#[test]
+fn test_stop_at_first_match_does_not_truncate_child_siblings() {
+    // Regression guard: `stop_at_first_match` is a TOP-LEVEL classification
+    // concept. Once a parent matches, ALL of its matching child siblings must
+    // render even under `stop_at_first_match: true` -- the break must not fire
+    // inside a child sibling list. (An earlier revision applied the break at
+    // every recursion level, so the first message-bearing child silently
+    // truncated the rest -- dropping gzip's "max compression", "from Unix",
+    // "original size ..." fragments after the first match. See the
+    // `EvaluationConfig::stop_at_first_match` top-level-only contract.)
+    let mut parent = message_only_byte_rule(0, 0xAA, "parent");
+    parent.children = vec![
+        message_only_byte_rule(1, 0xBB, "child-1"),
+        message_only_byte_rule(2, 0xCC, "child-2"),
+        message_only_byte_rule(3, 0xDD, "child-3"),
+    ];
+
+    let buffer = &[0xAA, 0xBB, 0xCC, 0xDD];
+    let config = EvaluationConfig {
+        stop_at_first_match: true,
+        ..Default::default()
+    };
+    let mut context = EvaluationContext::new(config);
+
+    let matches = evaluate_rules(&[parent], buffer, &mut context).unwrap();
+    let messages: Vec<&str> = matches.iter().map(|m| m.message.as_str()).collect();
+    assert_eq!(
+        messages,
+        vec!["parent", "child-1", "child-2", "child-3"],
+        "all matching child siblings must render under stop_at_first_match; \
+         the break must not fire inside a child sibling list"
+    );
 }
 
 #[test]
@@ -2569,7 +2878,7 @@ fn test_search_rule_not_equal_succeeds_when_pattern_absent() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Search {
-            range: ::std::num::NonZeroUsize::new(64).unwrap(),
+            range: ::std::num::NonZeroUsize::new(64),
             flags: SearchFlags::default(),
         },
         op: Operator::NotEqual,
@@ -2621,7 +2930,7 @@ fn test_search_rule_with_bitwise_operator_is_rejected() {
     let rule = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Search {
-            range: ::std::num::NonZeroUsize::new(32).unwrap(),
+            range: ::std::num::NonZeroUsize::new(32),
             flags: SearchFlags::default(),
         },
         op: Operator::BitwiseAnd,
@@ -2690,6 +2999,620 @@ fn test_regex_parent_advances_anchor_for_relative_child() {
     assert_eq!(matches[1].message, "first digit");
 }
 
+// =============================================================================
+// fix-system-magic-regex-graceful, U2: narrow graceful-skip of the
+// missing-pattern-operand `TypeReadError::UnsupportedType` condition.
+//
+// Before this fix, a regex/search rule whose `value` operand was not a
+// `String`/`Bytes` pattern (GOTCHAS S2.4) caused `evaluate_rules` to
+// propagate a fatal `Err`, aborting evaluation of the ENTIRE rule set (and,
+// via `MagicDatabase`, the entire magic file) rather than skipping just the
+// one broken rule. See docs/plans/2026-07-17-001-fix-system-magic-regex-
+// graceful-plan.md.
+// =============================================================================
+
+/// Builds a `TypeKind::Regex` rule whose `value` is `Value::Uint(0)` --
+/// neither `Value::String` nor `Value::Bytes` -- so `read_pattern_match`
+/// always returns `Err(UnsupportedType { type_name: "regex without string
+/// pattern" })`, regardless of U1's `Value::Bytes` backstop. This isolates
+/// U2's engine-level skip from U1's evaluator-level acceptance.
+fn broken_pattern_regex_rule(message: &str, level: u32) -> MagicRule {
+    MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Regex {
+            flags: crate::parser::ast::RegexFlags::default(),
+            count: crate::parser::ast::RegexCount::Default,
+        },
+        op: Operator::Equal,
+        value: Value::Uint(0),
+        message: message.to_string(),
+        children: vec![],
+        level,
+        strength_modifier: None,
+        value_transform: None,
+    }
+}
+
+/// FLOOR ANCHOR (U2 execution note): this is the regression test that must
+/// be written and observed to FAIL before the engine fix is wired in. Prior
+/// to the fix, `evaluate_rules` returns `Err(LibmagicError::EvaluationError(
+/// EvaluationError::TypeReadError(TypeReadError::UnsupportedType { .. })))`
+/// for a top-level pattern-less regex rule -- aborting analysis of every
+/// target when the system magic DB contains such a rule. The floor
+/// requirement (R1/R2) is that `evaluate_rules` must return `Ok` and treat
+/// the broken rule as a non-match.
+#[test]
+fn test_evaluate_rules_skips_pattern_less_regex_rule_gracefully() {
+    let rule = broken_pattern_regex_rule("broken top-level regex", 0);
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let result = evaluate_rules(&[rule], b"anything to scan", &mut context);
+    let matches =
+        result.expect("evaluate_rules must not fatally abort on a pattern-less regex rule");
+    assert!(
+        matches.is_empty(),
+        "the broken rule must contribute no match, got {matches:?}"
+    );
+}
+
+/// All-three-sites parity (a): a broken pattern-less regex at the TOP LEVEL
+/// alongside a normal sibling rule -- the sibling must still match and the
+/// broken rule must be silently skipped.
+#[test]
+fn test_pattern_operand_skip_at_top_level_site() {
+    let broken = broken_pattern_regex_rule("broken top-level regex", 0);
+    let sibling = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'a')),
+        message: "leading a".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context =
+        EvaluationContext::new(EvaluationConfig::default().with_stop_at_first_match(false));
+    let matches = evaluate_rules(&[broken, sibling], b"abc", &mut context)
+        .expect("top-level pattern-less regex must be skipped, not fatal");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the sibling match, got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "leading a");
+}
+
+/// All-three-sites parity (b): a broken pattern-less regex as a CHILD under
+/// a matched parent (the inline child-recursion catch arm, ~L1108-1118).
+/// The parent match must still be emitted even though its child is broken.
+#[test]
+fn test_pattern_operand_skip_under_matched_parent_child_recursion_site() {
+    let broken_child = broken_pattern_regex_rule("broken child regex", 1);
+    let parent = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'a')),
+        message: "parent byte".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[parent], b"abc", &mut context)
+        .expect("a broken child regex must not abort evaluation of the parent");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the parent match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "parent byte");
+}
+
+/// All-three-sites parity (c): a broken pattern-less regex as a child of a
+/// `default` rule -- exercises the `evaluate_children_or_warn` path
+/// (~L522-530). The `default` match must still be emitted.
+#[test]
+fn test_pattern_operand_skip_under_default_children_or_warn_site() {
+    let broken_child = broken_pattern_regex_rule("broken default child regex", 1);
+    let default_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Meta(MetaType::Default),
+        op: Operator::AnyValue,
+        value: Value::Uint(0),
+        message: "default fallback".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[default_rule], b"anything", &mut context)
+        .expect("a broken child regex under `default` must not abort evaluation");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the default match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "default fallback");
+}
+
+/// NEGATIVE (pins R3 narrowness): an `UnsupportedType` condition that is
+/// NOT the missing-pattern-operand class -- here, a non-Equal/NotEqual
+/// operator on a pattern-bearing type -- must still propagate fatally.
+/// This proves U2's skip did not widen into swallowing the whole
+/// `UnsupportedType` variant.
+#[test]
+fn test_evaluate_rules_propagates_non_pattern_missing_unsupported_type() {
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Regex {
+            flags: crate::parser::ast::RegexFlags::default(),
+            count: crate::parser::ast::RegexCount::Default,
+        },
+        op: Operator::GreaterThan,
+        value: Value::String("[0-9]+".to_string()),
+        message: "bogus ordering".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let result = evaluate_rules(&[rule], b"abc123", &mut context);
+    assert!(
+        matches!(result, Err(LibmagicError::EvaluationError(_))),
+        "a non-pattern-missing UnsupportedType must still propagate, got {result:?}"
+    );
+}
+
+/// NEGATIVE: a regex whose pattern fails to compile under the
+/// `REGEX_COMPILE_SIZE_LIMIT` (1 MiB) CWE-1333 denial-of-service guard is skipped (not
+/// fatal) per KTD5, but this is a distinct, louder-logged condition than
+/// the ordinary missing-pattern skip. There is no log-capturing test seam
+/// in this crate (no `test-log`/`tracing-test` dev-dependency), so this
+/// test asserts only the behavioral half of the contract -- the rule is
+/// skipped, not fatal -- and the `warn!` vs `debug!` split is verified by
+/// code inspection (`log_pattern_operand_skip` in `engine/mod.rs`).
+#[test]
+fn test_pathological_regex_compile_failure_is_skipped_not_fatal() {
+    let rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Regex {
+            flags: crate::parser::ast::RegexFlags::default(),
+            count: crate::parser::ast::RegexCount::Default,
+        },
+        op: Operator::Equal,
+        value: Value::String("a{1000000}".to_string()),
+        message: "pathological regex".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[rule], b"aaaa", &mut context)
+        .expect("a regex compile-size rejection must be skipped, not fatal");
+    assert!(
+        matches.is_empty(),
+        "the pathological regex rule must contribute no match, got {matches:?}"
+    );
+}
+
+/// IO/offset arms untouched (KTD4 regression guard): a `BufferOverrun`
+/// condition (via an anchor pinned to `usize::MAX`) must still be skipped
+/// exactly as before, proving U2 added a new arm rather than replacing the
+/// pre-existing IO/offset catch set.
+#[test]
+fn test_buffer_overrun_still_skipped_after_pattern_operand_guard_added() {
+    let buffer = [0xAA, 0xBB, 0xCC, 0xDD];
+    let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+    ctx.set_last_match_end(usize::MAX);
+
+    let rule = MagicRule {
+        offset: OffsetSpec::Relative(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(0xAA),
+        message: "rel-zero-near-sat-regression".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let matches = evaluate_rules(&[rule], &buffer, &mut ctx)
+        .expect("BufferOverrun must still be skipped gracefully, not propagated");
+    assert!(
+        matches.is_empty(),
+        "Relative(0) at usize::MAX anchor must skip, not match or panic"
+    );
+}
+
+// -----------------------------------------------------------------------
+// C2 hardening: the missing-pattern-operand skip is asserted end-to-end
+// only for `Regex` above. `Search` and flagged `String` share the SAME
+// allowlisted consts (`types::SEARCH_MISSING_PATTERN_MSG` /
+// `types::FLAGGED_STRING_MISSING_PATTERN_MSG`) and the same three engine
+// catch sites, so this closes R2 for every pattern-bearing type and
+// guards the C1 const extraction against silent drift.
+// -----------------------------------------------------------------------
+
+/// Builds a `TypeKind::Search` rule whose `value` is `Value::Uint(0)` --
+/// neither `Value::String` nor `Value::Bytes` -- so `read_pattern_match`
+/// always returns `Err(UnsupportedType { type_name:
+/// SEARCH_MISSING_PATTERN_MSG })`.
+fn broken_pattern_search_rule(message: &str, level: u32) -> MagicRule {
+    MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Search {
+            range: ::std::num::NonZeroUsize::new(16),
+            flags: SearchFlags::default(),
+        },
+        op: Operator::Equal,
+        value: Value::Uint(0),
+        message: message.to_string(),
+        children: vec![],
+        level,
+        strength_modifier: None,
+        value_transform: None,
+    }
+}
+
+/// Builds a flagged `TypeKind::String` rule (non-empty `flags`, routing
+/// through the pattern-bearing path per GOTCHAS S2.4) whose `value` is
+/// `Value::Uint(0)`, so `read_pattern_match` always returns
+/// `Err(UnsupportedType { type_name: FLAGGED_STRING_MISSING_PATTERN_MSG })`.
+fn broken_pattern_flagged_string_rule(message: &str, level: u32) -> MagicRule {
+    MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::String {
+            max_length: None,
+            flags: StringFlags {
+                ignore_lowercase: true,
+                ..StringFlags::default()
+            },
+        },
+        op: Operator::Equal,
+        value: Value::Uint(0),
+        message: message.to_string(),
+        children: vec![],
+        level,
+        strength_modifier: None,
+        value_transform: None,
+    }
+}
+
+/// Top-level site: a pattern-less `search` rule is skipped, not fatal.
+#[test]
+fn test_pattern_operand_skip_at_top_level_site_search() {
+    let broken = broken_pattern_search_rule("broken top-level search", 0);
+    let sibling = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'a')),
+        message: "leading a".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context =
+        EvaluationContext::new(EvaluationConfig::default().with_stop_at_first_match(false));
+    let matches = evaluate_rules(&[broken, sibling], b"abc", &mut context)
+        .expect("top-level pattern-less search must be skipped, not fatal");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the sibling match, got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "leading a");
+}
+
+/// Child-recursion site: a pattern-less `search` rule under a matched
+/// parent must not abort the parent's match.
+#[test]
+fn test_pattern_operand_skip_under_matched_parent_child_recursion_site_search() {
+    let broken_child = broken_pattern_search_rule("broken child search", 1);
+    let parent = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'a')),
+        message: "parent byte".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[parent], b"abc", &mut context)
+        .expect("a broken child search must not abort evaluation of the parent");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the parent match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "parent byte");
+}
+
+/// `evaluate_children_or_warn` site: a pattern-less `search` rule as a
+/// child of `default` must not abort the `default` match.
+#[test]
+fn test_pattern_operand_skip_under_default_children_or_warn_site_search() {
+    let broken_child = broken_pattern_search_rule("broken default child search", 1);
+    let default_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Meta(MetaType::Default),
+        op: Operator::AnyValue,
+        value: Value::Uint(0),
+        message: "default fallback".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[default_rule], b"anything", &mut context)
+        .expect("a broken child search under `default` must not abort evaluation");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the default match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "default fallback");
+}
+
+/// Top-level site: a pattern-less flagged `string` rule is skipped, not
+/// fatal.
+#[test]
+fn test_pattern_operand_skip_at_top_level_site_flagged_string() {
+    let broken = broken_pattern_flagged_string_rule("broken top-level flagged string", 0);
+    let sibling = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'a')),
+        message: "leading a".to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context =
+        EvaluationContext::new(EvaluationConfig::default().with_stop_at_first_match(false));
+    let matches = evaluate_rules(&[broken, sibling], b"abc", &mut context)
+        .expect("top-level pattern-less flagged string must be skipped, not fatal");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the sibling match, got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "leading a");
+}
+
+/// Child-recursion site: a pattern-less flagged `string` rule under a
+/// matched parent must not abort the parent's match.
+#[test]
+fn test_pattern_operand_skip_under_matched_parent_child_recursion_site_flagged_string() {
+    let broken_child = broken_pattern_flagged_string_rule("broken child flagged string", 1);
+    let parent = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'a')),
+        message: "parent byte".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[parent], b"abc", &mut context)
+        .expect("a broken child flagged string must not abort evaluation of the parent");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the parent match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "parent byte");
+}
+
+/// `evaluate_children_or_warn` site: a pattern-less flagged `string` rule
+/// as a child of `default` must not abort the `default` match.
+#[test]
+fn test_pattern_operand_skip_under_default_children_or_warn_site_flagged_string() {
+    let broken_child = broken_pattern_flagged_string_rule("broken default child flagged string", 1);
+    let default_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Meta(MetaType::Default),
+        op: Operator::AnyValue,
+        value: Value::Uint(0),
+        message: "default fallback".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[default_rule], b"anything", &mut context)
+        .expect("a broken child flagged string under `default` must not abort evaluation");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the default match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "default fallback");
+}
+
+// -----------------------------------------------------------------------
+// E hardening: the compile-failure (warn!) skip is proven end-to-end only
+// at the top-level dispatch site above
+// (`test_pathological_regex_compile_failure_is_skipped_not_fatal`). Add
+// the two missing sites for 3-site parity with the missing-pattern
+// (debug!) coverage.
+// -----------------------------------------------------------------------
+
+/// Builds a `TypeKind::Regex` rule whose pattern is syntactically valid
+/// (`Value::String`, so U1's `Value::Bytes` backstop is irrelevant here)
+/// but rejected by the `REGEX_COMPILE_SIZE_LIMIT` (1 MiB) CWE-1333
+/// denial-of-service guard at compile time.
+fn pathological_regex_rule(message: &str, level: u32) -> MagicRule {
+    MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Regex {
+            flags: crate::parser::ast::RegexFlags::default(),
+            count: crate::parser::ast::RegexCount::Default,
+        },
+        op: Operator::Equal,
+        value: Value::String("a{1000000}".to_string()),
+        message: message.to_string(),
+        children: vec![],
+        level,
+        strength_modifier: None,
+        value_transform: None,
+    }
+}
+
+/// Child-recursion site: a regex compile-size rejection under a matched
+/// parent must not abort the parent's match.
+#[test]
+fn test_pathological_regex_compile_failure_skipped_under_matched_parent_child_recursion_site() {
+    let broken_child = pathological_regex_rule("broken compile child regex", 1);
+    let parent = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'a')),
+        message: "parent byte".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[parent], b"aaaa", &mut context)
+        .expect("a regex compile-size rejection under a matched parent must not abort evaluation");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the parent match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "parent byte");
+}
+
+/// `evaluate_children_or_warn` site: a regex compile-size rejection as a
+/// child of `default` must not abort the `default` match.
+#[test]
+fn test_pathological_regex_compile_failure_skipped_under_default_children_or_warn_site() {
+    let broken_child = pathological_regex_rule("broken compile default child regex", 1);
+    let default_rule = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Meta(MetaType::Default),
+        op: Operator::AnyValue,
+        value: Value::Uint(0),
+        message: "default fallback".to_string(),
+        children: vec![broken_child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[default_rule], b"aaaa", &mut context)
+        .expect("a regex compile-size rejection under default children must not abort evaluation");
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected only the default match (broken child skipped), got {matches:?}"
+    );
+    assert_eq!(matches[0].message, "default fallback");
+}
+
+// -----------------------------------------------------------------------
+// H hardening: pin the debug!/warn! log-level contract with a real
+// log-capture seam (`testing_logger`, which captures the `log` facade
+// this crate uses -- not `tracing`). Previously these contracts were
+// asserted by code inspection only.
+// -----------------------------------------------------------------------
+
+/// Test-only helper: `testing_logger::CapturedLog` does not implement
+/// `Debug`, so format captured logs manually for failure messages.
+fn format_logs(logs: &[testing_logger::CapturedLog]) -> String {
+    logs.iter()
+        .map(|l| format!("{:?}: {}", l.level, l.body))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The ordinary missing-pattern-operand skip (top-level site) logs at
+/// `debug!`, not `warn!` -- it is an expected, low-severity data
+/// condition, not a security-relevant signal.
+#[test]
+fn test_missing_pattern_operand_skip_logs_at_debug_level() {
+    testing_logger::setup();
+    let rule = broken_pattern_regex_rule("broken top-level regex", 0);
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[rule], b"anything to scan", &mut context)
+        .expect("pattern-less regex must be skipped, not fatal");
+    assert!(matches.is_empty());
+    testing_logger::validate(|captured_logs| {
+        let skip_logs: Vec<_> = captured_logs
+            .iter()
+            .filter(|l| l.body.contains("Skipping top-level rule"))
+            .collect();
+        assert_eq!(
+            skip_logs.len(),
+            1,
+            "expected exactly one skip log entry, got {:?}",
+            format_logs(captured_logs)
+        );
+        assert_eq!(
+            skip_logs[0].level,
+            log::Level::Debug,
+            "missing-pattern-operand skip must log at debug!, not warn! -- \
+             got {:?}: {:?}",
+            skip_logs[0].level,
+            skip_logs[0].body
+        );
+    });
+}
+
+/// A regex compile-size rejection (`REGEX_COMPILE_SIZE_LIMIT`,
+/// CWE-1333) logs at `warn!`, not `debug!` -- a malicious or pathological
+/// magic file's rejection must stay visible in logs even though
+/// evaluation of the rest of the file continues.
+#[test]
+fn test_regex_compile_failure_skip_logs_at_warn_level() {
+    testing_logger::setup();
+    let rule = pathological_regex_rule("pathological regex", 0);
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches = evaluate_rules(&[rule], b"aaaa", &mut context)
+        .expect("a regex compile-size rejection must be skipped, not fatal");
+    assert!(matches.is_empty());
+    testing_logger::validate(|captured_logs| {
+        let skip_logs: Vec<_> = captured_logs
+            .iter()
+            .filter(|l| l.body.contains("regex compile failure"))
+            .collect();
+        assert_eq!(
+            skip_logs.len(),
+            1,
+            "expected exactly one compile-failure log entry, got {:?}",
+            format_logs(captured_logs)
+        );
+        assert_eq!(
+            skip_logs[0].level,
+            log::Level::Warn,
+            "regex compile-failure skip must log at warn!, not debug! -- \
+             got {:?}: {:?}",
+            skip_logs[0].level,
+            skip_logs[0].body
+        );
+    });
+}
+
 /// A child rule with `OffsetSpec::Relative(0)` after a parent search match
 /// must land at `match_index + pattern.len()` — NOT at `window_end` (the
 /// pre-fix window-size advance would land on a completely different byte).
@@ -2714,7 +3637,7 @@ fn test_search_parent_advances_anchor_to_match_end_not_window_end() {
     let parent = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Search {
-            range: ::std::num::NonZeroUsize::new(14).unwrap(),
+            range: ::std::num::NonZeroUsize::new(14),
             flags: SearchFlags::default(),
         },
         op: Operator::Equal,
@@ -2754,7 +3677,7 @@ fn test_search_parent_relative_child_at_positive_offset() {
     let parent = MagicRule {
         offset: OffsetSpec::Absolute(0),
         typ: TypeKind::Search {
-            range: ::std::num::NonZeroUsize::new(32).unwrap(),
+            range: ::std::num::NonZeroUsize::new(32),
             flags: SearchFlags::default(),
         },
         op: Operator::Equal,
@@ -2770,6 +3693,79 @@ fn test_search_parent_relative_child_at_positive_offset() {
     let matches = evaluate_rules(&[parent], b"prefix_NEEDLE_after_stuff", &mut context).unwrap();
     assert_eq!(matches.len(), 2);
     assert_eq!(matches[1].message, "a after");
+}
+
+/// Regression (end-to-end): the Mach-O 64-bit signature rule
+/// `0 lelong&0xfffffffe 0xfeedface` must match a buffer beginning with the
+/// little-endian magic `cf fa ed fe`. `lelong` is signed, so the read is
+/// sign-extended to i64; before the width-aware masked-comparison fix the
+/// 32-bit mask cleared the high bits (making the result positive) while the
+/// rule literal stayed sign-extended (negative), so the two i64 values never
+/// compared equal and the rule silently failed -- letting a weak
+/// `measure`/Lepton rule win on real Mach-O binaries. See
+/// `operators::apply_bitwise_and_mask_with_width`.
+#[test]
+fn test_signed_masked_long_matches_macho_signature_end_to_end() {
+    use crate::parser::grammar::parse_magic_rule;
+
+    let (_, rule) = parse_magic_rule("0\tlelong&0xfffffffe\t0xfeedface\tMach-O")
+        .expect("the Mach-O magic rule must parse");
+    // Real Mach-O 64-bit header prefix (0xFEEDFACF little-endian) + padding.
+    let buffer = [0xcf_u8, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01];
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches =
+        evaluate_rules(&[rule], &buffer, &mut context).expect("evaluation must not fatally error");
+    assert!(
+        matches.iter().any(|m| m.message.contains("Mach-O")),
+        "signed lelong&0xfffffffe must detect the Mach-O signature, got: {matches:?}"
+    );
+
+    // Negative control: a non-Mach-O long must NOT match.
+    let (_, rule2) =
+        parse_magic_rule("0\tlelong&0xfffffffe\t0xfeedface\tMach-O").expect("rule must parse");
+    let other = [0x12_u8, 0x34, 0x56, 0x78];
+    let mut ctx2 = EvaluationContext::new(EvaluationConfig::default());
+    let none = evaluate_rules(&[rule2], &other, &mut ctx2).expect("evaluation must not error");
+    assert!(
+        !none.iter().any(|m| m.message.contains("Mach-O")),
+        "a non-Mach-O buffer must not match the signature"
+    );
+}
+
+/// Regression (end-to-end): a `string` rule whose value contains a byte
+/// `>= 0x80` (invalid UTF-8) must still match the raw file bytes. The gzip
+/// signature `0 string \037\213` (bytes 0x1f 0x8b, `\213` = octal 0x8b) used
+/// to silently never match: `read_string_exact` decoded the file bytes via
+/// lossy UTF-8, turning 0x8b into U+FFFD, which never equalled the raw-byte
+/// pattern -- so gzip (and any high-byte string signature) classified as
+/// `data`. `read_string_exact` now returns the raw bytes as `Value::Bytes`
+/// for non-UTF-8 slices; `apply_equal` compares Bytes/String by byte sequence.
+#[test]
+fn test_string_rule_with_high_byte_value_matches_raw_bytes_end_to_end() {
+    use crate::parser::grammar::parse_magic_rule;
+
+    // gzip magic: 0x1f 0x8b via octal escapes.
+    let (_, rule) = parse_magic_rule("0\tstring\t\\037\\213\tgzip compressed data")
+        .expect("gzip magic rule must parse");
+    let buffer = [0x1f_u8, 0x8b, 0x08, 0x00]; // real gzip header prefix
+    let mut context = EvaluationContext::new(EvaluationConfig::default());
+    let matches =
+        evaluate_rules(&[rule], &buffer, &mut context).expect("evaluation must not error");
+    assert!(
+        matches.iter().any(|m| m.message.contains("gzip")),
+        "a high-byte string value must match the raw file bytes, got: {matches:?}"
+    );
+
+    // Negative control: a buffer without the signature must not match.
+    let (_, rule2) =
+        parse_magic_rule("0\tstring\t\\037\\213\tgzip compressed data").expect("rule must parse");
+    let other = [0x1f_u8, 0x9d, 0x00, 0x00]; // 0x1f 0x9d is compress(1), not gzip
+    let mut ctx2 = EvaluationContext::new(EvaluationConfig::default());
+    let none = evaluate_rules(&[rule2], &other, &mut ctx2).expect("evaluation must not error");
+    assert!(
+        !none.iter().any(|m| m.message.contains("gzip")),
+        "a non-gzip high byte must not match the gzip signature"
+    );
 }
 
 // Flagged-string engine dispatch tests are split into
