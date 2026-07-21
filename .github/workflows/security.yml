@@ -31,6 +31,7 @@ jobs:
             - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
+                  install_args: just rust cargo:cargo-deny cargo:cargo-outdated cargo:cargo-dist
                   cache: true
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
