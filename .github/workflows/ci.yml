@@ -28,7 +28,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
-            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
@@ -37,6 +37,7 @@ jobs:
                   # mdbook-*) whose cargo-install fallback fails on hosted
                   # runners; the audit/docs workflows install those where needed.
                   install_args: rust just
+                  cache_key: "mise-v1-{{platform}}-{{install_args_hash}}-{{file_hash}}"
                   cache: true
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -60,12 +61,13 @@ jobs:
         needs: quality
         timeout-minutes: 20
         steps:
-            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
                   install_args: rust cargo:cargo-nextest
                   cache: true
+                  cache_key: "mise-v1-{{platform}}-{{install_args_hash}}-{{file_hash}}"
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Run tests (all features)
@@ -103,12 +105,13 @@ jobs:
         env:
             MISE_EXEC_AUTO_INSTALL: "false"
         steps:
-            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
                   install_args: rust cargo:cargo-nextest
                   cache: true
+                  cache_key: "mise-v1-{{platform}}-{{install_args_hash}}-{{file_hash}}"
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - run: mise x -- cargo nextest run --all-features
@@ -119,12 +122,13 @@ jobs:
         needs: test
         timeout-minutes: 20
         steps:
-            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
                   install_args: rust cargo:cargo-nextest cargo:cargo-llvm-cov
                   cache: true
+                  cache_key: "mise-v1-{{platform}}-{{install_args_hash}}-{{file_hash}}"
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Generate coverage
