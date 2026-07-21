@@ -27,11 +27,11 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
-            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
             - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
-                  install_args: just rust cargo:cargo-deny cargo:cargo-outdated cargo:cargo-dist
+                  install_args: just rust cargo:cargo-deny cargo:cargo-outdated cargo:cargo-audit
                   cache: true
                   cache_key: "mise-v1-{{platform}}-{{install_args_hash}}-{{file_hash}}"
                   github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -47,6 +47,3 @@ jobs:
               # finding D-M2.)
               run: mise x -- cargo outdated --depth=1
               continue-on-error: true
-
-            - name: Run dist plan
-              run: mise x -- dist plan
