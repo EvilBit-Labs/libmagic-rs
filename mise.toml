@@ -1,24 +1,13 @@
 
-# This file is the SOLE source of truth for the rust toolchain on the mise
-# path: the `[tools] rust` entry below declares the channel, components, and
-# targets explicitly. `rust` is deliberately NOT in
-# `idiomatic_version_file_enable_tools` (see `[settings]`), so mise does not
-# also read `rust-toolchain.toml` -- that file exists for non-mise rustup users
-# only.
+# Sole source of truth for rust on the mise path: `[tools] rust` below declares
+# version, components, and targets. `rust` is deliberately NOT in
+# `idiomatic_version_file_enable_tools`, so mise ignores rust-toolchain.toml --
+# that file serves rustup-only users and must declare the same exact version
+# (nothing enforces the match). Re-adding `rust` there makes mise resolve from
+# both files and, on drift, install two toolchains whose components collide on
+# CI runners (`detected conflict` / `Directory not empty`).
 #
-# Do not re-add `rust` to that list. Doing so makes mise resolve the toolchain
-# from BOTH files; when their channels drift, mise installs two separate rust
-# toolchains whose component installs collide on hosted CI runners (`detected
-# conflict` / `Directory not empty`), breaking every job at toolchain setup.
-# The same collision class is why there is no redundant `rustup component add`
-# step in CI -- components come from the entry below.
-#
-# `rust-toolchain.toml` must still track `stable` to match this file, so rustup
-# and mise users build on the same compiler. `mise.lock` is committed so a
-# given commit resolves a consistent toolchain across machines; note `stable`
-# is a moving channel, so this is stable-tracking rather than a frozen version
-# pin -- the resolved rustc advances whenever the lockfile is refreshed. When
-# bumping rustc: run `mise upgrade rust` and commit `mise.lock`; update
+# Bumping rustc: update both files, `mise upgrade rust`, commit mise.lock, and
 # Cargo.toml `rust-version` if the MSRV moves.
 [tools]
 rust                        = { version = "1.97.0", components = "llvm-tools,cargo,rustfmt,clippy", profile = "default", targets = "aarch64-apple-darwin,aarch64-unknown-linux-gnu,aarch64-pc-windows-msvc,x86_64-apple-darwin,x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl,x86_64-pc-windows-msvc" }

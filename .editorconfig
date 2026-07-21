@@ -12,7 +12,6 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 4
 
-
 # Rust files
 [*.rs]
 indent_size = 4

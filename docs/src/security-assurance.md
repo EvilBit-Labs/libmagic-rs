@@ -126,7 +126,7 @@ Most OWASP Top 10 categories target web applications and are not applicable to a
 | ------------------- | --------------------------------------------------------------------------------- |
 | Dependency auditing | `cargo audit` and `cargo deny` run daily in CI                                    |
 | Dependency updates  | Dependabot configured for automated PRs                                           |
-| Pinned toolchain    | Rust stable via `rust-toolchain.toml`                                             |
+| Pinned toolchain    | Exact rustc version pinned in `mise.toml` / `mise.lock` for CI and builds         |
 | Reproducible builds | `Cargo.lock` and `mise.lock` committed                                            |
 | Build provenance    | Sigstore attestations via `actions/attest` (SHA-pinned via `dist-workspace.toml`) |
 | SBOM generation     | `cargo-cyclonedx` produces CycloneDX SBOM per release                             |

@@ -1,31 +1,16 @@
-# This file is honored by rustup users who do not go through mise.
-# CI and the mise-managed developer path resolve the toolchain via
-# `mise.lock` (see `[[tools.rust]] version = "stable"`) and ignore this
-# file entirely. Both this file and mise track the `stable` channel,
-# so rustup, CI, and mise users all build on the latest stable compiler.
-# `mise.lock` is committed so a given commit resolves a consistent toolchain
-# across machines -- but note `stable` is a moving channel, so this is
-# stable-tracking, not a frozen version pin (the resolved version advances
-# when the lockfile is refreshed).
+# For rustup users who bypass mise. CI and the mise path resolve from
+# mise.toml / mise.lock and ignore this file -- so `channel` must match
+# mise.toml's `[tools] rust` version exactly. Nothing enforces the match.
 #
-# When bumping the toolchain, update `mise.lock` (via `mise upgrade rust`)
-# and `Cargo.toml` `rust-version` if the declared MSRV moves.
+# Do not add `rust` to `idiomatic_version_file_enable_tools` in mise.toml:
+# mise would then resolve from both files and, on drift, install two
+# toolchains whose components collide on CI runners (`detected conflict`).
+#
+# `components` / `targets` below are the rustup copy; mise.toml declares a
+# superset of targets. Bumping rustc: update both files, `mise upgrade rust`,
+# commit mise.lock, and Cargo.toml `rust-version` if the MSRV moves.
 [toolchain]
-# Tracks `stable`, and MUST stay consistent with mise.toml's rust channel
-# (also `stable`) so rustup and mise users build on the same compiler.
-#
-# mise does NOT read this file: `rust` is deliberately excluded from
-# `idiomatic_version_file_enable_tools` in mise.toml, which declares the
-# channel, components, and targets itself. Do not re-add `rust` to that list --
-# mise would then resolve the toolchain from both files, and on any channel
-# drift install two separate toolchains whose component installs collide on
-# hosted CI runners (`detected conflict` / `Directory not empty`).
-#
-# The components and targets below therefore apply to the rustup path only;
-# mise.toml carries its own copies. Keep the two in sync when either changes.
-# When bumping rustc: run `mise upgrade rust`, commit the refreshed mise.lock,
-# and update Cargo.toml `rust-version` if the MSRV moves.
-channel = "stable"
+channel = "1.97.0"
 components = [ "rustfmt", "clippy", "llvm-tools-preview" ]
 targets = [
     "x86_64-unknown-linux-gnu",
