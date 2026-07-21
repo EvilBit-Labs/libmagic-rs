@@ -36,11 +36,30 @@ queue_rules:
     merge_conditions:
       - check-success = DCO
 
-  # Human PRs: manually enqueued via @mergifyio queue command.
-  # No queue_conditions -- this queue is only reachable via the /queue command.
-  # Repo permissions restrict who can send the command.
+  # Human PRs: merged ONLY on an explicit `@mergifyio queue` command. Repo
+  # permissions restrict who can send it.
+  #
+  # How that is enforced -- and what NOT to change:
+  #
+  # The `queue` command does NOT bypass `queue_conditions`. Per Mergify docs:
+  # "To enter a queue, a pull request must match the queue_conditions of the
+  # targeted queue." So the conditions below must stay SATISFIABLE by an
+  # ordinary human PR. Do not add an always-false condition (or a gating label
+  # like `ready-to-merge`) here to try to block auto-queueing: that would also
+  # reject the command and make human PRs unmergeable via Mergify.
+  #
+  # What actually prevents a human PR from auto-MERGING is
+  # `auto_merge_conditions` in `merge_protections_settings` below, which allows
+  # only the three bot patterns. That block is load-bearing -- if you edit it,
+  # re-verify that human PRs still require an explicit command.
+  #
+  # `label != do-not-merge` is a kill switch that applies even to a
+  # command-queued PR.
   - name: default
     merge_method: squash
+    queue_conditions:
+      - base = main
+      - label != do-not-merge
     merge_conditions:
       - check-success = quality
       - check-success = test
@@ -115,9 +134,12 @@ merge_protections:
       - "#commits-behind <= 10"
 merge_protections_settings:
   reporting_method: check-runs
-  # Restrict auto-merge to bot queues only. Human PRs land in the `default`
-  # queue, which has no queue_conditions and is only reachable via the
-  # `@mergifyio queue` command.
+  # Second of two layers restricting auto-merge to bots. The first layer is the
+  # explicit `queue_conditions` on the `default` queue (a human PR is not
+  # enqueued without the `ready-to-merge` label or an `@mergifyio queue`
+  # command). This block is the backstop: even if a PR reaches a queue, only
+  # the three bot patterns below may auto-merge. Keep both -- neither is
+  # redundant.
   auto_merge_conditions:
     - or:
         - and:
