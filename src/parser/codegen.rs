@@ -287,8 +287,15 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
             )
         }
         TypeKind::Search { range, flags } => format!(
-            "TypeKind::Search {{ range: ::std::num::NonZeroUsize::new({}).unwrap_or(::std::num::NonZeroUsize::MIN), flags: crate::parser::ast::SearchFlags {{ compact_whitespace: {}, compact_optional_whitespace: {}, ignore_lowercase: {}, ignore_uppercase: {}, text_test: {}, trim: {}, bin_test: {}, full_word: {}, start_anchor: {} }} }}",
-            range.get(),
+            // `range` is `Option<NonZeroUsize>`. `NonZeroUsize::new(n)` already
+            // returns `Some(_)` for n > 0, so a `Some(range)` serializes as a
+            // `Some(..)` expression; a bare `search` (`None`) serializes as
+            // `None` (scan-to-EOF).
+            "TypeKind::Search {{ range: {}, flags: crate::parser::ast::SearchFlags {{ compact_whitespace: {}, compact_optional_whitespace: {}, ignore_lowercase: {}, ignore_uppercase: {}, text_test: {}, trim: {}, bin_test: {}, full_word: {}, start_anchor: {} }} }}",
+            match range {
+                Some(r) => format!("::std::num::NonZeroUsize::new({})", r.get()),
+                None => "None".to_string(),
+            },
             flags.compact_whitespace,
             flags.compact_optional_whitespace,
             flags.ignore_lowercase,
@@ -308,9 +315,10 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
                 "TypeKind::Meta(MetaType::Name(String::from({})))",
                 format_string_literal(id)
             ),
-            MetaType::Use(id) => format!(
-                "TypeKind::Meta(MetaType::Use(String::from({})))",
-                format_string_literal(id)
+            MetaType::Use { name, flip_endian } => format!(
+                "TypeKind::Meta(MetaType::Use {{ name: String::from({}), flip_endian: {} }})",
+                format_string_literal(name),
+                flip_endian
             ),
         },
     }
@@ -673,7 +681,10 @@ mod tests {
         let malicious = r#""; panic!("pwned-from-use"); let _ = ""#;
         let rule = MagicRule {
             offset: OffsetSpec::Absolute(0),
-            typ: TypeKind::Meta(MetaType::Use(malicious.to_string())),
+            typ: TypeKind::Meta(MetaType::Use {
+                name: malicious.to_string(),
+                flip_endian: false,
+            }),
             op: Operator::AnyValue,
             value: Value::Uint(0),
             message: "meta use rule".to_string(),

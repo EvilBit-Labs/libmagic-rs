@@ -11,6 +11,40 @@
 
 use super::*;
 
+/// GOTCHAS S13.2 (refined): `use` itself never produces a surface
+/// `RuleMatch`, so it only "counts" toward `stop_at_first_match` via the
+/// subroutine's own matches. If the subroutine's match carries no
+/// message, evaluation must continue to the next top-level sibling
+/// rather than treating the `use` site as the terminating match.
+#[test]
+fn test_use_message_less_subroutine_match_does_not_stop_at_first_match() {
+    let subroutine = vec![MagicRule {
+        offset: OffsetSpec::Absolute(3),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(0x42),
+        message: String::new(),
+        children: vec![],
+        level: 1,
+        strength_modifier: None,
+        value_transform: None,
+    }];
+    let table = build_name_table(vec![("part2", subroutine)]);
+    let mut context = make_context_with_env(table, &[]);
+
+    let buffer = [0x00u8, 0x00, 0x00, 0x42, 0xBB];
+    let rules = vec![use_rule("part2"), byte_eq_rule(4, 0xBB, "Real message")];
+    let matches = evaluate_rules(&rules, &buffer, &mut context).unwrap();
+
+    assert_eq!(
+        matches.len(),
+        2,
+        "both the message-less subroutine match and the real rule should match"
+    );
+    assert_eq!(matches[0].message, "");
+    assert_eq!(matches[1].message, "Real message");
+}
+
 #[test]
 fn test_use_known_name_evaluates_subroutine() {
     // The subroutine `part2` reads byte 3 and expects 0x42.

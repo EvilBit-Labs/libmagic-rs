@@ -24,6 +24,7 @@ use crate::parser::ast::{
     TypeKind, Value,
 };
 
+mod getstr;
 mod numbers;
 mod type_suffix;
 mod value;
@@ -351,8 +352,20 @@ pub fn parse_offset(input: &str) -> IResult<&str, OffsetSpec> {
         let (rest, _) = multispace0(rest)?;
         Ok((rest, OffsetSpec::Relative(value)))
     } else {
+        // Capture the leading `-` before `parse_number` consumes it: magic(5)
+        // `-0` means "0 bytes from the end of the file" -- the EOF position
+        // (`buffer.len()`), NOT absolute offset 0. Because `-0 == 0` in a
+        // signed integer the sign is otherwise lost, so detect it explicitly
+        // and encode `FromEnd(0)`. Used by e.g. gzip's `>>-0 offset >48` to
+        // gate the trailing-size trailer on the file being long enough.
+        // Other negative offsets (`-4`) keep their `Absolute(-4)` encoding,
+        // which the evaluator already resolves from the buffer end.
+        let starts_with_minus = input.starts_with('-');
         let (input, offset_value) = parse_number(input)?;
         let (input, _) = multispace0(input)?;
+        if starts_with_minus && offset_value == 0 {
+            return Ok((input, OffsetSpec::FromEnd(0)));
+        }
         Ok((input, OffsetSpec::Absolute(offset_value)))
     }
 }
@@ -513,26 +526,16 @@ fn parse_name_or_use_meta<'a>(
 
     // magic(5) allows a `\^` prefix on a `use` identifier to mean "invoke
     // the named subroutine but flip the endianness of every read inside
-    // it". We do not yet implement the endian flip semantically (tracked
-    // as issue #236), but the file must still load: consume the prefix
-    // and treat the rest of the identifier as a normal `use` reference.
-    // Emit a warn! so users see why their LE/BE detection paired with
-    // `use \^name` produces wrong metadata at default log levels.
-    let input = if type_name == "use" {
-        if let Some(rest) = input.strip_prefix("\\^") {
-            warn!(
-                "use directive with `\\^` prefix: endian-flip semantics \
-                 are not yet implemented (issue #236). Subroutine reads \
-                 will use their declared endianness; metadata fields may \
-                 be incorrect. Identifier: {:?}",
-                rest.split_whitespace().next().unwrap_or("")
-            );
-            rest
-        } else {
-            input
-        }
-    } else {
+    // it" (libmagic `softmagic.c` `cvt_flip`). Consume the prefix and
+    // record it on `MetaType::Use::flip_endian` so the evaluator can apply
+    // the flip (issue #236). The `\^` prefix is meaningless on `name`
+    // declarations, so only `use` is inspected.
+    let (input, use_flip_endian) = if type_name == "use" {
         input
+            .strip_prefix("\\^")
+            .map_or((input, false), |rest| (rest, true))
+    } else {
+        (input, false)
     };
 
     let (after_id, id) =
@@ -558,37 +561,47 @@ fn parse_name_or_use_meta<'a>(
         )));
     }
 
-    // Consume horizontal whitespace after the identifier. Real-world
-    // magic files sometimes append a descriptive message after a
-    // `name`/`use` directive (e.g. `0 name xbase-prf dBase Printer
-    // Form`). magic(5) does not officially document this, but GNU
-    // `file` tolerates it -- the trailing text is silently ignored
-    // because `name`/`use` rules don't have a message slot in the
-    // softmagic struct. We do the same: consume horizontal whitespace
-    // and a single optional trailing token, stopping at end-of-line.
+    // Handle the trailing text after the identifier. The two directives
+    // diverge here, matching GNU `file`:
+    //
+    // - `use`: magic(5) has no message slot for a `use` site, and GNU
+    //   `file` never emits a use-site's own description (verified: a
+    //   `use foo BAR` renders no `BAR`). Drop the trailing text up to
+    //   end-of-line so the caller parses an empty message.
+    // - `name`: the `name` line's OWN description IS emitted when the
+    //   subroutine is invoked via `use` -- Mach-O universal `0 name
+    //   mach-o \b [`, `0 name matlab4 Matlab v4 mat-file`, `0 name
+    //   algol_68 Algol 68 source text`, etc. PRESERVE the trailing text
+    //   so the caller's `parse_message` captures it as the rule message
+    //   (later stored in the name table by `extract_name_table` and
+    //   emitted at the `use` site). Dropping it here is what previously
+    //   made rmagic omit those fragments (e.g. the leading `[` of the
+    //   Mach-O universal bracket detail).
+    //
     // We deliberately do NOT reject embedded whitespace inside the
     // identifier itself (which would be a real malformed rule like
-    // `part 2`); that's enforced earlier when `take_while` truncates
-    // the identifier on the first non-id character.
+    // `part 2`); that's enforced earlier when `take_while` truncates the
+    // identifier on the first non-id character.
     let mut tail = after_id;
-    while let Some(rest) = tail.strip_prefix(' ').or_else(|| tail.strip_prefix('\t')) {
-        tail = rest;
-    }
-    // Skip any trailing text (descriptive label) up to end-of-line.
-    if let Some(next_char) = tail.chars().next()
-        && !matches!(next_char, '\n' | '\r')
-    {
-        // Drop the rest of the line silently. magic(5)'s `name`/`use`
-        // directives have no message slot, so anything after the
-        // identifier is informational only.
-        let line_end = tail.find(['\n', '\r']).unwrap_or(tail.len());
-        tail = &tail[line_end..];
+    if type_name == "use" {
+        while let Some(rest) = tail.strip_prefix(' ').or_else(|| tail.strip_prefix('\t')) {
+            tail = rest;
+        }
+        if let Some(next_char) = tail.chars().next()
+            && !matches!(next_char, '\n' | '\r')
+        {
+            let line_end = tail.find(['\n', '\r']).unwrap_or(tail.len());
+            tail = &tail[line_end..];
+        }
     }
 
     let meta = if type_name == "name" {
         MetaType::Name(id.to_string())
     } else {
-        MetaType::Use(id.to_string())
+        MetaType::Use {
+            name: id.to_string(),
+            flip_endian: use_flip_endian,
+        }
     };
     let (rest, _) = multispace0(tail)?;
     Ok((rest, (TypeKind::Meta(meta), None, None)))
@@ -677,17 +690,24 @@ pub fn parse_type_and_operator(
         input = rest;
     }
 
-    // Handle search suffix: required decimal range plus optional flags
-    // (e.g., `search/256`, `search/256/s`, `search/256/cs`). Per GNU
-    // `file` magic(5), the range is mandatory. `search/0` and bare
-    // `search` are rejected at parse time via `NonZeroUsize`.
-    let mut search_suffix: Option<(::std::num::NonZeroUsize, crate::parser::ast::SearchFlags)> =
-        None;
+    // Handle search suffix. `search/N[/flags]` supplies an explicit scan
+    // window (e.g., `search/256`, `search/256/s`, `search/256/cs`); the
+    // count `N` is a `NonZeroUsize`, so `search/0` is rejected. A bare
+    // `search` (no `/` suffix, e.g. `>8 search /Count`) is ALSO accepted:
+    // its `range` stays `None`, meaning scan-to-end-of-buffer. magic(5)
+    // documents the count as required, but the reference `file` binary
+    // accepts the bare form (`str_range == 0`), so we follow the
+    // implementation rather than the spec. Disambiguation is unambiguous:
+    // a ranged suffix attaches `/` directly to the keyword, while a bare
+    // search is followed by whitespace then the value.
+    let mut search_range: Option<::std::num::NonZeroUsize> = None;
+    let mut search_flags = crate::parser::ast::SearchFlags::default();
     if type_name == "search"
         && let Some(suffix_rest) = input.strip_prefix('/')
     {
-        let (rest, parsed) = parse_search_suffix(input, suffix_rest)?;
-        search_suffix = Some(parsed);
+        let (rest, (range, flags)) = parse_search_suffix(input, suffix_rest)?;
+        search_range = Some(range);
+        search_flags = flags;
         input = rest;
     }
 
@@ -762,13 +782,12 @@ pub fn parse_type_and_operator(
             flags: regex_flags,
             count: regex_count,
         },
-        "search" => {
-            // Mandatory range: reject bare `search` at parse time.
-            let (range, flags) = search_suffix.ok_or_else(|| {
-                nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Tag))
-            })?;
-            TypeKind::Search { range, flags }
-        }
+        "search" => TypeKind::Search {
+            // `None` range = bare `search` = scan-to-EOF (see the suffix
+            // handling above); `Some(n)` = `search/N`.
+            range: search_range,
+            flags: search_flags,
+        },
         _ => {
             // `type_keyword_to_kind` returns:
             //  * `Ok(Some(kind))` for every fully-specified keyword
@@ -1080,18 +1099,27 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
     // pre-comparison value transform (`+N`/`-N`/`*N`/`/N`/`%N`/`|N`/`^N`).
     let (input, (typ, attached_op, value_transform)) = parse_type_and_operator(input)?;
 
-    // Meta-type directives (default, clear, name, use, indirect, offset)
-    // conceptually have no operator/value operand, but magic(5) source
-    // files (including GNU `file`'s own `searchbug.magic`) often write
-    // them with an `x` (AnyValue) placeholder between the type and the
-    // message, e.g. `>>&0 offset x at_offset %lld`. Consume an optional
-    // leading `x` token here so it does not leak into the rendered
-    // message.
+    // Meta-type directives (default, clear, name, use, indirect) conceptually
+    // have no operator/value operand, but magic(5) source files (including
+    // GNU `file`'s own `searchbug.magic`) often write them with an `x`
+    // (AnyValue) placeholder between the type and the message, e.g.
+    // `>>&0 offset x at_offset %lld`. Consume an optional leading `x` token
+    // here so it does not leak into the rendered message.
+    //
+    // `offset` is deliberately EXCLUDED from this no-operand path: unlike the
+    // other meta-types, the `offset` pseudo-type carries a real comparison
+    // operand -- `offset >48` / `offset <48` (gzip's trailing-size gate) read
+    // the resolved offset and compare it against N, and only the `offset x`
+    // form is a bare AnyValue placeholder. Routing `offset` through the normal
+    // operator+value+message path below handles both forms; the engine then
+    // applies the comparison (see the `MetaType::Offset` dispatch in
+    // `evaluator::engine`). Folding `offset >48` into this block instead
+    // silently turned `>48` into message text and made the compare a no-op.
     //
     // `name`/`use` are handled earlier in parse_type_and_operator and
     // already consumed their identifier operand, so the `x` stripping
     // is a no-op for them.
-    if matches!(typ, TypeKind::Meta(_)) {
+    if matches!(typ, TypeKind::Meta(_)) && !matches!(typ, TypeKind::Meta(MetaType::Offset)) {
         // Meta-type directives have no operand, so an attached operator
         // like `default&0xf` is malformed — reject it here rather than
         // silently dropping it on the floor. `name`/`use` short-circuit in
@@ -1175,11 +1203,32 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
     );
     let (input, value) = if op == Operator::AnyValue {
         (input, Value::Uint(0))
-    } else if is_string_family_type {
-        match parse_value(input) {
-            Ok(ok) => ok,
-            Err(orig_err) => parse_bare_string_value(input).map_err(|_| orig_err)?,
+    } else if matches!(typ, TypeKind::Regex { .. }) {
+        // `regex` patterns get special-cased ahead of the generic
+        // string-family fallback below (issue: getstr fidelity fix).
+        // Quoted values (`regex/c "hello" ...`) keep using
+        // `parse_value`'s existing `parse_quoted_string` path unchanged
+        // -- quoting is a project convenience layered on top of
+        // magic(5), not part of GNU `file`'s own syntax, and existing
+        // quoted-regex rules must keep their current (non-getstr)
+        // escape handling. Bareword (unquoted) patterns are routed
+        // through the dedicated getstr resolver instead of
+        // `parse_hex_bytes`/`parse_bare_string_value`: a pattern
+        // beginning with a magic(5) escape (`\^`, `\040`, `\t`, `\x..`)
+        // would otherwise be captured by `parse_hex_bytes` as
+        // `Value::Bytes` before any string interpretation ran, and
+        // Rust's `regex` crate does not interpret octal escapes the way
+        // GNU `file`'s `getstr` does -- see `getstr.rs` module docs.
+        if input.trim_start().starts_with('"') {
+            parse_value(input)?
+        } else {
+            match getstr::parse_regex_getstr_value(input) {
+                Ok(ok) => ok,
+                Err(orig_err) => parse_value(input).map_err(|_| orig_err)?,
+            }
         }
+    } else if is_string_family_type {
+        parse_string_family_value(input)?
     } else {
         parse_value(input)?
     };
@@ -1204,6 +1253,54 @@ pub fn parse_magic_rule(input: &str) -> IResult<&str, MagicRule> {
     };
 
     Ok((input, rule))
+}
+
+/// Parse the comparison value for a string-family type.
+///
+/// libmagic never interprets a `string`/`pstring`/`string16`/`search`
+/// comparison value as a number: `0 string >0` compares against the
+/// literal ASCII byte `'0'` (0x30), and `>0.6.1` against the literal
+/// characters `0.6.1` -- not the integer 0 or the float 0.6. The generic
+/// [`parse_value`] tries its float and integer branches (see
+/// `value::parse_value`) before falling through, so a bareword like `0` or
+/// `0.6.1` was captured as `Value::Uint`/`Value::Float`. A subsequent
+/// comparison against the string field read from the file then yields no
+/// ordering (`String` vs `Uint`/`Float` is incomparable), so the rule
+/// silently never matched -- breaking real `>0` idioms such as
+/// `\b, name %s` / `face %s` / `palette %s` and version compares like
+/// `>0.6.1 ... version %s`.
+///
+/// This parser mirrors [`parse_value`]'s ordering for the two branches
+/// that are correct for string-family values -- a leading whitespace trim,
+/// then a quoted string (-> `Value::String`), then a hex/escape byte
+/// sequence (-> `Value::Bytes`, e.g. gzip's `\037\213` or `\177ELF`) -- but
+/// replaces the numeric (float/integer) branches with
+/// [`parse_bare_string_value`], so every remaining bareword resolves to a
+/// `Value::String`. The leading `multispace0` is load-bearing: it ensures
+/// the hex branch sees byte-identical input to what `parse_value` fed it,
+/// so an escape-heavy value cannot fall through to the lossy-UTF-8
+/// `parse_bare_string_value` path and corrupt a high byte (see the
+/// `high-byte-utf8-corruption-class` note).
+///
+/// Hex-*letter* barewords (`>AB`, `cafebabe`) still resolve to
+/// `Value::Bytes` via the unchanged hex branch, matching GOTCHAS S3.12 --
+/// only the numeric subset changes here.
+///
+/// # Errors
+/// Returns a nom parsing error only when the value is empty/whitespace-only
+/// (via [`parse_bare_string_value`]); quoted and hex forms are attempted
+/// first and never error out of this function on a non-empty token.
+fn parse_string_family_value(input: &str) -> IResult<&str, Value> {
+    // Trim leading whitespace up front so the hex branch below receives the
+    // same (trimmed) input `parse_value` would have handed it.
+    let (input, _) = multispace0(input)?;
+    if let Ok((rest, s)) = value::parse_quoted_string(input) {
+        return Ok((rest, Value::String(s)));
+    }
+    if let Ok((rest, bytes)) = value::parse_hex_bytes(input) {
+        return Ok((rest, Value::Bytes(bytes)));
+    }
+    parse_bare_string_value(input)
 }
 
 /// Parse a bare (unquoted) single-token string literal as a `Value::String`.
@@ -1270,11 +1367,27 @@ fn parse_bare_string_value(input: &str) -> IResult<&str, Value> {
                 remaining = rest;
                 continue;
             }
-            // Lone `\` not followed by a recognised escape -- treat as
-            // a literal backslash and continue. This matches GNU `file`
-            // tolerance for malformed escapes.
-            bytes.push(b'\\');
-            remaining = &remaining[1..];
+            // Lone `\` followed by an unrecognised escape char: magic(5)
+            // getstr DROPS the backslash and keeps the character literally
+            // (`\<` -> `<`, `\^` -> `^`, `\ ` -> a literal space that
+            // continues the token because it lands in `bytes` rather than
+            // being re-examined by the whitespace-terminator check). This
+            // matches GNU `file`; the earlier "keep the backslash" behavior
+            // broke real rules like sgml's `0 string \<?xml\ version=`, which
+            // then never matched an actual `<?xml ...` document (XML files
+            // fell through to "ASCII text"). A genuine literal backslash is
+            // written `\\` and is already resolved by `parse_escape_sequence`
+            // above, so this branch only ever drops a backslash that was
+            // escaping a non-special character. A trailing lone `\` at
+            // end-of-input has no following char, so it stays literal.
+            if let Some(next) = remaining[1..].chars().next() {
+                let mut buf = [0u8; 4];
+                bytes.extend_from_slice(next.encode_utf8(&mut buf).as_bytes());
+                remaining = &remaining[1 + next.len_utf8()..];
+            } else {
+                bytes.push(b'\\');
+                remaining = &remaining[1..];
+            }
             continue;
         }
         // Plain character: encode as UTF-8 (ASCII is one byte; non-ASCII
@@ -1293,12 +1406,24 @@ fn parse_bare_string_value(input: &str) -> IResult<&str, Value> {
         )));
     }
 
-    // The downstream comparison is `Value::String` against the buffer's
-    // bytes. Use `from_utf8_lossy` so non-UTF-8 byte sequences (like
-    // `\xff`) round-trip as best they can; the buffer-side read uses
-    // the same lossy conversion, so equality still holds.
-    let value = String::from_utf8_lossy(&bytes).into_owned();
-    Ok((remaining, Value::String(value)))
+    // Mirror `read_string_exact` (evaluator/types/string.rs): when the
+    // resolved bytes are valid UTF-8, return `Value::String` so `%s`
+    // output renders normally; when they are NOT -- e.g. a bareword like
+    // OS/2 INF's `HSP\x01\x9b\x00` (0x9b is invalid UTF-8), or an octal
+    // form like `AB\376` -- return the RAW bytes as `Value::Bytes`. A
+    // lossy `String` decode would turn 0x9b into U+FFFD (3 bytes 0xEF BF
+    // BD), which BOTH inflates the pattern's byte length (6 -> 8, so
+    // `read_string_exact` reads the wrong number of bytes) AND changes the
+    // byte value at that position, so the rule would silently never match.
+    // Cross-type `String`/`Bytes` equality and ordering (GOTCHAS S2.3)
+    // compare by byte sequence, so either variant compares correctly
+    // against the read value. This completes the read/parse symmetry:
+    // `read_string_exact` was fixed to return `Value::Bytes` on non-UTF-8
+    // slices, but the parse side kept lossy-decoding until this change.
+    match String::from_utf8(bytes) {
+        Ok(s) => Ok((remaining, Value::String(s))),
+        Err(e) => Ok((remaining, Value::Bytes(e.into_bytes()))),
+    }
 }
 
 /// Parse a comment line (starts with #)
