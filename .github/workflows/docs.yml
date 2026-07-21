@@ -30,6 +30,7 @@ jobs:
               with:
                   install: true
                   cache: true
+                  cache_key: "mise-v1-{{platform}}-{{install_args_hash}}-{{file_hash}}"
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Setup mdBook
@@ -40,8 +41,6 @@ jobs:
                   use-mermaid: true
                   use-toc: true
                   use-admonish: true
-            - name: Install mdbook plugins
-              run: mise x -- cargo binstall mdbook-tabs mdbook-i18n-helpers mdbook-alerts mdbook-yml-header mdbook-image-size --no-confirm
 
             - name: Build mdBook
               run: |
