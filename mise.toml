@@ -38,7 +38,7 @@ cargo-insta                 = "1.48.0"
 "cargo:mdbook-open-on-gh"   = "3.0.0"
 "cargo:mdbook-i18n-helpers" = "0.4.0"
 just                        = "1.55.1"
-python                      = "latest"
+python                      = "3.14.6"
 "cargo:cargo-outdated"      = "0.19.0"
 "cargo:cargo-release"       = "1.1.2"
 "cargo:cargo-auditable"     = "0.7.5"
@@ -57,15 +57,14 @@ shellcheck                  = "0.11.0"
 
 # Many of these settings are defaults, but we are explicit in case they change in the future and to make it clear to users what is enabled.
 [settings]
-activate_aggressive                 = true
-idiomatic_version_file_enable_tools = [ "python", "bun" ]
-env_cache                           = true
-exec_auto_install                   = true
-github_attestations                 = true
-lockfile                            = true
-pin                                 = true
-slsa                                = true
-experimental                        = true
+activate_aggressive = true
+env_cache           = true
+exec_auto_install   = true
+github_attestations = true
+lockfile            = true
+pin                 = true
+slsa                = true
+experimental        = true
 
 [settings.npm]
 package_manager = "bun"
