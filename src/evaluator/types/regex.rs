@@ -132,11 +132,34 @@ pub(crate) const REGEX_COMPILE_SIZE_LIMIT: usize = 1 << 20;
 /// The compile-time `size_limit` and `dfa_size_limit` are both bounded by
 /// [`REGEX_COMPILE_SIZE_LIMIT`] (1 MiB) to bound the worst-case memory
 /// footprint of attacker-controlled patterns loaded from magic files.
+///
+/// # Unicode mode is disabled (`unicode(false)`)
+///
+/// This module's docs advertise binary-safe matching against raw bytes,
+/// but `regex::bytes::RegexBuilder` defaults `unicode` to `true` even for
+/// the bytes API -- in that mode, a hex escape like `\xff` in the pattern
+/// is interpreted as the Unicode scalar U+00FF and matched against its
+/// **UTF-8 encoding** (`0xC3 0xBF`), not the single raw byte `0xFF`. This
+/// silently broke the getstr resolver's `>= 0x80` byte re-encoding
+/// contract (see `src/parser/grammar/getstr/mod.rs`, KTD3 in the
+/// `fix/system-magic-regex-graceful` plan): the parser emits `\xHH` for
+/// escape-produced bytes `>= 0x80` specifically so the *regex engine*
+/// carries the byte, but with unicode mode on, that byte was never
+/// actually matched -- a `search`/`regex` rule containing a
+/// high-byte escape would silently and permanently fail to match the
+/// byte it was written for, with no compile error to surface the defect.
+/// `unicode(false)` makes `\xHH` match the literal byte value for all
+/// `HH`, restores POSIX/byte-oriented semantics (matching libmagic's C
+/// `regcomp`, which has no concept of Unicode scalar values), and does
+/// not regress ASCII case-insensitive matching or POSIX bracket classes
+/// (`[[:space:]]`, `[[:alpha:]]`, ...), which remain fully supported
+/// without Unicode tables.
 fn build_regex(pattern: &str, case_insensitive: bool) -> Result<Regex, regex::Error> {
     RegexBuilder::new(pattern)
         .case_insensitive(case_insensitive)
         .multi_line(true)
         .dot_matches_new_line(false)
+        .unicode(false)
         .size_limit(REGEX_COMPILE_SIZE_LIMIT)
         .dfa_size_limit(REGEX_COMPILE_SIZE_LIMIT)
         .build()
@@ -558,6 +581,42 @@ mod tests {
         let buffer = b"abc123def";
         let result = read_regex(buffer, 0, "[0-9]+", no_flags(), default_count()).unwrap();
         assert_eq!(result, Some(Value::String("123".to_string())));
+    }
+
+    /// Regression guard for the `unicode(false)` fix in `build_regex`.
+    ///
+    /// A getstr-resolved regex pattern re-encodes escape-produced bytes
+    /// `>= 0x80` as a regex-native `\xHH` sequence (KTD3 in the
+    /// `fix/system-magic-regex-graceful` plan, see
+    /// `src/parser/grammar/getstr/mod.rs`). With `regex::bytes::Regex`'s
+    /// default unicode mode, `\xff` compiles successfully but silently
+    /// matches the *UTF-8 encoding* of U+00FF (`0xC3 0xBF`) instead of the
+    /// single raw byte `0xFF` -- a real, previously undetected bug (no
+    /// compile error, just permanently-wrong matching). This test pins
+    /// both halves of the contract: the raw byte matches, and the
+    /// two-byte UTF-8 encoding of the same code point does not.
+    #[test]
+    fn test_read_regex_high_byte_escape_matches_raw_byte_not_utf8_encoding() {
+        let pattern = r"a\xffb";
+
+        let raw_byte_buffer: &[u8] = &[b'a', 0xff, b'b'];
+        let raw_result =
+            read_regex(raw_byte_buffer, 0, pattern, no_flags(), default_count()).unwrap();
+        assert!(
+            raw_result.is_some(),
+            "\\xff must match the raw byte 0xFF, got {raw_result:?}"
+        );
+
+        // 0xC3 0xBF is the UTF-8 encoding of U+00FF -- this must NOT match,
+        // proving unicode mode is genuinely disabled rather than merely
+        // permissive on both encodings.
+        let utf8_encoded_buffer: &[u8] = &[b'a', 0xc3, 0xbf, b'b'];
+        let utf8_result =
+            read_regex(utf8_encoded_buffer, 0, pattern, no_flags(), default_count()).unwrap();
+        assert!(
+            utf8_result.is_none(),
+            "\\xff must not match the UTF-8 encoding of U+00FF, got {utf8_result:?}"
+        );
     }
 
     // ------- V1: line-based window -------

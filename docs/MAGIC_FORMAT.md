@@ -340,9 +340,25 @@ offset  regex[/count[unit]][flags]  pattern  message
 
 - `regex/100` - scan up to 100 bytes
 - `regex/10l` - scan up to 10 lines
-- Bare `regex` or `regex/0` are parse errors (range is mandatory per GNU `file` magic(5))
+- Bare `regex` is accepted (unbounded scan, capped at the 8192-byte `FILE_REGEX_MAX`); only `regex/0` is a parse error (the byte count, when given, must be non-zero)
 
 Every scan window is capped at 8192 bytes (`FILE_REGEX_MAX`). Multi-line matching is always enabled (matching libmagic's unconditional `REG_NEWLINE`). Anchor advance follows GNU `file` semantics (match-end, not window-end).
+
+**Bareword (unquoted) pattern escape handling:**
+
+Bareword regex patterns undergo escape resolution using GNU `file`'s getstr escape table before the pattern is compiled. Quoted patterns (`"..."`) preserve escapes verbatim without getstr resolution.
+
+Supported bareword escape sequences:
+
+- `\t`, `\n`, `\r`, `\b`, `\f`, `\v` - standard C control sequences (tab, newline, carriage return, backspace, form feed, vertical tab)
+- `\NNN` - octal escape sequences (1-3 digits, matching getstr's look-ahead; e.g. `\040` resolves to space, `\0` to NUL)
+- `\xNN` - hexadecimal escape sequences (up to 2 hex digits; e.g. `\x20` resolves to space; `\x` with no following hex digit resolves to the literal character `x`, matching getstr)
+- `\\` - escaped backslash (resolves to a single backslash)
+- Unrecognized escape sequences drop the backslash (e.g. `\^` becomes `^`)
+
+Bytes >= 0x80 produced by escape resolution are re-encoded as `\xHH` format for the regex engine. Regex shorthand sequences like `\d`, `\s`, `\w` that are not recognized by getstr are demoted to literals (e.g. `\d` becomes `d`).
+
+This behavior matches GNU `file`'s handling of bareword regex patterns and ensures compatibility with system magic databases like `/usr/share/file/magic/`.
 
 Examples:
 
@@ -350,6 +366,7 @@ Examples:
 0       regex/100      [A-Z]+            Found uppercase letters
 0       regex/10l/c    error             Found "error" (case-insensitive, 10-line cap)
 0       regex/500/s    ^BEGIN            Found BEGIN at start (anchor advances to match-start)
+0       regex/50       \^[\040\t]{0,50}\\.asciiz    assembler source text (getstr-resolved pattern)
 ```
 
 ### Search Type
@@ -362,7 +379,7 @@ Bounded literal pattern scan. Searches for a literal byte pattern within a speci
 offset  search/range[/flags]  pattern  message
 ```
 
-The range is MANDATORY (`NonZeroUsize`). Bare `search` and `search/0` are parse errors per GNU `file` magic(5). Anchor advance follows GNU `file` semantics (match-end, not window-end) unless `/s` is set.
+The range is optional (`Option<NonZeroUsize>`): a bare `search` (`None`) scans from the offset to end-of-buffer, matching the reference `file` binary's `str_range == 0` behavior; `search/N` caps the scan to `N` bytes. Only `search/0` is a parse error (the count, when given, must be non-zero). magic(5) documents the count as mandatory, but rmagic follows the reference implementation, which accepts the bare form. Anchor advance follows GNU `file` semantics (match-end, not window-end) unless `/s` is set.
 
 **Search Flags:**
 

@@ -62,7 +62,7 @@ fn search_rule(
     MagicRule::new(
         offset,
         TypeKind::Search {
-            range: NonZeroUsize::new(range).expect("range must be non-zero"),
+            range: NonZeroUsize::new(range),
             flags,
         },
         Operator::Equal,
@@ -348,7 +348,7 @@ fn search_b_archive_epub_rule_loads_and_carries_bin_test_flag() {
     match &rule.typ {
         TypeKind::Search { range, flags } => {
             assert_eq!(
-                range.get(),
+                range.expect("search/100 yields a bounded Some range").get(),
                 100,
                 "search range from /100 suffix should be 100"
             );

@@ -161,8 +161,11 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
                 },
             )
         },
-        (1usize..=4096usize, arb_search_flags()).prop_map(|(range, flags)| TypeKind::Search {
-            range: ::std::num::NonZeroUsize::new(range).unwrap(),
+        // `0` generates the bare-`search` open window (`range: None`,
+        // scan-to-EOF); `1..=4096` generates a bounded `search/N`. Both must
+        // round-trip through codegen and never panic in evaluation.
+        (0usize..=4096usize, arb_search_flags()).prop_map(|(range, flags)| TypeKind::Search {
+            range: ::std::num::NonZeroUsize::new(range),
             flags,
         }),
         Just(TypeKind::Meta(MetaType::Default)),
@@ -170,7 +173,12 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
         Just(TypeKind::Meta(MetaType::Indirect)),
         Just(TypeKind::Meta(MetaType::Offset)),
         "[a-zA-Z_][a-zA-Z0-9_-]{0,16}".prop_map(|id| TypeKind::Meta(MetaType::Name(id))),
-        "[a-zA-Z_][a-zA-Z0-9_-]{0,16}".prop_map(|id| TypeKind::Meta(MetaType::Use(id))),
+        ("[a-zA-Z_][a-zA-Z0-9_-]{0,16}", any::<bool>()).prop_map(|(id, flip_endian)| {
+            TypeKind::Meta(MetaType::Use {
+                name: id,
+                flip_endian,
+            })
+        }),
     ]
 }
 
@@ -234,7 +242,12 @@ fn arb_meta_rule() -> impl Strategy<Value = MagicRule> {
         Just(TypeKind::Meta(MetaType::Indirect)),
         Just(TypeKind::Meta(MetaType::Offset)),
         "[a-zA-Z_][a-zA-Z0-9_-]{0,16}".prop_map(|id| TypeKind::Meta(MetaType::Name(id))),
-        "[a-zA-Z_][a-zA-Z0-9_-]{0,16}".prop_map(|id| TypeKind::Meta(MetaType::Use(id))),
+        ("[a-zA-Z_][a-zA-Z0-9_-]{0,16}", any::<bool>()).prop_map(|(id, flip_endian)| {
+            TypeKind::Meta(MetaType::Use {
+                name: id,
+                flip_endian,
+            })
+        }),
     ];
     (
         arb_offset_spec(),

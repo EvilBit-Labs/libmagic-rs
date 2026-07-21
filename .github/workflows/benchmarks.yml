@@ -16,6 +16,13 @@ on:
     # Allow manual triggering
     workflow_dispatch:
 
+# Cancel superseded runs on the same ref so rapid pushes don't pile up
+# concurrent cold-cache `mise-action` installs racing on the shared cache
+# (matches ci.yml / security.yml).
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
 env:
     CARGO_TERM_COLOR: always
 
@@ -28,9 +35,12 @@ jobs:
         steps:
             - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-            - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+            - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
+                  # Only rust is needed (cargo bench); avoid the full mise tool
+                  # set whose no-prebuilt cargo tools fail to install on runners.
+                  install_args: rust
                   cache: true
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -47,7 +57,7 @@ jobs:
                       ${{ runner.os }}-cargo-
 
             - name: Run benchmarks
-              run: cargo bench --bench parser_bench --bench evaluation_bench --bench io_bench
+              run: mise x -- cargo bench --bench parser_bench --bench evaluation_bench --bench io_bench
 
             - name: Upload benchmark results
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -68,9 +78,12 @@ jobs:
               with:
                   fetch-depth: 0
 
-            - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+            - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
+                  # Only rust is needed (cargo bench); avoid the full mise tool
+                  # set whose no-prebuilt cargo tools fail to install on runners.
+                  install_args: rust
                   cache: true
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -93,7 +106,7 @@ jobs:
 
             - name: Run benchmarks on PR branch
               run: |
-                  cargo bench --bench parser_bench --bench evaluation_bench --bench io_bench -- --save-baseline pr
+                  mise x -- cargo bench --bench parser_bench --bench evaluation_bench --bench io_bench -- --save-baseline pr
 
             - name: Checkout main branch
               run: git checkout origin/main
@@ -102,7 +115,7 @@ jobs:
               continue-on-error: true
               id: main-bench
               run: |
-                  cargo bench --bench parser_bench --bench evaluation_bench --bench io_bench -- --save-baseline main
+                  mise x -- cargo bench --bench parser_bench --bench evaluation_bench --bench io_bench -- --save-baseline main
 
             - name: Compare benchmarks
               if: steps.main-bench.outcome == 'success'
