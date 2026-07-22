@@ -41,6 +41,13 @@ jobs:
             - name: Run cargo deny check
               run: mise x -- cargo deny check
 
+            - name: Run cargo audit
+              # Hard gate on the PR/CI path: fails the build on a known
+              # advisory. Complements audit.yml, which runs
+              # actions-rust-lang/audit to file GitHub issues for advisories
+              # (scheduled monitoring) rather than blocking a build.
+              run: mise x -- cargo audit
+
             - name: Run cargo outdated (informational only)
               # Dropping --exit-code=1: a plain upstream dep release is
               # not a security finding, and failing CI on every bump

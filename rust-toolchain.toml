@@ -12,7 +12,7 @@
 # `mise install` (or `mise upgrade --bump rust`); commit mise.lock, and update
 # Cargo.toml `rust-version` if the MSRV moves.
 [toolchain]
-channel = "1.97.0"
+channel = "1.97.1"
 components = [ "rustfmt", "clippy", "llvm-tools-preview" ]
 targets = [
     "x86_64-unknown-linux-gnu",

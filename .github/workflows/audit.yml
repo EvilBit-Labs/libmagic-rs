@@ -1,7 +1,7 @@
-# Runs cargo audit only (actions-rust-lang/audit). Intentionally
-# separate from security.yml which runs cargo deny + cargo outdated
-# + dist plan; the two workflows are complementary gates, not
-# duplicates. Review finding D-L1.
+# Runs actions-rust-lang/audit, which files GitHub issues for advisories
+# (scheduled monitoring; needs issues: write). Complementary to security.yml,
+# which runs `cargo audit` as a hard PR/CI gate alongside cargo deny +
+# cargo outdated. Review finding D-L1.
 name: "Audit Dependencies"
 on:
     push:
