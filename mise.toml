@@ -1,13 +1,16 @@
 
 # Sole source of truth for rust on the mise path: `[tools] rust` below declares
-# version, components, and targets. `rust` is deliberately NOT in
-# `idiomatic_version_file_enable_tools`, so mise ignores rust-toolchain.toml --
-# that file serves rustup-only users and must declare the same exact version
-# (nothing enforces the match). Re-adding `rust` there makes mise resolve from
-# both files and, on drift, install two toolchains whose components collide on
-# CI runners (`detected conflict` / `Directory not empty`).
+# version, components, and targets. `[settings]` sets
+# `idiomatic_version_file_enable_tools = []`, so mise reads no idiomatic version
+# files -- it ignores rust-toolchain.toml, which serves rustup-only users and
+# must declare the same exact version (nothing enforces the match). Do not add
+# `rust` to that list: mise would then resolve from both files and, on drift,
+# install two toolchains whose components collide on CI runners (`detected
+# conflict` / `Directory not empty`).
 #
-# Bumping rustc: update both files, `mise upgrade rust`, commit mise.lock, and
+# Bumping rustc: an exact pin means `mise upgrade rust` does NOT move it -- edit
+# `version` below (and rust-toolchain.toml) then `mise install`, or use
+# `mise upgrade --bump rust`. Commit the refreshed mise.lock, and update
 # Cargo.toml `rust-version` if the MSRV moves.
 [tools]
 rust                        = { version = "1.97.0", components = "llvm-tools,cargo,rustfmt,clippy", profile = "default", targets = "aarch64-apple-darwin,aarch64-unknown-linux-gnu,aarch64-pc-windows-msvc,x86_64-apple-darwin,x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl,x86_64-pc-windows-msvc" }
@@ -47,6 +50,10 @@ shellcheck                  = "0.11.0"
 # Many of these settings are defaults, but we are explicit in case they change in the future and to make it clear to users what is enabled.
 [settings]
 activate_aggressive = true
+# Empty: mise reads no idiomatic version files (.python-version, .bun-version,
+# rust-toolchain.toml). All tool versions come from [tools] above. See the
+# header comment -- do not add `rust` here (dual-toolchain collision on CI).
+idiomatic_version_file_enable_tools = [ ]
 env_cache           = true
 exec_auto_install   = true
 github_attestations = true

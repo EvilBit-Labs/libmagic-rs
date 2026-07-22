@@ -7,8 +7,10 @@
 # toolchains whose components collide on CI runners (`detected conflict`).
 #
 # `components` / `targets` below are the rustup copy; mise.toml declares a
-# superset of targets. Bumping rustc: update both files, `mise upgrade rust`,
-# commit mise.lock, and Cargo.toml `rust-version` if the MSRV moves.
+# superset of targets. Bumping rustc: an exact pin means `mise upgrade rust`
+# does NOT move it -- edit `channel` here and `version` in mise.toml, then
+# `mise install` (or `mise upgrade --bump rust`); commit mise.lock, and update
+# Cargo.toml `rust-version` if the MSRV moves.
 [toolchain]
 channel = "1.97.0"
 components = [ "rustfmt", "clippy", "llvm-tools-preview" ]
