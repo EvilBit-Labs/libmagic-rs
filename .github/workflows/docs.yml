@@ -25,11 +25,14 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
-            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
             - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
                   cache: true
+                  cache_key: "mise-v1-{{platform}}-{{install_args_hash}}-{{file_hash}}"
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Setup mdBook
@@ -40,8 +43,6 @@ jobs:
                   use-mermaid: true
                   use-toc: true
                   use-admonish: true
-            - name: Install mdbook plugins
-              run: mise x -- cargo binstall mdbook-tabs mdbook-i18n-helpers mdbook-alerts mdbook-yml-header mdbook-image-size --no-confirm
 
             - name: Build mdBook
               run: |
