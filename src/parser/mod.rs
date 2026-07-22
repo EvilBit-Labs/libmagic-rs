@@ -234,9 +234,17 @@ pub fn parse_text_magic_file(input: &str) -> Result<ParsedMagic, ParseError> {
 /// forms); without tolerance, one such rule would drop the entire file --
 /// e.g. losing all of `compress`'s gzip/bzip2 detection over its lone `ustring`
 /// XZ rule. See GOTCHAS S3.11.
-pub(crate) fn parse_text_magic_file_tolerant(input: &str) -> Result<ParsedMagic, ParseError> {
+///
+/// `source` is an optional label for the magic file being parsed (its path),
+/// threaded into the skipped-rule `warn!` so a directory load can locate the
+/// offending rule. Pass `None` for in-memory/direct-API input with no source
+/// file.
+pub(crate) fn parse_text_magic_file_tolerant(
+    input: &str,
+    source: Option<&std::path::Path>,
+) -> Result<ParsedMagic, ParseError> {
     let lines = preprocess_lines(input)?;
-    let rules = hierarchy::build_rule_hierarchy_tolerant(lines)?;
+    let rules = hierarchy::build_rule_hierarchy_tolerant(lines, source)?;
     let (rules, name_table) = name_table::extract_name_table(rules);
     Ok(ParsedMagic { rules, name_table })
 }

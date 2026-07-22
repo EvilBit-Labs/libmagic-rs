@@ -10,6 +10,7 @@ use super::preprocessing::{LineInfo, parse_magic_rule_line};
 use crate::error::ParseError;
 use crate::parser::ast::MagicRule;
 use log::warn;
+use std::path::Path;
 
 /// Count the leading `>`-continuation markers on a magic-rule line, i.e. its
 /// nesting level, without fully parsing the rule. Used to drop the subtree of
@@ -52,7 +53,7 @@ fn leading_indent_level(content: &str) -> usize {
 /// - Any line contains invalid magic rule syntax
 /// - Rule parsing fails (propagated from `parse_magic_rule_line`)
 pub(crate) fn build_rule_hierarchy(lines: Vec<LineInfo>) -> Result<Vec<MagicRule>, ParseError> {
-    build_rule_hierarchy_impl(lines, false)
+    build_rule_hierarchy_impl(lines, false, None)
 }
 
 /// Line-tolerant variant of [`build_rule_hierarchy`] for the **runtime**
@@ -63,15 +64,21 @@ pub(crate) fn build_rule_hierarchy(lines: Vec<LineInfo>) -> Result<Vec<MagicRule
 /// other rules (gzip, bzip2, ...). The strict [`build_rule_hierarchy`] is kept
 /// for build-time codegen of the crate's own builtin rules, where a malformed
 /// rule should fail the build. See GOTCHAS S3.11.
+///
+/// `source` is an optional label for the magic file being parsed (its path).
+/// When present it is included in the skipped-rule `warn!` so that a directory
+/// load spanning many files can locate the offending rule.
 pub(crate) fn build_rule_hierarchy_tolerant(
     lines: Vec<LineInfo>,
+    source: Option<&Path>,
 ) -> Result<Vec<MagicRule>, ParseError> {
-    build_rule_hierarchy_impl(lines, true)
+    build_rule_hierarchy_impl(lines, true, source)
 }
 
 fn build_rule_hierarchy_impl(
     lines: Vec<LineInfo>,
     tolerant: bool,
+    source: Option<&Path>,
 ) -> Result<Vec<MagicRule>, ParseError> {
     /// Helper to pop a rule from the stack and attach it to its parent or roots
     fn pop_and_attach(stack: &mut Vec<MagicRule>, roots: &mut Vec<MagicRule>) {
@@ -127,8 +134,10 @@ fn build_rule_hierarchy_impl(
                     return Err(err);
                 }
                 let preview: String = line.content.chars().take(80).collect();
+                let source_label =
+                    source.map_or_else(String::new, |p| format!(" in {}", p.display()));
                 warn!(
-                    "skipping unparseable magic rule at line {}: {err} (rule: {preview:?})",
+                    "skipping unparseable magic rule{source_label} at line {}: {err} (rule: {preview:?})",
                     line.line_number
                 );
                 // The failed line's subtree is meaningless without it, and an

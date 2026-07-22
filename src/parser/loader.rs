@@ -236,7 +236,7 @@ pub fn load_magic_directory(dir_path: &Path) -> Result<ParsedMagic, ParseError> 
 
         // Parse the file (line-tolerant: unparseable rules are skipped with a
         // warning rather than dropping the whole file).
-        match super::parse_text_magic_file_tolerant(&contents) {
+        match super::parse_text_magic_file_tolerant(&contents, Some(&path)) {
             Ok(parsed) => {
                 if parsed.rules.is_empty() && parsed.name_table.is_empty() {
                     // Contributed nothing usable. If the file had actual rule
@@ -417,7 +417,7 @@ pub fn load_magic_file(path: &Path) -> Result<ParsedMagic, ParseError> {
         MagicFileFormat::Text => {
             // Read file contents (size-bounded) and parse as text magic file
             let content = read_magic_file_bounded(path)?;
-            super::parse_text_magic_file_tolerant(&content)
+            super::parse_text_magic_file_tolerant(&content, Some(path))
         }
         MagicFileFormat::Directory => {
             // Load all magic files from directory
@@ -784,6 +784,43 @@ mod tests {
             2,
             "the unparseable rule must be dropped, keeping exactly the two valid ones: {msgs:?}"
         );
+    }
+
+    #[test]
+    fn test_tolerant_skip_warning_includes_source_file_path() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        // The skipped-rule warning must carry the source file path so that a
+        // directory load spanning many files can locate the offending rule
+        // (issue #391 item 3). The loader threads the path through
+        // `parse_text_magic_file_tolerant` -> `build_rule_hierarchy_tolerant`.
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let bad_file = temp_dir.path().join("has_bad_rule.magic");
+        fs::write(&bad_file, "0 string GOOD good rule\nstring test invalid\n")
+            .expect("Failed to write file");
+
+        testing_logger::setup();
+        let _ = load_magic_file(&bad_file).expect("tolerant load must not abort");
+        let path_str = bad_file.display().to_string();
+        testing_logger::validate(|captured_logs| {
+            let skip_warns: Vec<_> = captured_logs
+                .iter()
+                .filter(|l| l.body.contains("skipping unparseable magic rule"))
+                .collect();
+            assert_eq!(
+                skip_warns.len(),
+                1,
+                "expected exactly one skip warning, got: {:?}",
+                captured_logs.iter().map(|l| &l.body).collect::<Vec<_>>()
+            );
+            assert_eq!(skip_warns[0].level, log::Level::Warn);
+            assert!(
+                skip_warns[0].body.contains(&path_str),
+                "skip warning must include the source file path '{path_str}', got: {}",
+                skip_warns[0].body
+            );
+        });
     }
 
     #[test]
