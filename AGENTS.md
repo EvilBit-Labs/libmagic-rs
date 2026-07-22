@@ -439,7 +439,7 @@ The project uses GitHub Actions CI with Mergify merge protections:
 - No compilation warnings or errors
 - All tests must pass
 - Security audit must pass
-- Performance benchmarks must not regress
+- Performance must not regress -- benchmarks are run locally with `cargo bench` (not CI-gated); regressions are caught in manual review, not by an automated CI check
 
 ### Code Review Requirements
 

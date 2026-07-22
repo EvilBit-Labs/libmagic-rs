@@ -277,10 +277,6 @@ backend = "cargo:cargo-outdated"
 version = "1.1.2"
 backend = "cargo:cargo-release"
 
-[[tools."cargo:critcmp"]]
-version = "0.1.8"
-backend = "cargo:critcmp"
-
 [[tools."cargo:git-cliff"]]
 version = "2.13.1"
 backend = "cargo:git-cliff"

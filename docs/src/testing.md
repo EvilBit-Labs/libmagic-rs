@@ -698,15 +698,15 @@ cargo bench -- --noplot
 | `evaluation_bench` | Rule evaluation against various file types |
 | `io_bench`         | Memory-mapped I/O operations               |
 
-### Benchmark CI
+### Benchmarks
 
-Benchmarks run automatically:
+Benchmarks are run locally, not in CI:
 
-- **Weekly**: Scheduled runs on Sunday at 3 AM UTC
-- **On PR**: When performance-critical code changes (src/evaluator, src/parser, src/io, benches)
-- **Manual**: Via workflow_dispatch
+```bash
+cargo bench --bench parser_bench --bench evaluation_bench --bench io_bench
+```
 
-The CI compares PR benchmarks against the main branch and reports regressions.
+Compare against a saved baseline with criterion's `--save-baseline` / `--baseline` when investigating a suspected regression. There is no automated CI gate that fails a PR on a benchmark regression; performance is reviewed manually (see the code-review requirements in AGENTS.md).
 
 ## Future Testing Plans
 

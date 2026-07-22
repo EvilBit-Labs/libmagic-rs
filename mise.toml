@@ -45,7 +45,6 @@ scorecard                   = "5.5.0"
 "pipx:pre-commit"           = "latest"
 bun                         = "1.3.14"
 shellcheck                  = "0.11.0"
-"cargo:critcmp"             = "0.1.8"
 
 # Many of these settings are defaults, but we are explicit in case they change in the future and to make it clear to users what is enabled.
 [settings]
