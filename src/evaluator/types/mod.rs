@@ -124,15 +124,65 @@ pub enum TypeReadError {
         /// The actual length of the buffer.
         buffer_len: usize,
     },
-    /// Type-level capability failure: regex pattern compile error, missing
-    /// pattern operand on a pattern-bearing type, non-equality operator on
-    /// a pattern-bearing type, or a future capability gap. The `type_name`
-    /// field carries a free-form description of the offending type or
-    /// condition; callers should treat this as an opaque diagnostic string.
+    /// Genuine evaluator capability gap that must abort evaluation: a
+    /// non-equality operator on a pattern-bearing type, a `Meta` variant read
+    /// as a value, an unwired `TypeKind`, or a future gap. The `type_name`
+    /// field carries a free-form description; callers treat it as an opaque
+    /// diagnostic string. This variant is intentionally **not** part of the
+    /// narrow graceful-skip allowlist (GOTCHAS S2.1) -- the two skippable
+    /// conditions have their own variants ([`Self::MissingPatternOperand`],
+    /// [`Self::RegexCompileError`]) so the engine matches variants, not
+    /// strings.
     #[error("Unsupported type: {type_name}")]
     UnsupportedType {
         /// Free-form description of the offending type or failure condition.
         type_name: String,
+    },
+    /// A pattern-bearing type (`Regex`, `Search`, or a flagged `String`) was
+    /// evaluated without a usable `String`/`Bytes` pattern operand. This is a
+    /// narrow, allowlisted **non-match** condition (GOTCHAS S2.1/S2.4): the
+    /// engine skips the rule (logged at `debug!`) rather than aborting the
+    /// whole file. The `type_name` field names which type lacked the operand.
+    /// Dedicated variant (issue #391 item 2) replacing the earlier
+    /// string-keyed `UnsupportedType` allowlist so the skip contract is
+    /// compiler-enforced.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::evaluator::types::TypeReadError;
+    /// let err = TypeReadError::MissingPatternOperand {
+    ///     type_name: "regex without string pattern".to_string(),
+    /// };
+    /// assert_eq!(err.to_string(), "regex without string pattern");
+    /// ```
+    #[error("{type_name}")]
+    MissingPatternOperand {
+        /// Description of the pattern-bearing type that lacked an operand.
+        type_name: String,
+    },
+    /// A `Regex` rule's pattern failed to compile, including the
+    /// `REGEX_COMPILE_SIZE_LIMIT` (CWE-1333) denial-of-service guard. Narrow,
+    /// allowlisted **non-match** condition (GOTCHAS S2.1): the engine skips
+    /// the rule (logged at `warn!`, so a malicious or pathological pattern's
+    /// rejection stays visible) rather than aborting. The `detail` field
+    /// carries the underlying compiler error. Dedicated variant (issue #391
+    /// item 2) replacing the earlier `"regex compile error:"` string prefix
+    /// check.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::evaluator::types::TypeReadError;
+    /// let err = TypeReadError::RegexCompileError {
+    ///     detail: "regex parse error".to_string(),
+    /// };
+    /// assert_eq!(err.to_string(), "regex compile error: regex parse error");
+    /// ```
+    #[error("regex compile error: {detail}")]
+    RegexCompileError {
+        /// The underlying regex compiler error message.
+        detail: String,
     },
     /// Invalid pstring length prefix value (e.g., `/J` flag with stored length
     /// smaller than the prefix width).
@@ -161,14 +211,39 @@ pub enum TypeReadError {
     },
 }
 
+impl TypeReadError {
+    /// Whether this error is one of the two narrow, allowlisted graceful-skip
+    /// conditions (GOTCHAS S2.1): a missing pattern operand
+    /// ([`Self::MissingPatternOperand`]) or a regex compile failure
+    /// ([`Self::RegexCompileError`]). Every other cause -- notably
+    /// [`Self::UnsupportedType`] (an unwired `TypeKind`, a non-equality
+    /// operator on a pattern-bearing type, a `Meta` read as a value) -- is a
+    /// genuine capability gap that MUST propagate and abort evaluation. The
+    /// engine keys its narrow skip on this method, so widening it silently
+    /// widens the S2.1 contract; do not add variants here without the same
+    /// review discipline the string allowlist required.
+    #[must_use]
+    pub(crate) fn is_pattern_skip(&self) -> bool {
+        matches!(
+            self,
+            Self::MissingPatternOperand { .. } | Self::RegexCompileError { .. }
+        )
+    }
+
+    /// Whether this is specifically the regex-compile-failure skip condition
+    /// (including the `REGEX_COMPILE_SIZE_LIMIT` CWE-1333 guard), which the
+    /// engine logs at `warn!` rather than `debug!` so a malicious or
+    /// pathological pattern's rejection stays visible (KTD5).
+    #[must_use]
+    pub(crate) fn is_regex_compile_failure(&self) -> bool {
+        matches!(self, Self::RegexCompileError { .. })
+    }
+}
+
 /// Diagnostic string for `TypeKind::Regex` evaluated without a usable
-/// `String`/`Bytes` pattern operand. Shared by every construction site
-/// (`read_typed_value_with_pattern` and `read_pattern_match`'s `Regex`
-/// arms) AND [`is_missing_pattern_operand`], so the two can never drift
-/// out of sync (a hardening item from the multi-agent review of the
-/// fix-system-magic-regex-graceful PR: the message previously existed as
-/// five independent string-literal copies across the two construction
-/// sites and the predicate).
+/// `String`/`Bytes` pattern operand. Carried as the `type_name` of
+/// [`TypeReadError::MissingPatternOperand`] by every construction site so the
+/// message stays single-sourced.
 pub(crate) const REGEX_MISSING_PATTERN_MSG: &str = "regex without string pattern";
 
 /// Diagnostic string for `TypeKind::Search` evaluated without a usable
@@ -181,42 +256,6 @@ pub(crate) const SEARCH_MISSING_PATTERN_MSG: &str = "search without string/bytes
 /// [`REGEX_MISSING_PATTERN_MSG`] for the single-source-of-truth rationale.
 pub(crate) const FLAGGED_STRING_MISSING_PATTERN_MSG: &str =
     "string with flags requires string/bytes pattern";
-
-/// Returns `true` if `type_name` (the free-form diagnostic string carried by
-/// [`TypeReadError::UnsupportedType`]) describes a pattern-bearing type
-/// (`Regex`, `Search`, or a flagged `String`) that was evaluated without a
-/// usable `String`/`Bytes` pattern operand.
-///
-/// This is the narrow "missing pattern" condition the engine's graceful skip
-/// (GOTCHAS S2.1, S2.4) targets -- deliberately an exhaustive allowlist of
-/// the exact messages this module emits for that condition, not a substring
-/// heuristic, so a genuine evaluator capability gap (an unwired `TypeKind`
-/// variant, or a non-equality operator on a pattern-bearing type) is never
-/// accidentally swallowed. See `is_regex_compile_failure` for the sibling
-/// "compile failure" condition, and the fix-system-magic-regex-graceful
-/// plan (KTD4/KTD5, requirement R3) for the full rationale.
-#[must_use]
-pub(crate) fn is_missing_pattern_operand(type_name: &str) -> bool {
-    matches!(
-        type_name,
-        REGEX_MISSING_PATTERN_MSG | SEARCH_MISSING_PATTERN_MSG | FLAGGED_STRING_MISSING_PATTERN_MSG
-    )
-}
-
-/// Returns `true` if `type_name` describes a regex compile failure, as
-/// opposed to a missing pattern operand.
-///
-/// Compile failures include the `REGEX_COMPILE_SIZE_LIMIT` (1 MiB) denial-of-service guard
-/// (CWE-1333) from `evaluator::types::regex`. Both conditions flow
-/// through the same [`TypeReadError::UnsupportedType`] variant and are
-/// gracefully skipped by the engine, but a compile failure is logged at
-/// `warn!` rather than `debug!` so a malicious or pathological magic file's
-/// rejection is not silently invisible even though evaluation of the rest
-/// of the file continues (KTD5).
-#[must_use]
-pub(crate) fn is_regex_compile_failure(type_name: &str) -> bool {
-    type_name.starts_with("regex compile error:")
-}
 
 /// Default `max_string_length` used by [`read_typed_value`] when callers
 /// do not supply an explicit cap. Matches
@@ -408,7 +447,7 @@ pub(crate) fn read_typed_value_with_pattern(
                 Some(Value::String(s)) => Cow::Borrowed(s.as_str()),
                 Some(Value::Bytes(b)) => Cow::Owned(decode_regex_bytes_pattern(b)),
                 _ => {
-                    return Err(TypeReadError::UnsupportedType {
+                    return Err(TypeReadError::MissingPatternOperand {
                         type_name: REGEX_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
@@ -426,7 +465,7 @@ pub(crate) fn read_typed_value_with_pattern(
                 Some(Value::String(s)) => s.as_bytes(),
                 Some(Value::Bytes(b)) => b.as_slice(),
                 _ => {
-                    return Err(TypeReadError::UnsupportedType {
+                    return Err(TypeReadError::MissingPatternOperand {
                         type_name: SEARCH_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
@@ -490,7 +529,7 @@ pub(crate) fn read_pattern_match(
                 Some(Value::String(s)) => Cow::Borrowed(s.as_str()),
                 Some(Value::Bytes(b)) => Cow::Owned(decode_regex_bytes_pattern(b)),
                 _ => {
-                    return Err(TypeReadError::UnsupportedType {
+                    return Err(TypeReadError::MissingPatternOperand {
                         type_name: REGEX_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
@@ -502,7 +541,7 @@ pub(crate) fn read_pattern_match(
                 Some(Value::String(s)) => s.as_bytes(),
                 Some(Value::Bytes(b)) => b.as_slice(),
                 _ => {
-                    return Err(TypeReadError::UnsupportedType {
+                    return Err(TypeReadError::MissingPatternOperand {
                         type_name: SEARCH_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
@@ -530,7 +569,7 @@ pub(crate) fn read_pattern_match(
                 Some(Value::String(s)) => s.as_bytes(),
                 Some(Value::Bytes(b)) => b.as_slice(),
                 _ => {
-                    return Err(TypeReadError::UnsupportedType {
+                    return Err(TypeReadError::MissingPatternOperand {
                         type_name: FLAGGED_STRING_MISSING_PATTERN_MSG.to_string(),
                     });
                 }

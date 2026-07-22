@@ -1155,7 +1155,7 @@ fn test_regex_missing_pattern_still_errors_in_both_dispatch_fns() {
     assert!(
         matches!(
             pattern_match_result,
-            Err(TypeReadError::UnsupportedType { ref type_name }) if type_name == "regex without string pattern"
+            Err(TypeReadError::MissingPatternOperand { ref type_name }) if type_name == "regex without string pattern"
         ),
         "read_pattern_match with no pattern must still error, got {pattern_match_result:?}"
     );
@@ -1164,58 +1164,88 @@ fn test_regex_missing_pattern_still_errors_in_both_dispatch_fns() {
     assert!(
         matches!(
             typed_value_result,
-            Err(TypeReadError::UnsupportedType { ref type_name }) if type_name == "regex without string pattern"
+            Err(TypeReadError::MissingPatternOperand { ref type_name }) if type_name == "regex without string pattern"
         ),
         "read_typed_value_with_pattern with no pattern must still error, got {typed_value_result:?}"
     );
 }
 
 // =============================================================================
-// U2 predicate helpers: `is_missing_pattern_operand` / `is_regex_compile_failure`
+// U2 skip-classification methods: `TypeReadError::is_pattern_skip` /
+// `is_regex_compile_failure` (issue #391 item 2 -- dedicated variants replace
+// the earlier string-keyed allowlist; the narrow S2.1 contract is now
+// compiler-enforced by variant identity, not string content).
 // =============================================================================
 
 #[test]
-fn test_is_missing_pattern_operand_recognizes_known_messages() {
-    let recognized: &[&str] = &[
-        "regex without string pattern",
-        "search without string/bytes pattern",
-        "string with flags requires string/bytes pattern",
+fn test_is_pattern_skip_recognizes_missing_operand_and_compile_error_variants() {
+    let skippable = [
+        TypeReadError::MissingPatternOperand {
+            type_name: "regex without string pattern".to_string(),
+        },
+        TypeReadError::MissingPatternOperand {
+            type_name: "search without string/bytes pattern".to_string(),
+        },
+        TypeReadError::MissingPatternOperand {
+            type_name: "string with flags requires string/bytes pattern".to_string(),
+        },
+        TypeReadError::RegexCompileError {
+            detail: "some failure".to_string(),
+        },
     ];
-    for msg in recognized {
+    for err in &skippable {
         assert!(
-            is_missing_pattern_operand(msg),
-            "expected {msg:?} to be recognized as a missing-pattern-operand condition"
+            err.is_pattern_skip(),
+            "expected {err:?} to be an allowlisted graceful-skip condition"
         );
     }
 }
 
 #[test]
-fn test_is_missing_pattern_operand_rejects_other_unsupported_type_messages() {
-    // R3 narrowness guard: these must NOT be recognized, or a genuine
-    // capability gap / operator-misuse error would be silently swallowed.
-    let not_recognized: &[String] = &[
-        "regex compile error: some failure".to_string(),
-        "meta-type Offset cannot be read as a value".to_string(),
-        "operator GreaterThan is not supported for pattern-bearing type".to_string(),
-        "read_pattern_match called on non-pattern type".to_string(),
+fn test_is_pattern_skip_rejects_genuine_capability_gaps() {
+    // R3 narrowness guard: a genuine capability gap (UnsupportedType) or an
+    // unrelated read error must NOT be treated as skippable, or it would be
+    // silently swallowed instead of aborting evaluation.
+    let not_skippable = [
+        TypeReadError::UnsupportedType {
+            type_name: "meta-type Offset cannot be read as a value".to_string(),
+        },
+        TypeReadError::UnsupportedType {
+            type_name: "operator GreaterThan is not supported for pattern-bearing type".to_string(),
+        },
+        TypeReadError::BufferOverrun {
+            offset: 10,
+            buffer_len: 4,
+        },
     ];
-    for msg in not_recognized {
+    for err in &not_skippable {
         assert!(
-            !is_missing_pattern_operand(msg),
-            "expected {msg:?} to NOT be recognized as a missing-pattern-operand condition"
+            !err.is_pattern_skip(),
+            "expected {err:?} to NOT be an allowlisted graceful-skip condition"
         );
     }
 }
 
 #[test]
-fn test_is_regex_compile_failure_matches_only_compile_error_prefix() {
-    assert!(is_regex_compile_failure(
-        "regex compile error: Compiled regex exceeds size limit of 1048576 bytes."
-    ));
-    assert!(!is_regex_compile_failure("regex without string pattern"));
-    assert!(!is_regex_compile_failure(
-        "search without string/bytes pattern"
-    ));
+fn test_is_regex_compile_failure_matches_only_the_compile_error_variant() {
+    assert!(
+        TypeReadError::RegexCompileError {
+            detail: "Compiled regex exceeds size limit of 1048576 bytes.".to_string(),
+        }
+        .is_regex_compile_failure()
+    );
+    assert!(
+        !TypeReadError::MissingPatternOperand {
+            type_name: "regex without string pattern".to_string(),
+        }
+        .is_regex_compile_failure()
+    );
+    assert!(
+        !TypeReadError::UnsupportedType {
+            type_name: "some other gap".to_string(),
+        }
+        .is_regex_compile_failure()
+    );
 }
 
 #[test]

@@ -276,10 +276,10 @@ fn compute_window(buffer: &[u8], offset: usize, count: crate::parser::ast::Regex
 /// # Errors
 ///
 /// * `TypeReadError::BufferOverrun` if `offset >= buffer.len()`.
-/// * `TypeReadError::UnsupportedType` if `pattern` fails to compile as a
-///   regex (the error variant is reused to avoid adding a new enum
-///   variant; the `type_name` field carries the compilation error
-///   message).
+/// * `TypeReadError::RegexCompileError` if `pattern` fails to compile as a
+///   regex (including the `REGEX_COMPILE_SIZE_LIMIT` CWE-1333 guard); the
+///   `detail` field carries the compilation error message. The engine
+///   gracefully skips this (logged at `warn!`, GOTCHAS S2.1).
 ///
 /// [`RegexCount`]: crate::parser::ast::RegexCount
 pub fn read_regex(
@@ -297,8 +297,8 @@ pub fn read_regex(
     }
 
     let regex = get_or_compile_regex(pattern, flags.case_insensitive).map_err(|e| {
-        TypeReadError::UnsupportedType {
-            type_name: format!("regex compile error: {e}"),
+        TypeReadError::RegexCompileError {
+            detail: format!("{e}"),
         }
     })?;
 
@@ -566,7 +566,10 @@ mod tests {
     fn test_read_regex_invalid_pattern() {
         let buffer = b"Hello";
         let result = read_regex(buffer, 0, "[unclosed", no_flags(), default_count());
-        assert!(matches!(result, Err(TypeReadError::UnsupportedType { .. })));
+        assert!(matches!(
+            result,
+            Err(TypeReadError::RegexCompileError { .. })
+        ));
     }
 
     #[test]
