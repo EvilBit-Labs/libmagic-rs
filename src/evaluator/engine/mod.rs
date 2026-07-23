@@ -17,6 +17,11 @@ use crate::{EvaluationConfig, LibmagicError};
 
 use super::{EvaluationContext, RecursionGuard, RuleMatch, offset, operators, types};
 use log::{debug, warn};
+// Gated to debug builds: after the engine module split, mod.rs's only atomic
+// user is the `#[cfg(debug_assertions)]` INDIRECT_WITHOUT_RULE_ENV_WARNED guard
+// below. In release builds that item is compiled out, so an ungated import is
+// unused and the workspace `warnings = "deny"` lint rejects it.
+#[cfg(debug_assertions)]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 mod output;

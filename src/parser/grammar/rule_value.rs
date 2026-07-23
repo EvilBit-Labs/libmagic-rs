@@ -23,7 +23,7 @@ use super::value;
 /// comparison value as a number: `0 string >0` compares against the
 /// literal ASCII byte `'0'` (0x30), and `>0.6.1` against the literal
 /// characters `0.6.1` -- not the integer 0 or the float 0.6. The generic
-/// [`parse_value`] tries its float and integer branches (see
+/// [`super::value::parse_value`] tries its float and integer branches (see
 /// `value::parse_value`) before falling through, so a bareword like `0` or
 /// `0.6.1` was captured as `Value::Uint`/`Value::Float`. A subsequent
 /// comparison against the string field read from the file then yields no
@@ -32,7 +32,7 @@ use super::value;
 /// `\b, name %s` / `face %s` / `palette %s` and version compares like
 /// `>0.6.1 ... version %s`.
 ///
-/// This parser mirrors [`parse_value`]'s ordering for the two branches
+/// This parser mirrors [`super::value::parse_value`]'s ordering for the two branches
 /// that are correct for string-family values -- a leading whitespace trim,
 /// then a quoted string (-> `Value::String`), then a hex/escape byte
 /// sequence (-> `Value::Bytes`, e.g. gzip's `\037\213` or `\177ELF`) -- but
@@ -68,7 +68,7 @@ pub(super) fn parse_string_family_value(input: &str) -> IResult<&str, Value> {
 /// Parse a bare (unquoted) single-token string literal as a `Value::String`.
 ///
 /// Used only as a fallback for string-family types (`string`, `pstring`,
-/// `regex`, `search`) when the strict [`parse_value`] alternatives all
+/// `regex`, `search`) when the strict [`super::value::parse_value`] alternatives all
 /// fail. Consumes leading whitespace, then reads a run of non-whitespace
 /// characters as the literal value, **interpreting magic(5) escape
 /// sequences** along the way: `\0`, `\n`, `\r`, `\t`, `\\`, `\"`, `\'`,
