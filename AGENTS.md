@@ -83,11 +83,17 @@ parser/
 ├── mod.rs      // Public parser interface
 ├── ast.rs      // AST node definitions
 ├── grammar/    // Magic file DSL parsing (nom) -- split into focused submodules
-│   ├── mod.rs        // Top-level parse_magic_rule_line, dispatch
+│   ├── mod.rs        // Top-level parse_magic_rule dispatch + re-exports
 │   ├── numbers.rs    // parse_number, parse_unsigned_number
 │   ├── value.rs      // parse_value (quoted strings, numeric literals)
+│   ├── rule_value.rs // parse_string_family_value, parse_bare_string_value (S3.6/S6.7)
+│   ├── offset.rs     // parse_offset, parse_indirect_offset, pointer_specifier_to_type
+│   ├── operator.rs   // parse_operator
+│   ├── type_and_operator.rs // parse_type, parse_type_and_operator, parse_name_or_use_meta
+│   ├── lines.rs      // parse_message, parse_strength_directive, comment/line helpers
 │   ├── type_suffix.rs // pstring /B/H/L, regex /c/s, search /N suffixes
-│   └── tests/        // Grammar test modules
+│   ├── getstr/       // Bareword regex getstr escape resolver (S2.12)
+│   └── tests/        // Grammar test modules (themed child files)
 ├── types.rs    // Type keyword parsing and TypeKind conversion
 └── codegen.rs  // Serialization for code generation (shared with build.rs)
 
@@ -95,16 +101,22 @@ parser/
 evaluator/
 ├── mod.rs          // Public interface: EvaluationContext, RuleMatch, re-exports
 ├── tests.rs        // Unit tests for EvaluationContext and RuleMatch
-├── engine/         // Core evaluation engine submodule
-│   ├── mod.rs      // evaluate_single_rule, evaluate_rules, evaluate_rules_with_config
-│   └── tests.rs    // Engine unit tests
+├── engine/         // Core evaluation engine submodule (split into focused files)
+│   ├── mod.rs      // evaluate_rules dispatch loop, evaluate_single_rule_with_anchor
+│   ├── output.rs   // is_message_bearing, has_message_bearing_match (S13.2/S14)
+│   ├── pattern_recovery.rs // log_pattern_operand_skip, evaluate_children_or_warn (S2.1)
+│   ├── subroutine.rs // SubroutineScope, evaluate_use_rule (use/\^ dispatch, S16)
+│   ├── value_eval.rs // evaluate_value_rule, evaluate_pattern_rule, string_ordering_display_value
+│   └── tests/       // Engine unit tests (themed child modules)
 ├── types/          // Type interpretation with endianness (directory module, issue #63)
-│   ├── mod.rs      // read_typed_value, read_pattern_match, bytes_consumed_with_pattern
+│   ├── mod.rs      // read_typed_value, read_pattern_match, bytes_consumed_with_pattern,
+│   │               //   TypeReadError (MissingPatternOperand/RegexCompileError, S2.1)
 │   ├── numeric.rs  // byte/short/long/quad readers
 │   ├── string.rs   // string/pstring readers
 │   ├── float.rs    // float/double readers
 │   ├── date.rs     // date/qdate readers and timestamp formatting
-│   └── regex.rs    // regex/search readers, REGEX_MAX_BYTES cap, thread-local cache
+│   ├── regex.rs    // regex/search readers, REGEX_MAX_BYTES cap, thread-local cache
+│   └── tests/      // Type-reader unit tests (themed child modules)
 ├── strength.rs     // Strength modifier application
 ├── offset/         // Offset resolution submodule
 │   ├── mod.rs      // Dispatcher (resolve_offset) and re-exports
