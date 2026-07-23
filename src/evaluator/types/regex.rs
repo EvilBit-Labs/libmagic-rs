@@ -298,7 +298,7 @@ pub fn read_regex(
 
     let regex = get_or_compile_regex(pattern, flags.case_insensitive).map_err(|e| {
         TypeReadError::RegexCompileError {
-            detail: format!("{e}"),
+            detail: e.to_string(),
         }
     })?;
 
