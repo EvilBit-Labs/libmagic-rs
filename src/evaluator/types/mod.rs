@@ -275,7 +275,7 @@ pub(crate) const DEFAULT_MAX_STRING_LENGTH: usize = 8192;
 /// ergonomic.
 ///
 /// For pattern-bearing types (`TypeKind::Regex`, `TypeKind::Search`) this
-/// function will return `TypeReadError::UnsupportedType` because the
+/// function will return `TypeReadError::MissingPatternOperand` because the
 /// pattern operand is mandatory. Callers that need to evaluate regex/search
 /// rules should use [`read_typed_value_with_pattern`] and thread the rule
 /// value operand through as `pattern`.
@@ -283,7 +283,7 @@ pub(crate) const DEFAULT_MAX_STRING_LENGTH: usize = 8192;
 /// # Errors
 ///
 /// Returns `TypeReadError::BufferOverrun` when the requested value extends
-/// past the buffer bounds, `TypeReadError::UnsupportedType` when a
+/// past the buffer bounds, `TypeReadError::MissingPatternOperand` when a
 /// pattern-bearing type is evaluated without a pattern, or
 /// `TypeReadError::InvalidPStringLength` for a malformed Pascal string
 /// length prefix.
@@ -352,16 +352,16 @@ fn decode_regex_bytes_pattern(bytes: &[u8]) -> String {
 /// Pattern-bearing types (`TypeKind::Regex`, `TypeKind::Search`, and
 /// flagged `TypeKind::String`) are routed through [`read_pattern_match`]
 /// by the engine instead; this function returns
-/// `TypeReadError::UnsupportedType` if called with those variants so a
-/// programmatic caller mis-routing them surfaces immediately rather than
-/// silently producing wrong results.
+/// `TypeReadError::MissingPatternOperand` if called with those variants
+/// without a pattern so a programmatic caller mis-routing them surfaces
+/// immediately rather than silently producing wrong results.
 ///
 /// # Errors
 ///
 /// Returns `TypeReadError::BufferOverrun` when the requested value extends
-/// past the buffer bounds, `TypeReadError::UnsupportedType` when a
-/// pattern-bearing type is evaluated through this path instead of via
-/// [`read_pattern_match`], or `TypeReadError::InvalidPStringLength` for a
+/// past the buffer bounds, `TypeReadError::MissingPatternOperand` when a
+/// pattern-bearing type is evaluated through this path without a pattern
+/// operand, or `TypeReadError::InvalidPStringLength` for a
 /// malformed Pascal string length prefix.
 ///
 /// `max_string_length` bounds the scan-mode string read on the
@@ -492,10 +492,10 @@ pub(crate) fn read_typed_value_with_pattern(
 /// Returns [`TypeReadError`] for:
 ///
 /// * `BufferOverrun` when `offset >= buffer.len()`
-/// * `UnsupportedType` if `type_kind` is not pattern-bearing, if the
-///   pattern operand is missing, or if the pattern has the wrong
-///   `Value` variant for the type
-/// * `UnsupportedType` (via [`read_regex`]) if a regex pattern fails to
+/// * `MissingPatternOperand` if the pattern operand is missing or has the
+///   wrong `Value` variant for a pattern-bearing type
+/// * `UnsupportedType` if `type_kind` is not pattern-bearing
+/// * `RegexCompileError` (via [`read_regex`]) if a regex pattern fails to
 ///   compile
 pub(crate) fn read_pattern_match(
     buffer: &[u8],

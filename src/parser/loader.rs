@@ -824,6 +824,37 @@ mod tests {
     }
 
     #[test]
+    fn test_tolerant_skip_warning_omits_path_clause_when_source_is_none() {
+        // The direct-API tolerant path (no source file) must still warn on an
+        // unparseable rule but WITHOUT a " in <path>" clause -- the None arm of
+        // the source label (issue #391 item 3). Loader call sites always pass
+        // Some(path); this pins the None branch that a direct caller hits.
+        testing_logger::setup();
+        let ParsedMagic { rules, .. } = super::super::parse_text_magic_file_tolerant(
+            "0 string GOOD good\nstring test bad\n",
+            None,
+        )
+        .expect("tolerant parse must not abort");
+        assert_eq!(
+            rules.len(),
+            1,
+            "the good rule survives, the bad one is dropped"
+        );
+        testing_logger::validate(|captured_logs| {
+            let skip_warns: Vec<_> = captured_logs
+                .iter()
+                .filter(|l| l.body.contains("skipping unparseable magic rule"))
+                .collect();
+            assert_eq!(skip_warns.len(), 1);
+            assert!(
+                !skip_warns[0].body.contains(" in "),
+                "with source=None the warning must carry no ' in <path>' clause, got: {}",
+                skip_warns[0].body
+            );
+        });
+    }
+
+    #[test]
     fn test_load_magic_file_drops_subtree_of_unparseable_rule_without_reattaching() {
         use std::fs;
         use tempfile::TempDir;
