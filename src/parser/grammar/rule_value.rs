@@ -68,8 +68,9 @@ pub(super) fn parse_string_family_value(input: &str) -> IResult<&str, Value> {
 /// Parse a bare (unquoted) single-token string literal as a `Value::String`.
 ///
 /// Used only as a fallback for string-family types (`string`, `pstring`,
-/// `regex`, `search`) when the strict [`super::value::parse_value`] alternatives all
-/// fail. Consumes leading whitespace, then reads a run of non-whitespace
+/// `search`) when the strict [`super::value::parse_value`] alternatives all
+/// fail. (`regex` never reaches here -- it is intercepted earlier by the
+/// dedicated getstr branch, see GOTCHAS S2.12.) Consumes leading whitespace, then reads a run of non-whitespace
 /// characters as the literal value, **interpreting magic(5) escape
 /// sequences** along the way: `\0`, `\n`, `\r`, `\t`, `\\`, `\"`, `\'`,
 /// `\NNN` (3-digit octal), and `\xNN` (hex). This supports magic-file

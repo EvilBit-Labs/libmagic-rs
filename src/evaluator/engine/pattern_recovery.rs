@@ -9,8 +9,8 @@
 //! logging for the narrow, allowlisted pattern-operand-skip exception (see
 //! GOTCHAS S2.1), and `evaluate_children_or_warn` centralizes the
 //! `RecursionGuard` + `evaluate_rules` + error-dispatch pattern that is
-//! identical across the `Default`, `Indirect`, `Offset`, and `Use` meta-type
-//! arms in `evaluate_rules`.
+//! identical across the `Default`, `Clear`, `Indirect`, `Offset`, and `Use`
+//! meta-type arms in `evaluate_rules`.
 
 use super::evaluate_rules;
 use crate::LibmagicError;

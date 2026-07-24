@@ -81,7 +81,7 @@ pub(super) fn parse_mixed_hex_ascii(input: &str) -> IResult<&str, Vec<u8>> {
             // 0x5c byte and the escaped space terminated the token, so
             // ` version=` leaked into the rule's message and XML documents
             // fell through to "ASCII text". Mirrors the same drop-backslash
-            // rule in `parse_bare_string_value` (grammar/mod.rs) and the
+            // rule in `parse_bare_string_value` (grammar/rule_value.rs) and the
             // getstr resolver (grammar/getstr); those three sites share the
             // policy but keep separate escape tables (see GOTCHAS S2.12).
             // A lone trailing backslash (nothing follows) stays a literal

@@ -87,7 +87,7 @@ static USE_WITHOUT_RULE_ENV_WARNED: AtomicBool = AtomicBool::new(false);
 /// itself (matching GNU `file` behavior where a `use` site is replaced by
 /// its expansion in the output).
 ///
-/// Returns `Ok((Some(absolute_offset), matches))` on a successful resolution
+/// Returns `Ok((Some(terminal_anchor), matches))` on a successful resolution
 /// (even if the subroutine produced no matches), or `Ok((None, vec![]))`
 /// when:
 /// - the context has no rule environment attached (programmatic consumers
