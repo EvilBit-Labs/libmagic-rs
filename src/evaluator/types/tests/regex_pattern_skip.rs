@@ -12,13 +12,13 @@ use super::*;
 fn test_is_pattern_skip_recognizes_missing_operand_and_compile_error_variants() {
     let skippable = [
         TypeReadError::MissingPatternOperand {
-            type_name: "regex without string pattern".to_string(),
+            reason: "regex without string pattern".to_string(),
         },
         TypeReadError::MissingPatternOperand {
-            type_name: "search without string/bytes pattern".to_string(),
+            reason: "search without string/bytes pattern".to_string(),
         },
         TypeReadError::MissingPatternOperand {
-            type_name: "string with flags requires string/bytes pattern".to_string(),
+            reason: "string with flags requires string/bytes pattern".to_string(),
         },
         TypeReadError::RegexCompileError {
             detail: "some failure".to_string(),
@@ -67,7 +67,7 @@ fn test_is_regex_compile_failure_matches_only_the_compile_error_variant() {
     );
     assert!(
         !TypeReadError::MissingPatternOperand {
-            type_name: "regex without string pattern".to_string(),
+            reason: "regex without string pattern".to_string(),
         }
         .is_regex_compile_failure()
     );

@@ -142,9 +142,9 @@ pub enum TypeReadError {
     /// evaluated without a usable `String`/`Bytes` pattern operand. This is a
     /// narrow, allowlisted **non-match** condition (GOTCHAS S2.1/S2.4): the
     /// engine skips the rule (logged at `debug!`) rather than aborting the
-    /// whole file. The `type_name` field names which type lacked the operand.
-    /// Dedicated variant (issue #391 item 2) replacing the earlier
-    /// string-keyed `UnsupportedType` allowlist so the skip contract is
+    /// whole file. The `reason` field describes which pattern-bearing type
+    /// lacked the operand. Dedicated variant (issue #391 item 2) replacing the
+    /// earlier string-keyed `UnsupportedType` allowlist so the skip contract is
     /// compiler-enforced.
     ///
     /// # Examples
@@ -152,14 +152,14 @@ pub enum TypeReadError {
     /// ```
     /// use libmagic_rs::evaluator::types::TypeReadError;
     /// let err = TypeReadError::MissingPatternOperand {
-    ///     type_name: "regex without string pattern".to_string(),
+    ///     reason: "regex without string pattern".to_string(),
     /// };
     /// assert_eq!(err.to_string(), "regex without string pattern");
     /// ```
-    #[error("{type_name}")]
+    #[error("{reason}")]
     MissingPatternOperand {
         /// Description of the pattern-bearing type that lacked an operand.
-        type_name: String,
+        reason: String,
     },
     /// A `Regex` rule's pattern failed to compile, including the
     /// `REGEX_COMPILE_SIZE_LIMIT` (CWE-1333) denial-of-service guard. Narrow,
@@ -448,7 +448,7 @@ pub(crate) fn read_typed_value_with_pattern(
                 Some(Value::Bytes(b)) => Cow::Owned(decode_regex_bytes_pattern(b)),
                 _ => {
                     return Err(TypeReadError::MissingPatternOperand {
-                        type_name: REGEX_MISSING_PATTERN_MSG.to_string(),
+                        reason: REGEX_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };
@@ -466,7 +466,7 @@ pub(crate) fn read_typed_value_with_pattern(
                 Some(Value::Bytes(b)) => b.as_slice(),
                 _ => {
                     return Err(TypeReadError::MissingPatternOperand {
-                        type_name: SEARCH_MISSING_PATTERN_MSG.to_string(),
+                        reason: SEARCH_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };
@@ -530,7 +530,7 @@ pub(crate) fn read_pattern_match(
                 Some(Value::Bytes(b)) => Cow::Owned(decode_regex_bytes_pattern(b)),
                 _ => {
                     return Err(TypeReadError::MissingPatternOperand {
-                        type_name: REGEX_MISSING_PATTERN_MSG.to_string(),
+                        reason: REGEX_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };
@@ -542,7 +542,7 @@ pub(crate) fn read_pattern_match(
                 Some(Value::Bytes(b)) => b.as_slice(),
                 _ => {
                     return Err(TypeReadError::MissingPatternOperand {
-                        type_name: SEARCH_MISSING_PATTERN_MSG.to_string(),
+                        reason: SEARCH_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };
@@ -570,7 +570,7 @@ pub(crate) fn read_pattern_match(
                 Some(Value::Bytes(b)) => b.as_slice(),
                 _ => {
                     return Err(TypeReadError::MissingPatternOperand {
-                        type_name: FLAGGED_STRING_MISSING_PATTERN_MSG.to_string(),
+                        reason: FLAGGED_STRING_MISSING_PATTERN_MSG.to_string(),
                     });
                 }
             };

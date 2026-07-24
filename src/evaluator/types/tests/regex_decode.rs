@@ -129,7 +129,7 @@ fn test_regex_missing_pattern_still_errors_in_both_dispatch_fns() {
     assert!(
         matches!(
             pattern_match_result,
-            Err(TypeReadError::MissingPatternOperand { ref type_name }) if type_name == "regex without string pattern"
+            Err(TypeReadError::MissingPatternOperand { ref reason }) if reason == "regex without string pattern"
         ),
         "read_pattern_match with no pattern must still error, got {pattern_match_result:?}"
     );
@@ -138,7 +138,7 @@ fn test_regex_missing_pattern_still_errors_in_both_dispatch_fns() {
     assert!(
         matches!(
             typed_value_result,
-            Err(TypeReadError::MissingPatternOperand { ref type_name }) if type_name == "regex without string pattern"
+            Err(TypeReadError::MissingPatternOperand { ref reason }) if reason == "regex without string pattern"
         ),
         "read_typed_value_with_pattern with no pattern must still error, got {typed_value_result:?}"
     );
