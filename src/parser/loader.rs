@@ -846,8 +846,11 @@ mod tests {
                 .filter(|l| l.body.contains("skipping unparseable magic rule"))
                 .collect();
             assert_eq!(skip_warns.len(), 1);
+            // Target the exact source-path clause (`... magic rule in <path> at
+            // line ...`), not any " in " substring -- a rule preview or parse
+            // error could legitimately contain " in " without a path clause.
             assert!(
-                !skip_warns[0].body.contains(" in "),
+                !skip_warns[0].body.contains("magic rule in "),
                 "with source=None the warning must carry no ' in <path>' clause, got: {}",
                 skip_warns[0].body
             );

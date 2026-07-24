@@ -49,7 +49,10 @@ use crate::parser::ast::Operator;
 /// Returns a nom parsing error if:
 /// - Input does not start with a recognized operator symbol
 /// - Input is empty or contains no valid operator
-/// - Operator syntax is incomplete (e.g., just `!` without `=`)
+///
+/// Note: a bare `!` is **not** an error -- it is accepted as
+/// [`Operator::NotEqual`] (magic(5) bare-`!` prefix, e.g. `!0xb8c0078e`),
+/// matching the `!=` and `<>` spellings.
 pub fn parse_operator(input: &str) -> IResult<&str, Operator> {
     let (input, _) = multispace0(input)?;
 

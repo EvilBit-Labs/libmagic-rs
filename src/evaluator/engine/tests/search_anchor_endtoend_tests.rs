@@ -8,7 +8,7 @@
 use super::*;
 
 /// A child rule with `OffsetSpec::Relative(0)` after a parent search match
-/// must land at `match_index + pattern.len()` — NOT at `window_end` (the
+/// must land at `match_index + pattern.len()` -- NOT at `window_end` (the
 /// pre-fix window-size advance would land on a completely different byte).
 #[test]
 fn test_search_parent_advances_anchor_to_match_end_not_window_end() {
@@ -161,18 +161,3 @@ fn test_string_rule_with_high_byte_value_matches_raw_bytes_end_to_end() {
         "a non-gzip high byte must not match the gzip signature"
     );
 }
-
-// Flagged-string engine dispatch tests are split into
-// `string_flags_dispatch_tests.rs` (see the submodule declaration at the
-// bottom of this file). They cover the engine routing layer; lower-level
-// `compare_string_with_flags` tests live in
-// `src/evaluator/types/string.rs::tests`, and integration / conformance
-// coverage lives in `tests/string_flags_integration.rs`.
-
-// Shared test helpers have been extracted into the `helpers` sub-tree so
-// this module stays focused on its own test wiring; the meta_* submodules
-// continue to access helpers via `super::*` thanks to the glob re-export
-// below. The three bare `use` items are for types that the submodules
-// still reference directly (e.g. `MetaType::Default`, `RuleEnvironment {
-// ... }` literal construction) and therefore must stay in this module's
-// namespace for `super::*` to reach.

@@ -264,13 +264,18 @@ fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
 /// assert_eq!(parse_offset("-4"), Ok(("", OffsetSpec::Absolute(-4))));
 /// assert_eq!(parse_offset("-0xFF"), Ok(("", OffsetSpec::Absolute(-255))));
 ///
-/// // Indirect offset (lowercase = little-endian, signed by default)
+/// // Indirect offset (lowercase = little-endian, signed by default).
+/// // `OffsetSpec::Indirect` also carries `base_relative`, `adjustment_op`,
+/// // and `result_relative` (shown here at their common defaults).
 /// assert_eq!(
 ///     parse_offset("(0x3c.l)"),
 ///     Ok(("", OffsetSpec::Indirect {
 ///         base_offset: 0x3c,
+///         base_relative: false,
 ///         pointer_type: TypeKind::Long { endian: Endianness::Little, signed: true },
 ///         adjustment: 0,
+///         adjustment_op: IndirectAdjustmentOp::Add,
+///         result_relative: false,
 ///         endian: Endianness::Little,
 ///     }))
 /// );
@@ -280,8 +285,11 @@ fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
 ///     parse_offset("(0x3c.l)+4"),
 ///     Ok(("", OffsetSpec::Indirect {
 ///         base_offset: 0x3c,
+///         base_relative: false,
 ///         pointer_type: TypeKind::Long { endian: Endianness::Little, signed: true },
 ///         adjustment: 4,
+///         adjustment_op: IndirectAdjustmentOp::Add,
+///         result_relative: false,
 ///         endian: Endianness::Little,
 ///     }))
 /// );

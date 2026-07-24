@@ -66,7 +66,8 @@ fn test_deep_nesting_exceeds_limit_returns_recursion_error() {
 #[test]
 fn test_resource_exhaustion_large_rule_count_completes_or_times_out() {
     // Generate 2000 independent flat rules. Each rule reads byte 0 and
-    // compares against a distinct value; only one will match. Evaluation
+    // compares against `i & 0xFF`, so the compared values wrap every 256
+    // rules (not distinct) and several rules match a given byte. Evaluation
     // must either complete successfully or return a Timeout error -- it
     // must never panic and must finish well under the test timeout.
     let rule_count: u32 = 2000;

@@ -148,9 +148,10 @@ fn test_evaluate_rules_propagates_non_pattern_missing_unsupported_type() {
 /// fatal) per KTD5, but this is a distinct, louder-logged condition than
 /// the ordinary missing-pattern skip. There is no log-capturing test seam
 /// in this crate (no `test-log`/`tracing-test` dev-dependency), so this
-/// test asserts only the behavioral half of the contract -- the rule is
-/// skipped, not fatal -- and the `warn!` vs `debug!` split is verified by
-/// code inspection (`log_pattern_operand_skip` in `engine/mod.rs`).
+/// test asserts the behavioral half of the contract -- the rule is skipped,
+/// not fatal. The `warn!` vs `debug!` split is asserted separately via
+/// `testing_logger` log capture in `pattern_recovery_log_tests.rs`
+/// (`log_pattern_operand_skip` lives in `engine/pattern_recovery.rs`).
 #[test]
 fn test_pathological_regex_compile_failure_is_skipped_not_fatal() {
     let rule = MagicRule {

@@ -63,8 +63,9 @@ pub(crate) fn log_pattern_operand_skip(
 /// * `LibmagicError::Timeout` and `LibmagicError::EvaluationError(RecursionLimitExceeded)`
 ///   propagate immediately as `Err` so the caller can bail out.
 /// * Data-dependent errors (`BufferOverrun`, `InvalidOffset`,
-///   `TypeReadError::BufferOverrun`, `TypeReadError::InvalidPStringLength`,
-///   `IoError`) are logged at `warn!` and swallowed; the parent match
+///   `InvalidValueTransform`, `TypeReadError::BufferOverrun`,
+///   `TypeReadError::InvalidPStringLength`, `IoError`) are logged at `warn!`
+///   and swallowed; the parent match
 ///   already in `matches` is left intact. This mirrors the defensive
 ///   comment in each arm: the inner `evaluate_rules` already catches and
 ///   logs individual child failures, so this arm only fires if that
