@@ -18,7 +18,6 @@ use nom::{
 
 use crate::parser::ast::StrengthModifier;
 
-use super::numbers::parse_decimal_number;
 use super::parse_number;
 
 /// Parse the message part of a magic rule
@@ -106,10 +105,13 @@ pub fn parse_strength_directive(input: &str) -> IResult<&str, StrengthModifier> 
         // +N -> Add
         preceded((char('+'), multispace0), parse_number)
             .map(|n| StrengthModifier::Add(clamp_to_i32(n))),
-        // -N -> Subtract (parse_number handles negative directly; we
-        // need parse_decimal_number after the explicit `-` consumer
-        // so the sign is applied exactly once).
-        preceded((char('-'), multispace0), parse_decimal_number)
+        // -N -> Subtract. Uses hex-capable `parse_number` (matching the `+`,
+        // `*`, `/`, `=` branches) so a hex operand like `!:strength -0x10`
+        // parses as Subtract(16). The explicit `char('-')` consumer already
+        // ate the sign, so `parse_number` sees only the unsigned magnitude
+        // (its own `opt('-')` matches nothing) -- the sign is still applied
+        // exactly once.
+        preceded((char('-'), multispace0), parse_number)
             .map(|n| StrengthModifier::Subtract(clamp_to_i32(n))),
         // *N -> Multiply
         preceded((char('*'), multispace0), parse_number)

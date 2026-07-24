@@ -96,6 +96,27 @@ fn test_parse_strength_directive_subtract() {
         parse_strength_directive("!:strength -50"),
         Ok(("", StrengthModifier::Subtract(50)))
     );
+    // Hex operand: the `-N` branch uses hex-capable `parse_number` like the
+    // `+N` branch, so `-0x10` is Subtract(16), not a decimal-only backtrack
+    // (regression for the PR #409 review finding).
+    assert_eq!(
+        parse_strength_directive("!:strength -0x10"),
+        Ok(("", StrengthModifier::Subtract(16)))
+    );
+}
+
+#[test]
+fn test_parse_strength_directive_add_and_subtract_hex_are_symmetric() {
+    // Both signed branches accept a hex operand identically (they were
+    // inconsistent before the PR #409 fix: `-N` was decimal-only).
+    assert_eq!(
+        parse_strength_directive("!:strength +0xFF"),
+        Ok(("", StrengthModifier::Add(255)))
+    );
+    assert_eq!(
+        parse_strength_directive("!:strength -0xFF"),
+        Ok(("", StrengthModifier::Subtract(255)))
+    );
 }
 
 #[test]
