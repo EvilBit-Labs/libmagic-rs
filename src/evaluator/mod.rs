@@ -103,7 +103,7 @@ pub struct EvaluationContext {
     /// magic(5) / libmagic semantics: subroutines see offsets relative
     /// to the caller's invocation point, not absolute file positions).
     /// Restored to the caller's value on subroutine exit via the
-    /// `SubroutineScope` RAII guard in `engine/mod.rs`, which saves
+    /// `SubroutineScope` RAII guard in `engine/subroutine.rs`, which saves
     /// and restores both `last_match_end` and `base_offset` together.
     base_offset: usize,
     /// One-shot flag set by `MetaType::Indirect` dispatch before
@@ -130,7 +130,7 @@ pub struct EvaluationContext {
     /// propagates into nested `use` calls, matching libmagic's `flip =
     /// !flip` parameter threading. Saved and restored around the
     /// subroutine call by the `SubroutineScope` RAII guard in
-    /// `engine/mod.rs`. Native-endian types and `String16` are never
+    /// `engine/subroutine.rs`. Native-endian types and `String16` are never
     /// flipped (they are absent from `cvt_flip`).
     flip_endian: bool,
 }
