@@ -50,16 +50,18 @@ The boundary test: *if the file were readable, would this string describe what i
 
 - **Divergence creep** — "diagnostic" or "ergonomics" could be stretched to excuse a detection difference.
 
-  *Mitigation (binding):* every accepted **detection-result** divergence is a **tracked contract gap**. It gets a GitHub issue and stays open until closed. It is never recorded as a settled design choice, and "pre-existing", "cosmetic", and "out of scope for this issue" are reasons to defer the fix, never reasons to skip filing.
+  *Mitigation (binding):* every **detection-result** divergence is a **contract gap** that must be closed, never recorded as a settled design choice. "Pre-existing", "cosmetic", and "out of scope for this issue" are not grounds to accept one.
+
+  **Fix it in the pass that finds it.** A detection gap surfaced by work already touching that code path is closed there. Filing a GitHub issue is the fallback for a gap that genuinely cannot be closed in-pass — and such an issue stays open until it is.
 
   Applying the boundary test to the divergences known at the time of writing (all surfaced by issue #383):
 
-  | Divergence                                             | Class                                                                                                                      | Tracked?                |
-  | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-  | `directory` — `file` prints `directory`, rmagic errors | **Detection.** `directory` describes what the path *is*.                                                                   | **Yes — file an issue** |
-  | Filename column padding in multi-file output           | Formatting around the result, not the result                                                                               | No                      |
-  | Nonexistent non-symlink paths (`cannot open ...`)      | Diagnostic — describes why detection failed                                                                                | No                      |
-  | Unsanitized `read_link` text reaching stdout           | Detection, and passing bytes through is what *matches*; sanitizing would break parity. Security question, not a parity gap | No                      |
+  | Divergence                                             | Class                                                                                                                      | Tracked?          |
+  | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+  | `directory` — `file` prints `directory`, rmagic errors | **Detection.** `directory` describes what the path *is*.                                                                   | **Fixed in #383** |
+  | Filename column padding in multi-file output           | Formatting around the result, not the result                                                                               | No                |
+  | Nonexistent non-symlink paths (`cannot open ...`)      | Diagnostic — describes why detection failed                                                                                | No                |
+  | Unsanitized `read_link` text reaching stdout           | Detection, and passing bytes through is what *matches*; sanitizing would break parity. Security question, not a parity gap | No                |
 
 - **Under-specified boundary** — MIME output (`--mime`, `!:mime`) is a detection result, so it inherits the binding contract when issue #51 lands.
 
