@@ -13,12 +13,24 @@ jobs:
             contents: write
             id-token: write
         steps:
+            # Mint a GitHub App token so the tag push emits a workflow event.
+            # Tags pushed with the default GITHUB_TOKEN do NOT trigger other
+            # workflows (GitHub's recursion guard), so cargo-dist's release.yml
+            # (on: push: tags) never fires and no GitHub Release is created.
+            - name: Generate GitHub App token
+              id: app-token
+              uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+              with:
+                  app-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
+                  private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
             - name: Checkout repository
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   fetch-depth: 0
-                  # persist-credentials required for pushing signed tags via git CLI
+                  # persist-credentials required for pushing signed tags via git CLI;
+                  # use the App token so the pushed tag triggers release.yml
                   persist-credentials: true
+                  token: ${{ steps.app-token.outputs.token }}
             - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
               with:
                   install: true
@@ -29,7 +41,7 @@ jobs:
               with:
                   command: release
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
     release-plz-pr:
         name: Release-plz PR
