@@ -1,4 +1,4 @@
-# ADR-0001: GNU `file` compatibility is an output contract, not an ergonomics contract
+# ADR-0001: GNU `file` compatibility is a detection-result contract, not an ergonomics contract
 
 **Date**: 2026-07-26\
 **Status**: accepted\
@@ -25,13 +25,13 @@ The boundary test: *if the file were readable, would this string describe what i
 
 - **Pros**: one rule, no judgment calls; `file`-targeted scripts and muscle memory port unchanged.
 - **Cons**: imports `file`'s historical quirks wholesale, including its lack of a short help flag; forces breaking changes to rmagic's existing published CLI; blocks rmagic-only features that have no upstream spelling.
-- **Why not**: it would require rebinding `-h` away from `--help`, a silent behavior change to a documented flag, purchased only with cosmetic parity that changes no classification output.
+- **Why not**: it would require rebinding `-h` away from `--help`, a silent behavior change to a documented flag, purchased only with cosmetic parity that changes no detection result.
 
-### Alternative 2: Loose "inspired by" compatibility, no binding output contract
+### Alternative 2: Loose "inspired by" compatibility, no binding detection contract
 
 - **Pros**: maximum design freedom; no differential-testing burden.
-- **Cons**: destroys drop-in replaceability; makes "95%+ compatibility" unmeasurable; every output difference becomes arguable rather than a defect.
-- **Why not**: drop-in detection compatibility is the project's core value proposition. Without a binding output contract there is no acceptance criterion for the v1.0.0 goal.
+- **Cons**: destroys drop-in replaceability; makes "95%+ compatibility" unmeasurable; every detection difference becomes arguable rather than a defect.
+- **Why not**: drop-in detection compatibility is the project's core value proposition. Without a binding detection contract there is no acceptance criterion for the v1.0.0 goal.
 
 ## Consequences
 
@@ -56,12 +56,16 @@ The boundary test: *if the file were readable, would this string describe what i
 
   Applying the boundary test to the divergences known at the time of writing (all surfaced by issue #383):
 
-  | Divergence                                             | Class                                                                                                                      | Tracked?          |
-  | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-  | `directory` — `file` prints `directory`, rmagic errors | **Detection.** `directory` describes what the path *is*.                                                                   | **Fixed in #383** |
-  | Filename column padding in multi-file output           | Formatting around the result, not the result                                                                               | No                |
-  | Nonexistent non-symlink paths (`cannot open ...`)      | Diagnostic — describes why detection failed                                                                                | No                |
-  | Unsanitized `read_link` text reaching stdout           | Detection, and passing bytes through is what *matches*; sanitizing would break parity. Security question, not a parity gap | No                |
+  | Divergence                                             | Class                                                    | Disposition                        |
+  | ------------------------------------------------------ | -------------------------------------------------------- | ---------------------------------- |
+  | `directory` — `file` prints `directory`, rmagic errors | **Detection.** `directory` describes what the path *is*. | **Fixed in #383**                  |
+  | Filename column padding in multi-file output           | Formatting around the result, not the result             | No change                          |
+  | Nonexistent non-symlink paths (`cannot open ...`)      | Diagnostic — describes why detection failed              | No change                          |
+  | Control bytes in `read_link` text reaching stdout      | Detection when captured; presentation when interactive   | **TTY-gated escaping** (see below) |
+
+  **The `read_link` row is the worked example of a presentation-vs-detection split.** Symlink targets carry no character restrictions and may contain raw ESC/OSC bytes. Escaping them unconditionally *would* break the contract — verified, `file-5.41` prints such targets unescaped with and without `-r`. But parity is only **observable when output is captured**, so gating on `std::io::IsTerminal` costs nothing: redirected and piped output stays byte-for-byte identical to `file`, while an interactive terminal is protected from title-spoofing and OSC 52 clipboard injection via a planted symlink. Adopted in issue #383 (R14/KTD10).
+
+  Generalize the shape, not the specific rule: a transformation that applies **only** to the interactive presentation of a detection result, and leaves captured bytes untouched, does not divergence the contract. A transformation that changes what a differential test would capture does.
 
 - **Under-specified boundary** — MIME output (`--mime`, `!:mime`) is a detection result, so it inherits the binding contract when issue #51 lands.
 
