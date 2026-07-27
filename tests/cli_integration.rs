@@ -643,3 +643,120 @@ fn test_very_small_file() {
         .success()
         .stdout(predicate::str::contains("ASCII text"));
 }
+
+// =============================================================================
+// Symlink Test Helpers
+// =============================================================================
+
+/// Create a symlink at `link` pointing at `target`.
+///
+/// `FileBuffer::create_symlink` is `pub(crate)` and so is not reachable from an
+/// integration test; this mirrors its three-arm platform dispatch. The `#[cfg]`
+/// blocks sit inside the body so the function itself compiles everywhere.
+fn try_symlink(target: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link)
+    }
+    #[cfg(windows)]
+    {
+        if target.is_dir() {
+            std::os::windows::fs::symlink_dir(target, link)
+        } else {
+            std::os::windows::fs::symlink_file(target, link)
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (target, link);
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "symlink creation is not supported on this platform",
+        ))
+    }
+}
+
+/// Create a symlink, or report that the caller should skip.
+///
+/// Returns `false` after printing a skip message when symlink creation is not
+/// permitted (Windows without developer mode, restricted CI sandboxes). Tests
+/// skip at runtime rather than compiling out under `#[cfg(unix)]`, so the
+/// symlink suite still runs wherever symlinks happen to be available. Mirrors
+/// `src/io/mod.rs`'s `test_file_buffer_symlink_to_directory_rejection`.
+#[must_use]
+fn symlink_or_skip(target: &std::path::Path, link: &std::path::Path, test_name: &str) -> bool {
+    match try_symlink(target, link) {
+        Ok(()) => true,
+        Err(e) => {
+            eprintln!("Skipping {test_name}: cannot create symlink ({e})");
+            false
+        }
+    }
+}
+
+#[test]
+fn test_symlink_helper_creates_resolvable_file_link() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let target = create_data_file(&temp_dir, "target.txt", b"hello");
+    let link = temp_dir.path().join("file.link");
+
+    if !symlink_or_skip(
+        &target,
+        &link,
+        "test_symlink_helper_creates_resolvable_file_link",
+    ) {
+        return;
+    }
+
+    assert!(
+        fs::symlink_metadata(&link)
+            .expect("lstat on link")
+            .file_type()
+            .is_symlink(),
+        "helper must create an actual symlink, not a copy"
+    );
+    assert_eq!(
+        fs::read(&link).expect("read through link"),
+        b"hello",
+        "link must resolve to the target's content"
+    );
+}
+
+#[test]
+fn test_symlink_helper_creates_directory_link() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let target = temp_dir.path().join("realdir");
+    fs::create_dir(&target).expect("Failed to create dir");
+    let link = temp_dir.path().join("dir.link");
+
+    if !symlink_or_skip(&target, &link, "test_symlink_helper_creates_directory_link") {
+        return;
+    }
+
+    // `is_dir()` follows symlinks -- this is exactly why the CLI symlink
+    // precheck must run before the `is_dir()` branch in `process_file`.
+    assert!(
+        link.is_dir(),
+        "is_dir() must report true through a dir link"
+    );
+}
+
+#[test]
+fn test_symlink_helper_error_arm_is_reachable_and_does_not_panic() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let target = create_data_file(&temp_dir, "target.txt", b"x");
+    let occupied = create_data_file(&temp_dir, "occupied.txt", b"y");
+
+    // Creating a link where a file already exists fails with EEXIST. This
+    // exercises the `Err` arm without revoking privileges, proving the
+    // runtime-skip path returns cleanly instead of panicking.
+    let result = try_symlink(&target, &occupied);
+    assert!(
+        result.is_err(),
+        "creating a link over an existing file must fail"
+    );
+    assert!(
+        !symlink_or_skip(&target, &occupied, "reachability probe"),
+        "skip helper must report false rather than panic on the Err arm"
+    );
+}
