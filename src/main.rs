@@ -92,12 +92,42 @@ pub struct Args {
           value_parser = clap::value_parser!(u64).range(1..=300_000))]
     pub timeout_ms: Option<u64>,
 
+    /// Follow symlinks and report the target's type (default)
+    ///
+    /// Accepted for GNU `file` compatibility. Following is already the
+    /// default, so this flag only matters as the last-specified of the pair.
+    #[arg(short = 'L', long, overrides_with = "no_dereference")]
+    pub dereference: bool,
+
+    /// Do not follow symlinks; report the link itself
+    ///
+    /// Reports `symbolic link to <target>` for a reachable link. A dangling
+    /// link stays `broken symbolic link to <target>` -- brokenness does not
+    /// depend on this flag.
+    ///
+    /// GNU `file` spells this `-h`, which rmagic keeps bound to `--help`;
+    /// under ADR-0001 flag spelling is ergonomics, not a detection result.
+    #[arg(long, overrides_with = "dereference")]
+    pub no_dereference: bool,
+
     /// Generate shell completions and exit
     #[arg(long, value_name = "SHELL")]
     pub generate_completion: Option<Shell>,
 }
 
 impl Args {
+    /// Whether symlinks should be followed to their target
+    ///
+    /// `false` only when `--no-dereference` was the last-specified of the
+    /// symlink flag pair. `overrides_with` clears the loser, so checking the
+    /// single field is enough to get GNU `file`'s last-flag-wins behavior --
+    /// the two flags are deliberately not `conflicts_with`, because `file`
+    /// accepts both orders.
+    #[must_use]
+    pub fn follows_symlinks(&self) -> bool {
+        !self.no_dereference
+    }
+
     /// Determine the output format based on flags
     #[must_use]
     pub fn output_format(&self) -> OutputFormat {
@@ -573,7 +603,11 @@ fn synthetic_result(description: &str) -> libmagic_rs::EvaluationResult {
 /// Must run before any `is_dir()` check: `Path::is_dir()` follows symlinks, so
 /// a symlink-to-directory reports `is_dir() == true` and would be consumed by
 /// a directory branch before this could run.
-fn classify_symlink(path: &Path, escape_control_bytes: bool) -> Option<SymlinkClassification> {
+fn classify_symlink(
+    path: &Path,
+    follows_symlinks: bool,
+    escape_control_bytes: bool,
+) -> Option<SymlinkClassification> {
     // lstat -- does not follow the link.
     if !std::fs::symlink_metadata(path)
         .ok()?
@@ -613,8 +647,21 @@ fn classify_symlink(path: &Path, escape_control_bytes: bool) -> Option<SymlinkCl
         });
     }
 
-    // Reachable: fall through so the target itself gets classified.
-    None
+    if follows_symlinks {
+        // Reachable, and we were asked to follow: fall through so the target
+        // itself gets classified.
+        return None;
+    }
+
+    // Reachable but not followed. Not `unreadable`: the target is readable,
+    // rmagic simply chose not to read it, so `--strict` has nothing to flag.
+    Some(SymlinkClassification {
+        description: format!(
+            "symbolic link to {}",
+            render_symlink_target(&target, escape_control_bytes)
+        ),
+        unreadable: false,
+    })
 }
 
 /// Process a single file with the magic database
@@ -669,7 +716,9 @@ fn process_file(
     // Symlink precheck. Must run before the `is_dir()` check below:
     // `Path::is_dir()` follows symlinks, so a symlink-to-directory would be
     // consumed by that branch before any symlink logic could run.
-    if let Some(classification) = classify_symlink(&file_path, stdout_is_terminal()) {
+    if let Some(classification) =
+        classify_symlink(&file_path, args.follows_symlinks(), stdout_is_terminal())
+    {
         let result = synthetic_result(&classification.description);
         let is_multiple_files = args.files.len() > 1;
         output_result(writer, &file_path, &result, args, is_multiple_files)?;
@@ -1107,6 +1156,8 @@ mod tests {
             strict: false,
             use_builtin: false,
             timeout_ms: None,
+            dereference: false,
+            no_dereference: false,
             generate_completion: None,
         };
         let result = validate_arguments(&args_empty);
@@ -1134,6 +1185,8 @@ mod tests {
             strict: false,
             use_builtin: false,
             timeout_ms: None,
+            dereference: false,
+            no_dereference: false,
             generate_completion: None,
         };
         let result = validate_arguments(&args_with_empty_magic);
@@ -1158,6 +1211,8 @@ mod tests {
             strict: false,
             use_builtin: false,
             timeout_ms: None,
+            dereference: false,
+            no_dereference: false,
             generate_completion: None,
         };
         let result = validate_arguments(&args_with_magic);
@@ -1392,7 +1447,7 @@ mod tests {
         std::fs::write(&path, b"content").unwrap();
 
         assert!(
-            classify_symlink(&path, false).is_none(),
+            classify_symlink(&path, true, false).is_none(),
             "a regular file must fall through to ordinary classification"
         );
     }
@@ -1403,9 +1458,35 @@ mod tests {
         let path = temp_dir.path().join("does-not-exist");
 
         assert!(
-            classify_symlink(&path, false).is_none(),
+            classify_symlink(&path, true, false).is_none(),
             "a nonexistent non-symlink path must keep its existing error path"
         );
+    }
+
+    #[test]
+    fn test_follows_symlinks_resolves_last_flag_wins() {
+        let cases: &[(&[&str], bool)] = &[
+            (&["rmagic", "f"], true),
+            (&["rmagic", "-L", "f"], true),
+            (&["rmagic", "--dereference", "f"], true),
+            (&["rmagic", "--no-dereference", "f"], false),
+            // `overrides_with` clears the loser, so the later flag wins
+            // rather than the pair being rejected -- matching GNU `file`,
+            // which accepts both orders.
+            (&["rmagic", "--no-dereference", "-L", "f"], true),
+            (&["rmagic", "-L", "--no-dereference", "f"], false),
+            (&["rmagic", "-L", "--no-dereference", "-L", "f"], true),
+        ];
+
+        for (argv, expected) in cases {
+            let args = Args::try_parse_from(*argv)
+                .unwrap_or_else(|e| panic!("failed to parse {argv:?}: {e}"));
+            assert_eq!(
+                args.follows_symlinks(),
+                *expected,
+                "follows_symlinks() mismatch for {argv:?}"
+            );
+        }
     }
 
     #[test]
