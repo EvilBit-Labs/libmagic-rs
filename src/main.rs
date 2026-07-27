@@ -473,16 +473,162 @@ fn output_result(
     Ok(())
 }
 
+/// How a single input path was resolved
+///
+/// A broken symlink must reach stdout *and* count toward `--strict` *and* stay
+/// off stderr. `Result<(), LibmagicError>` cannot express that, because its
+/// `Err` arm is what drives the stderr report.
+enum FileOutcome {
+    /// Classified normally; nothing for `--strict` to flag
+    Classified,
+    /// Classified and written to stdout, but the path was unreadable.
+    ///
+    /// `--strict` surfaces this; a default run must not print to stderr.
+    ClassifiedUnreadable(LibmagicError),
+}
+
+/// A CLI-produced classification for a symlink path
+struct SymlinkClassification {
+    /// The description to print, e.g. `broken symbolic link to missing.txt`
+    description: String,
+    /// Whether the path turned out to be unreadable.
+    ///
+    /// `--strict` surfaces these; a default run still prints the description
+    /// to stdout and exits 0.
+    unreadable: bool,
+}
+
+/// Whether stdout is an interactive terminal, resolved once per run
+fn stdout_is_terminal() -> bool {
+    static IS_TERMINAL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *IS_TERMINAL.get_or_init(|| std::io::IsTerminal::is_terminal(&std::io::stdout()))
+}
+
+/// Render a symlink target for display
+///
+/// Symlink targets carry no character restrictions, so a planted link can hold
+/// raw ESC or OSC bytes. When `escape_control_bytes` is set, bytes below 0x20
+/// and 0x7F render as `\xHH`; otherwise the target passes through unchanged.
+///
+/// Callers set the flag from [`stdout_is_terminal`]. The pass-through branch is
+/// what keeps redirected and piped output byte-for-byte identical to GNU
+/// `file` -- do not collapse the two branches into unconditional escaping.
+fn render_symlink_target(target: &Path, escape_control_bytes: bool) -> String {
+    let rendered = target.to_string_lossy();
+    if !escape_control_bytes {
+        return rendered.into_owned();
+    }
+
+    let mut escaped = String::with_capacity(rendered.len());
+    for character in rendered.chars() {
+        let code = character as u32;
+        if code < 0x20 || code == 0x7F {
+            escaped.push('\\');
+            escaped.push('x');
+            // Both nibbles of a byte are always valid radix-16 digits, so
+            // the fallbacks below are unreachable; they exist only to keep
+            // this panic-free.
+            escaped.push(char::from_digit(code >> 4, 16).unwrap_or('0'));
+            escaped.push(char::from_digit(code & 0xF, 16).unwrap_or('0'));
+        } else {
+            escaped.push(character);
+        }
+    }
+    escaped
+}
+
+/// Build a synthetic `EvaluationResult` carrying a CLI-produced description
+///
+/// Both `description` and one `matches` entry are populated. The text output
+/// arm reads `description` and never touches `matches`, while the JSON arm
+/// builds from `matches` -- populating only one leaves the other empty.
+fn synthetic_result(description: &str) -> libmagic_rs::EvaluationResult {
+    let rule_match = libmagic_rs::RuleMatch::new(
+        description.to_string(),
+        0,
+        0,
+        libmagic_rs::Value::String(description.to_string()),
+        libmagic_rs::TypeKind::String {
+            max_length: None,
+            flags: libmagic_rs::parser::ast::StringFlags::default(),
+        },
+        1.0,
+    );
+
+    libmagic_rs::EvaluationResult::new(
+        description.to_string(),
+        None,
+        1.0,
+        vec![rule_match],
+        libmagic_rs::EvaluationMetadata::new(0, 0.0, 0, None, false),
+    )
+}
+
+/// Classify `path` when it is a symlink
+///
+/// Returns `None` when `path` is not a symlink, or when the link itself cannot
+/// be inspected -- in both cases the caller continues with ordinary file
+/// classification.
+///
+/// Must run before any `is_dir()` check: `Path::is_dir()` follows symlinks, so
+/// a symlink-to-directory reports `is_dir() == true` and would be consumed by
+/// a directory branch before this could run.
+fn classify_symlink(path: &Path, escape_control_bytes: bool) -> Option<SymlinkClassification> {
+    // lstat -- does not follow the link.
+    if !std::fs::symlink_metadata(path)
+        .ok()?
+        .file_type()
+        .is_symlink()
+    {
+        return None;
+    }
+
+    // The stored target, verbatim: no canonicalization, no parent-joining.
+    let target = std::fs::read_link(path).ok()?;
+
+    // `ln -s "" x` is creatable and `read_link` succeeds on it, returning an
+    // empty path, so it arrives here rather than at the fall-through above.
+    // Without this branch it would render as `broken symbolic link to ` with a
+    // dangling trailing space -- a wrong detection result.
+    if target.as_os_str().is_empty() {
+        return Some(SymlinkClassification {
+            description: format!(
+                "unreadable symlink `{}' (No such file or directory)",
+                path.display()
+            ),
+            unreadable: true,
+        });
+    }
+
+    // One reachability probe covers ENOENT (missing target), ELOOP (cycle),
+    // and EACCES (unreadable parent directory) alike, which is what gives all
+    // three `file`-identical output with no per-errno branch.
+    if std::fs::metadata(path).is_err() {
+        return Some(SymlinkClassification {
+            description: format!(
+                "broken symbolic link to {}",
+                render_symlink_target(&target, escape_control_bytes)
+            ),
+            unreadable: true,
+        });
+    }
+
+    // Reachable: fall through so the target itself gets classified.
+    None
+}
+
 /// Process a single file with the magic database
 ///
 /// Handles file validation, evaluation, and output.
-/// Returns Ok(()) on success or an error if processing fails.
+///
+/// Returns the [`FileOutcome`] describing how the path was resolved, or an
+/// error if processing failed outright.
 fn process_file(
     writer: &mut impl Write,
     file_or_stdin: &FileOrStdin,
     db: &MagicDatabase,
     args: &Args,
-) -> Result<(), LibmagicError> {
+) -> Result<FileOutcome, LibmagicError> {
     if file_or_stdin.is_stdin() {
         use std::io::Read;
 
@@ -513,12 +659,35 @@ fn process_file(
         let stdin_path = PathBuf::from("stdin");
         let is_multiple_files = args.files.len() > 1;
         output_result(writer, &stdin_path, &result, args, is_multiple_files)?;
-        return Ok(());
+        return Ok(FileOutcome::Classified);
     }
 
     // Extract file path from FileOrStdin
     // Use the filename() method to get the path
     let file_path = PathBuf::from(file_or_stdin.filename());
+
+    // Symlink precheck. Must run before the `is_dir()` check below:
+    // `Path::is_dir()` follows symlinks, so a symlink-to-directory would be
+    // consumed by that branch before any symlink logic could run.
+    if let Some(classification) = classify_symlink(&file_path, stdout_is_terminal()) {
+        let result = synthetic_result(&classification.description);
+        let is_multiple_files = args.files.len() > 1;
+        output_result(writer, &file_path, &result, args, is_multiple_files)?;
+        return Ok(if classification.unreadable {
+            // `FileError` rather than `IoError(NotFound)`: `handle_io_error`
+            // maps NotFound to canned advice ("check the file path and try
+            // again") that is actively wrong here -- the path was classified
+            // successfully, it is the link *target* that is unreachable.
+            // `FileError` carries our own wording through to stderr and keeps
+            // the same exit code.
+            FileOutcome::ClassifiedUnreadable(LibmagicError::FileError(format!(
+                "unreadable symlink: {}",
+                file_path.display()
+            )))
+        } else {
+            FileOutcome::Classified
+        });
+    }
 
     // Reject directories early with a clear message. On some platforms
     // (notably Windows) FileBuffer may accept a directory path without
@@ -536,7 +705,7 @@ fn process_file(
     let is_multiple_files = args.files.len() > 1;
     output_result(writer, &file_path, &result, args, is_multiple_files)?;
 
-    Ok(())
+    Ok(FileOutcome::Classified)
 }
 
 fn run_analysis(args: &Args, interrupted: &AtomicBool) -> Result<(), LibmagicError> {
@@ -557,7 +726,15 @@ fn run_analysis(args: &Args, interrupted: &AtomicBool) -> Result<(), LibmagicErr
         }
 
         match process_file(&mut writer, file_or_stdin, &db, args) {
-            Ok(()) => {} // Success, continue
+            Ok(FileOutcome::Classified) => {} // Success, continue
+            Ok(FileOutcome::ClassifiedUnreadable(e)) => {
+                // The description already went to stdout, so this arm stays
+                // silent -- the path is only recorded so `--strict` can flag
+                // it. This is the arm the `Err` arm below cannot express.
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
             Err(e) => {
                 // Print error with filename context but continue processing other files
                 eprintln!("Error processing {}: {}", file_or_stdin.filename(), e);
@@ -1143,6 +1320,101 @@ mod tests {
         assert!(
             first_text_idx < first_binary_idx,
             "Text candidates should come before binary candidates"
+        );
+    }
+
+    // =========================================================================
+    // Symlink target rendering (issue #383)
+    //
+    // These live here rather than in tests/cli_integration.rs because
+    // `render_symlink_target` belongs to the binary crate and is therefore
+    // unreachable from an integration test. `assert_cmd` also always captures
+    // stdout, so the TTY branch can only be exercised by calling the helper
+    // with an explicit flag.
+    // =========================================================================
+
+    #[test]
+    fn test_render_symlink_target_passes_control_bytes_through_when_not_a_terminal() {
+        let cases: &[(&str, &str)] = &[
+            ("plain.txt", "plain.txt"),
+            ("../../up/two.txt", "../../up/two.txt"),
+            ("/absolute/target", "/absolute/target"),
+            ("esc\u{1b}[2Jclear", "esc\u{1b}[2Jclear"),
+            ("bell\u{7}", "bell\u{7}"),
+            ("del\u{7f}", "del\u{7f}"),
+        ];
+
+        for (input, expected) in cases {
+            let rendered = render_symlink_target(Path::new(input), false);
+            assert_eq!(
+                rendered, *expected,
+                "captured output must pass bytes through verbatim for {input:?} \
+                 -- this is the branch that preserves GNU `file` parity"
+            );
+        }
+    }
+
+    #[test]
+    fn test_render_symlink_target_escapes_control_bytes_on_a_terminal() {
+        let cases: &[(&str, &str)] = &[
+            // No control bytes -- escaping must not alter ordinary targets.
+            ("plain.txt", "plain.txt"),
+            ("../../up/two.txt", "../../up/two.txt"),
+            // ESC opens the OSC/CSI sequences a planted link could abuse.
+            ("esc\u{1b}[2Jclear", "esc\\x1b[2Jclear"),
+            ("bell\u{7}", "bell\\x07"),
+            ("del\u{7f}", "del\\x7f"),
+            ("tab\there", "tab\\x09here"),
+            ("nl\nhere", "nl\\x0ahere"),
+            // Non-ASCII is not a control byte and must survive intact.
+            ("caf\u{e9}", "caf\u{e9}"),
+        ];
+
+        for (input, expected) in cases {
+            let rendered = render_symlink_target(Path::new(input), true);
+            assert_eq!(
+                rendered, *expected,
+                "interactive output must escape control bytes for {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_classify_symlink_returns_none_for_a_regular_file() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().join("regular.txt");
+        std::fs::write(&path, b"content").unwrap();
+
+        assert!(
+            classify_symlink(&path, false).is_none(),
+            "a regular file must fall through to ordinary classification"
+        );
+    }
+
+    #[test]
+    fn test_classify_symlink_returns_none_for_a_missing_path() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().join("does-not-exist");
+
+        assert!(
+            classify_symlink(&path, false).is_none(),
+            "a nonexistent non-symlink path must keep its existing error path"
+        );
+    }
+
+    #[test]
+    fn test_synthetic_result_populates_both_description_and_matches() {
+        let result = synthetic_result("broken symbolic link to missing.txt");
+
+        assert_eq!(result.description, "broken symbolic link to missing.txt");
+        assert_eq!(
+            result.matches.len(),
+            1,
+            "the JSON output arm builds from `matches`, so it must not be empty"
+        );
+        assert_eq!(
+            result.matches[0].message, result.description,
+            "text and JSON arms must report the same string"
         );
     }
 }
