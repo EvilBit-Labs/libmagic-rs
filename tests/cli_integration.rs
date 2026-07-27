@@ -409,14 +409,20 @@ fn test_error_file_not_found() {
 }
 
 #[test]
-fn test_error_directory_instead_of_file() {
+fn test_directory_instead_of_file_is_classified_not_an_error() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
+    // This test previously asserted the opposite: a directory under
+    // `--strict` failed with "directory" on stderr. GNU `file` classifies
+    // directories (`file <dir>` -> `<dir>: directory`, exit 0), and under
+    // ADR-0001 that string is a detection result, so the old behavior was a
+    // contract gap. Rewritten rather than deleted to keep the coverage.
     rmagic_cmd()
         .args(["--use-builtin", "--strict", path_str(temp_dir.path())])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("directory"));
+        .success()
+        .stdout(predicate::str::contains("directory"))
+        .stderr(predicate::str::is_empty());
 }
 
 #[test]
@@ -1168,4 +1174,94 @@ fn test_symlink_into_unreadable_directory_reports_broken() {
     // Restore before the TempDir drop, or cleanup fails.
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o755))
         .expect("Failed to restore directory permissions");
+}
+
+// =============================================================================
+// Directory Classification Tests (ADR-0001 detection gap, issue #383)
+// =============================================================================
+
+#[test]
+fn test_directory_is_classified_not_reported_as_an_error() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let dir = temp_dir.path().join("realdir");
+    fs::create_dir_all(&dir).expect("Failed to create dir");
+
+    // `file <dir>` prints `<dir>: directory` and exits 0. rmagic previously
+    // returned an I/O error with no stdout line.
+    rmagic_cmd()
+        .args(["--use-builtin", path_str(&dir)])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("directory"))
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
+fn test_directory_with_strict_exits_zero() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let dir = temp_dir.path().join("realdir");
+    fs::create_dir_all(&dir).expect("Failed to create dir");
+
+    // A directory is a successful detection, not an I/O failure, so
+    // `--strict` has nothing to flag.
+    rmagic_cmd()
+        .args(["--use-builtin", "--strict", path_str(&dir)])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("directory"));
+}
+
+#[test]
+fn test_symlink_to_directory_classifies_as_directory_by_default() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let dir = temp_dir.path().join("realdir");
+    fs::create_dir_all(&dir).expect("Failed to create dir");
+    let link = temp_dir.path().join("dir.link");
+
+    if !symlink_or_skip(
+        &dir,
+        &link,
+        "test_symlink_to_directory_classifies_as_directory_by_default",
+    ) {
+        return;
+    }
+
+    // Default flags follow the link, so the precheck falls through to the
+    // directory branch -- matching `file dir.link` -> `directory`.
+    rmagic_cmd()
+        .args(["--use-builtin", path_str(&link)])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("directory"))
+        .stdout(predicate::str::contains("symbolic link").not());
+}
+
+#[test]
+fn test_directory_and_regular_file_in_one_invocation() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let dir = temp_dir.path().join("realdir");
+    fs::create_dir_all(&dir).expect("Failed to create dir");
+    let regular = create_data_file(&temp_dir, "real.elf", ELF_HEADER);
+
+    rmagic_cmd()
+        .args(["--use-builtin", path_str(&dir), path_str(&regular)])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("directory"))
+        .stdout(predicate::str::contains("ELF"))
+        .stdout(predicate::str::contains("realdir:"));
+}
+
+#[test]
+fn test_directory_json_output_is_coherent() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let dir = temp_dir.path().join("realdir");
+    fs::create_dir_all(&dir).expect("Failed to create dir");
+
+    rmagic_cmd()
+        .args(["--use-builtin", "--json", path_str(&dir)])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"matches\""))
+        .stdout(predicate::str::contains("directory"));
 }

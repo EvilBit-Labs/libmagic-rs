@@ -689,14 +689,20 @@ fn process_file(
         });
     }
 
-    // Reject directories early with a clear message. On some platforms
-    // (notably Windows) FileBuffer may accept a directory path without
-    // error, producing a misleading "data" classification.
+    // Classify directories rather than failing on them: `file <dir>` prints
+    // `<dir>: directory` and exits 0, and under ADR-0001 that is a detection
+    // result, not a diagnostic.
+    //
+    // This still keeps `FileBuffer` from ever seeing a directory path -- the
+    // concern the previous hard error guarded, since on some platforms
+    // (notably Windows) it accepts one and produces a misleading "data"
+    // classification. Intercepting it here satisfies that better than
+    // erroring did.
     if file_path.is_dir() {
-        return Err(LibmagicError::IoError(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!("Path is a directory, not a file: {}", file_path.display()),
-        )));
+        let result = synthetic_result("directory");
+        let is_multiple_files = args.files.len() > 1;
+        output_result(writer, &file_path, &result, args, is_multiple_files)?;
+        return Ok(FileOutcome::Classified);
     }
 
     let result = db.evaluate_file(&file_path)?;
