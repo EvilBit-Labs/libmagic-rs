@@ -53,6 +53,8 @@ The built-in rules cover common file types: ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, P
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-s, --strict`        | Exit with a non-zero code on processing failures (I/O, parse, or evaluation errors). A "data" result (unknown file type) is **not** considered an error. |
 | `-t, --timeout-ms MS` | Per-file evaluation timeout in milliseconds. Valid range: 1--300000 (5 minutes).                                                                         |
+| `-L, --dereference`   | Follow symlinks and report the target's type. This is already the default; the flag exists for GNU `file` compatibility.                                 |
+| `--no-dereference`    | Do not follow symlinks; report `symbolic link to <target>` instead of classifying the target.                                                            |
 
 ## Output Formats
 
@@ -155,6 +157,35 @@ Without `--strict`, processing errors for individual files are printed to stderr
 With `--strict`, the first processing error (I/O, parse, or evaluation) causes a non-zero exit code. The tool still processes all files and prints errors as they occur, but returns the exit code corresponding to the first error.
 
 A "data" result (unknown file type) is never treated as an error, even in strict mode.
+
+A **broken symlink is** treated as an error by strict mode. Its classification still goes to stdout and the default (non-strict) run still exits 0, but the path was unreadable, which is the category `--strict` exists to catch. `--no-dereference` is not an escape hatch -- a dangling link stays broken under both flags. Not passing `--strict` is. Note that `--strict` over a real filesystem tree will therefore exit non-zero on a healthy machine wherever expected dangling links exist.
+
+A **directory is not** an error: `rmagic <dir>` prints `<dir>: directory` and exits 0 under `--strict` too, because that is a successful detection rather than an I/O failure.
+
+## Symlinks
+
+By default rmagic follows symlinks and reports the type of the target, matching GNU `file`:
+
+```bash
+$ rmagic good.link          # link -> real.elf
+good.link: ELF 64-bit LSB
+
+$ rmagic broken.link        # link -> a target that does not exist
+broken.link: broken symbolic link to missing.txt
+$ echo $?
+0
+
+$ rmagic --no-dereference good.link
+good.link: symbolic link to real.elf
+```
+
+Three properties are worth knowing:
+
+- **The target is reproduced verbatim**, exactly as stored in the link. It is never canonicalized or joined against the link's directory, so a relative target prints as a relative path.
+- **A missing target, a symlink cycle, and a target inside an unreadable directory all report the same** `broken symbolic link to <target>`. This matches GNU `file`, which does not distinguish them either.
+- **Control bytes in a target are escaped only when stdout is a terminal.** Symlink targets have no character restrictions, so a planted link can contain raw escape sequences that would otherwise reach your terminal. Redirected and piped output passes bytes through unchanged, keeping captured output byte-identical to `file`.
+
+`--no-dereference` is the flag to reach for when scanning untrusted trees: under it rmagic never reads or classifies the *content* of a link's target, so a planted link cannot induce it to disclose an attacker-chosen file. See [Security Assurance](security-assurance.md) for the limits of that guarantee.
 
 ```bash
 # Without strict: exits 0 even if some files fail

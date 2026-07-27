@@ -158,6 +158,19 @@ The I/O layer mitigates the common shapes of this attack by canonicalizing the p
 
 The `evaluate_file` rustdoc (`# Security` section) cross-references this subsection.
 
+#### 7.2.1 CLI Symlink Precheck
+
+The `rmagic` CLI classifies symlinks itself, before `evaluate_file` is reached (`src/cli/symlink.rs`). That precheck is three syscalls against the same path -- `lstat` (does it name a symlink), `readlink` (what does it store), then `stat` (is the target reachable) -- so it carries a TOCTOU window of its own, of the same shape as 7.2: the path may be swapped between any two of them. The residual risk is likewise **incorrect classification**, not memory unsafety; no file content is read on this path, and the link itself is never written or followed for anything but a reachability test.
+
+Two properties are worth stating precisely, because it is easy to over-read the guarantee:
+
+- **`--no-dereference` bounds content disclosure, not path access.** Under it, rmagic never reads or classifies the *content* of a link's target, so a planted link in an extracted archive cannot induce rmagic to describe an attacker-chosen file. This is the mitigation to reach for when scanning untrusted trees.
+- **It does not mean the target is untouched.** The reachability probe is `fs::metadata(path)`, which follows the link and stats the target under *both* flag states. That stat is not bounded by `--timeout-ms`, which governs rule evaluation only, so a link pointing into an unresponsive network mount can still stall the scan regardless of the flag.
+
+Symlink target text also reaches stdout, where it did not before -- a broken link previously produced no stdout line at all. Targets carry no character restrictions and may contain raw ESC or OSC bytes, which an interactive terminal would interpret (title spoofing, or OSC 52 clipboard writes that a later paste turns into command injection). Control bytes are therefore escaped when stdout is a terminal and passed through unchanged when it is redirected or piped, which keeps captured output byte-identical to GNU `file` while protecting the interactive case. See `docs/adr/0001-gnu-file-output-contract.md` for why that split does not breach the output contract.
+
+**Mitigation for callers:** The library is unaffected -- `MagicDatabase::evaluate_file` still returns an I/O error for a broken symlink, and the 7.2 guidance (open the file yourself, pass bytes to `evaluate_buffer`) remains the TOCTOU-free path.
+
 ### 7.3 `max_string_length` Coverage Gaps
 
 `EvaluationConfig::max_string_length` caps the buffer-length allocation for `TypeKind::String` scan-mode reads (both the unflagged `(None, _)` arm of `read_typed_value_with_pattern` and the flagged-string arm of `read_pattern_match`). It does **not** govern two adjacent string-family read paths:
