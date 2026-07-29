@@ -507,6 +507,39 @@ fn output_result(
     Ok(())
 }
 
+/// Write a CLI-produced description whose bytes may not be valid UTF-8
+///
+/// The text arm writes the description bytes verbatim, which is what keeps a
+/// non-UTF-8 symlink target byte-for-byte identical to GNU `file`. Routing it
+/// through `output_result` would require a `String` and substitute U+FFFD for
+/// every invalid byte.
+///
+/// The JSON arm still goes through `output_result`, decoding lossily: JSON
+/// strings must be valid UTF-8, so there is no byte-exact form to preserve, and
+/// `file` has no JSON output to match against.
+fn output_description_bytes(
+    writer: &mut impl Write,
+    file_path: &Path,
+    description: &[u8],
+    args: &Args,
+    is_multiple_files: bool,
+) -> Result<(), LibmagicError> {
+    match args.output_format() {
+        OutputFormat::Text => {
+            write!(writer, "{}: ", file_path.display()).map_err(LibmagicError::IoError)?;
+            writer
+                .write_all(description)
+                .map_err(LibmagicError::IoError)?;
+            writeln!(writer).map_err(LibmagicError::IoError)?;
+            Ok(())
+        }
+        OutputFormat::Json => {
+            let result = synthetic_result(&String::from_utf8_lossy(description));
+            output_result(writer, file_path, &result, args, is_multiple_files)
+        }
+    }
+}
+
 /// Process a single file with the magic database
 ///
 /// Handles file validation, evaluation, and output.
@@ -565,8 +598,13 @@ fn process_file(
     if let Some(classification) =
         classify_symlink(&file_path, args.follows_symlinks(), stdout_is_terminal())
     {
-        let result = synthetic_result(&classification.description);
-        output_result(writer, &file_path, &result, args, is_multiple_files)?;
+        output_description_bytes(
+            writer,
+            &file_path,
+            &classification.description,
+            args,
+            is_multiple_files,
+        )?;
         return Ok(if classification.unreadable {
             // `FileError` rather than `IoError(NotFound)`: `handle_io_error`
             // maps NotFound to canned advice ("check the file path and try

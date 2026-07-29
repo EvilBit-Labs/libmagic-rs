@@ -553,9 +553,39 @@ A 798-file corpus differential (before commit vs after, vs GNU `file -b` on the 
 
 **The empty-target case is separate and needs its own branch.** `ln -s "" x` is creatable and `fs::read_link` **succeeds** on it, returning an empty path -- so it does not land in the `read_link` failure fall-through. Without an explicit branch it reaches the reachability probe, fails it, and renders `broken symbolic link to ` with a dangling trailing space, which is a wrong detection result. The replacement diagnostic's wording is ours to choose (ADR-0001); matching `file`'s `` unreadable symlink `x' (No such file or directory) `` is what rmagic does.
 
+### 17.2a Symlink Target Text Is Carried as Bytes, Not `String`
+
+`render_symlink_target` returns `Vec<u8>` and `SymlinkClassification::description` is `Vec<u8>`. This is load-bearing, not stylistic: on Unix a symlink target is an **arbitrary byte string** and need not be valid UTF-8, and GNU `file` reproduces those bytes verbatim. A `String` cannot hold them -- `to_string_lossy` substitutes U+FFFD, turning two invalid bytes into six different output bytes -- which is a detection-result divergence under ADR-0001, not a cosmetic one.
+
+Measured against `file-5.41` on a target containing `0xFF 0xFE`:
+
+```
+file  : ... 74 6f 20 62 61 64 ff fe 6e 61 6d 65 ...
+before: ... 74 6f 20 62 61 64 ef bf bd ef bf bd 6e ...   (two U+FFFD)
+```
+
+Consequences to preserve:
+
+- **The text output arm writes the description bytes directly** (`output_description_bytes` in `src/main.rs`), bypassing `output_result`'s `String` formatting. Do not "simplify" the symlink branch back through `output_result` -- that reintroduces the lossy conversion.
+- **The JSON arm still decodes lossily**, deliberately: JSON strings must be valid UTF-8, so there is no byte-exact form to preserve, and `file` has no JSON output to match against.
+- **The escape branch may decode lossily too** -- it only ever reaches an interactive terminal, which cannot render an invalid sequence anyway, and no byte-for-byte contract applies there.
+- The filename prefix still goes through `Path::display()` and remains lossy. That is pre-existing, applies to every file type rather than just symlinks, and is out of scope here.
+
+Regression guards: `test_render_symlink_target_preserves_non_utf8_bytes_when_not_a_terminal` (unit) and `test_non_utf8_symlink_target_matches_gnu_file_byte_for_byte` (end-to-end differential against the real `file` binary).
+
+### 17.2b A Trailing Slash Is Not a Contract Gap
+
+`rmagic brokenlink/` (trailing separator) does **not** produce `broken symbolic link to <target>`: POSIX requires `lstat` to resolve a symlink when the path ends in `/`, so `symlink_metadata` fails, the precheck falls through, and the ordinary error path runs.
+
+This looks like issue #383 reintroduced and is not. Measured: `file brokenlink/` also declines, printing `` cannot open `brokenlink/' (No such file or directory) ``. Both tools refuse to classify; only the diagnostic wording differs, which ADR-0001 explicitly frees. Valid links are unaffected -- `file gooddirlink/` and `rmagic gooddirlink/` both print `directory`.
+
+Do not "fix" this by stripping trailing separators before the precheck: that would make rmagic classify a path GNU `file` refuses to, which is a divergence in the other direction.
+
 ### 17.3 Control-Byte Escaping Is TTY-Gated -- Do Not Simplify Either Branch Away
 
-Symlink targets carry no character restrictions and may contain raw ESC (`0x1B`) or OSC bytes. `render_symlink_target` escapes bytes `< 0x20` and `0x7F` as `\xHH` **only when stdout is a terminal**; redirected and piped output passes through unchanged.
+Symlink targets carry no character restrictions and may contain raw ESC (`0x1B`) or OSC bytes. `render_symlink_target` escapes terminal-actionable characters **only when stdout is a terminal**; redirected and piped output passes through unchanged.
+
+**The escaped set is three families, not just C0.** `is_terminal_control` covers C0 plus DEL (`< 0x20`, `0x7F`), the **C1 range** (`0x80..=0x9F`), and the **Unicode bidi/format overrides** (`U+202A`-`U+202E`, `U+2066`-`U+2069`, `U+200E`, `U+200F`, `U+061C`). C1 matters because a terminal in UTF-8 mode decodes the two-byte UTF-8 form back to an 8-bit control -- `U+009D` opens an OSC sequence exactly as `ESC ]` does -- so escaping only C0 leaves the OSC-52 clipboard and title-spoof paths open. Bidi overrides are the Trojan-Source class: they let a target display as a different path than its bytes describe, which is a pointed failure in a tool whose job is telling you what a file is. Widening this set is always safe for parity because escaping exists only in the TTY branch.
 
 Both branches are load-bearing and for opposite reasons:
 

@@ -694,6 +694,17 @@ fn symlink_or_skip(target: &std::path::Path, link: &std::path::Path, test_name: 
     match try_symlink(target, link) {
         Ok(()) => true,
         Err(e) => {
+            // A silent skip is the failure mode that matters here: if symlink
+            // creation is denied for the whole run, every symlink test returns
+            // early having asserted nothing and the suite still reports green.
+            // Setting RMAGIC_REQUIRE_SYMLINKS=1 turns that into a hard failure,
+            // so CI on a platform where symlinks must work cannot pass
+            // vacuously. Unset, the runtime skip is preserved.
+            assert!(
+                std::env::var_os("RMAGIC_REQUIRE_SYMLINKS").is_none(),
+                "{test_name}: symlink creation failed ({e}) but \
+                 RMAGIC_REQUIRE_SYMLINKS is set, so skipping is not permitted"
+            );
             eprintln!("Skipping {test_name}: cannot create symlink ({e})");
             false
         }
@@ -761,10 +772,15 @@ fn test_symlink_helper_error_arm_is_reachable_and_does_not_panic() {
         result.is_err(),
         "creating a link over an existing file must fail"
     );
-    assert!(
-        !symlink_or_skip(&target, &occupied, "reachability probe"),
-        "skip helper must report false rather than panic on the Err arm"
-    );
+    // This test drives the skip helper's Err arm on purpose, which
+    // RMAGIC_REQUIRE_SYMLINKS deliberately makes fatal -- so only exercise it
+    // when that opt-in strict mode is off.
+    if std::env::var_os("RMAGIC_REQUIRE_SYMLINKS").is_none() {
+        assert!(
+            !symlink_or_skip(&target, &occupied, "reachability probe"),
+            "skip helper must report false rather than panic on the Err arm"
+        );
+    }
 }
 
 // =============================================================================
@@ -1060,8 +1076,11 @@ fn test_piped_stdin_still_classifies_with_and_without_strict() {
 }
 
 /// Run `file -b <path>`, or return `None` when `file` is unavailable.
+///
+/// Returns raw bytes: a symlink target need not be valid UTF-8, and the point
+/// of the parity assertions is that those bytes survive unchanged.
 #[cfg(unix)]
-fn file_binary_description(path: &std::path::Path) -> Option<String> {
+fn file_binary_description(path: &std::path::Path) -> Option<Vec<u8>> {
     let output = std::process::Command::new("file")
         .arg("-b")
         .arg(path)
@@ -1070,11 +1089,11 @@ fn file_binary_description(path: &std::path::Path) -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    Some(
-        String::from_utf8_lossy(&output.stdout)
-            .trim_end()
-            .to_string(),
-    )
+    let mut bytes = output.stdout;
+    while bytes.last().is_some_and(|b| *b == b'\n' || *b == b'\r') {
+        bytes.pop();
+    }
+    Some(bytes)
 }
 
 #[cfg(unix)]
@@ -1108,8 +1127,8 @@ fn test_control_byte_target_matches_gnu_file_byte_for_byte_when_captured() {
     // claim this test defends has changed and the assertion below is no
     // longer meaningful.
     assert!(
-        expected.contains('\u{1b}'),
-        "expected GNU `file` to emit the ESC byte unescaped, got {expected:?}"
+        expected.contains(&0x1b),
+        "expected GNU `file` to emit the ESC byte unescaped, got {expected:02x?}"
     );
 
     let output = rmagic_cmd()
@@ -1121,6 +1140,65 @@ fn test_control_byte_target_matches_gnu_file_byte_for_byte_when_captured() {
         .trim_end()
         .rsplit_once(": ")
         .map(|(_, rest)| rest.to_string())
+        .unwrap_or_default();
+
+    assert_eq!(
+        description.as_bytes(),
+        expected,
+        "captured output must match GNU `file` byte-for-byte (ADR-0001)"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_non_utf8_symlink_target_matches_gnu_file_byte_for_byte() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let link = temp_dir.path().join("nonutf8.link");
+
+    // A Unix symlink target is an arbitrary byte string; 0xFF 0xFE is not
+    // valid UTF-8. GNU `file` prints those bytes verbatim, so a String
+    // round-trip (which substitutes U+FFFD) is a detection-result divergence.
+    let target = std::path::Path::new(OsStr::from_bytes(b"bad\xff\xfename.txt"));
+    if !symlink_or_skip(
+        target,
+        &link,
+        "test_non_utf8_symlink_target_matches_gnu_file_byte_for_byte",
+    ) {
+        return;
+    }
+
+    let Some(expected) = file_binary_description(&link) else {
+        eprintln!(
+            "Skipping test_non_utf8_symlink_target_matches_gnu_file_byte_for_byte: \
+             the `file` binary is unavailable"
+        );
+        return;
+    };
+
+    // Guard the oracle: if `file` ever starts sanitizing, the parity claim
+    // this test defends has changed and the assertion below is meaningless.
+    assert!(
+        expected.contains(&0xFF) && expected.contains(&0xFE),
+        "expected GNU `file` to emit the raw target bytes, got {expected:02x?}"
+    );
+
+    let output = rmagic_cmd()
+        .args(["--use-builtin", path_str(&link)])
+        .output()
+        .expect("Failed to run rmagic");
+    let first_line: Vec<u8> = output
+        .stdout
+        .split(|b| *b == b'\n')
+        .next()
+        .unwrap_or_default()
+        .to_vec();
+    let description = first_line
+        .windows(2)
+        .position(|w| w == b": ")
+        .map(|i| first_line[i + 2..].to_vec())
         .unwrap_or_default();
 
     assert_eq!(

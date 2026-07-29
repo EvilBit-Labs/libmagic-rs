@@ -18,7 +18,12 @@ use std::path::Path;
 /// A CLI-produced classification for a symlink path
 pub struct SymlinkClassification {
     /// The description to print, e.g. `broken symbolic link to missing.txt`
-    pub description: String,
+    ///
+    /// Bytes, not `String`: a symlink target is an arbitrary byte string on
+    /// Unix and need not be valid UTF-8, and GNU `file` reproduces those bytes
+    /// verbatim. Routing the description through a `String` would replace the
+    /// invalid ones with U+FFFD and break the detection-result contract.
+    pub description: Vec<u8>,
     /// Whether the path turned out to be unreadable.
     ///
     /// `--strict` surfaces these; a default run still prints the description
@@ -26,36 +31,103 @@ pub struct SymlinkClassification {
     pub unreadable: bool,
 }
 
+/// Raw bytes of a path, without lossy UTF-8 conversion where the OS allows it
+fn path_bytes(path: &Path) -> Vec<u8> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        path.as_os_str().as_bytes().to_vec()
+    }
+    // Windows paths are UTF-16 with no raw-byte equivalent, so a lossy
+    // conversion is the only option there -- and Windows symlink targets are
+    // already constrained to valid Unicode, so nothing is lost in practice.
+    #[cfg(not(unix))]
+    {
+        path.to_string_lossy().into_owned().into_bytes()
+    }
+}
+
 /// Render a symlink target for display
 ///
-/// Symlink targets carry no character restrictions, so a planted link can hold
-/// raw ESC or OSC bytes. When `escape_control_bytes` is set, bytes below 0x20
-/// and 0x7F render as `\xHH`; otherwise the target passes through unchanged.
+/// Returns raw bytes rather than a `String`. On Unix a symlink target is an
+/// arbitrary byte string; GNU `file` prints it verbatim, so passing it through
+/// `String` (which must be valid UTF-8) would substitute U+FFFD for any invalid
+/// byte and change the output. Verified against `file-5.41`: for a target
+/// containing `0xFF 0xFE`, `file` emits those two bytes unchanged.
+///
+/// When `escape_control_bytes` is set, characters a terminal would act on are
+/// rendered inert: C0 controls and DEL, the C1 range (whose UTF-8 forms a
+/// terminal decodes to 8-bit CSI/OSC), and the Unicode bidi/format overrides
+/// that let a target display as something other than its real bytes.
 ///
 /// Callers set the flag from [`stdout_is_terminal`]. The pass-through branch is
 /// what keeps redirected and piped output byte-for-byte identical to GNU
 /// `file` -- do not collapse the two branches into unconditional escaping.
-pub fn render_symlink_target(target: &Path, escape_control_bytes: bool) -> String {
+pub fn render_symlink_target(target: &Path, escape_control_bytes: bool) -> Vec<u8> {
     use std::fmt::Write;
 
-    let rendered = target.to_string_lossy();
+    let raw = path_bytes(target);
     if !escape_control_bytes {
-        return rendered.into_owned();
+        // The parity branch: verbatim, including invalid UTF-8.
+        return raw;
     }
 
-    let mut escaped = String::with_capacity(rendered.len());
-    for character in rendered.chars() {
+    // The presentation branch. This one only ever reaches an interactive
+    // terminal, so a lossy decode is acceptable here -- unlike above, no
+    // byte-for-byte contract applies, and a terminal cannot render an invalid
+    // sequence meaningfully anyway.
+    let decoded = String::from_utf8_lossy(&raw);
+    let mut escaped = String::with_capacity(decoded.len());
+    for character in decoded.chars() {
         let code = character as u32;
-        if code < 0x20 || code == 0x7F {
+        if is_terminal_control(code) {
             // fmt::Write to a String is infallible; discard the Result
             // rather than unwrap so the no-panic policy holds regardless.
             #[allow(clippy::let_underscore_must_use)]
-            let _ = write!(escaped, "\\x{code:02x}");
+            let _ = if code <= 0xFF {
+                write!(escaped, "\\x{code:02x}")
+            } else {
+                write!(escaped, "\\u{{{code:04x}}}")
+            };
         } else {
             escaped.push(character);
         }
     }
-    escaped
+    escaped.into_bytes()
+}
+
+/// Whether a terminal would act on this character rather than print it
+///
+/// Covers three families, all of which a planted symlink target can carry:
+/// C0 controls and DEL; the C1 range, whose UTF-8 encoding a terminal in UTF-8
+/// mode decodes back to 8-bit CSI/OSC/ST (so `U+009D` opens an OSC sequence
+/// exactly as `ESC ]` does); and the bidi/format overrides behind
+/// Trojan-Source-style spoofing, which can make a target display as a different
+/// path than its bytes describe.
+fn is_terminal_control(code: u32) -> bool {
+    const BIDI_OVERRIDES: [u32; 9] = [
+        0x200E, 0x200F, // LRM, RLM
+        0x061C, // ARABIC LETTER MARK
+        0x202A, 0x202B, 0x202C, 0x202D, 0x202E, // embedding / override
+        0x2066, // isolates start; 0x2066..=0x2069 handled by the range below
+    ];
+
+    code < 0x20
+        || code == 0x7F
+        || (0x80..=0x9F).contains(&code)
+        || (0x2066..=0x2069).contains(&code)
+        || BIDI_OVERRIDES.contains(&code)
+}
+
+/// Concatenate a literal description prefix with a rendered target
+///
+/// Kept byte-level rather than using `format!` so a non-UTF-8 target survives
+/// into the output unchanged.
+fn prefixed(prefix: &[u8], target: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(prefix.len() + target.len());
+    out.extend_from_slice(prefix);
+    out.extend_from_slice(target);
+    out
 }
 
 /// Classify `path` when it is a symlink
@@ -93,7 +165,8 @@ pub fn classify_symlink(
             description: format!(
                 "unreadable symlink `{}' (No such file or directory)",
                 path.display()
-            ),
+            )
+            .into_bytes(),
             unreadable: true,
         });
     }
@@ -103,9 +176,9 @@ pub fn classify_symlink(
     // three `file`-identical output with no per-errno branch.
     if std::fs::metadata(path).is_err() {
         return Some(SymlinkClassification {
-            description: format!(
-                "broken symbolic link to {}",
-                render_symlink_target(&target, escape_control_bytes)
+            description: prefixed(
+                b"broken symbolic link to ",
+                &render_symlink_target(&target, escape_control_bytes),
             ),
             unreadable: true,
         });
@@ -120,9 +193,9 @@ pub fn classify_symlink(
     // Reachable but not followed. Not `unreadable`: the target is readable,
     // rmagic simply chose not to read it, so `--strict` has nothing to flag.
     Some(SymlinkClassification {
-        description: format!(
-            "symbolic link to {}",
-            render_symlink_target(&target, escape_control_bytes)
+        description: prefixed(
+            b"symbolic link to ",
+            &render_symlink_target(&target, escape_control_bytes),
         ),
         unreadable: false,
     })
@@ -159,7 +232,8 @@ mod tests {
         for (input, expected) in cases {
             let rendered = render_symlink_target(Path::new(input), false);
             assert_eq!(
-                rendered, *expected,
+                rendered,
+                expected.as_bytes(),
                 "captured output must pass bytes through verbatim for {input:?} \
                  -- this is the branch that preserves GNU `file` parity"
             );
@@ -185,10 +259,92 @@ mod tests {
         for (input, expected) in cases {
             let rendered = render_symlink_target(Path::new(input), true);
             assert_eq!(
-                rendered, *expected,
+                rendered,
+                expected.as_bytes(),
                 "interactive output must escape control bytes for {input:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_render_symlink_target_escapes_c1_controls_and_bidi_overrides_on_a_terminal() {
+        // A terminal in UTF-8 mode decodes the UTF-8 form of the C1 range back
+        // to 8-bit CSI/OSC, so U+009D opens an OSC sequence exactly as `ESC ]`
+        // does. Bidi overrides let a target display as a different path than
+        // its bytes describe.
+        let cases: &[(&str, &str)] = &[
+            ("osc\u{9d}0;title", "osc\\x9d0;title"),
+            ("csi\u{9b}2J", "csi\\x9b2J"),
+            ("low\u{80}", "low\\x80"),
+            ("high\u{9f}", "high\\x9f"),
+            ("rtl\u{202e}txt.exe", "rtl\\u{202e}txt.exe"),
+            ("iso\u{2066}x", "iso\\u{2066}x"),
+            ("lrm\u{200e}x", "lrm\\u{200e}x"),
+            // Just outside the escaped ranges -- must survive untouched.
+            ("ok\u{a0}x", "ok\u{a0}x"),
+            ("caf\u{e9}", "caf\u{e9}"),
+        ];
+
+        for (input, expected) in cases {
+            let rendered = render_symlink_target(Path::new(input), true);
+            assert_eq!(
+                rendered,
+                expected.as_bytes(),
+                "interactive output must neutralize {input:?}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_render_symlink_target_preserves_non_utf8_bytes_when_not_a_terminal() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        // A Unix symlink target is an arbitrary byte string. GNU `file`
+        // reproduces it verbatim; a String round-trip would substitute U+FFFD
+        // and change the bytes, breaking the detection-result contract.
+        let raw = b"bad\xff\xfename.txt";
+        let target = Path::new(OsStr::from_bytes(raw));
+
+        assert_eq!(
+            render_symlink_target(target, false),
+            raw,
+            "the captured-output branch must pass invalid UTF-8 through unchanged"
+        );
+
+        // The interactive branch may lossily decode -- it only ever reaches a
+        // terminal, which cannot render an invalid sequence anyway -- but it
+        // must not panic and must leave the valid bytes intact.
+        let escaped = render_symlink_target(target, true);
+        assert!(escaped.starts_with(b"bad"), "valid prefix must survive");
+        assert!(escaped.ends_with(b"name.txt"), "valid suffix must survive");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_classify_symlink_distinguishes_followed_from_not_a_symlink() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let target = temp_dir.path().join("real.txt");
+        std::fs::write(&target, b"content").unwrap();
+        let link = temp_dir.path().join("valid.link");
+        std::os::unix::fs::symlink("real.txt", &link).unwrap();
+
+        // Both of these return None, but for different reasons -- the trap
+        // GOTCHAS S17.5a documents. A refactor that conflates them silently
+        // reclassifies every symlink-to-directory.
+        assert!(
+            classify_symlink(&link, true, false).is_none(),
+            "a reachable symlink under follow must fall through to the target"
+        );
+
+        let classified = classify_symlink(&link, false, false)
+            .expect("a reachable symlink under no-follow must be classified");
+        assert_eq!(classified.description, b"symbolic link to real.txt");
+        assert!(
+            !classified.unreadable,
+            "a readable target rmagic declined to read is not an I/O failure"
+        );
     }
 
     #[test]
