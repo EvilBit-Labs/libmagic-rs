@@ -11,11 +11,11 @@ mod cli;
 use clap::{CommandFactory, Parser};
 use clap_complete::Shell;
 use clap_stdin::FileOrStdin;
+use cli::symlink::classify_symlink;
+use cli::{FileOutcome, output_description_bytes, stdout_is_terminal, synthetic_result};
 use libmagic_rs::output::json::{format_json_line_output, format_json_output};
 // Used only by the unix-gated magic-file discovery path and unix-gated
 // tests; Windows builds (release and test) never reference these.
-use cli::symlink::classify_symlink;
-use cli::{FileOutcome, stdout_is_terminal, synthetic_result};
 #[cfg(unix)]
 use libmagic_rs::parser::{MagicFileFormat, detect_format};
 use libmagic_rs::{LibmagicError, MagicDatabase};
@@ -505,39 +505,6 @@ fn output_result(
         }
     }
     Ok(())
-}
-
-/// Write a CLI-produced description whose bytes may not be valid UTF-8
-///
-/// The text arm writes the description bytes verbatim, which is what keeps a
-/// non-UTF-8 symlink target byte-for-byte identical to GNU `file`. Routing it
-/// through `output_result` would require a `String` and substitute U+FFFD for
-/// every invalid byte.
-///
-/// The JSON arm still goes through `output_result`, decoding lossily: JSON
-/// strings must be valid UTF-8, so there is no byte-exact form to preserve, and
-/// `file` has no JSON output to match against.
-fn output_description_bytes(
-    writer: &mut impl Write,
-    file_path: &Path,
-    description: &[u8],
-    args: &Args,
-    is_multiple_files: bool,
-) -> Result<(), LibmagicError> {
-    match args.output_format() {
-        OutputFormat::Text => {
-            write!(writer, "{}: ", file_path.display()).map_err(LibmagicError::IoError)?;
-            writer
-                .write_all(description)
-                .map_err(LibmagicError::IoError)?;
-            writeln!(writer).map_err(LibmagicError::IoError)?;
-            Ok(())
-        }
-        OutputFormat::Json => {
-            let result = synthetic_result(&String::from_utf8_lossy(description));
-            output_result(writer, file_path, &result, args, is_multiple_files)
-        }
-    }
 }
 
 /// Process a single file with the magic database

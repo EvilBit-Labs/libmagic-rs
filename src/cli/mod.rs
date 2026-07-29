@@ -10,6 +10,8 @@
 pub mod symlink;
 
 use libmagic_rs::LibmagicError;
+use std::io::Write;
+use std::path::Path;
 
 /// How a single input path was resolved
 ///
@@ -56,4 +58,37 @@ pub fn synthetic_result(description: &str) -> libmagic_rs::EvaluationResult {
         vec![rule_match],
         libmagic_rs::EvaluationMetadata::new(0, 0.0, 0, None, false),
     )
+}
+
+/// Write a CLI-produced description whose bytes may not be valid UTF-8
+///
+/// The text arm writes the description bytes verbatim, which is what keeps a
+/// non-UTF-8 symlink target byte-for-byte identical to GNU `file`. Routing it
+/// through `output_result` would require a `String` and substitute U+FFFD for
+/// every invalid byte.
+///
+/// The JSON arm still goes through `output_result`, decoding lossily: JSON
+/// strings must be valid UTF-8, so there is no byte-exact form to preserve, and
+/// `file` has no JSON output to match against.
+pub fn output_description_bytes(
+    writer: &mut impl Write,
+    file_path: &Path,
+    description: &[u8],
+    args: &crate::Args,
+    is_multiple_files: bool,
+) -> Result<(), LibmagicError> {
+    match args.output_format() {
+        crate::OutputFormat::Text => {
+            write!(writer, "{}: ", file_path.display()).map_err(LibmagicError::IoError)?;
+            writer
+                .write_all(description)
+                .map_err(LibmagicError::IoError)?;
+            writeln!(writer).map_err(LibmagicError::IoError)?;
+            Ok(())
+        }
+        crate::OutputFormat::Json => {
+            let result = synthetic_result(&String::from_utf8_lossy(description));
+            crate::output_result(writer, file_path, &result, args, is_multiple_files)
+        }
+    }
 }
