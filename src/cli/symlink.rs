@@ -36,6 +36,8 @@ pub struct SymlinkClassification {
 /// what keeps redirected and piped output byte-for-byte identical to GNU
 /// `file` -- do not collapse the two branches into unconditional escaping.
 pub fn render_symlink_target(target: &Path, escape_control_bytes: bool) -> String {
+    use std::fmt::Write;
+
     let rendered = target.to_string_lossy();
     if !escape_control_bytes {
         return rendered.into_owned();
@@ -45,13 +47,10 @@ pub fn render_symlink_target(target: &Path, escape_control_bytes: bool) -> Strin
     for character in rendered.chars() {
         let code = character as u32;
         if code < 0x20 || code == 0x7F {
-            escaped.push('\\');
-            escaped.push('x');
-            // Both nibbles of a byte are always valid radix-16 digits, so
-            // the fallbacks below are unreachable; they exist only to keep
-            // this panic-free.
-            escaped.push(char::from_digit(code >> 4, 16).unwrap_or('0'));
-            escaped.push(char::from_digit(code & 0xF, 16).unwrap_or('0'));
+            // fmt::Write to a String is infallible; discard the Result
+            // rather than unwrap so the no-panic policy holds regardless.
+            #[allow(clippy::let_underscore_must_use)]
+            let _ = write!(escaped, "\\x{code:02x}");
         } else {
             escaped.push(character);
         }

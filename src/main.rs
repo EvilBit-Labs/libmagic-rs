@@ -519,6 +519,10 @@ fn process_file(
     db: &MagicDatabase,
     args: &Args,
 ) -> Result<FileOutcome, LibmagicError> {
+    // Derived from `args`, which never changes during a single call, so
+    // every output path below shares one binding.
+    let is_multiple_files = args.files.len() > 1;
+
     if file_or_stdin.is_stdin() {
         use std::io::Read;
 
@@ -547,7 +551,6 @@ fn process_file(
 
         let result = db.evaluate_buffer(&buffer)?;
         let stdin_path = PathBuf::from("stdin");
-        let is_multiple_files = args.files.len() > 1;
         output_result(writer, &stdin_path, &result, args, is_multiple_files)?;
         return Ok(FileOutcome::Classified);
     }
@@ -563,7 +566,6 @@ fn process_file(
         classify_symlink(&file_path, args.follows_symlinks(), stdout_is_terminal())
     {
         let result = synthetic_result(&classification.description);
-        let is_multiple_files = args.files.len() > 1;
         output_result(writer, &file_path, &result, args, is_multiple_files)?;
         return Ok(if classification.unreadable {
             // `FileError` rather than `IoError(NotFound)`: `handle_io_error`
@@ -592,7 +594,6 @@ fn process_file(
     // erroring did.
     if file_path.is_dir() {
         let result = synthetic_result("directory");
-        let is_multiple_files = args.files.len() > 1;
         output_result(writer, &file_path, &result, args, is_multiple_files)?;
         return Ok(FileOutcome::Classified);
     }
@@ -600,7 +601,6 @@ fn process_file(
     let result = db.evaluate_file(&file_path)?;
 
     // Output results based on format
-    let is_multiple_files = args.files.len() > 1;
     output_result(writer, &file_path, &result, args, is_multiple_files)?;
 
     Ok(FileOutcome::Classified)

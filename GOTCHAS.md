@@ -566,7 +566,9 @@ The gate is resolved once per run via a `OnceLock`, not per path. `render_symlin
 
 ### 17.4 `--strict` Trips on a Broken Link but Not on a Directory
 
-`FileOutcome::ClassifiedUnreadable` exists because a broken symlink must be three things at once that `Result<(), LibmagicError>` cannot express together: written to stdout, counted by `--strict`, and silent on stderr. The `Err` arm is what drives the `eprintln!`, so reusing it would reintroduce the reported bug under `--strict`.
+`FileOutcome::ClassifiedUnreadable` exists because a broken symlink must be three things at once that `Result<(), LibmagicError>` cannot express together: written to stdout, counted by `--strict`, and silent in the per-file loop. The `Err` arm is what drives that loop's `eprintln!`, so reusing it would reintroduce the reported bug -- an error on stderr and nothing on stdout.
+
+**"Silent" scopes to the loop, not to the whole run.** A default (non-`--strict`) run really is stderr-clean, which is the fixed bug. Under `--strict` the run still ends in `main()`'s `handle_error`, which prints one line explaining the non-zero exit. That is deliberate: every other `--strict` failure explains itself, and a bare exit 3 with no stated reason would be worse than the divergence. Do not "fix" this by suppressing `handle_error` for this outcome.
 
 - A **broken symlink** is `ClassifiedUnreadable` -- an unreadable path is exactly the I/O-error category `--strict` exists to catch. Accepted consequence: `rmagic --strict` over a real filesystem tree exits non-zero on a healthy machine wherever expected dangling links exist. `--no-dereference` is **not** an escape hatch (brokenness is flag-independent); not passing `--strict` is.
 - A **directory** and a **valid link under `--no-dereference`** are both `Classified` -- a successful detection and a deliberate non-read respectively, neither an I/O failure.
@@ -582,6 +584,14 @@ GNU `file` spells no-dereference `-h`, which rmagic already uses for `--help`. U
 The two flags use **`overrides_with`, not `conflicts_with`** -- measured, `file -h -L` and `file -L -h` are both accepted and the last flag wins. `overrides_with` clears the loser, so `Args::follows_symlinks()` need only check the single `no_dereference` field.
 
 **Trap: `file --help` misdocuments its own default.** file-5.41's help text prints `-h, --no-dereference   don't follow symlinks (default)`. The "(default)" is **wrong** -- measured, plain `file good.link` classifies the *target*, and `POSIXLY_CORRECT=1` does not change it. Following is the default; do not "fix" rmagic to match the help text.
+
+### 17.5a Do Not Reuse the Precheck's `lstat` for the `is_dir()` Check
+
+`classify_symlink` calls `fs::symlink_metadata` (an `lstat`) and discards the result when the path is not a symlink, after which `process_file` immediately calls `file_path.is_dir()` (a `stat`) on the same path. That looks like an obvious redundant syscall to remove by threading the `Metadata` out of the precheck. **It is a trap.**
+
+`is_dir()` follows symlinks; `symlink_metadata` does not. Measured on a symlink to a directory: `stat` reports `is_dir() == true`, `lstat` reports `false`. Crucially, `classify_symlink` returns `None` for **two different** cases -- "not a symlink at all" and "a symlink that is reachable and being followed" -- and only the first may reuse the `lstat`. A naive `NotASymlink(Option<Metadata>)` refactor that reuses it for both silently reclassifies every symlink-to-directory from `directory` to whatever the magic rules make of it.
+
+The saving is one `stat` per file against an mmap plus full rule evaluation over the system magic DB, so it is not worth the correctness surface. `test_symlink_to_directory_classifies_as_directory_by_default` is the regression guard if someone tries anyway.
 
 ### 17.6 `directory` Is a Detection Result, Not a Diagnostic
 

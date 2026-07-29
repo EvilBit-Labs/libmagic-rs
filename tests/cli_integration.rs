@@ -1270,15 +1270,24 @@ fn test_directory_json_output_is_coherent() {
 // Dereference Flag Tests (issue #383)
 // =============================================================================
 
+/// Paths for an ELF file plus a symlink to it via a **relative** target.
+///
+/// The link target is deliberately relative rather than the absolute path
+/// `create_data_file` returns, so tests asserting the verbatim rendering read
+/// naturally (`symbolic link to real.elf`). Returns `(target, link)`; the
+/// caller still creates the link via `symlink_or_skip`.
+fn relative_elf_link_paths(temp_dir: &TempDir) -> (std::path::PathBuf, std::path::PathBuf) {
+    create_data_file(temp_dir, "real.elf", ELF_HEADER);
+    (
+        std::path::PathBuf::from("real.elf"),
+        temp_dir.path().join("valid.link"),
+    )
+}
+
 #[test]
 fn test_no_dereference_reports_the_link_itself() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    // Create the link with a RELATIVE target so the verbatim rendering
-    // assertion below reads naturally; create_data_file returns an
-    // absolute path, which would render (correctly) in full.
-    let _target = create_data_file(&temp_dir, "real.elf", ELF_HEADER);
-    let target = std::path::PathBuf::from("real.elf");
-    let link = temp_dir.path().join("valid.link");
+    let (target, link) = relative_elf_link_paths(&temp_dir);
 
     if !symlink_or_skip(
         &target,
@@ -1374,12 +1383,7 @@ fn test_dereference_flag_is_a_no_op_matching_the_default() {
 #[test]
 fn test_dereference_flags_are_last_one_wins() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    // Create the link with a RELATIVE target so the verbatim rendering
-    // assertion below reads naturally; create_data_file returns an
-    // absolute path, which would render (correctly) in full.
-    let _target = create_data_file(&temp_dir, "real.elf", ELF_HEADER);
-    let target = std::path::PathBuf::from("real.elf");
-    let link = temp_dir.path().join("valid.link");
+    let (target, link) = relative_elf_link_paths(&temp_dir);
 
     if !symlink_or_skip(&target, &link, "test_dereference_flags_are_last_one_wins") {
         return;
@@ -1447,12 +1451,7 @@ fn test_no_dereference_renders_an_absolute_target_verbatim() {
 #[test]
 fn test_no_dereference_on_a_valid_link_with_strict_exits_zero() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    // Create the link with a RELATIVE target so the verbatim rendering
-    // assertion below reads naturally; create_data_file returns an
-    // absolute path, which would render (correctly) in full.
-    let _target = create_data_file(&temp_dir, "real.elf", ELF_HEADER);
-    let target = std::path::PathBuf::from("real.elf");
-    let link = temp_dir.path().join("valid.link");
+    let (target, link) = relative_elf_link_paths(&temp_dir);
 
     if !symlink_or_skip(
         &target,
