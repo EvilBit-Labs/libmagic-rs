@@ -20,7 +20,7 @@ Built-in rules are compiled into the binary at build time and detect common file
 
 ## MagicDatabase
 
-`MagicDatabase` is the main entry point. It holds parsed rules, an evaluation configuration, and a cached MIME mapper. Four constructors are available:
+`MagicDatabase` is the main entry point. It holds parsed rules, an evaluation configuration, and a cached MIME mapper. Six constructors are available:
 
 ```rust,no_run
 use libmagic_rs::{MagicDatabase, EvaluationConfig};
@@ -37,10 +37,33 @@ let db = MagicDatabase::load_from_file("/usr/share/misc/magic")?;
 // Load from a file or directory with custom config
 let config = EvaluationConfig::comprehensive();
 let db = MagicDatabase::load_from_file_with_config("/usr/share/misc/magic.d", config)?;
+
+// Load owned text magic bytes without another full-buffer copy
+let rules = b"0 string CUSTOM Custom data\n".to_vec();
+let db = MagicDatabase::load_from_bytes(rules)?;
+
+// Load owned bytes with custom config
+let rules = b"0 string CUSTOM Custom data\n".to_vec();
+let db = MagicDatabase::load_from_bytes_with_config(
+    rules,
+    EvaluationConfig::performance(),
+)?;
+
+// Load text magic rules from any Read implementation
+let reader = std::fs::File::open("custom.magic")?;
+let db = MagicDatabase::load_from_reader(reader)?;
+
+// Load from a reader with custom config
+let reader = std::fs::File::open("custom.magic")?;
+let db = MagicDatabase::load_from_reader_with_config(
+    reader,
+    EvaluationConfig::performance(),
+)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 When a directory path is given, all magic files within it are loaded (the Magdir pattern). Binary `.mgc` files are not supported; the library returns a descriptive error if one is encountered.
+Databases loaded from bytes or readers have no filesystem source, so `source_path()` returns `None`. Prefer the owned-byte constructors when the source is already a `Vec<u8>`; they consume that buffer instead of copying it into an internal reader buffer.
 
 ### Evaluation
 
@@ -64,7 +87,7 @@ When no rules match, the description defaults to `"data"` with confidence `0.0`.
 ### Accessors
 
 - `config() -> &EvaluationConfig` -- returns the active configuration.
-- `source_path() -> Option<&Path>` -- returns the path rules were loaded from, or `None` for built-in rules.
+- `source_path() -> Option<&Path>` -- returns the path rules were loaded from, or `None` for built-in, byte-loaded, or reader-loaded rules.
 
 ## EvaluationConfig
 
@@ -175,7 +198,7 @@ pub struct EvaluationMetadata {
     pub file_size: u64,              // Size of evaluated file/buffer in bytes
     pub evaluation_time_ms: f64,     // Wall-clock evaluation time
     pub rules_evaluated: usize,      // Number of top-level rules in the database
-    pub magic_file: Option<PathBuf>, // Source path, or None for built-in rules
+    pub magic_file: Option<PathBuf>, // Source path, or None for built-in, byte-loaded, or reader-loaded rules
     pub timed_out: bool,             // Whether evaluation hit the timeout
 }
 ```

@@ -11,6 +11,7 @@ use log::warn;
 use crate::error::ParseError;
 use crate::parser::ParsedMagic;
 use crate::parser::name_table::NameTable;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use super::format::{MagicFileFormat, detect_format};
@@ -66,17 +67,77 @@ fn read_magic_file_bounded(path: &Path) -> Result<String, ParseError> {
 
     let bytes = std::fs::read(path).map_err(ParseError::from)?;
 
+    Ok(decode_magic_bytes(bytes, Some(path)))
+}
+
+fn read_magic_reader_bounded<R: Read>(reader: R) -> Result<String, ParseError> {
+    read_magic_reader_with_limit(reader, MAX_MAGIC_FILE_SIZE)
+}
+
+fn read_magic_reader_with_limit<R: Read>(reader: R, max_size: u64) -> Result<String, ParseError> {
+    let read_limit = max_size.checked_add(1).ok_or_else(|| {
+        ParseError::invalid_syntax(0, "Magic database input size limit is too large")
+    })?;
+    let mut reader = reader.take(read_limit);
+    let mut bytes = Vec::new();
+    reader
+        .by_ref()
+        .take(4)
+        .read_to_end(&mut bytes)
+        .map_err(ParseError::from)?;
+    if max_size >= 4 && bytes.starts_with(&0xF11E_041Cu32.to_le_bytes()) {
+        return Err(unsupported_binary_magic_error());
+    }
+    reader.read_to_end(&mut bytes).map_err(ParseError::from)?;
+    decode_magic_bytes_with_limit(bytes, max_size)
+}
+
+fn decode_magic_bytes_bounded(bytes: Vec<u8>) -> Result<String, ParseError> {
+    decode_magic_bytes_with_limit(bytes, MAX_MAGIC_FILE_SIZE)
+}
+
+fn decode_magic_bytes_with_limit(bytes: Vec<u8>, max_size: u64) -> Result<String, ParseError> {
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > max_size {
+        return Err(ParseError::invalid_syntax(
+            0,
+            format!("Magic database input is too large: more than {max_size} bytes"),
+        ));
+    }
+    if bytes.starts_with(&0xF11E_041Cu32.to_le_bytes()) {
+        return Err(unsupported_binary_magic_error());
+    }
+    Ok(decode_magic_bytes(bytes, None))
+}
+
+fn decode_magic_bytes(bytes: Vec<u8>, source: Option<&Path>) -> String {
     match String::from_utf8(bytes) {
-        Ok(s) => Ok(s),
-        Err(e) => {
-            warn!(
-                "Magic file '{}' contains non-UTF-8 bytes; they were replaced with U+FFFD. \
-                 Rule parsing proceeds, but replacements inside rule bodies may alter matching.",
-                path.display()
-            );
-            Ok(String::from_utf8_lossy(&e.into_bytes()).into_owned())
+        Ok(content) => content,
+        Err(error) => {
+            if let Some(path) = source {
+                warn!(
+                    "Magic file '{}' contains non-UTF-8 bytes; they were replaced with U+FFFD. \
+                     Rule parsing proceeds, but replacements inside rule bodies may alter matching.",
+                    path.display()
+                );
+            } else {
+                warn!(
+                    "Magic database input contains non-UTF-8 bytes; they were replaced with U+FFFD. \
+                     Rule parsing proceeds, but replacements inside rule bodies may alter matching."
+                );
+            }
+            String::from_utf8_lossy(&error.into_bytes()).into_owned()
         }
     }
+}
+
+fn unsupported_binary_magic_error() -> ParseError {
+    ParseError::unsupported_format(
+        0,
+        "binary .mgc file",
+        "Binary compiled magic files (.mgc) are not supported for parsing.\n\
+         Use the --use-builtin option to use the built-in magic rules instead,\n\
+         or provide a text-based magic file or directory.",
+    )
 }
 
 /// Whether `contents` contains at least one actual rule line -- a non-blank
@@ -425,15 +486,21 @@ pub fn load_magic_file(path: &Path) -> Result<ParsedMagic, ParseError> {
         }
         MagicFileFormat::Binary => {
             // Binary compiled magic files are not supported
-            Err(ParseError::unsupported_format(
-                0,
-                "binary .mgc file",
-                "Binary compiled magic files (.mgc) are not supported for parsing.\n\
-                 Use the --use-builtin option to use the built-in magic rules instead,\n\
-                 or provide a text-based magic file or directory.",
-            ))
+            Err(unsupported_binary_magic_error())
         }
     }
+}
+
+/// Loads text magic rules from a bounded reader.
+pub(crate) fn load_magic_reader<R: Read>(reader: R) -> Result<ParsedMagic, ParseError> {
+    let content = read_magic_reader_bounded(reader)?;
+    super::parse_text_magic_file_tolerant(&content, None)
+}
+
+/// Loads text magic rules from bounded, owned bytes.
+pub(crate) fn load_magic_bytes(bytes: Vec<u8>) -> Result<ParsedMagic, ParseError> {
+    let content = decode_magic_bytes_bounded(bytes)?;
+    super::parse_text_magic_file_tolerant(&content, None)
 }
 
 #[cfg(test)]
@@ -443,6 +510,34 @@ mod tests {
     #![allow(clippy::create_dir)]
 
     use super::*;
+
+    #[test]
+    fn test_read_magic_reader_is_bounded() {
+        let content = read_magic_reader_with_limit(&b"1234"[..], 4)
+            .expect("reader input at the limit must be accepted");
+        assert_eq!(content, "1234");
+
+        let error = read_magic_reader_with_limit(&b"12345"[..], 4)
+            .expect_err("reader input above the limit must fail");
+
+        assert!(matches!(error, ParseError::InvalidSyntax { line: 0, .. }));
+        assert!(error.to_string().contains("more than 4 bytes"));
+    }
+
+    #[test]
+    fn test_decode_magic_bytes_is_bounded() {
+        let content = decode_magic_bytes_with_limit(b"1234".to_vec(), 4)
+            .expect("owned bytes at the limit must be accepted");
+        assert_eq!(content, "1234");
+
+        let oversized = decode_magic_bytes_with_limit(b"12345".to_vec(), 4)
+            .expect_err("owned bytes above the limit must fail");
+        assert!(matches!(
+            oversized,
+            ParseError::InvalidSyntax { line: 0, .. }
+        ));
+        assert!(oversized.to_string().contains("more than 4 bytes"));
+    }
 
     // ============================================================
     // Tests for load_magic_directory (6+ test cases)
