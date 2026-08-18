@@ -6,7 +6,7 @@ Findings that were applied are in the branch history and are not repeated here. 
 
 ## Deferred
 
-- **P2 -- `tests/cli_integration.rs` is 1567 lines** (project-standards), against AGENTS.md's 500-600 line guidance. Not split: Rust integration tests are separate binaries, and this repo has no `tests/common/` module, so a thematic split requires introducing one and refactoring the pre-existing 645 lines onto it. That is a wider change than this PR should carry, and it would touch code this PR otherwise does not.
+- ~~**P2 -- `tests/cli_integration.rs` is 1567 lines**~~ -- **resolved, no longer deferred.** Originally deferred here on the grounds that a clean split needed a `tests/common/` module the repo lacked. A later review round had two independent reviewers raise it, and the size comparison settled it: the repo's next-largest test file is `system_magic_dir.rs` at 766 lines, so 1577 was roughly double the local norm and past the 800-line hard limit. Split into `cli_symlink_tests.rs` (579) and `cli_dereference_tests.rs` (332), with `cli_integration.rs` back to 635 and shared helpers in `tests/common/mod.rs`. All 66 tests preserved.
 
 - **P2 -- filename prefixes are still lossily decoded** (security, residual risk). `output_result` and the `ClassifiedUnreadable` diagnostic both render the path via `Path::display()`, which substitutes U+FFFD for invalid UTF-8. The symlink *target* was fixed in this PR because ADR-0001 binds it; the filename prefix is pre-existing, applies to every file type rather than just symlinks, and is out of scope here. Worth a follow-up in its own right.
 
