@@ -53,10 +53,14 @@ rmagic [OPTIONS] -
 
 ### Behavior
 
-| Option                  | Description                          |
-| ----------------------- | ------------------------------------ |
-| `-s, --strict`          | Exit with non-zero code on any error |
-| `-t, --timeout-ms <MS>` | Set evaluation timeout (1-300000ms)  |
+| Option                  | Description                                            |
+| ----------------------- | ------------------------------------------------------ |
+| `-s, --strict`          | Exit with non-zero code on any error                   |
+| `-t, --timeout-ms <MS>` | Set evaluation timeout (1-300000ms)                    |
+| `-L, --dereference`     | Follow symlinks and report the target's type (default) |
+| `--no-dereference`      | Do not follow symlinks; report the link itself         |
+
+**Note:** `-L, --dereference` and `--no-dereference` are not mutually exclusive. When both are supplied, the last one on the command line wins, matching GNU `file`.
 
 ### Help
 

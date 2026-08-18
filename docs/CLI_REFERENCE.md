@@ -58,10 +58,12 @@ rmagic [OPTIONS] -
 
 ### Behavior
 
-| Option                  | Description                          |
-| ----------------------- | ------------------------------------ |
-| `-s, --strict`          | Exit with non-zero code on any error |
-| `-t, --timeout-ms <MS>` | Set evaluation timeout (1-300000ms)  |
+| Option                  | Description                                            |
+| ----------------------- | ------------------------------------------------------ |
+| `-s, --strict`          | Exit with non-zero code on any error                   |
+| `-t, --timeout-ms <MS>` | Set evaluation timeout (1-300000ms)                    |
+| `-L, --dereference`     | Follow symlinks and report the target's type (default) |
+| `--no-dereference`      | Do not follow symlinks; report the link itself         |
 
 ### Help
 
