@@ -51,7 +51,8 @@ jobs:
 
             - name: Build rustdoc and copy into book
               run: |
-                  cargo doc --no-deps --document-private-items --target-dir target
+                  mise install
+                  mise x -- sh -lc 'cargo doc --no-deps --document-private-items --target-dir target'
                   mkdir -p docs/book/api
                   cp -r target/doc/* docs/book/api/
 

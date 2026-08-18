@@ -38,11 +38,12 @@ fn path_bytes(path: &Path) -> Vec<u8> {
         use std::os::unix::ffi::OsStrExt;
         path.as_os_str().as_bytes().to_vec()
     }
-    // Windows paths are UTF-16 with no raw-byte equivalent, so a lossy
-    // conversion is the only option there. It is not lossless: a Windows path
-    // can contain ill-formed UTF-16, which `to_string_lossy` replaces with
-    // U+FFFD. There is no byte-exact alternative to preserve, and GNU `file`
-    // does not run there, so no output contract is at stake.
+    // Windows has no raw-byte path representation to preserve: `OsStr` there
+    // is WTF-8-encoded UTF-16, not an arbitrary byte string, so the
+    // byte-for-byte contract the Unix arm carries has no analogue. This
+    // conversion is therefore intentionally lossy -- a path holding ill-formed
+    // UTF-16 gets U+FFFD -- and it is the only option available, not a choice
+    // between a lossy and an exact path.
     #[cfg(not(unix))]
     {
         path.to_string_lossy().into_owned().into_bytes()

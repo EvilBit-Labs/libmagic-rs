@@ -43,7 +43,11 @@ pub fn synthetic_result(description: &str) -> libmagic_rs::EvaluationResult {
         description.to_string(),
         0,
         0,
-        libmagic_rs::Value::String(description.to_string()),
+        // Empty, not the description: `value` reports the file bytes a rule
+        // matched, and a synthetic classification matched none. Filling it
+        // with the description hex-encodes prose into a field consumers read
+        // as file content.
+        libmagic_rs::Value::Bytes(Vec::new()),
         libmagic_rs::TypeKind::String {
             max_length: None,
             flags: libmagic_rs::parser::ast::StringFlags::default(),
