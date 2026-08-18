@@ -380,6 +380,19 @@ impl MagicDatabase {
     ///
     /// Returns an error if the config is invalid or the input is oversized,
     /// compiled `.mgc` data, or cannot be parsed as a text magic database.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use libmagic_rs::{EvaluationConfig, MagicDatabase};
+    ///
+    /// let rules = b"0 string INKMEM in-memory magic\n".to_vec();
+    /// let config = EvaluationConfig::performance();
+    /// let db = MagicDatabase::load_from_bytes_with_config(rules, config)?;
+    /// let result = db.evaluate_buffer(b"INKMEM payload")?;
+    /// assert!(result.description.contains("in-memory magic"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn load_from_bytes_with_config(bytes: Vec<u8>, config: EvaluationConfig) -> Result<Self> {
         config.validate()?;
         let parsed = parser::load_magic_bytes(bytes).map_err(Self::map_parse_error)?;
@@ -440,6 +453,19 @@ impl MagicDatabase {
     /// Returns an error if the config is invalid, the reader fails, or the
     /// input is oversized, compiled `.mgc` data, or cannot be parsed as a text
     /// magic database.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use libmagic_rs::{EvaluationConfig, MagicDatabase};
+    ///
+    /// let rules = b"0 string INKMEM in-memory magic\n";
+    /// let config = EvaluationConfig::performance();
+    /// let db = MagicDatabase::load_from_reader_with_config(rules.as_slice(), config)?;
+    /// let result = db.evaluate_buffer(b"INKMEM payload")?;
+    /// assert!(result.description.contains("in-memory magic"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn load_from_reader_with_config<R: Read>(
         reader: R,
         config: EvaluationConfig,

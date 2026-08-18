@@ -20,7 +20,7 @@ Built-in rules are compiled into the binary at build time and detect common file
 
 ## MagicDatabase
 
-`MagicDatabase` is the main entry point. It holds parsed rules, an evaluation configuration, and a cached MIME mapper. Six constructors are available:
+`MagicDatabase` is the main entry point. It holds parsed rules, an evaluation configuration, and a cached MIME mapper. Eight constructors are available:
 
 ```rust,no_run
 use libmagic_rs::{MagicDatabase, EvaluationConfig};
@@ -38,7 +38,7 @@ let db = MagicDatabase::load_from_file("/usr/share/misc/magic")?;
 let config = EvaluationConfig::comprehensive();
 let db = MagicDatabase::load_from_file_with_config("/usr/share/misc/magic.d", config)?;
 
-// Load owned text magic bytes without another full-buffer copy
+// Load owned text magic bytes without another full-buffer copy when UTF-8 is valid
 let rules = b"0 string CUSTOM Custom data\n".to_vec();
 let db = MagicDatabase::load_from_bytes(rules)?;
 
@@ -63,7 +63,7 @@ let db = MagicDatabase::load_from_reader_with_config(
 ```
 
 When a directory path is given, all magic files within it are loaded (the Magdir pattern). Binary `.mgc` files are not supported; the library returns a descriptive error if one is encountered.
-Databases loaded from bytes or readers have no filesystem source, so `source_path()` returns `None`. Prefer the owned-byte constructors when the source is already a `Vec<u8>`; they consume that buffer instead of copying it into an internal reader buffer.
+Databases loaded from bytes or readers have no filesystem source, so `source_path()` returns `None`. Prefer the owned-byte constructors when the source is already a `Vec<u8>`; valid UTF-8 can reuse the original allocation, while invalid UTF-8 may allocate for lossy replacement.
 
 ### Evaluation
 

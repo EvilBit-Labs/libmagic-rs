@@ -14,7 +14,7 @@ use crate::parser::name_table::NameTable;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use super::format::{MagicFileFormat, detect_format};
+use super::format::{MagicFileFormat, detect_format, has_binary_magic_header};
 
 /// Maximum magic file size (1 GB).
 ///
@@ -85,7 +85,7 @@ fn read_magic_reader_with_limit<R: Read>(reader: R, max_size: u64) -> Result<Str
         .take(4)
         .read_to_end(&mut bytes)
         .map_err(ParseError::from)?;
-    if max_size >= 4 && bytes.starts_with(&0xF11E_041Cu32.to_le_bytes()) {
+    if max_size >= 4 && has_binary_magic_header(&bytes) {
         return Err(unsupported_binary_magic_error());
     }
     reader.read_to_end(&mut bytes).map_err(ParseError::from)?;
@@ -103,7 +103,7 @@ fn decode_magic_bytes_with_limit(bytes: Vec<u8>, max_size: u64) -> Result<String
             format!("Magic database input is too large: more than {max_size} bytes"),
         ));
     }
-    if bytes.starts_with(&0xF11E_041Cu32.to_le_bytes()) {
+    if has_binary_magic_header(&bytes) {
         return Err(unsupported_binary_magic_error());
     }
     Ok(decode_magic_bytes(bytes, None))

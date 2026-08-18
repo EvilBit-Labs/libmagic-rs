@@ -39,14 +39,22 @@ fn test_load_from_bytes_with_config() {
 
 #[test]
 fn test_load_from_bytes_rejects_binary_mgc() {
-    let bytes = 0xF11E_041Cu32.to_le_bytes().to_vec();
+    let headers = [
+        ("little-endian", 0xF11E_041Cu32.to_le_bytes()),
+        ("big-endian", 0xF11E_041Cu32.to_be_bytes()),
+    ];
 
-    let error = MagicDatabase::load_from_bytes(bytes).unwrap_err();
+    for (byte_order, header) in headers {
+        let error = MagicDatabase::load_from_bytes(header.to_vec()).unwrap_err();
 
-    assert!(matches!(
-        error,
-        LibmagicError::ParseError(ParseError::UnsupportedFormat { .. })
-    ));
+        assert!(
+            matches!(
+                error,
+                LibmagicError::ParseError(ParseError::UnsupportedFormat { .. })
+            ),
+            "expected {byte_order} .mgc input to be rejected"
+        );
+    }
 }
 
 #[test]
@@ -71,15 +79,23 @@ fn test_load_from_reader_with_config() {
 
 #[test]
 fn test_load_from_reader_rejects_binary_mgc() {
-    let prefix = 0xF11E_041Cu32.to_le_bytes();
-    let reader = Cursor::new(prefix).chain(FailingReader);
+    let headers = [
+        ("little-endian", 0xF11E_041Cu32.to_le_bytes()),
+        ("big-endian", 0xF11E_041Cu32.to_be_bytes()),
+    ];
 
-    let error = MagicDatabase::load_from_reader(reader).unwrap_err();
+    for (byte_order, header) in headers {
+        let reader = Cursor::new(header).chain(FailingReader);
+        let error = MagicDatabase::load_from_reader(reader).unwrap_err();
 
-    assert!(matches!(
-        error,
-        LibmagicError::ParseError(ParseError::UnsupportedFormat { .. })
-    ));
+        assert!(
+            matches!(
+                error,
+                LibmagicError::ParseError(ParseError::UnsupportedFormat { .. })
+            ),
+            "expected {byte_order} .mgc input to be rejected"
+        );
+    }
 }
 
 #[test]
