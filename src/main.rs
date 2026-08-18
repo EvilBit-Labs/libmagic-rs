@@ -6,9 +6,13 @@
 //! This binary provides a CLI tool for file type identification using magic rules,
 //! serving as a drop-in replacement for the GNU `file` command.
 
+mod cli;
+
 use clap::{CommandFactory, Parser};
 use clap_complete::Shell;
 use clap_stdin::FileOrStdin;
+use cli::symlink::classify_symlink;
+use cli::{FileOutcome, output_description_bytes, stdout_is_terminal, synthetic_result};
 use libmagic_rs::output::json::{format_json_line_output, format_json_output};
 // Used only by the unix-gated magic-file discovery path and unix-gated
 // tests; Windows builds (release and test) never reference these.
@@ -92,12 +96,42 @@ pub struct Args {
           value_parser = clap::value_parser!(u64).range(1..=300_000))]
     pub timeout_ms: Option<u64>,
 
+    /// Follow symlinks and report the target's type (default)
+    ///
+    /// Accepted for GNU `file` compatibility. Following is already the
+    /// default, so this flag only matters as the last-specified of the pair.
+    #[arg(short = 'L', long, overrides_with = "no_dereference")]
+    pub dereference: bool,
+
+    /// Do not follow symlinks; report the link itself
+    ///
+    /// Reports `symbolic link to <target>` for a reachable link. A dangling
+    /// link stays `broken symbolic link to <target>` -- brokenness does not
+    /// depend on this flag.
+    ///
+    /// GNU `file` spells this `-h`, which rmagic keeps bound to `--help`;
+    /// under ADR-0001 flag spelling is ergonomics, not a detection result.
+    #[arg(long, overrides_with = "dereference")]
+    pub no_dereference: bool,
+
     /// Generate shell completions and exit
     #[arg(long, value_name = "SHELL")]
     pub generate_completion: Option<Shell>,
 }
 
 impl Args {
+    /// Whether symlinks should be followed to their target
+    ///
+    /// `false` only when `--no-dereference` was the last-specified of the
+    /// symlink flag pair. `overrides_with` clears the loser, so checking the
+    /// single field is enough to get GNU `file`'s last-flag-wins behavior --
+    /// the two flags are deliberately not `conflicts_with`, because `file`
+    /// accepts both orders.
+    #[must_use]
+    pub fn follows_symlinks(&self) -> bool {
+        !self.no_dereference
+    }
+
     /// Determine the output format based on flags
     #[must_use]
     pub fn output_format(&self) -> OutputFormat {
@@ -476,13 +510,19 @@ fn output_result(
 /// Process a single file with the magic database
 ///
 /// Handles file validation, evaluation, and output.
-/// Returns Ok(()) on success or an error if processing fails.
+///
+/// Returns the [`FileOutcome`] describing how the path was resolved, or an
+/// error if processing failed outright.
 fn process_file(
     writer: &mut impl Write,
     file_or_stdin: &FileOrStdin,
     db: &MagicDatabase,
     args: &Args,
-) -> Result<(), LibmagicError> {
+) -> Result<FileOutcome, LibmagicError> {
+    // Derived from `args`, which never changes during a single call, so
+    // every output path below shares one binding.
+    let is_multiple_files = args.files.len() > 1;
+
     if file_or_stdin.is_stdin() {
         use std::io::Read;
 
@@ -511,32 +551,64 @@ fn process_file(
 
         let result = db.evaluate_buffer(&buffer)?;
         let stdin_path = PathBuf::from("stdin");
-        let is_multiple_files = args.files.len() > 1;
         output_result(writer, &stdin_path, &result, args, is_multiple_files)?;
-        return Ok(());
+        return Ok(FileOutcome::Classified);
     }
 
     // Extract file path from FileOrStdin
     // Use the filename() method to get the path
     let file_path = PathBuf::from(file_or_stdin.filename());
 
-    // Reject directories early with a clear message. On some platforms
-    // (notably Windows) FileBuffer may accept a directory path without
-    // error, producing a misleading "data" classification.
+    // Symlink precheck. Must run before the `is_dir()` check below:
+    // `Path::is_dir()` follows symlinks, so a symlink-to-directory would be
+    // consumed by that branch before any symlink logic could run.
+    if let Some(classification) =
+        classify_symlink(&file_path, args.follows_symlinks(), stdout_is_terminal())
+    {
+        output_description_bytes(
+            writer,
+            &file_path,
+            &classification.description,
+            args,
+            is_multiple_files,
+        )?;
+        return Ok(if classification.unreadable {
+            // `FileError` rather than `IoError(NotFound)`: `handle_io_error`
+            // maps NotFound to canned advice ("check the file path and try
+            // again") that is actively wrong here -- the path was classified
+            // successfully, it is the link *target* that is unreachable.
+            // `FileError` carries our own wording through to stderr and keeps
+            // the same exit code.
+            FileOutcome::ClassifiedUnreadable(LibmagicError::FileError(format!(
+                "unreadable symlink: {}",
+                file_path.display()
+            )))
+        } else {
+            FileOutcome::Classified
+        });
+    }
+
+    // Classify directories rather than failing on them: `file <dir>` prints
+    // `<dir>: directory` and exits 0, and under ADR-0001 that is a detection
+    // result, not a diagnostic.
+    //
+    // This still keeps `FileBuffer` from ever seeing a directory path -- the
+    // concern the previous hard error guarded, since on some platforms
+    // (notably Windows) it accepts one and produces a misleading "data"
+    // classification. Intercepting it here satisfies that better than
+    // erroring did.
     if file_path.is_dir() {
-        return Err(LibmagicError::IoError(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!("Path is a directory, not a file: {}", file_path.display()),
-        )));
+        let result = synthetic_result("directory");
+        output_result(writer, &file_path, &result, args, is_multiple_files)?;
+        return Ok(FileOutcome::Classified);
     }
 
     let result = db.evaluate_file(&file_path)?;
 
     // Output results based on format
-    let is_multiple_files = args.files.len() > 1;
     output_result(writer, &file_path, &result, args, is_multiple_files)?;
 
-    Ok(())
+    Ok(FileOutcome::Classified)
 }
 
 fn run_analysis(args: &Args, interrupted: &AtomicBool) -> Result<(), LibmagicError> {
@@ -557,7 +629,15 @@ fn run_analysis(args: &Args, interrupted: &AtomicBool) -> Result<(), LibmagicErr
         }
 
         match process_file(&mut writer, file_or_stdin, &db, args) {
-            Ok(()) => {} // Success, continue
+            Ok(FileOutcome::Classified) => {} // Success, continue
+            Ok(FileOutcome::ClassifiedUnreadable(e)) => {
+                // The description already went to stdout, so this arm stays
+                // silent -- the path is only recorded so `--strict` can flag
+                // it. This is the arm the `Err` arm below cannot express.
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
             Err(e) => {
                 // Print error with filename context but continue processing other files
                 eprintln!("Error processing {}: {}", file_or_stdin.filename(), e);
@@ -924,6 +1004,8 @@ mod tests {
             strict: false,
             use_builtin: false,
             timeout_ms: None,
+            dereference: false,
+            no_dereference: false,
             generate_completion: None,
         };
         let result = validate_arguments(&args_empty);
@@ -951,6 +1033,8 @@ mod tests {
             strict: false,
             use_builtin: false,
             timeout_ms: None,
+            dereference: false,
+            no_dereference: false,
             generate_completion: None,
         };
         let result = validate_arguments(&args_with_empty_magic);
@@ -975,6 +1059,8 @@ mod tests {
             strict: false,
             use_builtin: false,
             timeout_ms: None,
+            dereference: false,
+            no_dereference: false,
             generate_completion: None,
         };
         let result = validate_arguments(&args_with_magic);
@@ -1143,6 +1229,48 @@ mod tests {
         assert!(
             first_text_idx < first_binary_idx,
             "Text candidates should come before binary candidates"
+        );
+    }
+
+    #[test]
+    fn test_follows_symlinks_resolves_last_flag_wins() {
+        let cases: &[(&[&str], bool)] = &[
+            (&["rmagic", "f"], true),
+            (&["rmagic", "-L", "f"], true),
+            (&["rmagic", "--dereference", "f"], true),
+            (&["rmagic", "--no-dereference", "f"], false),
+            // `overrides_with` clears the loser, so the later flag wins
+            // rather than the pair being rejected -- matching GNU `file`,
+            // which accepts both orders.
+            (&["rmagic", "--no-dereference", "-L", "f"], true),
+            (&["rmagic", "-L", "--no-dereference", "f"], false),
+            (&["rmagic", "-L", "--no-dereference", "-L", "f"], true),
+        ];
+
+        for (argv, expected) in cases {
+            let args = Args::try_parse_from(*argv)
+                .unwrap_or_else(|e| panic!("failed to parse {argv:?}: {e}"));
+            assert_eq!(
+                args.follows_symlinks(),
+                *expected,
+                "follows_symlinks() mismatch for {argv:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_synthetic_result_populates_both_description_and_matches() {
+        let result = synthetic_result("broken symbolic link to missing.txt");
+
+        assert_eq!(result.description, "broken symbolic link to missing.txt");
+        assert_eq!(
+            result.matches.len(),
+            1,
+            "the JSON output arm builds from `matches`, so it must not be empty"
+        );
+        assert_eq!(
+            result.matches[0].message, result.description,
+            "text and JSON arms must report the same string"
         );
     }
 }

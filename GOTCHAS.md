@@ -538,3 +538,99 @@ libmagic also applies `cvt_flip` to indirect-offset pointer-type reads inside a 
 ### 16.4 Blast Radius: TIFF + Mach-O dylib
 
 A 798-file corpus differential (before commit vs after, vs GNU `file -b` on the system magic DB) showed **40 improvements, 0 regressions** (monotonic): big-endian TIFF (`direntries=%d` + the width/height/compression tag walk went from byte-swapped garbage to exact `file` parity) and single-arch Mach-O dylibs (`filetype=100663296`/`architecture=117440513` -- the byte-swapped MH_DYLIB=6 / x86_64 cputype -- became `dynamically linked shared library x86_64`). The Mach-O dylib fix is a verified bonus, not the target: it uses the same `\^` flip on `use \^macho-*` subroutines. Full Mach-O universal parity is NOT closed by this (see S14.4 / #378).
+
+## 17. CLI Symlink and Directory Classification (issue #383)
+
+### 17.1 The Fix Lives in the CLI Layer Because It Has To
+
+`std::fs::metadata` follows symlinks, so a dangling link fails at `src/lib.rs`'s `let file_metadata = fs::metadata(path)?` before a `FileBuffer` is ever constructed. A fix confined to `src/io/` never executes -- the tell is the error text: the reported symptom was the bare `I/O error: No such file or directory (os error 2)`, not `src/io/mod.rs`'s `Failed to read metadata for file '{path}': {source}` format. The precheck therefore sits in `src/cli/symlink.rs`, called from `process_file`, and `src/lib.rs` / `src/io/` are untouched.
+
+**Ordering inside `process_file` is load-bearing.** The symlink precheck must run *before* the `is_dir()` branch, because `Path::is_dir()` follows symlinks: a symlink-to-directory reports `is_dir() == true` and would be consumed by the directory branch before any symlink logic could run. Moving the precheck below `is_dir()` silently breaks `--no-dereference` on directory links only -- every other test still passes.
+
+### 17.2 One Reachability Probe Covers ENOENT, ELOOP, and EACCES
+
+`fs::metadata(path).is_err()` is the whole broken-link predicate. A missing target (ENOENT), a symlink cycle (ELOOP), and a target inside a `chmod 000` directory (EACCES) all fail it, and GNU `file` prints the identical `broken symbolic link to <target>` for all three -- measured, not assumed. Do not add per-errno branches; they would diverge from `file` and there is no output difference to express.
+
+**The empty-target case is separate and needs its own branch.** `ln -s "" x` is creatable and `fs::read_link` **succeeds** on it, returning an empty path -- so it does not land in the `read_link` failure fall-through. Without an explicit branch it reaches the reachability probe, fails it, and renders `broken symbolic link to ` with a dangling trailing space, which is a wrong detection result. The replacement diagnostic's wording is ours to choose (ADR-0001); matching `file`'s `` unreadable symlink `x' (No such file or directory) `` is what rmagic does.
+
+### 17.2a Symlink Target Text Is Carried as Bytes, Not `String`
+
+`render_symlink_target` returns `Vec<u8>` and `SymlinkClassification::description` is `Vec<u8>`. This is load-bearing, not stylistic: on Unix a symlink target is an **arbitrary byte string** and need not be valid UTF-8, and GNU `file` reproduces those bytes verbatim. A `String` cannot hold them -- `to_string_lossy` substitutes U+FFFD, turning two invalid bytes into six different output bytes -- which is a detection-result divergence under ADR-0001, not a cosmetic one.
+
+Measured against `file-5.41` on a target containing `0xFF 0xFE`:
+
+```text
+file  : ... 74 6f 20 62 61 64 ff fe 6e 61 6d 65 ...
+before: ... 74 6f 20 62 61 64 ef bf bd ef bf bd 6e ...   (two U+FFFD)
+```
+
+Consequences to preserve:
+
+- **The text output arm writes the description bytes directly** (`output_description_bytes` in `src/main.rs`), bypassing `output_result`'s `String` formatting. Do not "simplify" the symlink branch back through `output_result` -- that reintroduces the lossy conversion.
+- **The JSON arm still decodes lossily**, deliberately: JSON strings must be valid UTF-8, so there is no byte-exact form to preserve, and `file` has no JSON output to match against.
+- **The escape branch may decode lossily too** -- it only ever reaches an interactive terminal, which cannot render an invalid sequence anyway, and no byte-for-byte contract applies there.
+- The filename prefix still goes through `Path::display()` and remains lossy. That is pre-existing, applies to every file type rather than just symlinks, and is out of scope here.
+
+Regression guards: `test_render_symlink_target_preserves_non_utf8_bytes_when_not_a_terminal` (unit) and `test_non_utf8_symlink_target_matches_gnu_file_byte_for_byte` (end-to-end differential against the real `file` binary).
+
+### 17.2b A Trailing Slash Is Not a Contract Gap
+
+`rmagic brokenlink/` (trailing separator) does **not** produce `broken symbolic link to <target>`: POSIX requires `lstat` to resolve a symlink when the path ends in `/`, so `symlink_metadata` fails, the precheck falls through, and the ordinary error path runs.
+
+This looks like issue #383 reintroduced and is not. Measured: `file brokenlink/` also declines, printing `` cannot open `brokenlink/' (No such file or directory) ``. Both tools refuse to classify; only the diagnostic wording differs, which ADR-0001 explicitly frees. Valid links are unaffected -- `file gooddirlink/` and `rmagic gooddirlink/` both print `directory`.
+
+Do not "fix" this by stripping trailing separators before the precheck: that would make rmagic classify a path GNU `file` refuses to, which is a divergence in the other direction.
+
+### 17.3 Control-Byte Escaping Is TTY-Gated -- Do Not Simplify Either Branch Away
+
+Symlink targets carry no character restrictions and may contain raw ESC (`0x1B`) or OSC bytes. `render_symlink_target` escapes terminal-actionable characters **only when stdout is a terminal**; redirected and piped output passes through unchanged.
+
+**The escaped set is three families, not just C0.** `is_terminal_control` covers C0 plus DEL (`< 0x20`, `0x7F`), the **C1 range** (`0x80..=0x9F`), and the **Unicode bidi/format overrides** (`U+202A`-`U+202E`, `U+2066`-`U+2069`, `U+200E`, `U+200F`, `U+061C`). C1 matters because a terminal in UTF-8 mode decodes the two-byte UTF-8 form back to an 8-bit control -- `U+009D` opens an OSC sequence exactly as `ESC ]` does -- so escaping only C0 leaves the OSC-52 clipboard and title-spoof paths open. Bidi overrides are the Trojan-Source class: they let a target display as a different path than its bytes describe, which is a pointed failure in a tool whose job is telling you what a file is. Widening this set is always safe for parity because escaping exists only in the TTY branch.
+
+Both branches are load-bearing and for opposite reasons:
+
+- **The pass-through branch is the ADR-0001 contract.** Verified: `file-5.41` prints such targets unescaped, with and without `-r`. Unconditional escaping would be a real detection divergence, and every differential test captures stdout, so it would not be caught by them -- it would be caught by users.
+- **The escaping branch is the security control.** This change is what first routes attacker-controllable text onto the exit-0 stdout path (a broken link previously produced no stdout line at all). A planted link in an extracted archive can spoof a terminal title or write the clipboard via OSC 52. `--no-dereference` does *not* mitigate this -- it renders the target too.
+
+The gate is resolved once per run via a `OnceLock`, not per path. `render_symlink_target` takes the flag as an explicit `bool` parameter rather than calling `IsTerminal` internally, specifically so both branches are unit-testable: `assert_cmd` always captures stdout, so an integration test can only ever exercise the pass-through branch.
+
+### 17.4 `--strict` Trips on a Broken Link but Not on a Directory
+
+`FileOutcome::ClassifiedUnreadable` exists because a broken symlink must be three things at once that `Result<(), LibmagicError>` cannot express together: written to stdout, counted by `--strict`, and silent in the per-file loop. The `Err` arm is what drives that loop's `eprintln!`, so reusing it would reintroduce the reported bug -- an error on stderr and nothing on stdout.
+
+**"Silent" scopes to the loop, not to the whole run.** A default (non-`--strict`) run really is stderr-clean, which is the fixed bug. Under `--strict` the run still ends in `main()`'s `handle_error`, which prints one line explaining the non-zero exit. That is deliberate: every other `--strict` failure explains itself, and a bare exit 3 with no stated reason would be worse than the divergence. Do not "fix" this by suppressing `handle_error` for this outcome.
+
+- A **broken symlink** is `ClassifiedUnreadable` -- an unreadable path is exactly the I/O-error category `--strict` exists to catch. Accepted consequence: `rmagic --strict` over a real filesystem tree exits non-zero on a healthy machine wherever expected dangling links exist. `--no-dereference` is **not** an escape hatch (brokenness is flag-independent); not passing `--strict` is.
+- A **directory** and a **valid link under `--no-dereference`** are both `Classified` -- a successful detection and a deliberate non-read respectively, neither an I/O failure.
+
+This is not a parity break: `file` has no `--strict` flag at all (`file --strict /etc/hosts` -> `unrecognized option`), and under ADR-0001 exit codes are rmagic's own.
+
+**`ClassifiedUnreadable` carries `LibmagicError::FileError`, not `IoError(NotFound)`.** `handle_io_error` maps `NotFound` to canned advice ("The specified file does not exist or cannot be accessed. Please check the file path and try again.") which is actively wrong here -- the path *was* classified successfully; it is the link target that is unreachable. `FileError` carries rmagic's own wording through to stderr with the same exit code (3).
+
+### 17.5 `-h` Stays Bound to `--help`; No-Dereference Is Long-Form Only
+
+GNU `file` spells no-dereference `-h`, which rmagic already uses for `--help`. Under ADR-0001 flag spelling is ergonomics, not a detection result, so `--no-dereference` has **no short letter** and `-h` is untouched. `-P` is not an alternative -- `file` uses it for `--parameter`. Nothing needs a clap workaround: `disable_help_flag` appears nowhere in `src/`, so `-h, --help` comes from clap's unmodified derive default.
+
+The two flags use **`overrides_with`, not `conflicts_with`** -- measured, `file -h -L` and `file -L -h` are both accepted and the last flag wins. `overrides_with` clears the loser, so `Args::follows_symlinks()` need only check the single `no_dereference` field.
+
+**Trap: `file --help` misdocuments its own default.** file-5.41's help text prints `-h, --no-dereference   don't follow symlinks (default)`. The "(default)" is **wrong** -- measured, plain `file good.link` classifies the *target*, and `POSIXLY_CORRECT=1` does not change it. Following is the default; do not "fix" rmagic to match the help text.
+
+### 17.5a Do Not Reuse the Precheck's `lstat` for the `is_dir()` Check
+
+`classify_symlink` calls `fs::symlink_metadata` (an `lstat`) and discards the result when the path is not a symlink, after which `process_file` immediately calls `file_path.is_dir()` (a `stat`) on the same path. That looks like an obvious redundant syscall to remove by threading the `Metadata` out of the precheck. **It is a trap.**
+
+`is_dir()` follows symlinks; `symlink_metadata` does not. Measured on a symlink to a directory: `stat` reports `is_dir() == true`, `lstat` reports `false`. Crucially, `classify_symlink` returns `None` for **two different** cases -- "not a symlink at all" and "a symlink that is reachable and being followed" -- and only the first may reuse the `lstat`. A naive `NotASymlink(Option<Metadata>)` refactor that reuses it for both silently reclassifies every symlink-to-directory from `directory` to whatever the magic rules make of it.
+
+The saving is one `stat` per file against an mmap plus full rule evaluation over the system magic DB, so it is not worth the correctness surface. `test_symlink_to_directory_classifies_as_directory_by_default` is the regression guard if someone tries anyway.
+
+### 17.6 `directory` Is a Detection Result, Not a Diagnostic
+
+`rmagic <dir>` prints `<dir>: directory` and exits 0, matching `file`. It previously returned an I/O error with no stdout line, which under ADR-0001's boundary test (*if the file were readable, would this string describe what it is?*) was a contract gap rather than an ergonomics choice.
+
+The `is_dir()` branch still intercepts directories before `FileBuffer` sees one -- the concern the old hard error guarded, since on some platforms (notably Windows) `FileBuffer` accepts a directory path and produces a misleading `data` classification. Classifying satisfies that better than erroring did; do not remove the branch on the assumption the library now handles it.
+
+### 17.7 Adding a CLI Flag Requires Updating Three Docs and Three Test Constructions
+
+There are **three** CLI documentation files, not two: `docs/CLI_REFERENCE.md`, `docs/src/cli-reference.md`, and `docs/src/cli-usage.md`. Missing one leaves the mdbook and the top-level reference disagreeing about the CLI surface. Completions are generated at runtime from the clap definition and are not checked in, so there is no regeneration step.
+
+Per S7.4, every manual `Args { ... }` construction in `src/main.rs`'s unit tests must gain the new field or the test module stops compiling -- there are three.

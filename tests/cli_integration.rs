@@ -15,42 +15,26 @@
 // exemption is applied per test crate instead.
 #![allow(clippy::expect_used)]
 
-use assert_cmd::Command;
+mod common;
+
+use common::{ELF_HEADER, create_data_file, path_str, rmagic_cmd};
 use libmagic_rs::EvaluationConfig;
 use predicates::prelude::*;
 use std::fs;
 use tempfile::TempDir;
 
 // Magic byte constants for test file creation
-const ELF_HEADER: &[u8] = b"\x7fELF\x02\x01\x01\x00";
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 const JPEG_SOI: &[u8] = b"\xff\xd8\xff\xe0";
 const PDF_HEADER: &[u8] = b"%PDF-1.4";
 const ZIP_HEADER: &[u8] = b"PK\x03\x04";
 const GIF_HEADER: &[u8] = b"GIF89a";
 
-/// Helper to create a Command for the rmagic binary
-fn rmagic_cmd() -> Command {
-    Command::new(assert_cmd::cargo::cargo_bin!("rmagic"))
-}
-
-/// Helper to create a temporary data file for testing
-fn create_data_file(dir: &TempDir, filename: &str, content: &[u8]) -> std::path::PathBuf {
-    let path = dir.path().join(filename);
-    fs::write(&path, content).expect("Failed to create data file");
-    path
-}
-
 /// Helper to create a temporary magic file for testing
 fn create_magic_file(dir: &TempDir, content: &str) -> std::path::PathBuf {
     let path = dir.path().join("test.magic");
     fs::write(&path, content).expect("Failed to create magic file");
     path
-}
-
-/// Convert a path to a string, panicking with context on failure
-fn path_str(path: &std::path::Path) -> &str {
-    path.to_str().expect("Invalid path")
 }
 
 // =============================================================================
@@ -409,14 +393,20 @@ fn test_error_file_not_found() {
 }
 
 #[test]
-fn test_error_directory_instead_of_file() {
+fn test_directory_instead_of_file_is_classified_not_an_error() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
+    // This test previously asserted the opposite: a directory under
+    // `--strict` failed with "directory" on stderr. GNU `file` classifies
+    // directories (`file <dir>` -> `<dir>: directory`, exit 0), and under
+    // ADR-0001 that string is a detection result, so the old behavior was a
+    // contract gap. Rewritten rather than deleted to keep the coverage.
     rmagic_cmd()
         .args(["--use-builtin", "--strict", path_str(temp_dir.path())])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("directory"));
+        .success()
+        .stdout(predicate::str::contains("directory"))
+        .stderr(predicate::str::is_empty());
 }
 
 #[test]
