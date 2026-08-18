@@ -455,7 +455,7 @@ version = "1.97.1"
 backend = "core:rust"
 
 [tools.rust.options]
-components = "cargo,clippy,llvm-tools,rustfmt"
+components = "clippy,llvm-tools,rustfmt"
 profile = "default"
 targets = "aarch64-apple-darwin,aarch64-pc-windows-msvc,aarch64-unknown-linux-gnu,x86_64-apple-darwin,x86_64-pc-windows-msvc,x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl"
 

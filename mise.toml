@@ -13,7 +13,7 @@
 # `mise upgrade --bump rust`. Commit the refreshed mise.lock, and update
 # Cargo.toml `rust-version` if the MSRV moves.
 [tools]
-rust                        = { version = "1.97.1", components = "llvm-tools,cargo,rustfmt,clippy", profile = "default", targets = "aarch64-apple-darwin,aarch64-unknown-linux-gnu,aarch64-pc-windows-msvc,x86_64-apple-darwin,x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl,x86_64-pc-windows-msvc" }
+rust                        = { version = "1.97.1", components = "llvm-tools,rustfmt,clippy", profile = "default", targets = "aarch64-apple-darwin,aarch64-unknown-linux-gnu,aarch64-pc-windows-msvc,x86_64-apple-darwin,x86_64-unknown-linux-gnu,x86_64-unknown-linux-musl,x86_64-pc-windows-msvc" }
 cargo-binstall              = "1.21.1"
 cargo-insta                 = "1.48.0"
 "cargo:cargo-audit"         = "0.22.2"
@@ -52,14 +52,14 @@ activate_aggressive = true
 # Empty: mise reads no idiomatic version files (.python-version, .bun-version,
 # rust-toolchain.toml). All tool versions come from [tools] above. See the
 # header comment -- do not add `rust` here (dual-toolchain collision on CI).
-idiomatic_version_file_enable_tools = [ ]
-env_cache           = true
-exec_auto_install   = true
-github_attestations = true
-lockfile            = true
-pin                 = true
-slsa                = true
-experimental        = true
+idiomatic_version_file_enable_tools = [  ]
+env_cache                           = true
+exec_auto_install                   = true
+github_attestations                 = true
+lockfile                            = true
+pin                                 = true
+slsa                                = true
+experimental                        = true
 
 [settings.npm]
 package_manager = "bun"
