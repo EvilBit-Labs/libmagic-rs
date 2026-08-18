@@ -60,6 +60,8 @@ rmagic [OPTIONS] -
 | `-L, --dereference`     | Follow symlinks and report the target's type (default) |
 | `--no-dereference`      | Do not follow symlinks; report the link itself         |
 
+**Note:** `-L, --dereference` and `--no-dereference` are not mutually exclusive. When both are supplied, the last one on the command line wins, matching GNU `file`.
+
 ### Help
 
 | Option          | Description               |

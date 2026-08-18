@@ -56,6 +56,8 @@ The built-in rules cover common file types: ELF, PE/DOS, ZIP, TAR, GZIP, JPEG, P
 | `-L, --dereference`   | Follow symlinks and report the target's type. This is already the default; the flag exists for GNU `file` compatibility.                                 |
 | `--no-dereference`    | Do not follow symlinks; report `symbolic link to <target>` instead of classifying the target.                                                            |
 
+**Precedence:** the two dereference flags are not mutually exclusive. When both appear, the last one on the command line wins (`rmagic --no-dereference -L link` follows the link; `rmagic -L --no-dereference link` does not), matching GNU `file`.
+
 ## Output Formats
 
 ### Text Output (Default)

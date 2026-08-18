@@ -559,7 +559,7 @@ A 798-file corpus differential (before commit vs after, vs GNU `file -b` on the 
 
 Measured against `file-5.41` on a target containing `0xFF 0xFE`:
 
-```
+```text
 file  : ... 74 6f 20 62 61 64 ff fe 6e 61 6d 65 ...
 before: ... 74 6f 20 62 61 64 ef bf bd ef bf bd 6e ...   (two U+FFFD)
 ```

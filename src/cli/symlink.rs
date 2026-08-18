@@ -39,8 +39,10 @@ fn path_bytes(path: &Path) -> Vec<u8> {
         path.as_os_str().as_bytes().to_vec()
     }
     // Windows paths are UTF-16 with no raw-byte equivalent, so a lossy
-    // conversion is the only option there -- and Windows symlink targets are
-    // already constrained to valid Unicode, so nothing is lost in practice.
+    // conversion is the only option there. It is not lossless: a Windows path
+    // can contain ill-formed UTF-16, which `to_string_lossy` replaces with
+    // U+FFFD. There is no byte-exact alternative to preserve, and GNU `file`
+    // does not run there, so no output contract is at stake.
     #[cfg(not(unix))]
     {
         path.to_string_lossy().into_owned().into_bytes()
@@ -60,7 +62,7 @@ fn path_bytes(path: &Path) -> Vec<u8> {
 /// terminal decodes to 8-bit CSI/OSC), and the Unicode bidi/format overrides
 /// that let a target display as something other than its real bytes.
 ///
-/// Callers set the flag from [`stdout_is_terminal`]. The pass-through branch is
+/// Callers set the flag from [`super::stdout_is_terminal`]. The pass-through branch is
 /// what keeps redirected and piped output byte-for-byte identical to GNU
 /// `file` -- do not collapse the two branches into unconditional escaping.
 pub fn render_symlink_target(target: &Path, escape_control_bytes: bool) -> Vec<u8> {

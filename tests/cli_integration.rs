@@ -1123,13 +1123,19 @@ fn test_control_byte_target_matches_gnu_file_byte_for_byte_when_captured() {
         return;
     };
 
-    // Guard the oracle itself: if `file` ever starts escaping, the parity
-    // claim this test defends has changed and the assertion below is no
-    // longer meaningful.
-    assert!(
-        expected.contains(&0x1b),
-        "expected GNU `file` to emit the ESC byte unescaped, got {expected:02x?}"
-    );
+    // Guard the oracle itself. `file` translates unprintable bytes to octal
+    // (`\033`) from 5.42 onward; 5.41 and earlier emit them raw. When the
+    // local oracle escapes, it no longer has the property this differential
+    // asserts, so there is nothing here to compare against -- skip rather
+    // than fail. rmagic's own byte contract is pinned by the unit tests in
+    // src/cli/symlink.rs, which need no oracle.
+    if !expected.contains(&0x1b) {
+        eprintln!(
+            "Skipping test_control_byte_target_matches_gnu_file_byte_for_byte_when_captured: \
+             this `file` build translates unprintable bytes ({expected:02x?})"
+        );
+        return;
+    }
 
     let output = rmagic_cmd()
         .args(["--use-builtin", path_str(&link)])
@@ -1178,12 +1184,16 @@ fn test_non_utf8_symlink_target_matches_gnu_file_byte_for_byte() {
         return;
     };
 
-    // Guard the oracle: if `file` ever starts sanitizing, the parity claim
-    // this test defends has changed and the assertion below is meaningless.
-    assert!(
-        expected.contains(&0xFF) && expected.contains(&0xFE),
-        "expected GNU `file` to emit the raw target bytes, got {expected:02x?}"
-    );
+    // Same oracle guard as the control-byte differential: a `file` build that
+    // translates unprintable bytes to octal cannot validate byte parity, so
+    // skip instead of failing on a property the oracle no longer has.
+    if !(expected.contains(&0xFF) && expected.contains(&0xFE)) {
+        eprintln!(
+            "Skipping test_non_utf8_symlink_target_matches_gnu_file_byte_for_byte: \
+             this `file` build translates unprintable bytes ({expected:02x?})"
+        );
+        return;
+    }
 
     let output = rmagic_cmd()
         .args(["--use-builtin", path_str(&link)])
