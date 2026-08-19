@@ -41,7 +41,32 @@ deny = [
     "libssh2-sys",
     { crate = "cmake", use-instead = "cc" },
 ]
-skip = []
+# The proc-macro ecosystem is mid-migration from `syn` 2.x to 3.x: the derive
+# crates we depend on directly (serde_derive, thiserror-impl, clap_derive) have
+# moved to `syn` 3, while transitive macro crates we do NOT control -- notably
+# `windows-implement`/`windows-interface` (via chrono -> iana-time-zone ->
+# windows-core) and `zerocopy-derive` -- are still on `syn` 2. The duplicate is
+# therefore unavoidable: no combination of our own dependency choices collapses
+# it, unlike the `env_logger`/`humantime` -> `bitflags 1.x` case documented in
+# Cargo.toml, which we resolved by dropping the offending feature.
+#
+# `syn` is a compile-time-only proc-macro dependency, so the duplicate costs
+# build time, not runtime footprint or attack surface. The exception is scoped
+# to `syn` alone by a major-version range (not a pinned patch, so routine 2.x
+# patch bumps do not re-break CI); `multiple-versions = "deny"` still applies to
+# every other crate.
+#
+# REMOVE THIS once the transitive macro crates land on `syn` 3. cargo-deny
+# signals that moment on its own: with no duplicate left it emits
+# `warning[unnecessary-skip]: skip 'syn = =2' applied to a crate with only one
+# version`. That warning is the cue to delete this entry and the clippy.toml
+# counterpart -- do NOT silence it via `unnecessary-skip = "allow"`, it is the
+# only automatic reminder that the exception has outlived its purpose. It is a
+# warning, not an error, so CI stays green in the interim.
+#
+# Mirrored by `allowed-duplicate-crates` in clippy.toml; both gates flag this
+# same duplicate independently, so both must agree or CI stays red.
+skip = [{ crate = "syn@2" }]
 skip-tree = []
 
 
