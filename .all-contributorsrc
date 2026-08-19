@@ -1,0 +1,55 @@
+{
+    "projectName": "libmagic-rs",
+    "projectOwner": "EvilBit-Labs",
+    "repoType": "github",
+    "repoHost": "https://github.com",
+    "files": [
+        "README.md"
+    ],
+    "imageSize": 100,
+    "commit": true,
+    "commitConvention": "angular",
+    "contributors": [
+        {
+            "login": "unclesp1d3r",
+            "name": "UncleSp1d3r",
+            "avatar_url": "https://avatars.githubusercontent.com/u/251112?v=4",
+            "profile": "https://unclesp1d3r.github.io/",
+            "contributions": [
+                "code",
+                "doc",
+                "test",
+                "infra",
+                "maintenance",
+                "review",
+                "security",
+                "projectManagement"
+            ]
+        },
+        {
+            "login": "val-ms",
+            "name": "Val S.",
+            "avatar_url": "https://avatars.githubusercontent.com/u/30635813?v=4",
+            "profile": "https://github.com/val-ms",
+            "contributions": [
+                "code",
+                "doc",
+                "test"
+            ]
+        },
+        {
+            "login": "param-jasani",
+            "name": "Param Jasani",
+            "avatar_url": "https://avatars.githubusercontent.com/u/121548119?v=4",
+            "profile": "https://github.com/param-jasani",
+            "contributions": [
+                "code",
+                "doc"
+            ]
+        }
+    ],
+    "contributorsPerLine": 7,
+    "linkToUsage": false,
+    "skipCi": true,
+    "commitType": "docs"
+}
