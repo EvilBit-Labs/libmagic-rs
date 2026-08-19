@@ -151,6 +151,7 @@ pub use ast::{Endianness, MagicRule, OffsetSpec, Operator, StrengthModifier, Typ
 
 // Re-export format detection and loading
 pub use format::{MagicFileFormat, detect_format};
+pub(crate) use loader::{load_magic_bytes, load_magic_reader};
 pub use loader::{load_magic_directory, load_magic_file};
 
 // Internal re-exports for sibling modules and tests
