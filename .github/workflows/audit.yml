@@ -19,6 +19,13 @@ on:
     # Run manually
     workflow_dispatch:
 
+# Least-privilege default. The `audit` job below declares exactly what it needs
+# (contents: read to check out, issues: write to file advisory issues). Setting
+# an empty top-level block means any job added later starts with no token
+# scopes and must opt in explicitly, rather than silently inheriting the
+# repository default. Clears Scorecard Token-Permissions alert #168.
+permissions: {}
+
 jobs:
     audit:
         runs-on: ubuntu-latest

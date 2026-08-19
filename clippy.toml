@@ -10,3 +10,13 @@ allow-panic-in-tests = true
 allow-dbg-in-tests = true
 allow-print-in-tests = true
 allow-indexing-slicing-in-tests = true
+
+# Paired with the `[bans].skip` entry in deny.toml -- both gates flag the same
+# `syn` 2.x/3.x duplicate (cargo-deny via `multiple-versions`, clippy via
+# `multiple_crate_versions`), so an exception in only one leaves CI red.
+#
+# `allowed-duplicate-crates` is scoped to the named crate, so
+# `multiple_crate_versions` keeps firing for every other duplicate rather than
+# being downgraded to `allow` wholesale. See deny.toml for the full rationale
+# and the removal condition.
+allowed-duplicate-crates = ["syn"]
