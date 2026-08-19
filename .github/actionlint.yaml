@@ -1,0 +1,23 @@
+# actionlint configuration.
+#
+# `code-quality` is a real GitHub Actions permission scope, required by
+# `actions/upload-code-coverage` (GitHub's native code-coverage upload, wired up
+# in #445). actionlint v1.7.12 -- the latest release as of 2026-08-19, cut
+# 2026-03-30 -- predates the scope and rejects it as unknown, so there is no
+# version to upgrade to.
+#
+# Verified the workflow is correct, not the linter: the `upload-coverage-rust`
+# job completes successfully on main, so GitHub both accepts and honours the
+# permission.
+#
+# Without this ignore, `just ci-check` fails locally for every contributor who
+# touches a workflow file, which trains people to ignore actionlint entirely --
+# a worse outcome than one scoped exception, since actionlint catches genuine
+# workflow defects.
+#
+# REMOVE once an actionlint release recognises `code-quality`; the pinned rev
+# lives in .pre-commit-config.yaml.
+paths:
+    .github/workflows/ci.yml:
+        ignore:
+            - 'unknown permission scope "code-quality"'
