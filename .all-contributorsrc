@@ -37,6 +37,16 @@
         "doc",
         "test"
       ]
+    },
+    {
+      "login": "param-jasani",
+      "name": "Param Jasani",
+      "avatar_url": "https://avatars.githubusercontent.com/u/121548119?v=4",
+      "profile": "https://github.com/param-jasani",
+      "contributions": [
+        "code",
+        "doc"
+      ]
     }
   ],
   "contributorsPerLine": 7,
