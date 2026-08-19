@@ -95,6 +95,7 @@ target/sbom*
 
 # Coverage files
 lcov.info
+coverage.xml
 coverage/
 target/tarpaulin/
 lcov-default.info
