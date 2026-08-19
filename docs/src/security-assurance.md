@@ -41,6 +41,7 @@ libmagic-rs is a file type detection library and CLI tool. Its security requirem
 | AV-5 | Malformed magic file causes parser crash                     | SR-2       |
 | AV-6 | CLI argument with path traversal reads unintended files      | SR-4       |
 | AV-7 | Compromised dependency introduces unsafe code                | SR-5       |
+| AV-8 | Caller-supplied reader stalls or trickles magic-rule input   | SR-6       |
 
 ## 3. Trust Boundaries
 
@@ -49,7 +50,7 @@ flowchart TD
     subgraph Untrusted["Untrusted Zone"]
         direction LR
         IF["Input Files<br/>(any content)"]
-        MF["Magic Files<br/>(user or system)"]
+        MF["Magic Rule Sources<br/>(files, owned bytes, readers)"]
         CA["CLI Arguments<br/>(user paths)"]
     end
 
@@ -73,7 +74,7 @@ flowchart TD
     style libmagic-rs fill:#1b3d1b,stroke:#66bb6a,color:#e0e0e0,stroke-width:2px
 ```
 
-All data crossing the trust boundary (file contents, magic file syntax, CLI arguments) is treated as untrusted and validated before use.
+All data crossing the trust boundary (file contents, magic rule syntax, CLI arguments) is treated as untrusted and validated before use. Magic rules may be supplied as a filesystem path, as owned bytes, or through any `Read` implementation; every source enforces the same 1 GiB size bound and the same rejection of compiled binary `.mgc` input.
 
 ## 4. Secure Design Principles (Saltzer and Schroeder)
 
@@ -179,6 +180,14 @@ Symlink target text also reaches stdout, where it did not before -- a broken lin
 - **`TypeKind::String16`** is capped at a hardcoded `STRING16_MAX_UNITS = 8192` ceiling (2 bytes per UCS-2 unit, so up to 16 384 bytes per read). The configured cap is not consulted on this path.
 
 **Mitigation for callers:** Embedders who need a configurable cap on `String16` or `PString` reads cannot rely on `EvaluationConfig::max_string_length` for those types today. The existing built-in bounds (16 KiB ceiling on String16, error-on-overrun on PString) constrain the worst-case allocation. A configurable cap for these paths is tracked as follow-up work; the threat model entry will be updated when it lands.
+
+### 7.4 Caller-Supplied Readers Are Trusted to Terminate
+
+`MagicDatabase::load_from_reader` accepts any `Read` implementation, including sockets and pipes whose other end is outside the caller's control. Memory is bounded -- the reader is wrapped in `Read::take` at the same 1 GiB limit applied to magic files, so an endless stream cannot exhaust memory -- but **time is not**. A reader that blocks, or that trickles bytes indefinitely without reaching end of input, will stall the load call for as long as it keeps making progress.
+
+`EvaluationConfig::timeout_ms` does not help here: it bounds rule *evaluation*, which happens after loading completes. There is no load-phase timeout.
+
+**Mitigation for callers:** Apply read timeouts, deadlines, or a length-limited wrapper to the reader before passing it in (for example `TcpStream::set_read_timeout`, or reading into a `Vec<u8>` under your own deadline and calling `load_from_bytes` instead). Treat a reader from an untrusted peer the same way you would treat any other unbounded network read.
 
 ## 8. Ongoing Assurance
 
