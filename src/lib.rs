@@ -100,6 +100,7 @@
 #![deny(clippy::all)]
 #![warn(clippy::pedantic)]
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -316,10 +317,202 @@ impl MagicDatabase {
         config: EvaluationConfig,
     ) -> Result<Self> {
         config.validate()?;
-        let parsed = parser::load_magic_file(path.as_ref()).map_err(|e| match e {
-            ParseError::IoError(io_err) => LibmagicError::IoError(io_err),
+        let parsed = parser::load_magic_file(path.as_ref()).map_err(Self::map_parse_error)?;
+        Ok(Self::from_parsed(
+            parsed,
+            config,
+            Some(path.as_ref().to_path_buf()),
+        ))
+    }
+
+    /// Load text magic rules from owned bytes.
+    ///
+    /// This consumes the supplied [`Vec<u8>`] and reuses its allocation when
+    /// the input is valid UTF-8, avoiding the additional full-buffer copy made
+    /// when loading already-buffered data through [`Self::load_from_reader`].
+    /// Invalid UTF-8 is replaced as documented for file and reader loading and
+    /// may require another allocation. Input is bounded by the same 1 GiB limit
+    /// as [`Self::load_from_file`]. Compiled binary `.mgc` databases are not
+    /// supported.
+    ///
+    /// Databases loaded from bytes have no filesystem source, so
+    /// [`Self::source_path`] returns `None`.
+    ///
+    /// # Parsing behavior
+    ///
+    /// Parsing is tolerant, matching [`Self::load_from_file`]: a rule line
+    /// that fails to parse is skipped along with its indented subtree, and a
+    /// warning is logged rather than returned. Input in which every line fails
+    /// to parse therefore yields an `Ok` database with no rules, not an error.
+    ///
+    /// # Security
+    ///
+    /// This constructor uses [`EvaluationConfig::default()`], which leaves
+    /// `timeout_ms` unset. See the security note on
+    /// [`Self::with_builtin_rules`] and prefer
+    /// [`Self::load_from_bytes_with_config`] with an explicit timeout when
+    /// processing untrusted input.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LibmagicError::ParseError`] if the input is oversized,
+    /// compiled `.mgc` data, or cannot be parsed as a text magic database.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use libmagic_rs::MagicDatabase;
+    ///
+    /// let rules = b"0 string INKMEM in-memory magic\n".to_vec();
+    /// let db = MagicDatabase::load_from_bytes(rules)?;
+    /// let result = db.evaluate_buffer(b"INKMEM payload")?;
+    /// assert!(result.description.contains("in-memory magic"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn load_from_bytes(bytes: Vec<u8>) -> Result<Self> {
+        Self::load_from_bytes_with_config(bytes, EvaluationConfig::default())
+    }
+
+    /// Load text magic rules from owned bytes with custom evaluation config.
+    ///
+    /// See [`Self::load_from_bytes`] for ownership, size limits, and
+    /// source-path behavior.
+    ///
+    /// # Security
+    ///
+    /// For untrusted input, pass [`EvaluationConfig::performance()`] or a
+    /// config with an explicit non-`None` `timeout_ms`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the config is invalid or the input is oversized,
+    /// compiled `.mgc` data, or cannot be parsed as a text magic database.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use libmagic_rs::{EvaluationConfig, MagicDatabase};
+    ///
+    /// let rules = b"0 string INKMEM in-memory magic\n".to_vec();
+    /// let config = EvaluationConfig::performance();
+    /// let db = MagicDatabase::load_from_bytes_with_config(rules, config)?;
+    /// let result = db.evaluate_buffer(b"INKMEM payload")?;
+    /// assert!(result.description.contains("in-memory magic"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn load_from_bytes_with_config(bytes: Vec<u8>, config: EvaluationConfig) -> Result<Self> {
+        config.validate()?;
+        let parsed = parser::load_magic_bytes(bytes).map_err(Self::map_parse_error)?;
+        Ok(Self::from_parsed(parsed, config, None))
+    }
+
+    /// Load text magic rules from a reader.
+    ///
+    /// This accepts any [`Read`] implementation, including byte slices,
+    /// [`std::io::Cursor`], files, and buffered readers. Input is bounded by
+    /// the same 1 GiB limit as [`Self::load_from_file`]. Compiled binary
+    /// `.mgc` databases are not supported.
+    ///
+    /// Databases loaded from a reader have no filesystem source, so
+    /// [`Self::source_path`] returns `None`.
+    ///
+    /// # Parsing behavior
+    ///
+    /// Parsing is tolerant, matching [`Self::load_from_file`]: a rule line
+    /// that fails to parse is skipped along with its indented subtree, and a
+    /// warning is logged rather than returned. Input in which every line fails
+    /// to parse therefore yields an `Ok` database with no rules, not an error.
+    ///
+    /// The reader is drained until it reports end of input. A stream that ends
+    /// early -- a reset socket, a truncated pipe -- is indistinguishable from a
+    /// short magic database, so it loads successfully with only the rules that
+    /// arrived. Callers that need completeness guarantees must enforce them on
+    /// the stream before calling this method.
+    ///
+    /// # Security
+    ///
+    /// This constructor uses [`EvaluationConfig::default()`], which leaves
+    /// `timeout_ms` unset. See the security note on
+    /// [`Self::with_builtin_rules`] and prefer
+    /// [`Self::load_from_reader_with_config`] with an explicit timeout when
+    /// processing untrusted input.
+    ///
+    /// Note that `timeout_ms` bounds rule *evaluation*, not this read. The
+    /// reader is capped in size, but not in time: a reader that blocks or
+    /// trickles bytes without reaching end of input stalls this call. Apply
+    /// your own read timeout or deadline before passing in a stream you do
+    /// not control.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LibmagicError::IoError`] if the reader fails, or
+    /// [`LibmagicError::ParseError`] if the input is oversized, compiled
+    /// `.mgc` data, or cannot be parsed as a text magic database.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use libmagic_rs::MagicDatabase;
+    ///
+    /// let rules = b"0 string INKMEM in-memory magic\n";
+    /// let db = MagicDatabase::load_from_reader(rules.as_slice())?;
+    /// let result = db.evaluate_buffer(b"INKMEM payload")?;
+    /// assert!(result.description.contains("in-memory magic"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn load_from_reader<R: Read>(reader: R) -> Result<Self> {
+        Self::load_from_reader_with_config(reader, EvaluationConfig::default())
+    }
+
+    /// Load text magic rules from a reader with custom evaluation config.
+    ///
+    /// See [`Self::load_from_reader`] for supported inputs, size limits, and
+    /// source-path behavior.
+    ///
+    /// # Security
+    ///
+    /// For untrusted input, pass [`EvaluationConfig::performance()`] or a
+    /// config with an explicit non-`None` `timeout_ms`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the config is invalid, the reader fails, or the
+    /// input is oversized, compiled `.mgc` data, or cannot be parsed as a text
+    /// magic database.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use libmagic_rs::{EvaluationConfig, MagicDatabase};
+    ///
+    /// let rules = b"0 string INKMEM in-memory magic\n";
+    /// let config = EvaluationConfig::performance();
+    /// let db = MagicDatabase::load_from_reader_with_config(rules.as_slice(), config)?;
+    /// let result = db.evaluate_buffer(b"INKMEM payload")?;
+    /// assert!(result.description.contains("in-memory magic"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn load_from_reader_with_config<R: Read>(
+        reader: R,
+        config: EvaluationConfig,
+    ) -> Result<Self> {
+        config.validate()?;
+        let parsed = parser::load_magic_reader(reader).map_err(Self::map_parse_error)?;
+        Ok(Self::from_parsed(parsed, config, None))
+    }
+
+    fn map_parse_error(error: ParseError) -> LibmagicError {
+        match error {
+            ParseError::IoError(io_error) => LibmagicError::IoError(io_error),
             other => LibmagicError::ParseError(other),
-        })?;
+        }
+    }
+
+    fn from_parsed(
+        parsed: parser::ParsedMagic,
+        config: EvaluationConfig,
+        source_path: Option<PathBuf>,
+    ) -> Self {
         let parser::ParsedMagic {
             mut rules,
             name_table,
@@ -339,13 +532,13 @@ impl MagicDatabase {
 
         let root_rules: std::sync::Arc<[MagicRule]> =
             std::sync::Arc::from(rules.into_boxed_slice());
-        Ok(Self {
+        Self {
             name_table: std::sync::Arc::new(name_table),
             root_rules,
             config,
-            source_path: Some(path.as_ref().to_path_buf()),
+            source_path,
             mime_mapper: mime::MimeMapper::new(),
-        })
+        }
     }
 
     /// Evaluate magic rules against a file
@@ -679,7 +872,8 @@ pub struct EvaluationMetadata {
     pub evaluation_time_ms: f64,
     /// Number of top-level rules that were evaluated
     pub rules_evaluated: usize,
-    /// Path to the magic file used, or None for built-in rules
+    /// Path to the magic file used, or `None` for built-in, byte-loaded, or
+    /// reader-loaded rules
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub magic_file: Option<PathBuf>,
     /// Whether evaluation was stopped due to timeout

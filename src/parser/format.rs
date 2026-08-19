@@ -10,6 +10,12 @@ use crate::error::ParseError;
 use std::io::Read;
 use std::path::Path;
 
+const MGC_MAGIC: u32 = 0xF11E_041C;
+
+pub(super) fn has_binary_magic_header(bytes: &[u8]) -> bool {
+    bytes.starts_with(&MGC_MAGIC.to_le_bytes()) || bytes.starts_with(&MGC_MAGIC.to_be_bytes())
+}
+
 /// Represents the format of a magic file or directory
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MagicFileFormat {
@@ -29,7 +35,8 @@ pub enum MagicFileFormat {
 /// # Detection Logic
 ///
 /// 1. Check if path is a directory -> `MagicFileFormat::Directory`
-/// 2. Read first 4 bytes and check for binary magic number `0xF11E041C` -> `MagicFileFormat::Binary`
+/// 2. Read the first 4 bytes and check for the binary magic number
+///    `0xF11E041C` in either byte order -> `MagicFileFormat::Binary`
 /// 3. Otherwise -> `MagicFileFormat::Text`
 ///
 /// # Arguments
@@ -71,9 +78,7 @@ pub fn detect_format(path: &Path) -> Result<MagicFileFormat, ParseError> {
 
     match file.read_exact(&mut magic_bytes) {
         Ok(()) => {
-            // Check for binary magic number 0xF11E041C in little-endian format
-            let magic_number = u32::from_le_bytes(magic_bytes);
-            if magic_number == 0xF11E_041C {
+            if has_binary_magic_header(&magic_bytes) {
                 return Ok(MagicFileFormat::Binary);
             }
             // Not a binary magic file, assume text
@@ -119,24 +124,27 @@ mod tests {
     #[test]
     fn test_detect_format_binary_mgc() {
         let temp_dir = std::env::temp_dir();
-        let binary_file = temp_dir.join("test_binary.mgc");
+        let headers = [
+            ("little-endian", MGC_MAGIC.to_le_bytes()),
+            ("big-endian", MGC_MAGIC.to_be_bytes()),
+        ];
 
-        // Write binary magic number 0xF11E041C in little-endian
-        let mut file = fs::File::create(&binary_file).unwrap();
-        file.write_all(&[0x1C, 0x04, 0x1E, 0xF1]).unwrap();
-        file.write_all(b"additional binary data").unwrap();
+        for (byte_order, header) in headers {
+            let binary_file = temp_dir.join(format!("test_binary_{byte_order}.mgc"));
+            let mut file = fs::File::create(&binary_file).unwrap();
+            file.write_all(&header).unwrap();
+            file.write_all(b"additional binary data").unwrap();
 
-        let result = detect_format(&binary_file);
-        assert!(result.is_ok());
+            let result = detect_format(&binary_file);
+            assert!(result.is_ok(), "failed to detect {byte_order} header");
 
-        match result.unwrap() {
-            MagicFileFormat::Binary => {
-                // Expected result
+            match result.unwrap() {
+                MagicFileFormat::Binary => {}
+                other => panic!("Expected Binary format for {byte_order}, got {other:?}"),
             }
-            other => panic!("Expected Binary format, got {other:?}"),
-        }
 
-        fs::remove_file(&binary_file).unwrap();
+            fs::remove_file(&binary_file).unwrap();
+        }
     }
 
     #[test]

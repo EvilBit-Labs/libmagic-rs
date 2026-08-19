@@ -103,6 +103,11 @@ if let Some(mime) = result.mime_type {
     println!("MIME type: {}", mime);
 }
 
+// Or load text magic rules from owned bytes without a reader-buffer copy
+let rules = b"0 string CUSTOM Custom data\n".to_vec();
+let db = MagicDatabase::load_from_bytes(rules)?;
+let result = db.evaluate_buffer(b"CUSTOM payload")?;
+
 // Or use built-in rules (no external files needed)
 let db = MagicDatabase::with_builtin_rules();
 let result = db.evaluate_file("example.bin")?;
