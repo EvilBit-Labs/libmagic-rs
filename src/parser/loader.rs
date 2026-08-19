@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use super::format::{MagicFileFormat, detect_format, has_binary_magic_header};
 
-/// Maximum magic file size (1 GB).
+/// Maximum magic file size (1 GiB).
 ///
 /// Applied before loading a magic file (or any file within a magic directory)
 /// into memory to prevent memory-exhaustion `DoS` from maliciously oversized
@@ -70,11 +70,25 @@ fn read_magic_file_bounded(path: &Path) -> Result<String, ParseError> {
     Ok(decode_magic_bytes(bytes, Some(path)))
 }
 
+/// Adds operation context to an I/O failure raised while draining a reader.
+///
+/// A reader has no path to name, so without this the caller sees only the bare
+/// underlying error with no indication of which stage produced it.
+fn reader_io_error(error: &std::io::Error) -> ParseError {
+    ParseError::IoError(std::io::Error::new(
+        error.kind(),
+        format!("Failed to read magic database from reader: {error}"),
+    ))
+}
+
 fn read_magic_reader_bounded<R: Read>(reader: R) -> Result<String, ParseError> {
     read_magic_reader_with_limit(reader, MAX_MAGIC_FILE_SIZE)
 }
 
 fn read_magic_reader_with_limit<R: Read>(reader: R, max_size: u64) -> Result<String, ParseError> {
+    // Read one byte past the limit: that extra byte is what distinguishes
+    // "exactly at the limit" from "oversized". Without it an over-long reader
+    // would be silently truncated to max_size instead of rejected.
     let read_limit = max_size.checked_add(1).ok_or_else(|| {
         ParseError::invalid_syntax(0, "Magic database input size limit is too large")
     })?;
@@ -84,11 +98,14 @@ fn read_magic_reader_with_limit<R: Read>(reader: R, max_size: u64) -> Result<Str
         .by_ref()
         .take(4)
         .read_to_end(&mut bytes)
-        .map_err(ParseError::from)?;
-    if max_size >= 4 && has_binary_magic_header(&bytes) {
+        .map_err(|error| reader_io_error(&error))?;
+    // Reject a compiled database before buffering the rest of the stream.
+    if has_binary_magic_header(&bytes) {
         return Err(unsupported_binary_magic_error());
     }
-    reader.read_to_end(&mut bytes).map_err(ParseError::from)?;
+    reader
+        .read_to_end(&mut bytes)
+        .map_err(|error| reader_io_error(&error))?;
     decode_magic_bytes_with_limit(bytes, max_size)
 }
 

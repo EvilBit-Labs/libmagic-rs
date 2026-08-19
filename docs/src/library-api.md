@@ -62,8 +62,7 @@ let db = MagicDatabase::load_from_reader_with_config(
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-When a directory path is given, all magic files within it are loaded (the Magdir pattern). Binary `.mgc` files are not supported; the library returns a descriptive error if one is encountered.
-Databases loaded from bytes or readers have no filesystem source, so `source_path()` returns `None`. Prefer the owned-byte constructors when the source is already a `Vec<u8>`; valid UTF-8 can reuse the original allocation, while invalid UTF-8 may allocate for lossy replacement.
+When a directory path is given, all magic files within it are loaded (the Magdir pattern). Binary `.mgc` files are not supported; the library returns a descriptive error if one is encountered. Databases loaded from bytes or readers have no filesystem source, so `source_path()` returns `None`. Prefer the owned-byte constructors when the source is already a `Vec<u8>`; valid UTF-8 can reuse the original allocation, while invalid UTF-8 may allocate for lossy replacement.
 
 ### Evaluation
 

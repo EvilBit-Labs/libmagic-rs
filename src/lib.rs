@@ -338,6 +338,13 @@ impl MagicDatabase {
     /// Databases loaded from bytes have no filesystem source, so
     /// [`Self::source_path`] returns `None`.
     ///
+    /// # Parsing behavior
+    ///
+    /// Parsing is tolerant, matching [`Self::load_from_file`]: a rule line
+    /// that fails to parse is skipped along with its indented subtree, and a
+    /// warning is logged rather than returned. Input in which every line fails
+    /// to parse therefore yields an `Ok` database with no rules, not an error.
+    ///
     /// # Security
     ///
     /// This constructor uses [`EvaluationConfig::default()`], which leaves
@@ -409,6 +416,19 @@ impl MagicDatabase {
     /// Databases loaded from a reader have no filesystem source, so
     /// [`Self::source_path`] returns `None`.
     ///
+    /// # Parsing behavior
+    ///
+    /// Parsing is tolerant, matching [`Self::load_from_file`]: a rule line
+    /// that fails to parse is skipped along with its indented subtree, and a
+    /// warning is logged rather than returned. Input in which every line fails
+    /// to parse therefore yields an `Ok` database with no rules, not an error.
+    ///
+    /// The reader is drained until it reports end of input. A stream that ends
+    /// early -- a reset socket, a truncated pipe -- is indistinguishable from a
+    /// short magic database, so it loads successfully with only the rules that
+    /// arrived. Callers that need completeness guarantees must enforce them on
+    /// the stream before calling this method.
+    ///
     /// # Security
     ///
     /// This constructor uses [`EvaluationConfig::default()`], which leaves
@@ -416,6 +436,12 @@ impl MagicDatabase {
     /// [`Self::with_builtin_rules`] and prefer
     /// [`Self::load_from_reader_with_config`] with an explicit timeout when
     /// processing untrusted input.
+    ///
+    /// Note that `timeout_ms` bounds rule *evaluation*, not this read. The
+    /// reader is capped in size, but not in time: a reader that blocks or
+    /// trickles bytes without reaching end of input stalls this call. Apply
+    /// your own read timeout or deadline before passing in a stream you do
+    /// not control.
     ///
     /// # Errors
     ///

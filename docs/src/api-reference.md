@@ -12,16 +12,16 @@ use libmagic_rs::MagicDatabase;
 
 #### Constructor Methods
 
-| Method                                              | Description                                  |
-| --------------------------------------------------- | -------------------------------------------- |
-| `with_builtin_rules()`                              | Create database with built-in rules          |
-| `with_builtin_rules_and_config(config)`             | Create with built-in rules and custom config |
-| `load_from_file(path)`                              | Load rules from a file or directory          |
-| `load_from_file_with_config(path, config)`          | Load from file with custom config            |
-| `load_from_bytes(bytes)`                            | Load text rules from owned bytes              |
-| `load_from_bytes_with_config(bytes, config)`        | Load owned bytes with custom config           |
-| `load_from_reader(reader)`                          | Load text rules from a reader                |
-| `load_from_reader_with_config(reader, config)`      | Load from reader with custom config          |
+| Method                                         | Description                                  |
+| ---------------------------------------------- | -------------------------------------------- |
+| `with_builtin_rules()`                         | Create database with built-in rules          |
+| `with_builtin_rules_and_config(config)`        | Create with built-in rules and custom config |
+| `load_from_file(path)`                         | Load rules from a file or directory          |
+| `load_from_file_with_config(path, config)`     | Load from file with custom config            |
+| `load_from_bytes(bytes)`                       | Load text rules from owned bytes             |
+| `load_from_bytes_with_config(bytes, config)`   | Load owned bytes with custom config          |
+| `load_from_reader(reader)`                     | Load text rules from a reader                |
+| `load_from_reader_with_config(reader, config)` | Load from reader with custom config          |
 
 #### Evaluation Methods
 
