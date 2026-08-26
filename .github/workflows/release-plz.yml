@@ -10,7 +10,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         permissions:
-            contents: write
+            contents: read # writes use the App token, not GITHUB_TOKEN -- see #449
             id-token: write
         steps:
             # Mint a GitHub App token so the tag push emits a workflow event.
