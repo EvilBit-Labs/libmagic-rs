@@ -184,8 +184,14 @@ jobs:
               uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
               with:
                   name: coverage-report-rust
-            - uses: actions/upload-code-coverage@v1
+            # Coverage uploads for release-plz branches fail with HTTP 400
+            # (issue #449). Scope the exception to those PRs -- same
+            # ^release-plz- prefix .mergify.yml keys on. Pushes to main and
+            # ordinary PRs keep upload errors fatal, so a real break still
+            # turns the job red. On push, head_ref is empty -> stays fatal.
+            - uses: actions/upload-code-coverage@1c15be36fc3733ba839b1dd643bd9556e4426dc1 # v1
               with:
                   file: coverage.xml
                   language: Rust
                   label: code-coverage-agent
+                  fail-on-error: ${{ !startsWith(github.head_ref, 'release-plz-') }}
