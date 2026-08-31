@@ -189,7 +189,7 @@ jobs:
             # ^release-plz- prefix .mergify.yml keys on. Pushes to main and
             # ordinary PRs keep upload errors fatal, so a real break still
             # turns the job red. On push, head_ref is empty -> stays fatal.
-            - uses: actions/upload-code-coverage@1c15be36fc3733ba839b1dd643bd9556e4426dc1 # v1
+            - uses: actions/upload-code-coverage@d8e329117199404bba6fc81efe8093dc7c015e34 # v1.4.2
               with:
                   file: coverage.xml
                   language: Rust
