@@ -170,6 +170,11 @@ fn opening_bracket_has_no_stray_space() {
 fn arch_offset_past_end_of_buffer_skips_inner_detail_without_erroring() {
     // A truncated or hostile fat header must degrade to the outer
     // classification rather than propagating a BufferOverrun.
+    //
+    // Note this one passes pre-fix as well: the old code also failed to
+    // produce an inner classification here, for the wrong reason. It is a
+    // defensive test for out-of-range dereferences, not discriminating
+    // coverage for #378 -- the other four tests in this file are.
     let buf = build_fat(&[
         Arch {
             cputype: CPU_X86_64,

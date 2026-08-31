@@ -28,13 +28,11 @@ use super::type_suffix::{
 /// content on the line. Malformed identifiers such as `part2=foo`
 /// (operator-adjacent continuation) or `part 2` (split identifier) are
 /// rejected as parse errors rather than silently consumed as a message.
-/// Whether `tail` is a GNU `file` no-separator marker alone on its line.
+/// Whether `line` is a GNU `file` no-separator marker and nothing else.
 ///
 /// Used to keep a `use` site's `\b` (which controls spacing) while still
 /// dropping a use-site description, which magic(5) has no slot for.
-fn is_lone_no_separator_marker(tail: &str) -> bool {
-    let line_end = tail.find(['\n', '\r']).unwrap_or(tail.len());
-    let line = &tail[..line_end];
+fn is_lone_no_separator_marker(line: &str) -> bool {
     // The marker check is inlined rather than sharing
     // `evaluator::strip_no_separator_marker`: this module is compiled into
     // `build.rs` as well, which cannot reference lib-only modules
@@ -134,11 +132,9 @@ fn parse_name_or_use_meta<'a>(
         while let Some(rest) = tail.strip_prefix(' ').or_else(|| tail.strip_prefix('\t')) {
             tail = rest;
         }
-        if let Some(next_char) = tail.chars().next()
-            && !matches!(next_char, '\n' | '\r')
-            && !is_lone_no_separator_marker(tail)
-        {
-            let line_end = tail.find(['\n', '\r']).unwrap_or(tail.len());
+        let line_end = tail.find(['\n', '\r']).unwrap_or(tail.len());
+        let line = &tail[..line_end];
+        if !line.is_empty() && !is_lone_no_separator_marker(line) {
             tail = &tail[line_end..];
         }
     }

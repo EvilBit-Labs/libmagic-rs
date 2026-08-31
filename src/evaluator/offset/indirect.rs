@@ -23,13 +23,20 @@ fn apply_subroutine_base(base_offset: i64, subroutine_base: usize) -> Result<i64
     if subroutine_base == 0 || base_offset < 0 {
         return Ok(base_offset);
     }
-    let invalid = || {
-        LibmagicError::EvaluationError(EvaluationError::InvalidOffset {
-            offset: base_offset,
-        })
-    };
-    let signed_base = i64::try_from(subroutine_base).map_err(|_| invalid())?;
-    signed_base.checked_add(base_offset).ok_or_else(invalid)
+    offset_plus_base(subroutine_base, base_offset)
+}
+
+/// Add a `usize` base to a signed offset, reporting overflow in either the
+/// conversion or the addition as `InvalidOffset { offset }`.
+///
+/// Shared by the subroutine-base bias and the `(&N.X)` anchor bias, which
+/// differ only in which base they add.
+fn offset_plus_base(base: usize, offset: i64) -> Result<i64, LibmagicError> {
+    let invalid = || LibmagicError::EvaluationError(EvaluationError::InvalidOffset { offset });
+    i64::try_from(base)
+        .map_err(|_| invalid())?
+        .checked_add(offset)
+        .ok_or_else(invalid)
 }
 
 /// Resolve an indirect offset specification.
@@ -133,20 +140,7 @@ pub fn resolve_indirect_offset_with_anchor(
     // (matching magic(5) `(&N.X)` syntax). If no anchor is supplied,
     // fall back to absolute resolution.
     let abs_base = if base_relative {
-        let anchor_pos = anchor.unwrap_or(0);
-        let signed_anchor = i64::try_from(anchor_pos).map_err(|_| {
-            LibmagicError::EvaluationError(EvaluationError::InvalidOffset {
-                offset: base_offset,
-            })
-        })?;
-        let combined =
-            signed_anchor
-                .checked_add(base_offset)
-                .ok_or(LibmagicError::EvaluationError(
-                    EvaluationError::InvalidOffset {
-                        offset: base_offset,
-                    },
-                ))?;
+        let combined = offset_plus_base(anchor.unwrap_or(0), base_offset)?;
         resolve_absolute_offset(combined, buffer).map_err(|e| map_offset_error(&e, combined))?
     } else {
         let site = apply_subroutine_base(base_offset, subroutine_base)?;

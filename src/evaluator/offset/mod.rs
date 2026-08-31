@@ -463,6 +463,11 @@ mod tests {
     /// `base_relative` already resolves against the anchor, and
     /// `SubroutineScope::enter` seeds anchor and base to the same use-site
     /// value, so applying the base here as well would count it twice.
+    ///
+    /// Unlike its two siblings above, this passes against the pre-fix
+    /// implementation too -- the `base_relative` arm was never biased. It is
+    /// a forward-looking guard against someone extending the bias to that
+    /// arm, not regression coverage for #378.
     #[test]
     fn test_resolve_offset_with_base_does_not_double_bias_base_relative_indirect() {
         // Pointer 7 at offset 8; a decoy 9 at offset 16 catches double-biasing.

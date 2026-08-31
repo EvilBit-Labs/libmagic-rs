@@ -86,21 +86,88 @@ pub(crate) fn has_message_bearing_match(matches: &[RuleMatch], from: usize) -> b
 /// leading message-less match cannot swallow it and leave the separator in
 /// place. A match already carrying a marker is left untouched rather than
 /// double-marked.
-pub(crate) fn attach_no_separator_to_first(matches: Vec<RuleMatch>) -> Vec<RuleMatch> {
-    let Some(idx) = matches.iter().position(|m| is_message_bearing(&m.message)) else {
+pub(crate) fn attach_no_separator_to_first(mut matches: Vec<RuleMatch>) -> Vec<RuleMatch> {
+    let Some(target) = matches.iter_mut().find(|m| is_message_bearing(&m.message)) else {
         return matches;
     };
+    if crate::evaluator::strip_no_separator_marker(&target.message).is_none() {
+        target.message = format!("\\b{}", target.message);
+    }
     matches
-        .into_iter()
-        .enumerate()
-        .map(|(i, m)| {
-            if i != idx || crate::evaluator::strip_no_separator_marker(&m.message).is_some() {
-                return m;
-            }
-            RuleMatch {
-                message: format!("\\b{}", m.message),
-                ..m
-            }
-        })
-        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::ast::{TypeKind, Value};
+
+    fn match_with(message: &str) -> RuleMatch {
+        RuleMatch::new(
+            message.to_string(),
+            0,
+            0,
+            Value::Uint(0),
+            TypeKind::Byte { signed: false },
+            1.0,
+        )
+    }
+
+    fn messages(matches: &[RuleMatch]) -> Vec<&str> {
+        matches.iter().map(|m| m.message.as_str()).collect()
+    }
+
+    #[test]
+    fn attach_no_separator_marks_first_message_bearing_match() {
+        let out = attach_no_separator_to_first(vec![match_with("MachO"), match_with("x86_64")]);
+        assert_eq!(
+            messages(&out),
+            vec!["\\bMachO", "x86_64"],
+            "only the first message-bearing match takes the marker"
+        );
+    }
+
+    #[test]
+    fn attach_no_separator_skips_message_less_leading_matches() {
+        // A leading empty / whitespace / marker-only match renders nothing, so
+        // it must not swallow the marker and leave the separator in place.
+        let out = attach_no_separator_to_first(vec![
+            match_with(""),
+            match_with("   "),
+            match_with("\\b"),
+            match_with("MachO"),
+        ]);
+        assert_eq!(
+            messages(&out),
+            vec!["", "   ", "\\b", "\\bMachO"],
+            "the marker must land on the first match that actually renders text"
+        );
+    }
+
+    #[test]
+    fn attach_no_separator_does_not_double_mark() {
+        for already in ["\\b, contains ", "\u{0008}already"] {
+            let out = attach_no_separator_to_first(vec![match_with(already)]);
+            assert_eq!(
+                messages(&out),
+                vec![already],
+                "a match already carrying a marker must be left untouched"
+            );
+        }
+    }
+
+    #[test]
+    fn attach_no_separator_is_a_noop_without_a_message_bearing_match() {
+        for input in [vec![], vec![match_with("")], vec![match_with("\\b")]] {
+            let expected = messages(&input)
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect::<Vec<_>>();
+            let out = attach_no_separator_to_first(input);
+            assert_eq!(
+                messages(&out),
+                expected,
+                "nothing to mark leaves the vector unchanged"
+            );
+        }
+    }
 }
