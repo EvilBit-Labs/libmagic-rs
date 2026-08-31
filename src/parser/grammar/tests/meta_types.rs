@@ -142,6 +142,11 @@ fn test_parse_magic_rule_meta_name_use_reject_malformed_identifiers() {
         // A marker followed by real text is NOT lone: the whole trailing
         // string drops, exactly as before.
         ("0 use foo \\b extra", "foo", ""),
+        // The helper accepts both marker forms, so cover the raw U+0008 byte
+        // as well as the literal `\b` above.
+        ("0 use mach-o-cpu \u{0008}", "mach-o-cpu", "\u{0008}"),
+        ("0 use mach-o-cpu \u{0008}   ", "mach-o-cpu", "\u{0008}"),
+        ("0 use foo \u{0008} extra", "foo", ""),
     ];
     for (input, expected_id, expected_message) in trailing_text_cases {
         let (_, rule) = parse_magic_rule(input)

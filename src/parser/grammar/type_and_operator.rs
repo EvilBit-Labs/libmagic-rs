@@ -132,10 +132,12 @@ fn parse_name_or_use_meta<'a>(
         while let Some(rest) = tail.strip_prefix(' ').or_else(|| tail.strip_prefix('\t')) {
             tail = rest;
         }
+        // `find` on a char pattern always yields a char boundary, but `get`
+        // keeps that total rather than relying on it (AGENTS.md).
         let line_end = tail.find(['\n', '\r']).unwrap_or(tail.len());
-        let line = &tail[..line_end];
+        let line = tail.get(..line_end).unwrap_or(tail);
         if !line.is_empty() && !is_lone_no_separator_marker(line) {
-            tail = &tail[line_end..];
+            tail = tail.get(line_end..).unwrap_or("");
         }
     }
 

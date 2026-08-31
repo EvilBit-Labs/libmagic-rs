@@ -210,7 +210,11 @@ fn arch_offset_pointing_at_unrecognized_bytes_keeps_brackets_balanced() {
             offset: 64,
         },
     ]);
-    buf[64..68].fill(0); // clobber arch[1]'s mach magic
+    // Clobber arch[1]'s mach magic. `expect` keeps the fixture honest if the
+    // builder's layout ever changes, rather than silently skipping the setup.
+    buf.get_mut(64..68)
+        .expect("fixture places arch[1]'s mach header at offset 64")
+        .fill(0);
     let desc = describe(&buf);
     assert_eq!(
         desc.matches('[').count(),

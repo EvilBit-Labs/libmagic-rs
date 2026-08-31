@@ -483,6 +483,60 @@ mod tests {
         );
     }
 
+    /// The subroutine-base bias reports overflow as `InvalidOffset`.
+    ///
+    /// The sibling overflow test above covers the `Absolute` arm; this covers
+    /// `offset_plus_base` on the `Indirect` pointer-read site, which has its
+    /// own conversion and checked add.
+    #[test]
+    fn test_resolve_offset_with_base_indirect_overflow_yields_invalid_offset() {
+        let buffer = b"\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05data";
+        let cases: &[(i64, usize)] = &[
+            // base converts cleanly, then base + site overflows the checked add
+            (i64::MAX, usize::MAX >> 1),
+            // base cannot convert to i64 at all
+            (2, usize::MAX),
+        ];
+        for &(base_offset, subroutine_base) in cases {
+            let spec = byte_pointer_spec(base_offset, false);
+            let result = resolve_offset_with_base(&spec, buffer, 0, subroutine_base);
+            match result {
+                Err(LibmagicError::EvaluationError(
+                    crate::error::EvaluationError::InvalidOffset { .. },
+                )) => {}
+                other => panic!(
+                    "base {subroutine_base} + site {base_offset} must be InvalidOffset, got {other:?}"
+                ),
+            }
+        }
+    }
+
+    /// `(&N.X)` resolves against the anchor, never the subroutine base.
+    ///
+    /// The sibling test uses an equal anchor and base, so an implementation
+    /// that read the base would still pass it. Here they differ, so only
+    /// reading `last_match_end` produces the expected result.
+    #[test]
+    fn test_base_relative_indirect_reads_anchor_not_base() {
+        // Pointer 7 at offset 8 (the anchor); decoy 9 at offset 16 (the base).
+        let buffer =
+            b"\x00\x00\x00\x00\x00\x00\x00\x00\x07\x00\x00\x00\x00\x00\x00\x00\x09\x00\x00\x00";
+        let spec = byte_pointer_spec(0, true);
+
+        // anchor 8, base 16 -> read at the anchor (value 7), not the base (9).
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 8, 16).unwrap(),
+            7,
+            "base_relative must resolve against last_match_end, not base_offset"
+        );
+        // Swapping them proves the test discriminates rather than passing by luck.
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 16, 8).unwrap(),
+            9,
+            "moving the anchor must move the pointer-read site"
+        );
+    }
+
     #[test]
     fn test_resolve_offset_comprehensive() {
         let buffer = b"0123456789ABCDEF";
