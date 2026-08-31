@@ -246,7 +246,13 @@ fn test_indirect_evaluates_root_rules_at_offset() {
     let matches = evaluate_rules(&rules, &buffer, &mut context).unwrap();
 
     assert!(
-        matches.iter().any(|m| m.message == "ZIP-like-header"),
+        matches.iter().any(|m| {
+            // The indirect re-entry attaches its first message-bearing
+            // match with the no-separator marker so it continues the
+            // indirect rule's own message; strip it before comparing.
+            crate::evaluator::strip_no_separator_marker(&m.message).unwrap_or(&m.message)
+                == "ZIP-like-header"
+        }),
         "indirect must dispatch root rules against the sub-buffer at offset 4; got {matches:?}"
     );
 }
@@ -373,7 +379,13 @@ fn test_indirect_inside_use_subroutine_resets_base_offset() {
     let matches = evaluate_rules(&rules, &buffer, &mut context).unwrap();
 
     assert!(
-        matches.iter().any(|m| m.message == "root-payload-match"),
+        matches.iter().any(|m| {
+            // The indirect re-entry attaches its first message-bearing
+            // match with the no-separator marker so it continues the
+            // indirect rule's own message; strip it before comparing.
+            crate::evaluator::strip_no_separator_marker(&m.message).unwrap_or(&m.message)
+                == "root-payload-match"
+        }),
         "indirect inside use must reset base_offset to 0 so root rules read from \
          sub-buffer[0], not sub-buffer[base+0]; got {matches:?}"
     );

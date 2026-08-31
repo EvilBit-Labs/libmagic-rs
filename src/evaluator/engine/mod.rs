@@ -631,6 +631,18 @@ pub fn evaluate_rules(
                 anchor_scope.context().set_indirect_reentry(true);
                 match evaluate_rules(&root_rules, sub_buffer, anchor_scope.context()) {
                     Ok(sub_matches) => {
+                        // When the indirect rule carries its own message, the
+                        // re-entered classification continues it rather than
+                        // starting a new fragment (`\b:` -> `:Mach-O ...`);
+                        // magic files that want a space put it in that message
+                        // themselves (`archive`'s `\b, contains ` ends with
+                        // one). With no message there is nothing to continue,
+                        // so the ordinary separator applies.
+                        let sub_matches = if is_message_bearing(&rule.message) {
+                            output::attach_no_separator_to_first(sub_matches)
+                        } else {
+                            sub_matches
+                        };
                         matches.extend(sub_matches);
                     }
                     Err(LibmagicError::Timeout { timeout_ms }) => {

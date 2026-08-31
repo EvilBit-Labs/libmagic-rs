@@ -28,6 +28,22 @@ use super::type_suffix::{
 /// content on the line. Malformed identifiers such as `part2=foo`
 /// (operator-adjacent continuation) or `part 2` (split identifier) are
 /// rejected as parse errors rather than silently consumed as a message.
+/// Whether `tail` is a GNU `file` no-separator marker alone on its line.
+///
+/// Used to keep a `use` site's `\b` (which controls spacing) while still
+/// dropping a use-site description, which magic(5) has no slot for.
+fn is_lone_no_separator_marker(tail: &str) -> bool {
+    let line_end = tail.find(['\n', '\r']).unwrap_or(tail.len());
+    let line = &tail[..line_end];
+    // The marker check is inlined rather than sharing
+    // `evaluator::strip_no_separator_marker`: this module is compiled into
+    // `build.rs` as well, which cannot reference lib-only modules
+    // (GOTCHAS S1.1). Both forms are recognized, matching that helper.
+    line.strip_prefix('\u{0008}')
+        .or_else(|| line.strip_prefix("\\b"))
+        .is_some_and(|rest| rest.trim().is_empty())
+}
+
 fn parse_name_or_use_meta<'a>(
     type_name: &str,
     input: &'a str,
@@ -104,6 +120,15 @@ fn parse_name_or_use_meta<'a>(
     // identifier itself (which would be a real malformed rule like
     // `part 2`); that's enforced earlier when `take_while` truncates the
     // identifier on the first non-id character.
+    //
+    // The one exception on the `use` side is a lone no-separator marker
+    // (`>0 use mach-o-cpu \b`): that is a formatting control, not a
+    // description, and it must survive so the evaluator can attach the
+    // subroutine's first output with no separating space. Across the whole
+    // system magic database every `use` site carrying trailing text carries
+    // exactly this marker and nothing else, so the marker is preserved only
+    // when the rest of the line is blank; any other trailing text is dropped
+    // as before.
     let mut tail = after_id;
     if type_name == "use" {
         while let Some(rest) = tail.strip_prefix(' ').or_else(|| tail.strip_prefix('\t')) {
@@ -111,6 +136,7 @@ fn parse_name_or_use_meta<'a>(
         }
         if let Some(next_char) = tail.chars().next()
             && !matches!(next_char, '\n' | '\r')
+            && !is_lone_no_separator_marker(tail)
         {
             let line_end = tail.find(['\n', '\r']).unwrap_or(tail.len());
             tail = &tail[line_end..];

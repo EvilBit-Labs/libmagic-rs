@@ -127,10 +127,11 @@ pub(crate) fn resolve_offset_with_context(
 /// Inside a `MetaType::Use` subroutine body, `OffsetSpec::Absolute(n)`
 /// with `n >= 0` resolves to `base_offset + n`, matching magic(5)
 /// semantics where the subroutine's offsets are relative to the
-/// caller's invocation point. Negative `Absolute`, `FromEnd`,
-/// `Relative`, and `Indirect` are unaffected -- they already have
-/// well-defined frames of reference (buffer end, previous match, or
-/// a pointer read from the buffer).
+/// caller's invocation point. `Indirect` takes the base on its
+/// pointer-read SITE only -- the value read through the pointer stays
+/// an absolute file position (GOTCHAS S3.10). Negative `Absolute`,
+/// `FromEnd`, and `Relative` are unaffected -- they already have
+/// well-defined frames of reference (buffer end or previous match).
 pub(crate) fn resolve_offset_with_base(
     spec: &OffsetSpec,
     buffer: &[u8],
@@ -166,9 +167,12 @@ pub(crate) fn resolve_offset_with_base(
             };
             resolve_absolute_offset(effective, buffer).map_err(|e| map_offset_error(&e, effective))
         }
-        OffsetSpec::Indirect { .. } => {
-            indirect::resolve_indirect_offset_with_anchor(spec, buffer, Some(last_match_end))
-        }
+        OffsetSpec::Indirect { .. } => indirect::resolve_indirect_offset_with_anchor(
+            spec,
+            buffer,
+            Some(last_match_end),
+            base_offset,
+        ),
         OffsetSpec::Relative(_) => relative::resolve_relative_offset(spec, buffer, last_match_end),
         OffsetSpec::FromEnd(offset) => {
             // `FromEnd(0)` is the magic(5) `-0` form: the end-of-file
@@ -392,25 +396,85 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_resolve_offset_with_base_does_not_bias_indirect() {
-        // `Indirect` reads a pointer from the buffer; the pointer's
-        // value is an absolute file position, not a subroutine-
-        // relative one.
-        let buffer = b"\x05TestXdata";
-        let spec = OffsetSpec::Indirect {
-            base_offset: 0,
-            base_relative: false,
+    /// Build a byte-pointer `Indirect` spec for the base-bias tests.
+    fn byte_pointer_spec(base_offset: i64, base_relative: bool) -> OffsetSpec {
+        OffsetSpec::Indirect {
+            base_offset,
+            base_relative,
             pointer_type: crate::parser::ast::TypeKind::Byte { signed: false },
             adjustment: 0,
             adjustment_op: crate::parser::ast::IndirectAdjustmentOp::Add,
             result_relative: false,
             endian: crate::parser::ast::Endianness::Little,
-        };
+        }
+    }
+
+    /// The pointer-read SITE takes the subroutine base bias.
+    ///
+    /// This is the `mach-o` case: `use mach-o` at file offset 8 makes
+    /// `>(8.L)` read at `8 + 8 = 16` (`arch[0].offset`), not at 8
+    /// (`arch[0].cputype`). Splitting the read site from the dereferenced
+    /// result is what makes GOTCHAS S3.10's subroutine semantics hold for
+    /// indirect offsets.
+    #[test]
+    fn test_resolve_offset_with_base_biases_indirect_pointer_read_site() {
+        // Decoy pointer 3 at offset 0; real pointer 5 at offset 10.
+        let buffer = b"\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05data";
+        let spec = byte_pointer_spec(0, false);
+
+        // base_offset 10 -> read the pointer at 10 (value 5), not at 0 (value 3).
         assert_eq!(
             resolve_offset_with_base(&spec, buffer, 0, 10).unwrap(),
             5,
-            "Indirect must NOT be biased"
+            "the pointer-read site must be biased by the subroutine base"
+        );
+
+        // With no subroutine base the read site is unchanged (top-level behavior).
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 0, 0).unwrap(),
+            3,
+            "base 0 must leave the pointer-read site untouched"
+        );
+    }
+
+    /// The dereferenced RESULT never takes the bias.
+    ///
+    /// The value read through the pointer is an absolute file position.
+    /// Biasing it too would break every `use` subroutine whose pointer
+    /// holds an absolute offset.
+    #[test]
+    fn test_resolve_offset_with_base_does_not_bias_indirect_result() {
+        let buffer = b"\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05data";
+        let spec = byte_pointer_spec(0, false);
+
+        let resolved = resolve_offset_with_base(&spec, buffer, 0, 10).unwrap();
+        assert_eq!(
+            resolved, 5,
+            "the pointer value is an absolute position and must not be biased"
+        );
+        assert_ne!(
+            resolved, 15,
+            "a biased result (base 10 + value 5) is the failure this pins"
+        );
+    }
+
+    /// `(&N.X)` is not double-biased.
+    ///
+    /// `base_relative` already resolves against the anchor, and
+    /// `SubroutineScope::enter` seeds anchor and base to the same use-site
+    /// value, so applying the base here as well would count it twice.
+    #[test]
+    fn test_resolve_offset_with_base_does_not_double_bias_base_relative_indirect() {
+        // Pointer 7 at offset 8; a decoy 9 at offset 16 catches double-biasing.
+        let buffer =
+            b"\x00\x00\x00\x00\x00\x00\x00\x00\x07\x00\x00\x00\x00\x00\x00\x00\x09\x00\x00\x00";
+        let spec = byte_pointer_spec(0, true);
+
+        // anchor 8, base 8 -> read at anchor + 0 = 8 (value 7), never at 16.
+        assert_eq!(
+            resolve_offset_with_base(&spec, buffer, 8, 8).unwrap(),
+            7,
+            "base_relative resolves against the anchor only; the base must not be added again"
         );
     }
 

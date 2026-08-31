@@ -13,6 +13,25 @@ use crate::parser::ast::{Endianness, IndirectAdjustmentOp, OffsetSpec, TypeKind,
 
 use super::{map_offset_error, resolve_absolute_offset};
 
+/// Bias a pointer-read site by the enclosing `use` subroutine's base offset.
+///
+/// Returns `base_offset` unchanged at top level (`subroutine_base == 0`) and
+/// for a negative `base_offset`, which carries from-end semantics the
+/// subroutine frame does not apply to -- mirroring the `Absolute` arm of
+/// [`super::resolve_offset_with_base`].
+fn apply_subroutine_base(base_offset: i64, subroutine_base: usize) -> Result<i64, LibmagicError> {
+    if subroutine_base == 0 || base_offset < 0 {
+        return Ok(base_offset);
+    }
+    let invalid = || {
+        LibmagicError::EvaluationError(EvaluationError::InvalidOffset {
+            offset: base_offset,
+        })
+    };
+    let signed_base = i64::try_from(subroutine_base).map_err(|_| invalid())?;
+    signed_base.checked_add(base_offset).ok_or_else(invalid)
+}
+
 /// Resolve an indirect offset specification.
 ///
 /// Indirect offsets dereference a pointer stored in the file buffer:
@@ -33,7 +52,7 @@ use super::{map_offset_error, resolve_absolute_offset};
 /// * `EvaluationError::UnsupportedType` - If `pointer_type` is not a numeric type
 #[cfg(test)]
 pub fn resolve_indirect_offset(spec: &OffsetSpec, buffer: &[u8]) -> Result<usize, LibmagicError> {
-    resolve_indirect_offset_with_anchor(spec, buffer, None)
+    resolve_indirect_offset_with_anchor(spec, buffer, None, 0)
 }
 
 /// Resolve an indirect offset with an optional anchor for the
@@ -44,10 +63,20 @@ pub fn resolve_indirect_offset(spec: &OffsetSpec, buffer: &[u8]) -> Result<usize
 /// `&(N.X)` syntax: the resolved pointer value is added to the anchor
 /// instead of being treated as an absolute file position. Both fall
 /// back to absolute behavior when `anchor` is `None`.
+///
+/// `subroutine_base` is the `MetaType::Use` use-site offset (0 at top
+/// level). It biases the pointer-read SITE only -- the value read
+/// through the pointer stays an absolute file position. See GOTCHAS
+/// S3.10; this is what makes `mach-o`'s `>(8.L)` read `arch[0].offset`
+/// at `base + 8` instead of `arch[0].cputype` at 8. It does not apply
+/// to the `base_relative` branch, whose anchor already carries the
+/// subroutine frame, nor to a negative `base_offset`, which means
+/// from-end.
 pub fn resolve_indirect_offset_with_anchor(
     spec: &OffsetSpec,
     buffer: &[u8],
     anchor: Option<usize>,
+    subroutine_base: usize,
 ) -> Result<usize, LibmagicError> {
     let (
         base_offset,
@@ -120,8 +149,8 @@ pub fn resolve_indirect_offset_with_anchor(
                 ))?;
         resolve_absolute_offset(combined, buffer).map_err(|e| map_offset_error(&e, combined))?
     } else {
-        resolve_absolute_offset(base_offset, buffer)
-            .map_err(|e| map_offset_error(&e, base_offset))?
+        let site = apply_subroutine_base(base_offset, subroutine_base)?;
+        resolve_absolute_offset(site, buffer).map_err(|e| map_offset_error(&e, site))?
     };
 
     // Step 2: Read pointer value using the appropriate numeric reader

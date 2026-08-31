@@ -178,6 +178,17 @@ pub(crate) fn evaluate_use_rule(
     // (`concatenate_messages` strips a leading literal `\b` / U+0008); a name
     // message that already starts with one (mach-o's `\b [`) is left as-is so
     // it is not double-marked.
+    // A `use` site's own message is dropped (GOTCHAS S14.4), except for a
+    // leading no-separator marker, which is a formatting control rather than
+    // description text: `>0 use mach-o-cpu \b` must attach the subroutine's
+    // first output with no separating space.
+    let subroutine_matches = if crate::evaluator::strip_no_separator_marker(&rule.message).is_some()
+    {
+        super::output::attach_no_separator_to_first(subroutine_matches)
+    } else {
+        subroutine_matches
+    };
+
     let matches = match name_message {
         Some(msg) if !msg.is_empty() => {
             let attached = if crate::evaluator::strip_no_separator_marker(&msg).is_some() {
