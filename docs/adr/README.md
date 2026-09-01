@@ -2,9 +2,10 @@
 
 Structured records of architectural decisions for libmagic-rs — what was decided, what was rejected, and why. Use the [template](template.md) for new entries.
 
-| ADR                                      | Title                                                                               | Status   | Date       |
-| ---------------------------------------- | ----------------------------------------------------------------------------------- | -------- | ---------- |
-| [0001](0001-gnu-file-output-contract.md) | GNU `file` compatibility is a detection-result contract, not an ergonomics contract | accepted | 2026-07-26 |
+| ADR                                      | Title                                                                                 | Status   | Date       |
+| ---------------------------------------- | ------------------------------------------------------------------------------------- | -------- | ---------- |
+| [0001](0001-gnu-file-output-contract.md) | GNU `file` compatibility is a detection-result contract, not an ergonomics contract   | accepted | 2026-07-26 |
+| [0002](0002-accuracy-divergence.md)      | A divergence where rmagic is demonstrably more accurate than GNU `file` is acceptable | accepted | 2026-09-01 |
 
 ## Lifecycle
 
