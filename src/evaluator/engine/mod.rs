@@ -631,19 +631,15 @@ pub fn evaluate_rules(
                 anchor_scope.context().set_indirect_reentry(true);
                 match evaluate_rules(&root_rules, sub_buffer, anchor_scope.context()) {
                     Ok(sub_matches) => {
-                        // When the indirect rule carries its own message, the
-                        // re-entered classification continues it rather than
-                        // starting a new fragment (`\b:` -> `:Mach-O ...`);
-                        // magic files that want a space put it in that message
-                        // themselves (`archive`'s `\b, contains ` ends with
-                        // one). With no message there is nothing to continue,
-                        // so the ordinary separator applies.
-                        let sub_matches = if is_message_bearing(&rule.message) {
-                            output::attach_no_separator_to_first(sub_matches)
-                        } else {
-                            sub_matches
-                        };
-                        matches.extend(sub_matches);
+                        // The re-entered classification always continues the
+                        // preceding fragment rather than starting a new one.
+                        // Two independent cases agree: mach-o's `\b:` renders
+                        // `:Mach-O ...`, and jpeg's message-less
+                        // `>>>10 indirect/r x` must render `[TIFF ...` after
+                        // its sibling's `[`. Magic files supply their own
+                        // spacing when they want it -- `archive`'s
+                        // `\b, contains ` ends with a space for this reason.
+                        matches.extend(output::attach_no_separator_to_first(sub_matches));
                     }
                     Err(LibmagicError::Timeout { timeout_ms }) => {
                         return Err(LibmagicError::Timeout { timeout_ms });
@@ -795,9 +791,18 @@ pub fn evaluate_rules(
                 Err(
                     e @ LibmagicError::EvaluationError(
                         crate::error::EvaluationError::BufferOverrun { .. }
-                        | crate::error::EvaluationError::InvalidOffset { .. },
+                        | crate::error::EvaluationError::InvalidOffset { .. }
+                        | crate::error::EvaluationError::RecursionLimitExceeded { .. },
                     ),
                 ) => {
+                    // A `use` chain deeper than the configured limit stops
+                    // descending and keeps what the shallower levels already
+                    // matched, rather than failing the whole file. Real magic
+                    // walks a segment chain one `use` per element -- jpeg's
+                    // `jpeg_segment` needs a level per JPEG segment -- so a
+                    // long but legitimate chain must degrade, not abort. The
+                    // guard still prevents stack overflow; only its reporting
+                    // changes here.
                     debug!("Skipping use rule '{name}': {e}");
                     false
                 }

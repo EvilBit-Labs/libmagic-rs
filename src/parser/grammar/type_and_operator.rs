@@ -152,6 +152,24 @@ fn parse_name_or_use_meta<'a>(
     let (rest, _) = multispace0(tail)?;
     Ok((rest, (TypeKind::Meta(meta), None, None)))
 }
+/// Consume the magic(5) `indirect/r` suffix, returning the remaining input.
+///
+/// `/r` marks the re-entry offset relative to the start of the current entry
+/// rather than absolute. rmagic already resolves a positive `Absolute` offset
+/// against the enclosing entry -- `base_offset` inside a `use` body (GOTCHAS
+/// S3.10), and 0 at top level, which is the entry start there -- so the flag
+/// selects the behavior this resolver already has. Consuming it keeps the rule
+/// from being dropped by the tolerant loader, which is what left jpeg's Exif
+/// bracket empty.
+fn strip_indirect_relative_suffix<'a>(type_name: &str, input: &'a str) -> &'a str {
+    if type_name != "indirect" {
+        return input;
+    }
+    input
+        .strip_prefix('/')
+        .and_then(|rest| rest.strip_prefix('r').or_else(|| rest.strip_prefix('R')))
+        .unwrap_or(input)
+}
 
 /// Parse a type specification with an optional attached bitwise-AND mask operator
 /// (e.g., `lelong&0xf0000000`).
@@ -256,6 +274,8 @@ pub fn parse_type_and_operator(
         search_flags = flags;
         input = rest;
     }
+
+    input = strip_indirect_relative_suffix(type_name, input);
 
     // Handle string flag suffixes (e.g., `string/w`, `string/cW`).
     // magic(5) flag letters per libmagic `src/file.h`:

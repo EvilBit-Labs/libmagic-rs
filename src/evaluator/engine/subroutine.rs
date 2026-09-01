@@ -77,6 +77,54 @@ impl Drop for SubroutineScope<'_> {
 /// environment do not flood the log on every `Use` rule they encounter.
 static USE_WITHOUT_RULE_ENV_WARNED: AtomicBool = AtomicBool::new(false);
 
+/// Rebase an `Indirect` offset's dereferenced result into the caller's frame.
+///
+/// A `use` site continues the caller's frame, so the pointer it reads holds a
+/// position *within* that frame, not an absolute file offset. jpeg's
+/// `>>(2.S+2) use jpeg_segment` reads a segment length: invoked at 20 with a
+/// length of 128 at byte 22, the next segment is `20 + 128 + 2 = 150`.
+///
+/// An `indirect` rule is the opposite -- it re-enters at a fresh absolute
+/// position, which is why mach-o's `>(8.L) indirect x` must keep its
+/// `arch[i].offset` value unbiased. That rule never reaches this function; the
+/// engine dispatches it separately. See GOTCHAS S3.10.
+///
+/// Excluded: a non-`Indirect` offset (already in the right frame), a zero base
+/// (top level), and `&(N.X)` (`result_relative`), whose anchor addition
+/// already carries the use-site.
+fn apply_use_result_base(
+    spec: &crate::parser::ast::OffsetSpec,
+    resolved: usize,
+    context: &EvaluationContext,
+    buffer: &[u8],
+) -> Result<usize, LibmagicError> {
+    use crate::parser::ast::OffsetSpec;
+
+    let base = context.base_offset();
+    if base == 0
+        || !matches!(
+            spec,
+            OffsetSpec::Indirect {
+                result_relative: false,
+                ..
+            }
+        )
+    {
+        return Ok(resolved);
+    }
+    let rebased = resolved.checked_add(base).ok_or_else(|| {
+        LibmagicError::EvaluationError(crate::error::EvaluationError::InvalidOffset {
+            offset: i64::try_from(resolved).unwrap_or(i64::MAX),
+        })
+    })?;
+    if rebased > buffer.len() {
+        return Err(LibmagicError::EvaluationError(
+            crate::error::EvaluationError::BufferOverrun { offset: rebased },
+        ));
+    }
+    Ok(rebased)
+}
+
 /// Evaluate a `TypeKind::Meta(MetaType::Use { name, .. })` rule inline.
 ///
 /// Looks up `name` in the context's rule environment, temporarily sets the
@@ -138,12 +186,13 @@ pub(crate) fn evaluate_use_rule(
 
     // Resolve the use-site offset under the *caller's* base, not the
     // subroutine's -- the use rule itself is in the caller's scope.
-    let absolute_offset = offset::resolve_offset_with_base(
+    let resolved = offset::resolve_offset_with_base(
         &rule.offset,
         buffer,
         context.last_match_end(),
         context.base_offset(),
     )?;
+    let absolute_offset = apply_use_result_base(&rule.offset, resolved, context, buffer)?;
 
     // `SubroutineScope` seeds `last_match_end` and `base_offset` with
     // the use-site offset and restores both on drop. This is the

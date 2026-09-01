@@ -369,8 +369,9 @@ fn test_parse_offset_indirect_with_whitespace() {
 fn test_parse_offset_indirect_parse_failures() {
     // Missing closing paren
     assert!(parse_offset("(0x3c.l").is_err());
-    // Missing dot and type
-    assert!(parse_offset("(0x3c)").is_err());
+    // NOTE: `(0x3c)` is NOT an error -- the bare form is valid and defaults
+    // to a host-order long, matching libmagic. See
+    // `bare_and_relative_indirect_offset_forms_parse`.
     // Invalid specifier character
     assert!(parse_offset("(0x3c.x)").is_err());
     // Empty parens
@@ -403,4 +404,58 @@ fn test_parse_rule_offset_indirect() {
             )
         ))
     );
+}
+
+/// Indirect-offset forms that previously failed to parse, taking their
+/// children down with them via the tolerant loader.
+#[test]
+fn bare_and_relative_indirect_offset_forms_parse() {
+    // Bare `(N)` with no pointer specifier: libmagic defaults `in_type` to a
+    // host-order long. Used by `games:74`'s `>>(56) indirect x`.
+    let (_, rule) = parse_offset("(56)").expect("bare `(N)` indirect offset must parse");
+    match rule {
+        OffsetSpec::Indirect {
+            base_offset,
+            pointer_type,
+            endian,
+            ..
+        } => {
+            assert_eq!(base_offset, 56);
+            assert_eq!(
+                endian,
+                Endianness::Native,
+                "bare form defaults to host order"
+            );
+            assert!(
+                matches!(pointer_type, TypeKind::Long { signed: true, .. }),
+                "bare form defaults to a signed long, got {pointer_type:?}"
+            );
+        }
+        other => panic!("expected Indirect, got {other:?}"),
+    }
+
+    // An explicit specifier still wins over the default.
+    let (_, spec) = parse_offset("(8.L)").expect("`(N.T)` must still parse");
+    assert!(
+        matches!(
+            spec,
+            OffsetSpec::Indirect {
+                endian: Endianness::Big,
+                ..
+            }
+        ),
+        "explicit `.L` must stay big-endian, got {spec:?}"
+    );
+}
+
+/// `indirect/r` marks the re-entry offset entry-relative. rmagic already
+/// resolves a positive absolute offset against the enclosing entry, so the
+/// flag is accepted rather than dropped -- `jpeg:44` and `jpeg:86` depend on
+/// the rule surviving the tolerant loader.
+#[test]
+fn indirect_relative_suffix_parses() {
+    for input in [">>12\tindirect/r\tx", ">>>10\tindirect/R\tx"] {
+        crate::parser::grammar::parse_magic_rule(input)
+            .unwrap_or_else(|e| panic!("{input:?} must parse: {e:?}"));
+    }
 }

@@ -103,8 +103,12 @@ fn test_use_without_rule_env_returns_no_match() {
 #[test]
 fn test_use_recursion_limit() {
     // Build a mutually-recursive pair: subroutine A calls B, B calls A.
-    // With the default recursion limit, this should surface as
-    // `RecursionLimitExceeded` rather than a stack overflow.
+    // The guard must stop the descent without a stack overflow -- and it
+    // degrades rather than failing the file: a `use` chain deeper than the
+    // limit keeps whatever the shallower levels matched. Real magic walks a
+    // chain one `use` per element (jpeg's `jpeg_segment` needs a level per
+    // JPEG segment), so aborting the whole classification on depth would
+    // discard a legitimate partial result.
     let a_body = vec![use_rule("b")];
     let b_body = vec![use_rule("a")];
     let table = build_name_table(vec![("a", a_body), ("b", b_body)]);
@@ -114,13 +118,12 @@ fn test_use_recursion_limit() {
     let rules = vec![use_rule("a")];
     let result = evaluate_rules(&rules, &buffer, &mut context);
     assert!(
-        matches!(
-            result,
-            Err(LibmagicError::EvaluationError(
-                crate::error::EvaluationError::RecursionLimitExceeded { .. }
-            ))
-        ),
-        "mutual recursion through use must surface RecursionLimitExceeded, got {result:?}"
+        result.is_ok(),
+        "unbounded mutual recursion must stop gracefully, not fail the file, got {result:?}"
+    );
+    assert!(
+        result.unwrap_or_default().is_empty(),
+        "neither subroutine matches anything, so the graceful stop yields no matches"
     );
 }
 

@@ -11,6 +11,7 @@
 use nom::{
     IResult, Parser,
     character::complete::{char, multispace0, one_of},
+    combinator::opt,
     error::Error as NomError,
     multi::many0,
 };
@@ -208,17 +209,33 @@ fn parse_indirect_offset(input: &str) -> IResult<&str, OffsetSpec> {
     // either character so the magic file loads, but emit a warn! when
     // the comma path is taken so users see the typo at default log
     // levels (matching GNU `file`'s diagnostic posture).
-    let (input, sep) = one_of(".,").parse(input)?;
-    if sep == ',' {
-        warn!(
-            "Indirect offset uses ',' as separator (magic(5) requires '.'); \
-             accepting for GNU `file` typo-tolerance compatibility"
-        );
-    }
-    let (input, spec_char) = one_of("bBsSlLqQiI")(input)?;
+    // The pointer specifier is optional. magic(5) writes `(base.type)`, but
+    // the bare `(base)` form is accepted by GNU `file` and appears in real
+    // magic (`games:74`'s `>>(56) indirect x`); libmagic defaults `in_type`
+    // to `FILE_LONG` in host byte order. Without this the rule fails to parse
+    // and the tolerant loader drops it along with its children.
+    let (input, spec) = opt((one_of(".,"), one_of("bBsSlLqQiI"))).parse(input)?;
 
-    let (pointer_type, endian) = pointer_specifier_to_type(spec_char)
-        .ok_or_else(|| nom::Err::Error(NomError::new(input, nom::error::ErrorKind::OneOf)))?;
+    let (pointer_type, endian) = match spec {
+        Some((sep, spec_char)) => {
+            if sep == ',' {
+                warn!(
+                    "Indirect offset uses ',' as separator (magic(5) requires '.'); \
+                     accepting for GNU `file` typo-tolerance compatibility"
+                );
+            }
+            pointer_specifier_to_type(spec_char).ok_or_else(|| {
+                nom::Err::Error(NomError::new(input, nom::error::ErrorKind::OneOf))
+            })?
+        }
+        None => (
+            TypeKind::Long {
+                endian: Endianness::Native,
+                signed: true,
+            },
+            Endianness::Native,
+        ),
+    };
 
     let (input, inside) = parse_inside_adjustment(input)?;
     let (input, _) = char(')')(input)?;
