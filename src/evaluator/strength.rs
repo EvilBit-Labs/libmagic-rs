@@ -25,6 +25,25 @@ pub const MAX_STRENGTH: i32 = 255;
 
 /// Minimum strength value (clamped to prevent negative strength)
 pub const MIN_STRENGTH: i32 = 0;
+/// libmagic's `MULT` from `apprentice_magic_strength`, used to scale a
+/// `search` rule's strength inversely by its scan range.
+const SEARCH_RANGE_MULT: usize = 10;
+
+/// Upper bound on a `search` rule's type contribution, matching the
+/// constrained-string score so a tight scan cannot outrank an exact match.
+const SEARCH_STRENGTH_CAP: i32 = 25;
+
+/// Byte length of a `search` rule's pattern, which is what libmagic's
+/// `vallen` measures. A non-pattern operand contributes no length.
+fn search_pattern_len(value: &crate::parser::ast::Value) -> i32 {
+    use crate::parser::ast::Value;
+    let len = match value {
+        Value::String(s) => s.len(),
+        Value::Bytes(b) => b.len(),
+        _ => 0,
+    };
+    i32::try_from(len).unwrap_or(i32::MAX)
+}
 
 /// Calculate the default strength of a magic rule based on its specificity.
 ///
@@ -104,10 +123,25 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
                 RegexCount::Bytes(_) | RegexCount::Lines(Some(_)) => 25,
             }
         }
-        // Search is always a bounded scan (the range is mandatory), so it
-        // gets the "constrained match" bonus unconditionally. This matches
-        // the max_length bonus used for String and PString.
-        TypeKind::Search { .. } => 25,
+        // Search strength scales with pattern length and INVERSELY with the
+        // scan range, porting libmagic's `apprentice_magic_strength`
+        // (`vallen * MAX(MULT / str_range, 1)`, MULT = 10): a wide scan for a
+        // short pattern is weak evidence, a tight scan for a long one is
+        // strong. A flat bonus here let sgml's 4-byte `search/4096 \<!--`
+        // outrank real numeric detectors and mislabel ~15% of Mach-O
+        // binaries as SGML (#379). Capped at the constrained-string score so
+        // a tight search cannot outrank an exact string match.
+        TypeKind::Search { range, .. } => {
+            let pattern_len = search_pattern_len(&rule.value);
+            let multiplier = range.map_or(1, |r| {
+                // Truncating division is libmagic's behavior, not an accident:
+                // any range wider than MULT floors to 0 and clamps to 1.
+                #[allow(clippy::integer_division)]
+                let m = SEARCH_RANGE_MULT / r.get().max(1);
+                i32::try_from(m).unwrap_or(1).max(1)
+            });
+            (pattern_len.saturating_mul(multiplier)).min(SEARCH_STRENGTH_CAP)
+        }
         // 64-bit types are most specific among numerics
         TypeKind::Quad { .. } | TypeKind::Double { .. } | TypeKind::QDate { .. } => 16,
         // 32-bit types are fairly specific
@@ -442,6 +476,65 @@ pub fn into_sorted_by_strength(mut rules: Vec<MagicRule>) -> Vec<MagicRule> {
 
 #[cfg(test)]
 mod tests {
+
+    /// A wide-range search must not outrank a real numeric detector.
+    ///
+    /// sgml's `0 search/4096/cwt \<!--` is a 4-byte pattern over a 4096-byte
+    /// window; `cafebabe`'s Mach-O slice detector is `0 lelong&0xfffffffe
+    /// 0xfeedface`. With a flat search bonus the former sorted first and
+    /// mislabeled ~15% of `/usr/bin` Mach-O binaries as SGML (#379).
+    #[test]
+    fn wide_range_search_scores_below_a_long_detector() {
+        use crate::parser::ast::{Endianness, OffsetSpec, Operator, TypeKind, Value};
+        use std::num::NonZeroUsize;
+
+        let wide_search = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Search {
+                range: NonZeroUsize::new(4096),
+                flags: crate::parser::ast::SearchFlags::default(),
+            },
+            Operator::Equal,
+            Value::String("<!--".to_string()),
+            "exported SGML document text".to_string(),
+        );
+        let long_detector = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Long {
+                endian: Endianness::Little,
+                signed: true,
+            },
+            Operator::BitwiseAndMask(0xffff_fffe),
+            Value::Uint(0xfeed_face),
+            "Mach-O".to_string(),
+        );
+
+        let search_score = calculate_default_strength(&wide_search);
+        let long_score = calculate_default_strength(&long_detector);
+        assert!(
+            search_score < long_score,
+            "a 4-byte pattern over a 4096-byte window must rank below a long \
+             detector, got search={search_score} long={long_score}"
+        );
+
+        // Monotonicity: narrowing the scan for the same pattern raises the
+        // score. (It does not overtake a long detector, and libmagic agrees --
+        // `search/4` on a 4-byte pattern is 8 there against a long's 40.)
+        let tight_search = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Search {
+                range: NonZeroUsize::new(4),
+                flags: crate::parser::ast::SearchFlags::default(),
+            },
+            Operator::Equal,
+            Value::String("<!--".to_string()),
+            "tight".to_string(),
+        );
+        assert!(
+            calculate_default_strength(&tight_search) > search_score,
+            "narrowing the scan range must raise the score"
+        );
+    }
     use super::*;
     use crate::parser::ast::{Endianness, IndirectAdjustmentOp, StringFlags};
 
