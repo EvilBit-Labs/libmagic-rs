@@ -109,21 +109,25 @@ fn test_use_recursion_limit() {
     // chain one `use` per element (jpeg's `jpeg_segment` needs a level per
     // JPEG segment), so aborting the whole classification on depth would
     // discard a legitimate partial result.
-    let a_body = vec![use_rule("b")];
+    // `a` matches something shallow *before* recursing, so the run has a
+    // result to lose. Without it the assertion would hold trivially -- an
+    // empty match vector proves nothing about retention.
+    let a_body = vec![byte_eq_rule(0, 0x7F, "shallow"), use_rule("b")];
     let b_body = vec![use_rule("a")];
     let table = build_name_table(vec![("a", a_body), ("b", b_body)]);
     let mut context = make_context_with_env(table, &[]);
 
-    let buffer = [0u8; 8];
+    let buffer = [0x7Fu8; 8];
     let rules = vec![use_rule("a")];
     let result = evaluate_rules(&rules, &buffer, &mut context);
     assert!(
         result.is_ok(),
         "unbounded mutual recursion must stop gracefully, not fail the file, got {result:?}"
     );
+    let matches = result.unwrap_or_default();
     assert!(
-        result.unwrap_or_default().is_empty(),
-        "neither subroutine matches anything, so the graceful stop yields no matches"
+        matches.iter().any(|m| m.message == "shallow"),
+        "the shallow match found before the depth cutoff must be retained, got {matches:?}"
     );
 }
 
