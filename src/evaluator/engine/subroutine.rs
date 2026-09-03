@@ -230,13 +230,11 @@ pub(crate) fn evaluate_use_rule(
     // A `use` site's own message is dropped (GOTCHAS S14.4), except for a
     // leading no-separator marker, which is a formatting control rather than
     // description text: `>0 use mach-o-cpu \b` must attach the subroutine's
-    // first output with no separating space.
-    let subroutine_matches = if crate::evaluator::strip_no_separator_marker(&rule.message).is_some()
-    {
-        super::output::attach_no_separator_to_first(subroutine_matches)
-    } else {
-        subroutine_matches
-    };
+    // first output with no separating space. Recorded here, applied *after*
+    // the name message is prepended below -- the subroutine's first output is
+    // the name line when it has one, not the first body match.
+    let use_site_suppresses_separator =
+        crate::evaluator::strip_no_separator_marker(&rule.message).is_some();
 
     let matches = match name_message {
         Some(msg) if !msg.is_empty() => {
@@ -259,6 +257,17 @@ pub(crate) fn evaluate_use_rule(
             combined
         }
         _ => subroutine_matches,
+    };
+
+    // Applied to the assembled vector so it lands on the first *rendered*
+    // match. With a name message that match is the name line, which already
+    // carries its own marker, so this is a no-op there and the body's first
+    // fragment keeps its ordinary separating space. Marking the body directly
+    // instead glued it to the name message.
+    let matches = if use_site_suppresses_separator {
+        super::output::attach_no_separator_to_first(matches)
+    } else {
+        matches
     };
 
     Ok((Some(terminal_anchor), matches))

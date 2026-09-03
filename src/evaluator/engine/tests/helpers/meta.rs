@@ -70,6 +70,28 @@ pub fn build_name_table(entries: Vec<(&str, Vec<MagicRule>)>) -> NameTable {
     table
 }
 
+/// Construct a name table from `(name, name_message, subroutine_rules)`
+/// triples, so tests can exercise a `name` line that carries its own
+/// description (GOTCHAS S14.4).
+pub fn build_name_table_with_messages(entries: Vec<(&str, &str, Vec<MagicRule>)>) -> NameTable {
+    let mut top = Vec::new();
+    for (name, name_message, body) in entries {
+        top.push(MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::Meta(MetaType::Name(name.to_string())),
+            op: Operator::Equal,
+            value: Value::Uint(0),
+            message: name_message.to_string(),
+            children: body,
+            level: 0,
+            strength_modifier: None,
+            value_transform: None,
+        });
+    }
+    let (_rules, table) = crate::parser::name_table::extract_name_table(top);
+    table
+}
+
 /// Build a `Default` rule with the given message and (optional) children.
 pub fn default_rule(message: &str, children: Vec<MagicRule>) -> MagicRule {
     MagicRule {

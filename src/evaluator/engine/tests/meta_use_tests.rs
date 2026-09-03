@@ -452,3 +452,39 @@ fn test_continuation_sibling_reset_after_bytes_consumed() {
          if reset is missing it reads buffer[5]=0x42 and test fails. got {matches:?}"
     );
 }
+
+/// A `use` site's `\b` suppresses the separator before the subroutine's first
+/// *rendered* output, which is the `name` line when the subroutine has one.
+///
+/// Marking the first body match instead glued the body to the name message
+/// (`ROOTNAMEMSGBODY` rather than `ROOTNAMEMSG BODY`). Mach-O did not expose
+/// this: `mach-o-cpu` has no name message, so the two candidates coincide.
+#[test]
+fn test_use_site_marker_does_not_glue_body_to_name_message() {
+    let subroutine = vec![MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::AnyValue,
+        value: Value::Uint(0),
+        message: "BODY".to_string(),
+        children: vec![],
+        level: 1,
+        strength_modifier: None,
+        value_transform: None,
+    }];
+    let table = build_name_table_with_messages(vec![("sub", "NAMEMSG", subroutine)]);
+    let mut context = make_context_with_env(table, &[]);
+
+    let buffer = [0x01u8, 0x02, 0x03, 0x04];
+    // `use sub` carrying only the marker.
+    let mut use_site = use_rule("sub");
+    use_site.message = "\\b".to_string();
+    let matches = evaluate_rules(&[use_site], &buffer, &mut context).unwrap_or_default();
+
+    let messages: Vec<&str> = matches.iter().map(|m| m.message.as_str()).collect();
+    assert_eq!(
+        messages,
+        vec!["\\bNAMEMSG", "BODY"],
+        "the marker belongs on the name line; the body keeps its separator"
+    );
+}
