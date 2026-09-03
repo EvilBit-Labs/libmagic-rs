@@ -94,13 +94,24 @@ fn build_fat(arches: &[Arch]) -> Vec<u8> {
         if at < header_len || at + 16 > MAX_FIXTURE_LEN {
             continue;
         }
+        // Grow to reach the offset, then write unconditionally. An earlier
+        // version only wrote when the buffer had to grow, so an offset landing
+        // inside already-written bytes (unordered offsets, or a fixture with
+        // leading data) silently left zeros there and contradicted this
+        // function's contract.
         if buf.len() < at + 16 {
-            buf.resize(at, 0);
-            buf.extend_from_slice(&MACH_MAGIC_64.to_be_bytes());
-            buf.extend_from_slice(&a.cputype.to_be_bytes());
-            buf.extend_from_slice(&0u32.to_be_bytes()); // cpusubtype
-            buf.extend_from_slice(&MH_EXECUTE.to_be_bytes());
+            buf.resize(at + 16, 0);
         }
+        let header: Vec<u8> = MACH_MAGIC_64
+            .to_be_bytes()
+            .into_iter()
+            .chain(a.cputype.to_be_bytes())
+            .chain(0u32.to_be_bytes()) // cpusubtype
+            .chain(MH_EXECUTE.to_be_bytes())
+            .collect();
+        buf.get_mut(at..at + 16)
+            .expect("buffer was just grown to cover this arch's header")
+            .copy_from_slice(&header);
     }
     buf
 }

@@ -7,6 +7,12 @@
 //! project's file-size convention; the calculation itself is ~477 lines
 //! while these tests are roughly twice that.
 
+use super::*;
+use crate::parser::ast::{
+    Endianness, IndirectAdjustmentOp, MetaType, PStringLengthWidth, RegexCount, RegexFlags,
+    StringFlags,
+};
+
 /// Search strength falls as the scan widens, and a wide scan does not
 /// outrank a real numeric detector.
 ///
@@ -81,8 +87,6 @@ fn search_strength_falls_as_the_scan_range_widens() {
          detector, got search={wide_score} long={long_score}"
     );
 }
-use super::*;
-use crate::parser::ast::{Endianness, IndirectAdjustmentOp, StringFlags};
 
 // Helper to create a basic test rule
 fn make_rule(typ: TypeKind, op: Operator, offset: OffsetSpec, value: Value) -> MagicRule {
@@ -390,6 +394,130 @@ fn test_calculate_default_strength_table() {
             },
             60, // String 20 + Equal 10 + Absolute 10 + capped len(20)
             "value=long_string (cap)",
+        ),
+        // --- Type arms the table previously omitted ---
+        // `RegexCount::Default` and `Lines(None)` are behaviorally identical
+        // (both scan the full 8192-byte capped window), so they must score
+        // the same -- GOTCHAS S2.10. Nothing pinned that before.
+        (
+            || {
+                make_rule(
+                    TypeKind::Regex {
+                        flags: RegexFlags::default(),
+                        count: RegexCount::Default,
+                    },
+                    Operator::Equal,
+                    OffsetSpec::Absolute(0),
+                    Value::String("x".to_string()),
+                )
+            },
+            41, // Regex 20 + Equal 10 + Absolute 10 + len("x") 1
+            "type=regex count=default",
+        ),
+        (
+            || {
+                make_rule(
+                    TypeKind::Regex {
+                        flags: RegexFlags::default(),
+                        count: RegexCount::Lines(None),
+                    },
+                    Operator::Equal,
+                    OffsetSpec::Absolute(0),
+                    Value::String("x".to_string()),
+                )
+            },
+            41, // identical to Default by S2.10
+            "type=regex count=lines(none)",
+        ),
+        (
+            || {
+                make_rule(
+                    TypeKind::Regex {
+                        flags: RegexFlags::default(),
+                        count: RegexCount::Lines(std::num::NonZeroU32::new(3)),
+                    },
+                    Operator::Equal,
+                    OffsetSpec::Absolute(0),
+                    Value::String("x".to_string()),
+                )
+            },
+            46, // Regex 25 (explicit count) + Equal 10 + Absolute 10 + len 1
+            "type=regex count=lines(3)",
+        ),
+        (
+            || {
+                make_rule(
+                    TypeKind::Regex {
+                        flags: RegexFlags::default(),
+                        count: RegexCount::Bytes(
+                            std::num::NonZeroU32::new(100).expect("100 is non-zero"),
+                        ),
+                    },
+                    Operator::Equal,
+                    OffsetSpec::Absolute(0),
+                    Value::String("x".to_string()),
+                )
+            },
+            46, // Regex 25 (explicit count) + Equal 10 + Absolute 10 + len 1
+            "type=regex count=bytes(100)",
+        ),
+        (
+            || {
+                make_rule(
+                    TypeKind::String16 {
+                        endian: Endianness::Little,
+                    },
+                    Operator::Equal,
+                    OffsetSpec::Absolute(0),
+                    Value::String("x".to_string()),
+                )
+            },
+            41, // String16 20 + Equal 10 + Absolute 10 + len 1
+            "type=string16",
+        ),
+        (
+            || {
+                make_rule(
+                    TypeKind::PString {
+                        max_length: None,
+                        length_width: PStringLengthWidth::OneByte,
+                        length_includes_itself: false,
+                    },
+                    Operator::Equal,
+                    OffsetSpec::Absolute(0),
+                    Value::String("x".to_string()),
+                )
+            },
+            41, // PString 20 + Equal 10 + Absolute 10 + len 1
+            "type=pstring max_length=none",
+        ),
+        (
+            || {
+                make_rule(
+                    TypeKind::PString {
+                        max_length: Some(8),
+                        length_width: PStringLengthWidth::OneByte,
+                        length_includes_itself: false,
+                    },
+                    Operator::Equal,
+                    OffsetSpec::Absolute(0),
+                    Value::String("x".to_string()),
+                )
+            },
+            46, // PString 20 + constrained 5 + Equal 10 + Absolute 10 + len 1
+            "type=pstring max_length=8",
+        ),
+        (
+            || {
+                make_rule(
+                    TypeKind::Meta(MetaType::Offset),
+                    Operator::Equal,
+                    OffsetSpec::Absolute(0),
+                    Value::Uint(0),
+                )
+            },
+            20, // Meta 0 + Equal 10 + Absolute 10
+            "type=meta(offset)",
         ),
     ];
 
@@ -988,6 +1116,71 @@ fn string_flag_specificity_penalty_per_flag_table() {
         assert_eq!(
             actual, *expected,
             "case {label}: expected penalty {expected}, got {actual}"
+        );
+    }
+}
+
+// ============================================================
+// Property tests for the clamp and saturation paths
+// ============================================================
+
+proptest::proptest! {
+    /// `calculate_default_strength` stays inside its documented range and
+    /// never panics, for any pattern length and scan range.
+    ///
+    /// The table above pins exact scores for chosen inputs; this covers the
+    /// paths those fixed cases cannot reach -- `saturating_mul` in the
+    /// `Search` arm, the `i32::MAX` fallback in `search_pattern_len`, and the
+    /// final `clamp`.
+    #[test]
+    fn prop_search_strength_stays_within_clamp(
+        pattern_len in 0usize..2048,
+        range in proptest::option::of(1usize..100_000),
+    ) {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::Search {
+                range: range.and_then(std::num::NonZeroUsize::new),
+                flags: crate::parser::ast::SearchFlags::default(),
+            },
+            Operator::Equal,
+            Value::String("x".repeat(pattern_len)),
+            "prop".to_string(),
+        );
+        let score = calculate_default_strength(&rule);
+        proptest::prop_assert!(
+            (MIN_STRENGTH..=MAX_STRENGTH).contains(&score),
+            "score {score} outside [{MIN_STRENGTH}, {MAX_STRENGTH}] for len={pattern_len} range={range:?}"
+        );
+    }
+
+    /// Widening the scan range never raises the score, for any pattern.
+    ///
+    /// This is the invariant the #379 fix rests on: a wider scan is weaker
+    /// evidence. It is monotonic non-increasing rather than strictly
+    /// decreasing, because libmagic's `MAX(MULT / range, 1)` floors at 1.
+    #[test]
+    fn prop_widening_the_scan_never_raises_strength(
+        pattern_len in 1usize..64,
+        a in 1usize..5000,
+        b in 1usize..5000,
+    ) {
+        let score_for = |range: usize| {
+            calculate_default_strength(&MagicRule::new(
+                OffsetSpec::Absolute(0),
+                TypeKind::Search {
+                    range: std::num::NonZeroUsize::new(range),
+                    flags: crate::parser::ast::SearchFlags::default(),
+                },
+                Operator::Equal,
+                Value::String("x".repeat(pattern_len)),
+                "prop".to_string(),
+            ))
+        };
+        let (narrow, wide) = if a <= b { (a, b) } else { (b, a) };
+        proptest::prop_assert!(
+            score_for(wide) <= score_for(narrow),
+            "widening {narrow} -> {wide} raised the score for len={pattern_len}"
         );
     }
 }

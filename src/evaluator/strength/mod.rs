@@ -320,7 +320,10 @@ pub fn apply_strength_modifier(base_strength: i32, modifier: &StrengthModifier) 
                 // (magic file contains !:strength /0 which is invalid)
                 base_strength
             } else {
-                base_strength / n
+                // `saturating_div` rather than `/`: `i32::MIN / -1` overflows
+                // and panics, and library code must not panic. The zero guard
+                // above is separate -- `saturating_div` still panics on it.
+                base_strength.saturating_div(*n)
             }
         }
         StrengthModifier::Set(n) => *n,
@@ -411,10 +414,18 @@ pub fn sort_rules_by_strength(rules: &mut [MagicRule]) {
 /// Sort magic rules by strength in descending order, recursively sorting child
 /// rules as well.
 ///
-/// This is intended for use at magic database load time so that first-match
-/// evaluation encounters more-specific rules earlier. Child rules (nested
-/// under a parent match) are also sorted so that the same ordering benefit
-/// applies within each hierarchical level.
+/// **Do not use this at magic database load time.** Child rules must stay in
+/// source order: `default` and `clear` fire based on whether an *earlier*
+/// sibling matched, and multi-fragment descriptions render in file order, so
+/// reordering children can suppress a `default` or scramble a description.
+/// libmagic's `apprentice_sort` orders whole entries by their first line and
+/// never reorders the lines inside one. Load paths use the non-recursive
+/// [`sort_rules_by_strength`] for exactly this reason -- see GOTCHAS S13.4 and
+/// S13.5.
+///
+/// This recursive variant exists for callers that genuinely want a fully
+/// ordered tree independent of evaluation semantics, such as tooling that
+/// inspects or reports on rule specificity. It has no production callers.
 ///
 /// The sort is stable: rules with equal strength preserve their source
 /// order, so test assertions and libmagic-file semantics that depend on
