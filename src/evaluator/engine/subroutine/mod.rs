@@ -272,3 +272,6 @@ pub(crate) fn evaluate_use_rule(
 
     Ok((Some(terminal_anchor), matches))
 }
+
+#[cfg(test)]
+mod tests;
