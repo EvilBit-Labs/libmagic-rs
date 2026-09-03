@@ -111,8 +111,20 @@ pub(crate) fn evaluate_value_rule(
     // layer via `Operator::BitwiseAndMask`.
     let transformed_value = match rule.value_transform {
         None => read_value,
-        Some(t) => operators::apply_value_transform(&read_value, t)
-            .map_err(LibmagicError::EvaluationError)?,
+        Some(t) => {
+            let transformed = operators::apply_value_transform(&read_value, t)
+                .map_err(LibmagicError::EvaluationError)?;
+            // Re-narrow to the type's width so both sides of the comparison
+            // share one representation. The literal below is narrowed by
+            // `coerce_value_to_type`, so without this a masked signed read
+            // and its literal disagree despite identical bit patterns:
+            // `beshort&0xFFE0 =0xFFE0` on 0xFFE1 masked to i64 65504 while
+            // the literal narrowed to i16 -32. That mismatch is why the
+            // generic APPn rule in `jpeg` never matched and the segment
+            // walk never advanced. libmagic works in the type's machine
+            // word throughout.
+            types::narrow_transformed_to_type_width(transformed, &rule.typ)
+        }
     };
 
     let expected_value = types::coerce_value_to_type(&rule.value, &rule.typ);

@@ -50,7 +50,7 @@ The boundary test: *if the file were readable, would this string describe what i
 
 - **Divergence creep** — "diagnostic" or "ergonomics" could be stretched to excuse a detection difference.
 
-  *Mitigation (binding):* every **detection-result** divergence is a **contract gap** that must be closed, never recorded as a settled design choice. "Pre-existing", "cosmetic", and "out of scope for this issue" are not grounds to accept one.
+  *Mitigation (binding):* every **detection-result** divergence is a **contract gap** that must be closed, never recorded as a settled design choice. **Narrowed by [ADR-0002](0002-accuracy-divergence.md):** a divergence where rmagic is demonstrably more accurate than `file` is acceptable, under the three conditions that ADR states. "Pre-existing", "cosmetic", and "out of scope for this issue" are not grounds to accept one.
 
   **Fix it in the pass that finds it.** A detection gap surfaced by work already touching that code path is closed there. Filing a GitHub issue is the fallback for a gap that genuinely cannot be closed in-pass — and such an issue stays open until it is.
 

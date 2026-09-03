@@ -742,6 +742,30 @@ fn trim_ascii_whitespace(s: &[u8]) -> &[u8] {
         .map_or(start, |i| i + 1);
     &s[start..end]
 }
+/// Reinterpret a signed integer at its type's width, sign-extending the low bits.
+///
+/// Applied to the result of a `ValueTransform` so it shares one representation
+/// with the literal, which `coerce_value_to_type` narrows. A masked signed read
+/// otherwise disagrees with its own literal despite identical bit patterns:
+/// `beshort&0xFFE0` on `0xFFE1` yields `65504` as an `i64`, while the literal
+/// `0xFFE0` narrows to `-32` as an `i16`. libmagic compares in the type's
+/// machine word, so both must be `-32`.
+///
+/// Unsigned types, non-integer values, and values already inside the type's
+/// signed range are returned unchanged.
+pub(crate) fn narrow_transformed_to_type_width(value: Value, type_kind: &TypeKind) -> Value {
+    let Value::Int(v) = value else {
+        return value;
+    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let narrowed = match type_kind {
+        TypeKind::Byte { signed: true } => i64::from((v as u8).cast_signed()),
+        TypeKind::Short { signed: true, .. } => i64::from((v as u16).cast_signed()),
+        TypeKind::Long { signed: true, .. } => i64::from((v as u32).cast_signed()),
+        _ => return Value::Int(v),
+    };
+    Value::Int(narrowed)
+}
 
 /// Coerces a rule value to the signed width implied by `type_kind`.
 ///

@@ -28,6 +28,20 @@ use super::type_suffix::{
 /// content on the line. Malformed identifiers such as `part2=foo`
 /// (operator-adjacent continuation) or `part 2` (split identifier) are
 /// rejected as parse errors rather than silently consumed as a message.
+/// Whether `line` is a GNU `file` no-separator marker and nothing else.
+///
+/// Used to keep a `use` site's `\b` (which controls spacing) while still
+/// dropping a use-site description, which magic(5) has no slot for.
+fn is_lone_no_separator_marker(line: &str) -> bool {
+    // The marker check is inlined rather than sharing
+    // `evaluator::strip_no_separator_marker`: this module is compiled into
+    // `build.rs` as well, which cannot reference lib-only modules
+    // (GOTCHAS S1.1). Both forms are recognized, matching that helper.
+    line.strip_prefix('\u{0008}')
+        .or_else(|| line.strip_prefix("\\b"))
+        .is_some_and(|rest| rest.trim().is_empty())
+}
+
 fn parse_name_or_use_meta<'a>(
     type_name: &str,
     input: &'a str,
@@ -104,16 +118,26 @@ fn parse_name_or_use_meta<'a>(
     // identifier itself (which would be a real malformed rule like
     // `part 2`); that's enforced earlier when `take_while` truncates the
     // identifier on the first non-id character.
+    //
+    // The one exception on the `use` side is a lone no-separator marker
+    // (`>0 use mach-o-cpu \b`): that is a formatting control, not a
+    // description, and it must survive so the evaluator can attach the
+    // subroutine's first output with no separating space. Across the whole
+    // system magic database every `use` site carrying trailing text carries
+    // exactly this marker and nothing else, so the marker is preserved only
+    // when the rest of the line is blank; any other trailing text is dropped
+    // as before.
     let mut tail = after_id;
     if type_name == "use" {
         while let Some(rest) = tail.strip_prefix(' ').or_else(|| tail.strip_prefix('\t')) {
             tail = rest;
         }
-        if let Some(next_char) = tail.chars().next()
-            && !matches!(next_char, '\n' | '\r')
-        {
-            let line_end = tail.find(['\n', '\r']).unwrap_or(tail.len());
-            tail = &tail[line_end..];
+        // `find` on a char pattern always yields a char boundary, but `get`
+        // keeps that total rather than relying on it (AGENTS.md).
+        let line_end = tail.find(['\n', '\r']).unwrap_or(tail.len());
+        let line = tail.get(..line_end).unwrap_or(tail);
+        if !line.is_empty() && !is_lone_no_separator_marker(line) {
+            tail = tail.get(line_end..).unwrap_or("");
         }
     }
 
@@ -127,6 +151,24 @@ fn parse_name_or_use_meta<'a>(
     };
     let (rest, _) = multispace0(tail)?;
     Ok((rest, (TypeKind::Meta(meta), None, None)))
+}
+/// Consume the magic(5) `indirect/r` suffix, returning the remaining input.
+///
+/// `/r` marks the re-entry offset relative to the start of the current entry
+/// rather than absolute. rmagic already resolves a positive `Absolute` offset
+/// against the enclosing entry -- `base_offset` inside a `use` body (GOTCHAS
+/// S3.10), and 0 at top level, which is the entry start there -- so the flag
+/// selects the behavior this resolver already has. Consuming it keeps the rule
+/// from being dropped by the tolerant loader, which is what left jpeg's Exif
+/// bracket empty.
+fn strip_indirect_relative_suffix<'a>(type_name: &str, input: &'a str) -> &'a str {
+    if type_name != "indirect" {
+        return input;
+    }
+    input
+        .strip_prefix('/')
+        .and_then(|rest| rest.strip_prefix('r').or_else(|| rest.strip_prefix('R')))
+        .unwrap_or(input)
 }
 
 /// Parse a type specification with an optional attached bitwise-AND mask operator
@@ -232,6 +274,8 @@ pub fn parse_type_and_operator(
         search_flags = flags;
         input = rest;
     }
+
+    input = strip_indirect_relative_suffix(type_name, input);
 
     // Handle string flag suffixes (e.g., `string/w`, `string/cW`).
     // magic(5) flag letters per libmagic `src/file.h`:
