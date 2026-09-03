@@ -233,10 +233,17 @@ fn differential_parity_against_gnu_file_on_the_committed_fixture() {
 /// A skip gate that silently stopped being reachable would turn that test into
 /// a no-op without any signal, so pin the predicate itself -- the same guard
 /// `tests/system_magic_dir.rs` keeps for its own skip.
+///
+/// The absent path is a fresh temp directory's unborn child rather than a
+/// hard-coded absolute path: a literal path could exist on some host or
+/// container image, which would silently invert what this test proves.
 #[test]
 fn parity_skip_gate_is_reachable_for_a_missing_directory() {
+    let temp = tempfile::TempDir::new().expect("temp dir for skip-gate probe");
+    let absent = temp.path().join("no-such-magic-dir");
+
     assert!(
-        !Path::new("/nonexistent-magic-dir-for-skip-gate-probe").is_dir(),
+        !absent.is_dir(),
         "the parity test's directory predicate must still be able to report \
          absent, or its skip branch is unreachable and the test is a no-op"
     );
