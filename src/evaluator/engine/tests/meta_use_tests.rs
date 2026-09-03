@@ -103,24 +103,31 @@ fn test_use_without_rule_env_returns_no_match() {
 #[test]
 fn test_use_recursion_limit() {
     // Build a mutually-recursive pair: subroutine A calls B, B calls A.
-    // With the default recursion limit, this should surface as
-    // `RecursionLimitExceeded` rather than a stack overflow.
-    let a_body = vec![use_rule("b")];
+    // The guard must stop the descent without a stack overflow -- and it
+    // degrades rather than failing the file: a `use` chain deeper than the
+    // limit keeps whatever the shallower levels matched. Real magic walks a
+    // chain one `use` per element (jpeg's `jpeg_segment` needs a level per
+    // JPEG segment), so aborting the whole classification on depth would
+    // discard a legitimate partial result.
+    // `a` matches something shallow *before* recursing, so the run has a
+    // result to lose. Without it the assertion would hold trivially -- an
+    // empty match vector proves nothing about retention.
+    let a_body = vec![byte_eq_rule(0, 0x7F, "shallow"), use_rule("b")];
     let b_body = vec![use_rule("a")];
     let table = build_name_table(vec![("a", a_body), ("b", b_body)]);
     let mut context = make_context_with_env(table, &[]);
 
-    let buffer = [0u8; 8];
+    let buffer = [0x7Fu8; 8];
     let rules = vec![use_rule("a")];
     let result = evaluate_rules(&rules, &buffer, &mut context);
     assert!(
-        matches!(
-            result,
-            Err(LibmagicError::EvaluationError(
-                crate::error::EvaluationError::RecursionLimitExceeded { .. }
-            ))
-        ),
-        "mutual recursion through use must surface RecursionLimitExceeded, got {result:?}"
+        result.is_ok(),
+        "unbounded mutual recursion must stop gracefully, not fail the file, got {result:?}"
+    );
+    let matches = result.unwrap_or_default();
+    assert!(
+        matches.iter().any(|m| m.message == "shallow"),
+        "the shallow match found before the depth cutoff must be retained, got {matches:?}"
     );
 }
 
@@ -443,5 +450,41 @@ fn test_continuation_sibling_reset_after_bytes_consumed() {
         vec!["parent", "long-sibling", "byte-sibling-sees-parent-anchor"],
         "byte-sibling must read buffer[1]=0x01 via parent-level anchor reset; \
          if reset is missing it reads buffer[5]=0x42 and test fails. got {matches:?}"
+    );
+}
+
+/// A `use` site's `\b` suppresses the separator before the subroutine's first
+/// *rendered* output, which is the `name` line when the subroutine has one.
+///
+/// Marking the first body match instead glued the body to the name message
+/// (`ROOTNAMEMSGBODY` rather than `ROOTNAMEMSG BODY`). Mach-O did not expose
+/// this: `mach-o-cpu` has no name message, so the two candidates coincide.
+#[test]
+fn test_use_site_marker_does_not_glue_body_to_name_message() {
+    let subroutine = vec![MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::AnyValue,
+        value: Value::Uint(0),
+        message: "BODY".to_string(),
+        children: vec![],
+        level: 1,
+        strength_modifier: None,
+        value_transform: None,
+    }];
+    let table = build_name_table_with_messages(vec![("sub", "NAMEMSG", subroutine)]);
+    let mut context = make_context_with_env(table, &[]);
+
+    let buffer = [0x01u8, 0x02, 0x03, 0x04];
+    // `use sub` carrying only the marker.
+    let mut use_site = use_rule("sub");
+    use_site.message = "\\b".to_string();
+    let matches = evaluate_rules(&[use_site], &buffer, &mut context).unwrap_or_default();
+
+    let messages: Vec<&str> = matches.iter().map(|m| m.message.as_str()).collect();
+    assert_eq!(
+        messages,
+        vec!["\\bNAMEMSG", "BODY"],
+        "the marker belongs on the name line; the body keeps its separator"
     );
 }
