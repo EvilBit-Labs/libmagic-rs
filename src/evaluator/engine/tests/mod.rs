@@ -8,7 +8,8 @@
 
 use super::*;
 use crate::parser::ast::{
-    Endianness, OffsetSpec, Operator, SearchFlags, StringFlags, TypeKind, Value,
+    Endianness, IndirectAdjustmentOp, OffsetSpec, Operator, SearchFlags, StringFlags, TypeKind,
+    Value,
 };
 
 /// Legacy one-shot single-rule helper used by the engine unit tests.
@@ -258,6 +259,7 @@ mod meta_default_clear_indirect_tests;
 #[cfg(test)]
 mod meta_offset_tests;
 #[cfg(test)]
+mod meta_use_indirect_framing_tests;
 mod meta_use_tests;
 #[cfg(test)]
 mod string_flags_dispatch_tests;

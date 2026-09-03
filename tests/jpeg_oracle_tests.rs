@@ -65,6 +65,12 @@ use tempfile::NamedTempFile;
 const FIXTURE: &str = "tests/fixtures/jpeg_segment_walk.jpg";
 const SYSTEM_MAGIC_DIR: &str = "/usr/share/file/magic";
 
+/// SOF0's position in the committed fixture -- the third segment, and the one
+/// the walk reaches only by rebasing twice. Named so the truncation slice below
+/// stays tied to the segment table in the module doc; regenerating the fixture
+/// with a different layout must update both together.
+const SOF0_OFFSET: usize = 64;
+
 /// A reduced `jpeg` chain: enough to walk APP0 -> APP1 -> SOF0 through the
 /// recursive `use jpeg_segment`, and nothing else. The shape mirrors the real
 /// `jpeg` magic file's `>>(2.S+2) use jpeg_segment` recursion, which is the
@@ -128,7 +134,7 @@ fn hermetic_segment_walk_renders_every_segment() {
     );
     assert!(
         description.contains("320x200"),
-        "the walk must reach SOF0 at position 64, which needs the rebase to \
+        "the walk must reach SOF0 at its fixture position, which needs the rebase to \
          hold across a second hop (GOTCHAS S3.10); a walk that drops the \
          subroutine base stops earlier. got {description:?}"
     );
@@ -140,8 +146,8 @@ fn hermetic_segment_walk_renders_every_segment() {
 #[test]
 fn truncated_fixture_does_not_render_the_unreached_segment() {
     let full = fixture_bytes();
-    // 64 is SOF0's position; cutting there leaves APP0 and APP1 intact.
-    let truncated = &full[..64];
+    // Cutting at SOF0 leaves APP0 and APP1 intact.
+    let truncated = &full[..SOF0_OFFSET];
 
     let description = hermetic_db()
         .evaluate_buffer(truncated)
@@ -193,6 +199,18 @@ fn differential_parity_against_gnu_file_on_the_committed_fixture() {
         .arg(FIXTURE)
         .output()
         .expect("invoking `file` must not fail once it is known present");
+    // A nonzero exit means `file` started but could not use the database or
+    // arguments. stdout is then empty, which would fall through the skip branch
+    // below and report success with no oracle -- the exact silent pass this
+    // test exists to prevent.
+    assert!(
+        output.status.success(),
+        "`file` exited {:?} rather than classifying the fixture; the oracle did \
+         not run. stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+
     let theirs = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
     if !theirs.contains("JPEG") {
@@ -208,5 +226,18 @@ fn differential_parity_against_gnu_file_on_the_committed_fixture() {
         "rmagic must match real `file` on the same magic database for the \
          committed JPEG fixture; a divergence here is a genuine regression to \
          diagnose in the evaluator, not to defer"
+    );
+}
+
+/// The parity test above skips when the system magic directory is absent.
+/// A skip gate that silently stopped being reachable would turn that test into
+/// a no-op without any signal, so pin the predicate itself -- the same guard
+/// `tests/system_magic_dir.rs` keeps for its own skip.
+#[test]
+fn parity_skip_gate_is_reachable_for_a_missing_directory() {
+    assert!(
+        !Path::new("/nonexistent-magic-dir-for-skip-gate-probe").is_dir(),
+        "the parity test's directory predicate must still be able to report \
+         absent, or its skip branch is unreachable and the test is a no-op"
     );
 }
