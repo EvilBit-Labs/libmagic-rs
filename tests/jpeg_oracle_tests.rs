@@ -180,6 +180,26 @@ fn differential_parity_against_gnu_file_on_the_committed_fixture() {
         eprintln!("SKIP: {SYSTEM_MAGIC_DIR} not present -- parity test skipped cleanly");
         return;
     }
+    // The directory existing is not enough. Debian and Ubuntu ship only the
+    // compiled `magic.mgc` and leave this source directory empty; `file
+    // --magic-file <empty dir>` then silently falls back to its built-in
+    // database while rmagic loads the empty directory and classifies nothing.
+    // Comparing those two is not a parity check -- the sides are reading
+    // different databases -- so require at least one source file first.
+    let source_files = std::fs::read_dir(system_dir).map_or(0, |entries| {
+        entries
+            .filter_map(Result::ok)
+            .filter(|e| e.path().is_file())
+            .count()
+    });
+    if source_files == 0 {
+        eprintln!(
+            "SKIP: {SYSTEM_MAGIC_DIR} holds no source magic files (compiled-only \
+             install) -- `file` would fall back to its built-in DB, so there is \
+             no shared database to compare against"
+        );
+        return;
+    }
     if !has_file_binary() {
         eprintln!("SKIP: `file` not on PATH -- parity test skipped cleanly");
         return;
