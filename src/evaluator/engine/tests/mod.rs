@@ -260,6 +260,7 @@ mod meta_default_clear_indirect_tests;
 mod meta_offset_tests;
 #[cfg(test)]
 mod meta_use_indirect_framing_tests;
+#[cfg(test)]
 mod meta_use_tests;
 #[cfg(test)]
 mod string_flags_dispatch_tests;

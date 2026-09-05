@@ -21,9 +21,10 @@ fn jpeg_style_indirect_spec() -> OffsetSpec {
     OffsetSpec::Indirect {
         base_offset: 2,
         base_relative: false,
+        // Signed by default (GOTCHAS S3.7/S6.3): `.S` parses to signed.
         pointer_type: TypeKind::Short {
             endian: Endianness::Big,
-            signed: false,
+            signed: true,
         },
         adjustment: 2,
         adjustment_op: IndirectAdjustmentOp::Add,
@@ -61,7 +62,9 @@ fn test_use_indirect_result_is_base_relative_jpeg_shape() {
     // Segment length 128 as a big-endian short at byte 22 (= base 20 + 2).
     buffer[22] = 0x00;
     buffer[23] = 0x80;
-    // Correct target, and a decoy at the unrebased position.
+    // Sentinel at the correct target; the unrebased position is left
+    // deliberately non-matching. Only one read happens, so this byte documents
+    // where a dropped rebase would land rather than discriminating on its own.
     buffer[150] = 0xAA;
     buffer[130] = 0xBB;
 
@@ -130,9 +133,10 @@ fn test_indirect_result_inside_use_stays_absolute_macho_shape() {
         OffsetSpec::Indirect {
             base_offset: 8,
             base_relative: false,
+            // Signed by default (GOTCHAS S3.7/S6.3): `.L` parses to signed.
             pointer_type: TypeKind::Long {
                 endian: Endianness::Big,
-                signed: false,
+                signed: true,
             },
             adjustment: 0,
             adjustment_op: IndirectAdjustmentOp::Add,
@@ -152,7 +156,8 @@ fn test_indirect_result_inside_use_stays_absolute_macho_shape() {
     let mut buffer = vec![0x00u8; 128];
     // arch[0].offset as a big-endian long at byte 16 (= base 8 + 8), value 64.
     buffer[16..20].copy_from_slice(&64u32.to_be_bytes());
-    // Payload at the absolute position, decoy at the wrongly-rebased one.
+    // Payload at the absolute position; the wrongly-rebased position is left
+    // deliberately non-matching (documentary, not discriminating -- see above).
     buffer[64] = 0xAA;
     buffer[72] = 0xBB;
 

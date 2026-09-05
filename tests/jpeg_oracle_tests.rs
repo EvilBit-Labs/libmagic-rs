@@ -49,9 +49,10 @@
 //! direntries=1, xresolution=26], baseline, precision 8, 320x200, components 3
 //! ```
 //!
-//! That full string is asserted only by the differential test, which compares
-//! against whatever `file` the host actually has. The hermetic test asserts the
-//! segment-walk tail, which is the part this issue is about.
+//! That string is recorded for provenance only; no test asserts it. The
+//! differential test instead asserts that rmagic and `file` agree on a staged
+//! copy of the host's own database, so it survives a magic-DB or `file` upgrade
+//! that a frozen string would not.
 
 #![allow(clippy::expect_used)]
 
@@ -99,8 +100,32 @@ fn hermetic_db() -> MagicDatabase {
 }
 
 fn fixture_bytes() -> Vec<u8> {
-    std::fs::read(FIXTURE)
-        .expect("committed fixture tests/fixtures/jpeg_segment_walk.jpg must exist")
+    let bytes = std::fs::read(FIXTURE)
+        .expect("committed fixture tests/fixtures/jpeg_segment_walk.jpg must exist");
+
+    // Tie the committed bytes to the segment table in the module doc. Several
+    // tests hardcode offsets derived from that table and there is no generator
+    // script, so a regenerated fixture would otherwise drift silently until an
+    // opaque "description lacked 320x200" failure.
+    assert_eq!(
+        bytes.len(),
+        85,
+        "fixture size drifted from the documented segment table"
+    );
+    for (pos, marker, label) in [
+        (2usize, 0xE0u8, "APP0"),
+        (20, 0xE1, "APP1"),
+        (SOF0_OFFSET, 0xC0, "SOF0"),
+    ] {
+        let seen = bytes.get(pos..=pos + 1);
+        assert_eq!(
+            seen,
+            Some([0xFFu8, marker].as_slice()),
+            "{label} is no longer at offset {pos}; the module doc's segment table \
+             and every offset derived from it are stale"
+        );
+    }
+    bytes
 }
 
 fn has_file_binary() -> bool {
@@ -123,20 +148,12 @@ fn hermetic_segment_walk_renders_every_segment() {
         .expect("evaluate committed fixture")
         .description;
 
-    assert!(
-        description.contains("JFIF segment"),
-        "the walk must reach APP0 at position 2; got {description:?}"
-    );
-    assert!(
-        description.contains("Exif segment"),
-        "the walk must reach APP1 at position 20, which needs the first \
-         rebase (use-site 2 + segment length); got {description:?}"
-    );
-    assert!(
-        description.contains("320x200"),
-        "the walk must reach SOF0 at its fixture position, which needs the rebase to \
-         hold across a second hop (GOTCHAS S3.10); a walk that drops the \
-         subroutine base stops earlier. got {description:?}"
+    assert_eq!(
+        description, "JPEG image data, JFIF segment, Exif segment, baseline, 320x200",
+        "the walk must reach all three segments. Exact equality rather than \
+         substring checks: a recursion regression (GOTCHAS S14.7) duplicates \
+         fragments and degrades at the depth limit, which leaves every substring \
+         present and would pass a `contains` assertion on visibly wrong output"
     );
 }
 
@@ -154,117 +171,177 @@ fn truncated_fixture_does_not_render_the_unreached_segment() {
         .expect("evaluate truncated fixture")
         .description;
 
-    assert!(
-        description.contains("Exif segment"),
-        "truncating at SOF0 must leave the first two segments reachable; \
-         got {description:?}"
-    );
-    assert!(
-        !description.contains("320x200"),
+    assert_eq!(
+        description, "JPEG image data, JFIF segment, Exif segment",
         "a segment that is not present must not be rendered -- otherwise the \
-         positive test proves nothing about walking. got {description:?}"
+         positive test proves nothing about walking rather than about rendering \
+         a tail unconditionally"
     );
 }
 
-/// Parity against real `file` on the same magic database.
+/// Why the oracle cannot simply be `file --magic-file <system dir>`.
 ///
-/// Skips cleanly when the system magic directory or the `file` binary is
-/// absent, matching `tests/system_magic_dir.rs`. Parity on the same database
-/// is asserted rather than a frozen expected string: a committed string goes
-/// stale when the host database changes, while divergence from the oracle is
-/// always a genuine signal.
-#[test]
-fn differential_parity_against_gnu_file_on_the_committed_fixture() {
-    let system_dir = Path::new(SYSTEM_MAGIC_DIR);
-    if !system_dir.is_dir() {
-        eprintln!("SKIP: {SYSTEM_MAGIC_DIR} not present -- parity test skipped cleanly");
-        return;
-    }
-    // The directory existing is not enough. Debian and Ubuntu ship only the
-    // compiled `magic.mgc` and leave this source directory empty; `file
-    // --magic-file <empty dir>` then silently falls back to its built-in
-    // database while rmagic loads the empty directory and classifies nothing.
-    // Comparing those two is not a parity check -- the sides are reading
-    // different databases -- so require at least one source file first.
-    let source_files = std::fs::read_dir(system_dir).map_or(0, |entries| {
+/// Measured on this host with `file-5.41`: `--magic-file <dir>` prefers a
+/// sibling compiled `<dir>.mgc` over the directory itself, and
+/// `/usr/share/file/magic.mgc` exists next to `/usr/share/file/magic`. A
+/// directory holding only a sentinel rule still yields the built-in
+/// classification. The naive form therefore compares rmagic-on-source-files
+/// against file-on-compiled-database -- two different databases, which is not a
+/// parity check and cannot notice the two drifting apart.
+enum OracleReadiness {
+    /// A staged copy whose magic directory `file` provably reads.
+    Ready(tempfile::TempDir),
+    /// The environment cannot support a like-for-like comparison.
+    Skip(String),
+}
+
+/// Count the plain files in `dir`.
+///
+/// Named and extracted so the skip decision rests on testable logic rather than
+/// an inline closure. Debian and Ubuntu ship only the compiled `magic.mgc` and
+/// leave the source directory empty; that is the case this detects.
+fn magic_source_file_count(dir: &Path) -> usize {
+    std::fs::read_dir(dir).map_or(0, |entries| {
         entries
             .filter_map(Result::ok)
             .filter(|e| e.path().is_file())
             .count()
-    });
-    if source_files == 0 {
-        eprintln!(
-            "SKIP: {SYSTEM_MAGIC_DIR} holds no source magic files (compiled-only \
-             install) -- `file` would fall back to its built-in DB, so there is \
-             no shared database to compare against"
-        );
-        return;
+    })
+}
+
+/// Ask `file` to classify `target` using only `magic_dir`.
+///
+/// `MAGIC=` rather than `--magic-file`: measured on this host, the flag did not
+/// restrict the database while the environment variable did.
+fn file_says(magic_dir: &Path, target: &str) -> String {
+    let output = Command::new("file")
+        .env("MAGIC", magic_dir)
+        .arg("-b")
+        .arg(target)
+        .output()
+        .expect("invoking `file` must not fail once it is known present");
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+/// Stage a magic directory `file` demonstrably reads, or explain why not.
+///
+/// The canary is the load-bearing step. Every earlier version of this test gated
+/// on a symptom -- whether `file`'s answer looked right -- which passes exactly
+/// when a silent fallback is masking the mismatch. This proves the negative
+/// instead: point `file` at a database knowing only a sentinel type and require
+/// the fixture NOT to classify as JPEG. If it still does, `file` is answering
+/// from elsewhere and no comparison here would mean anything.
+fn stage_oracle() -> OracleReadiness {
+    let system_dir = Path::new(SYSTEM_MAGIC_DIR);
+    if !system_dir.is_dir() {
+        return OracleReadiness::Skip(format!("{SYSTEM_MAGIC_DIR} is not present"));
+    }
+    if magic_source_file_count(system_dir) == 0 {
+        return OracleReadiness::Skip(format!(
+            "{SYSTEM_MAGIC_DIR} holds no source magic files (compiled-only install)"
+        ));
     }
     if !has_file_binary() {
-        eprintln!("SKIP: `file` not on PATH -- parity test skipped cleanly");
-        return;
+        return OracleReadiness::Skip("`file` is not on PATH".to_string());
     }
 
-    let db = MagicDatabase::load_from_file_with_config(system_dir, EvaluationConfig::default())
-        .expect("loading the system magic directory must not fail");
+    let staged = tempfile::TempDir::new().expect("temp dir for the staged magic copy");
+
+    let canary_dir = staged.path().join("canary");
+    std::fs::create_dir_all(&canary_dir).expect("create canary dir");
+    std::fs::write(
+        canary_dir.join("sentinel"),
+        "0\tstring\tZZ-SENTINEL-NEVER-MATCHES\tsentinel\n",
+    )
+    .expect("write sentinel rule");
+    let canary = file_says(&canary_dir, FIXTURE);
+    assert!(
+        !canary.contains("JPEG"),
+        "`file` classified the fixture as JPEG from a database holding only a \
+         sentinel rule, so it is answering from some other database and this \
+         comparison would be meaningless. Got: {canary:?}"
+    );
+
+    let magic_copy = staged.path().join("magic");
+    std::fs::create_dir_all(&magic_copy).expect("create staged magic dir");
+    for entry in std::fs::read_dir(system_dir).expect("read system magic dir") {
+        let entry = entry.expect("read system magic entry");
+        if entry.path().is_file() {
+            std::fs::copy(entry.path(), magic_copy.join(entry.file_name()))
+                .expect("copy magic source file");
+        }
+    }
+    OracleReadiness::Ready(staged)
+}
+
+/// Parity against real `file` on a magic database both sides provably share.
+///
+/// A divergence is not automatically an evaluator regression: the runtime loader
+/// is line-tolerant (GOTCHAS S3.11) and silently drops a rule -- and its subtree
+/// -- that it cannot parse, while `file` accepts it. Establish which before
+/// concluding anything.
+#[test]
+fn differential_parity_against_gnu_file_on_the_committed_fixture() {
+    let staged = match stage_oracle() {
+        OracleReadiness::Ready(dir) => dir,
+        OracleReadiness::Skip(reason) => {
+            eprintln!("SKIP: {reason} -- parity test skipped cleanly");
+            return;
+        }
+    };
+    let magic_dir = staged.path().join("magic");
+
+    let db = MagicDatabase::load_from_file_with_config(&magic_dir, EvaluationConfig::default())
+        .expect("loading the staged magic directory must not fail");
     let ours = db
         .evaluate_buffer(&fixture_bytes())
         .expect("evaluate committed fixture")
         .description;
-
-    let output = Command::new("file")
-        .arg("-b")
-        .arg("--magic-file")
-        .arg(SYSTEM_MAGIC_DIR)
-        .arg(FIXTURE)
-        .output()
-        .expect("invoking `file` must not fail once it is known present");
-    // A nonzero exit means `file` started but could not use the database or
-    // arguments. stdout is then empty, which would fall through the skip branch
-    // below and report success with no oracle -- the exact silent pass this
-    // test exists to prevent.
-    assert!(
-        output.status.success(),
-        "`file` exited {:?} rather than classifying the fixture; the oracle did \
-         not run. stderr: {}",
-        output.status.code(),
-        String::from_utf8_lossy(&output.stderr).trim()
-    );
-
-    let theirs = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-    if !theirs.contains("JPEG") {
-        eprintln!(
-            "SKIP: this host's --magic-file DB does not classify JPEG \
-             (got {theirs:?}) -- parity test skipped cleanly"
-        );
-        return;
-    }
+    let theirs = file_says(&magic_dir, FIXTURE);
 
     assert_eq!(
         ours, theirs,
-        "rmagic must match real `file` on the same magic database for the \
-         committed JPEG fixture; a divergence here is a genuine regression to \
-         diagnose in the evaluator, not to defer"
+        "rmagic and `file` disagree on a database both provably read. Either the \
+         evaluator regressed, or the tolerant loader dropped a rule `file` honored \
+         (GOTCHAS S3.11) -- determine which rather than deferring"
     );
 }
 
-/// The parity test above skips when the system magic directory is absent.
-/// A skip gate that silently stopped being reachable would turn that test into
-/// a no-op without any signal, so pin the predicate itself -- the same guard
-/// `tests/system_magic_dir.rs` keeps for its own skip.
+/// Pin the skip decision's own logic.
 ///
-/// The absent path is a fresh temp directory's unborn child rather than a
-/// hard-coded absolute path: a literal path could exist on some host or
-/// container image, which would silently invert what this test proves.
+/// The previous version of this test asserted that a nonexistent path reports
+/// `is_dir() == false`, which is standard-library behavior that nothing in this
+/// repository can break -- it was the only test here that survived a mutation
+/// disabling the rebase. `magic_source_file_count` is the half that can
+/// actually regress, and it is what decides whether a compiled-only install
+/// skips or produces a bogus comparison.
 #[test]
-fn parity_skip_gate_is_reachable_for_a_missing_directory() {
-    let temp = tempfile::TempDir::new().expect("temp dir for skip-gate probe");
-    let absent = temp.path().join("no-such-magic-dir");
+fn magic_source_file_count_distinguishes_empty_from_populated() {
+    let temp = tempfile::TempDir::new().expect("temp dir for the count probe");
 
-    assert!(
-        !absent.is_dir(),
-        "the parity test's directory predicate must still be able to report \
-         absent, or its skip branch is unreachable and the test is a no-op"
+    assert_eq!(
+        magic_source_file_count(temp.path()),
+        0,
+        "an empty directory must count as no source magic, or a compiled-only \
+         install would compare rmagic against `file`'s built-in database"
+    );
+
+    std::fs::write(temp.path().join("jpeg"), "0\tbeshort\t0xffd8\tJPEG\n")
+        .expect("write a magic source file");
+    assert_eq!(
+        magic_source_file_count(temp.path()),
+        1,
+        "a directory holding a magic source file must count it, or the parity \
+         test would skip on every host and never compare anything"
+    );
+
+    // A subdirectory is not a source file and must not make an otherwise-empty
+    // directory look populated.
+    let nested = tempfile::TempDir::new().expect("second temp dir");
+    std::fs::create_dir_all(nested.path().join("subdir")).expect("create subdir");
+    assert_eq!(
+        magic_source_file_count(nested.path()),
+        0,
+        "directories must not be counted as source magic files"
     );
 }

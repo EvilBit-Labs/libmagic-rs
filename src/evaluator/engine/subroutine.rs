@@ -293,10 +293,12 @@ mod tests {
     //! argues against, though that document's own case is the `tests/`-versus-`src/`
     //! crate boundary rather than this one.
     //!
-    //! Every expected value below is derived from the arithmetic GOTCHAS S3.10
-    //! states, never recorded from a run of the current code. A table written from
-    //! observed output would pass by construction and agree with a latent bug as
-    //! readily as with correct behavior.
+    //! Every expected offset in the branch matrix is derived from the arithmetic
+    //! GOTCHAS S3.10 states, and the EOF boundary from S15.1 -- not recorded from a
+    //! run, which would pass by construction and agree with a latent bug as readily
+    //! as with correct behavior. The two error-path expectations (`InvalidOffset` on
+    //! overflow, `BufferOverrun` past the end) are read off the function's own
+    //! contract, which S3.10 does not cover.
 
     use super::apply_use_result_base;
     use crate::LibmagicError;
@@ -352,6 +354,33 @@ mod tests {
         }
     }
 
+    /// The `(&N.X)` pointer-site form. `apply_use_result_base` matches with a
+    /// `..` wildcard, so `base_relative` does not affect its decision -- this row
+    /// pins that, since adding the field to the exclusion pattern otherwise passes
+    /// the entire suite.
+    fn base_relative_spec() -> OffsetSpec {
+        match indirect_spec() {
+            OffsetSpec::Indirect {
+                base_offset,
+                pointer_type,
+                adjustment,
+                adjustment_op,
+                result_relative,
+                endian,
+                ..
+            } => OffsetSpec::Indirect {
+                base_offset,
+                base_relative: true,
+                pointer_type,
+                adjustment,
+                adjustment_op,
+                result_relative,
+                endian,
+            },
+            other => other,
+        }
+    }
+
     fn context_with_base(base: usize) -> EvaluationContext {
         let mut context = EvaluationContext::new(EvaluationConfig::default());
         context.set_base_offset(base);
@@ -384,7 +413,9 @@ mod tests {
                 JPEG_RESOLVED,
             ),
             (
-                "zero base is top level (tplink's use-site always resolves to 0): no rebase",
+                "a zero base means no enclosing subroutine, or one invoked at 0: the \
+             result is already absolute. Documents intent -- adding zero is \
+             identity, so no mutation of the rebase can make this row fail",
                 indirect_spec(),
                 0,
                 JPEG_RESOLVED,
@@ -397,6 +428,14 @@ mod tests {
                 JPEG_USE_SITE,
                 JPEG_RESOLVED,
                 JPEG_RESOLVED,
+            ),
+            (
+                "base_relative `(&N.X)` is NOT an exclusion: S3.10 names three \
+                 and this is not among them, so this form still rebases",
+                base_relative_spec(),
+                JPEG_USE_SITE,
+                JPEG_RESOLVED,
+                JPEG_REBASED,
             ),
             (
                 "Relative spec is not Indirect: no rebase",
