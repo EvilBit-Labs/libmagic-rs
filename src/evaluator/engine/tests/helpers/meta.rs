@@ -153,6 +153,49 @@ pub fn indirect_rule(offset: i64, message: &str, children: Vec<MagicRule>) -> Ma
     }
 }
 
+/// Build a `Use` rule whose own offset is an `OffsetSpec::Indirect`.
+///
+/// This is the jpeg `>>(2.S+2) use jpeg_segment` shape: the use-site is not a
+/// literal position but a pointer dereference, so the result framing rule in
+/// GOTCHAS S3.10 applies. Distinct from [`use_rule_at`], which takes a literal
+/// absolute offset.
+pub fn use_rule_indirect_at(name: &str, offset: OffsetSpec) -> MagicRule {
+    MagicRule {
+        offset,
+        typ: TypeKind::Meta(MetaType::Use {
+            name: name.to_string(),
+            flip_endian: false,
+        }),
+        op: Operator::Equal,
+        value: Value::Uint(0),
+        message: String::new(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    }
+}
+
+/// Build an `Indirect` rule whose own offset is an `OffsetSpec::Indirect`.
+///
+/// This is the mach-o `>(8.L) indirect x` shape. Distinct from
+/// [`indirect_rule`], which places an `Indirect` meta rule at a literal
+/// absolute offset; the two exist side by side because the result framing
+/// differs only for the indirect-offset form.
+pub fn indirect_rule_at_indirect_offset(offset: OffsetSpec, message: &str) -> MagicRule {
+    MagicRule {
+        offset,
+        typ: TypeKind::Meta(MetaType::Indirect),
+        op: Operator::Equal,
+        value: Value::Uint(0),
+        message: message.to_string(),
+        children: vec![],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    }
+}
+
 /// Build an `Offset` rule at `offset` with an `x` (`AnyValue`) operator and
 /// the given message. Mirrors `default_rule`/`indirect_rule` helpers.
 pub fn offset_rule(offset: i64, message: &str, children: Vec<MagicRule>) -> MagicRule {
