@@ -50,7 +50,7 @@ permissions:
 
 ## Guidance
 
-### 1. A `permissions:` block constrains the ambient GITHUB_TOKEN and nothing else
+### 1. A `permissions:` block scopes the ambient GITHUB_TOKEN, not other credentials
 
 This is the generative principle behind both occurrences. A step that authenticates with a *different* credential is unaffected by the workflow's `permissions:` block:
 
@@ -58,9 +58,10 @@ This is the generative principle behind both occurrences. A step that authentica
 | --------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------ |
 | Ambient `GITHUB_TOKEN` (incl. `${{ secrets.GITHUB_TOKEN }}`)    | Yes                         | `release-plz-pr` job, which legitimately keeps `contents: write` (`release-plz.yml:51-52`) |
 | A minted GitHub App token                                       | No                          | `release-plz-release` job -- issue #449                                                    |
+| OIDC token (`id-token: write`)                                  | Retrieval only              | `release-plz.yml:14`, `release.yml:118`, `docs.yml:13`, `scorecard.yml:31`                 |
 | `ACTIONS_RUNTIME_TOKEN` (used by `actions/upload-artifact` v4+) | No                          | `compatibility.yml` and `ci.yml` artifact uploads -- issue #456                            |
 
-The first two rows are verifiable in this tree. The third is **upstream action behavior and cannot be confirmed from this repository** -- nothing here vendors `actions/upload-artifact`'s source. Treat the mechanism as the *explanation* and the in-repo precedent in rule 4 as the *evidence*: the precedent holds whether or not the stated mechanism is the reason.
+`id-token: write` is the one `permissions:` key that is not a `GITHUB_TOKEN` scope: it permits requesting an OIDC token (a separate credential) and grants no resource access on its own. The first three rows are verifiable in this tree. The third is **upstream action behavior and cannot be confirmed from this repository** -- nothing here vendors `actions/upload-artifact`'s source. Treat the mechanism as the *explanation* and the in-repo precedent in rule 4 as the *evidence*: the precedent holds whether or not the stated mechanism is the reason.
 
 So "this workflow uploads an artifact" is **not** on its own a reason to grant more than `contents: read`.
 
@@ -77,11 +78,13 @@ Issue #456 argued the change was low-risk because the workflow "writes nothing b
 
 The conclusion survived, but only via rule 1: per upstream documentation, `upload-artifact` v4+ uses `ACTIONS_RUNTIME_TOKEN`, so `contents: read` does not constrain it. That mechanism is not verifiable from this tree -- which is exactly why rule 4's precedent, not the mechanism, is what makes the change safe to merge. PR #479 recorded this as an explicit "Correction to the issue's rationale" rather than quietly restating the incorrect premise.
 
-### 3. A green run never validates a conditionally-gated step
+### 3. A run never validates a step whose gate is false on that run
 
 `compatibility.yml`'s upload is `if: failure()`. A PR whose point is "this workflow still works" produces, when successful, a run in which that step **never executes**. The PR's own CI is blind to exactly the step in question.
 
-> A green run never validates a conditionally-gated step. If a change could affect one, you need either a way to force the gate to fire, or independent evidence that does not depend on your run passing.
+> A run never validates a step whose gate is false on that run. If a change could affect one, you need either a way to force the gate to fire, or independent evidence that does not depend on your run passing.
+
+The trap is the gate's *value on this run*, not the presence of a condition -- an `if: always()` step does execute on a green run. `if: failure()`, `if: cancelled()`, and unmet event or fork guards are the ones a green validation run leaves untouched.
 
 ### 4. Substitute in-repo precedent, matched on the pinned SHA
 
