@@ -466,12 +466,24 @@ fn load_magic_database(args: &Args) -> Result<MagicDatabase, LibmagicError> {
 /// For single file with JSON format, outputs pretty-printed JSON.
 ///
 /// Writes to the provided buffered writer. The caller is responsible for flushing.
+///
+/// `escape_control_bytes` gates terminal-inertness for the text arm (issue
+/// #498, U5): when set, characters a terminal would act on in the assembled
+/// description are rendered inert via
+/// [`cli::symlink::escape_terminal_control_bytes`], mirroring the contract
+/// already applied to symlink targets; when unset, the description is
+/// written verbatim, which is what keeps captured/redirected output
+/// byte-identical to GNU `file` (R10). It has no effect on the JSON arm,
+/// which carries no file-derived text (R11) -- the parameter is threaded
+/// through only because every text-output call site resolves the flag once
+/// via [`stdout_is_terminal`] and both arms share this one function.
 fn output_result(
     writer: &mut impl Write,
     file_path: &Path,
     result: &libmagic_rs::EvaluationResult,
     args: &Args,
     is_multiple_files: bool,
+    escape_control_bytes: bool,
 ) -> Result<(), LibmagicError> {
     match args.output_format() {
         OutputFormat::Json => {
@@ -500,8 +512,17 @@ fn output_result(
             }
         }
         OutputFormat::Text => {
-            writeln!(writer, "{}: {}", file_path.display(), result.description)
+            // Escaping runs over the already-assembled description (R13), so
+            // a truncation cut can never land inside an escape sequence.
+            let rendered = cli::symlink::escape_terminal_control_bytes(
+                result.description.as_bytes(),
+                escape_control_bytes,
+            );
+            write!(writer, "{}: ", file_path.display()).map_err(LibmagicError::IoError)?;
+            writer
+                .write_all(&rendered)
                 .map_err(LibmagicError::IoError)?;
+            writeln!(writer).map_err(LibmagicError::IoError)?;
         }
     }
     Ok(())
@@ -551,7 +572,14 @@ fn process_file(
 
         let result = db.evaluate_buffer(&buffer)?;
         let stdin_path = PathBuf::from("stdin");
-        output_result(writer, &stdin_path, &result, args, is_multiple_files)?;
+        output_result(
+            writer,
+            &stdin_path,
+            &result,
+            args,
+            is_multiple_files,
+            stdout_is_terminal(),
+        )?;
         return Ok(FileOutcome::Classified);
     }
 
@@ -571,6 +599,7 @@ fn process_file(
             &classification.description,
             args,
             is_multiple_files,
+            stdout_is_terminal(),
         )?;
         return Ok(if classification.unreadable {
             // `FileError` rather than `IoError(NotFound)`: `handle_io_error`
@@ -599,14 +628,28 @@ fn process_file(
     // erroring did.
     if file_path.is_dir() {
         let result = synthetic_result("directory");
-        output_result(writer, &file_path, &result, args, is_multiple_files)?;
+        output_result(
+            writer,
+            &file_path,
+            &result,
+            args,
+            is_multiple_files,
+            stdout_is_terminal(),
+        )?;
         return Ok(FileOutcome::Classified);
     }
 
     let result = db.evaluate_file(&file_path)?;
 
     // Output results based on format
-    output_result(writer, &file_path, &result, args, is_multiple_files)?;
+    output_result(
+        writer,
+        &file_path,
+        &result,
+        args,
+        is_multiple_files,
+        stdout_is_terminal(),
+    )?;
 
     Ok(FileOutcome::Classified)
 }
@@ -1271,6 +1314,92 @@ mod tests {
         assert_eq!(
             result.matches[0].message, result.description,
             "text and JSON arms must report the same string"
+        );
+    }
+
+    // =========================================================================
+    // `output_result` escaping wiring (issue #498, U5)
+    //
+    // These call the real production entry point `process_file` uses for the
+    // library-produced description path, with an explicit escape flag rather
+    // than relying on the real terminal -- the same testability pattern
+    // `render_symlink_target` already uses -- so the terminal branch is
+    // provable without a live terminal. `assert_cmd` always captures stdout,
+    // so an integration test can only ever reach the pass-through branch; see
+    // tests/description_escaping_tests.rs for that half and for why a
+    // pseudo-terminal proof was not practical here.
+    // =========================================================================
+
+    fn control_byte_result() -> libmagic_rs::EvaluationResult {
+        synthetic_result("before\u{1b}]0;pwn\u{7}after")
+    }
+
+    #[test]
+    fn test_output_result_text_escapes_when_flag_is_set() {
+        let mut buf = Vec::new();
+        let args = Args::try_parse_from(["rmagic", "f.bin"]).unwrap();
+
+        output_result(
+            &mut buf,
+            Path::new("f.bin"),
+            &control_byte_result(),
+            &args,
+            false,
+            true,
+        )
+        .unwrap();
+
+        let out = String::from_utf8(buf).unwrap();
+        assert_eq!(out, "f.bin: before\\x1b]0;pwn\\x07after\n");
+    }
+
+    #[test]
+    fn test_output_result_text_is_verbatim_when_flag_is_unset() {
+        let mut buf = Vec::new();
+        let args = Args::try_parse_from(["rmagic", "f.bin"]).unwrap();
+
+        output_result(
+            &mut buf,
+            Path::new("f.bin"),
+            &control_byte_result(),
+            &args,
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(buf, b"f.bin: before\x1b]0;pwn\x07after\n");
+    }
+
+    #[test]
+    fn test_output_result_json_is_unaffected_by_the_escape_flag() {
+        let args = Args::try_parse_from(["rmagic", "--json", "f.bin"]).unwrap();
+
+        let mut escaped_run = Vec::new();
+        output_result(
+            &mut escaped_run,
+            Path::new("f.bin"),
+            &control_byte_result(),
+            &args,
+            false,
+            true,
+        )
+        .unwrap();
+
+        let mut plain_run = Vec::new();
+        output_result(
+            &mut plain_run,
+            Path::new("f.bin"),
+            &control_byte_result(),
+            &args,
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            escaped_run, plain_run,
+            "R11: JSON carries no file-derived text, so the escape flag must not change it"
         );
     }
 }
