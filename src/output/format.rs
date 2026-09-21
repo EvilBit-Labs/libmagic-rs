@@ -41,6 +41,13 @@ use crate::parser::ast::{TypeKind, Value};
 /// natural bit width of the underlying read to mask sign-extended
 /// values correctly. For non-hex specifiers `type_kind` is ignored.
 ///
+/// For a `%s` substitution against a `string`/`pstring`/`string16` value,
+/// the rendered field is bounded to at most [`MAX_DESCRIPTION_FIELD_LEN`]
+/// bytes (cut on a UTF-8 character boundary); `regex`/`search` values
+/// render through a separate, unbounded path and are exempt. This entry
+/// point never stops at a newline (R2's gate) -- use
+/// [`format_magic_message_with_gate`] to opt into that.
+///
 /// # Examples
 ///
 /// ```
@@ -70,10 +77,31 @@ use crate::parser::ast::{TypeKind, Value};
 /// assert_eq!(out, "100% sure");
 /// ```
 #[must_use]
+pub fn format_magic_message(template: &str, value: &Value, type_kind: &TypeKind) -> String {
+    format_magic_message_with_gate(template, value, type_kind, false)
+}
+
+/// Substitute printf-style format specifiers in a magic rule message,
+/// additionally carrying R2's newline-stop gate signal.
+///
+/// Identical to [`format_magic_message`] except for `stop_at_newline`: when
+/// set, a `%s` substitution against a `string`/`pstring`/`string16` value
+/// additionally stops at the first `\r` or `\n` byte within the
+/// [`MAX_DESCRIPTION_FIELD_LEN`]-byte bound. The caller computes
+/// `stop_at_newline` from the rule's operator and pattern (see
+/// `evaluator::engine::value_eval::newline_stop_gate` in the crate
+/// source) -- neither reaches this formatter otherwise (R14).
+/// `regex`/`search` values ignore this flag entirely (R5).
+#[must_use]
 // Indexing is invariant-safe: every `bytes[i]` is guarded by an
 // `i < bytes.len()` loop condition.
 #[allow(clippy::indexing_slicing)]
-pub fn format_magic_message(template: &str, value: &Value, type_kind: &TypeKind) -> String {
+pub fn format_magic_message_with_gate(
+    template: &str,
+    value: &Value,
+    type_kind: &TypeKind,
+    stop_at_newline: bool,
+) -> String {
     let mut out = String::with_capacity(template.len());
     let bytes = template.as_bytes();
     let mut i = 0;
@@ -111,7 +139,7 @@ pub fn format_magic_message(template: &str, value: &Value, type_kind: &TypeKind)
             break;
         };
         let next_i = parsed_spec.end;
-        if let Some(rendered) = render(&parsed_spec, value, type_kind) {
+        if let Some(rendered) = render(&parsed_spec, value, type_kind, stop_at_newline) {
             out.push_str(&rendered);
         } else {
             // Type mismatch or unsupported conversion; pass through the
@@ -178,6 +206,17 @@ struct Spec {
 /// (e.g., `%999999999d`) from driving unbounded `repeat_n` allocations in the
 /// padding helpers. 4096 is generous for any real magic-corpus usage.
 const MAX_FORMAT_WIDTH: usize = 4096;
+
+/// Bound on how much file-derived text a `%s` substitution renders, taken
+/// from GNU `file`'s `MAXstring - 1` (`src/file.h`). `MAXstring` was 96
+/// through `file` 5.38 and became 128 at 5.39, so this value (127) holds
+/// for `file` 5.39 and later only.
+///
+/// Applies only to the value-buffer types `string`, `pstring`, and
+/// `string16` ([`is_bounded_string_family`]); `regex` and `search` are
+/// bounded elsewhere by their own scan-window limits and are exempt from
+/// this bound and from the newline stop (R5).
+const MAX_DESCRIPTION_FIELD_LEN: usize = 127;
 
 /// Parse a format specifier starting at `start` (the first byte after the
 /// leading `%`). Returns `None` if the sequence does not end in a
@@ -286,10 +325,18 @@ fn parse_spec(bytes: &[u8], start: usize) -> Option<Spec> {
 
 /// Render the specifier against `value`, or return `None` if the value
 /// is type-incompatible with the conversion.
-fn render(spec: &Spec, value: &Value, type_kind: &TypeKind) -> Option<String> {
+///
+/// `stop_at_newline` is R2's gate signal (see [`format_magic_message`]);
+/// it is consulted only by the `%s` arm.
+fn render(
+    spec: &Spec,
+    value: &Value,
+    type_kind: &TypeKind,
+    stop_at_newline: bool,
+) -> Option<String> {
     match spec.conv {
         Conv::Percent => Some("%".to_string()),
-        Conv::Str => Some(render_str_spec(spec, value)),
+        Conv::Str => Some(render_str_spec(spec, value, type_kind, stop_at_newline)),
         Conv::Signed => {
             let n = coerce_to_i64(value)?;
             Some(pad_numeric(&n.to_string(), spec))
@@ -340,8 +387,120 @@ fn render(spec: &Spec, value: &Value, type_kind: &TypeKind) -> Option<String> {
     }
 }
 
-/// Render a `%s` specifier: base string, then optional `.<precision>`
-/// truncation, then width padding.
+/// Whether `type_kind` is one of the value-buffer types R1/R2 bound:
+/// `string`, `pstring`, `string16`. `regex` and `search` render through a
+/// separate, unbounded path (R5); other types render `%s` via decimal or
+/// lossy-UTF-8 conversion and are far under the bound regardless.
+fn is_bounded_string_family(type_kind: &TypeKind) -> bool {
+    matches!(
+        type_kind,
+        TypeKind::String { .. } | TypeKind::String16 { .. } | TypeKind::PString { .. }
+    )
+}
+
+/// Bound `base` to at most [`MAX_DESCRIPTION_FIELD_LEN`] bytes, cutting at
+/// a UTF-8 character boundary at or before the limit (R3): a multi-byte
+/// character straddling the limit is dropped whole rather than split,
+/// which renders a few bytes shorter than `file`'s raw-byte cut -- an
+/// accepted parity tolerance.
+///
+/// When `stop_at_newline` is set (R2's gate -- an any-value rule, or an
+/// ordering-compared rule whose pattern's first byte is a null byte; see
+/// `evaluator::engine::value_eval::newline_stop_gate`), the bound
+/// additionally stops at the first `\r` or `\n` byte within the limit.
+// Indexing/slicing is invariant-safe: `cut` is clamped to `bytes.len()`
+// above and only ever walked downward to a valid char boundary before
+// either slice is taken.
+#[allow(clippy::indexing_slicing)]
+fn bound_description_field(base: &str, stop_at_newline: bool) -> String {
+    let bytes = base.as_bytes();
+    let mut cut = bytes.len().min(MAX_DESCRIPTION_FIELD_LEN);
+    if stop_at_newline
+        && let Some(newline_pos) = bytes[..cut].iter().position(|&b| b == b'\r' || b == b'\n')
+    {
+        cut = newline_pos;
+    }
+    while cut > 0 && !base.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    base[..cut].to_string()
+}
+
+/// Raw-byte counterpart of [`bound_description_field`] for `Value::Bytes`.
+///
+/// Operates on the file-derived byte slice directly, before any lossy
+/// UTF-8 decode, so the [`MAX_DESCRIPTION_FIELD_LEN`] budget is measured on
+/// file bytes rather than on decode-inflated `U+FFFD` bytes (see
+/// [`render_string_bounded`] for why that ordering matters).
+///
+/// After cutting to the byte/newline limit, walks back over any trailing
+/// UTF-8 continuation bytes (`0b10xxxxxx`) so a valid multi-byte character
+/// straddling the cut is dropped whole (R3) rather than left to decode as
+/// a stray replacement character. This is a lightweight structural check,
+/// not a full UTF-8 validity scan: arbitrary (possibly non-UTF-8) bytes
+/// are always safe to slice at any offset, and the later lossy decode
+/// handles whatever is left over.
+// Indexing/slicing is invariant-safe: `cut` is clamped to `bytes.len()`
+// above and only ever walked downward before either slice is taken;
+// `bytes.get(cut)` guards the boundary-walk read.
+#[allow(clippy::indexing_slicing)]
+fn bound_bytes(bytes: &[u8], stop_at_newline: bool) -> Vec<u8> {
+    let mut cut = bytes.len().min(MAX_DESCRIPTION_FIELD_LEN);
+    if stop_at_newline
+        && let Some(newline_pos) = bytes[..cut].iter().position(|&b| b == b'\r' || b == b'\n')
+    {
+        cut = newline_pos;
+    }
+    while cut > 0
+        && bytes
+            .get(cut)
+            .is_some_and(|&b| b & 0b1100_0000 == 0b1000_0000)
+    {
+        cut -= 1;
+    }
+    bytes[..cut].to_vec()
+}
+
+/// Render a [`Value`] for `%s`, applying the R1/R2 description bound when
+/// `apply_bound` is set ([`is_bounded_string_family`] gates this at the
+/// call site).
+///
+/// The R1 127-byte budget is measured on FILE-DERIVED bytes, before any
+/// lossy UTF-8 decode: for `Value::Bytes` the bound ([`bound_bytes`]) is
+/// applied to the raw byte slice first, and only the already-bounded
+/// result is decoded via lossy UTF-8. Measuring after decode would let a
+/// single invalid byte inflate the count -- `String::from_utf8_lossy`
+/// expands each invalid byte into the 3-byte `U+FFFD` replacement
+/// character, so bounding the decoded `String`'s byte length would burn
+/// the budget up to 3x too fast and cut file-derived content short. This
+/// is the high-byte UTF-8 corruption bug class documented in GOTCHAS.md.
+///
+/// `Value::String` is already valid UTF-8 carrying the file's byte count
+/// 1:1 (it comes from `read_string`/`read_string_exact`), so it is bounded
+/// directly via [`bound_description_field`]. Numeric values render far
+/// under the bound regardless and are never bound.
+fn render_string_bounded(value: &Value, apply_bound: bool, stop_at_newline: bool) -> String {
+    match value {
+        Value::String(s) if apply_bound => bound_description_field(s, stop_at_newline),
+        Value::String(s) => s.clone(),
+        Value::Bytes(b) if apply_bound => {
+            String::from_utf8_lossy(&bound_bytes(b, stop_at_newline)).into_owned()
+        }
+        Value::Bytes(b) => String::from_utf8_lossy(b).into_owned(),
+        Value::Uint(n) => n.to_string(),
+        Value::Int(n) => n.to_string(),
+        Value::Float(f) => f.to_string(),
+    }
+}
+
+/// Render a `%s` specifier: base string (bounded per R1/R2 for
+/// string-family types), then optional `.<precision>` truncation, then
+/// width padding.
+///
+/// The description bound and `.<precision>` truncation compose as a
+/// minimum: the bound is applied first, so a precision wider than the
+/// bound is a no-op past it, and a precision narrower than the bound still
+/// truncates further.
 ///
 /// Precision truncates to at most `precision` characters. Truncation is
 /// **char-wise**, not byte-wise: C's `%.Ns` truncates by bytes, but our value
@@ -353,31 +512,24 @@ fn render(spec: &Spec, value: &Value, type_kind: &TypeKind) -> Option<String> {
 /// Width padding (via [`pad_non_numeric`]) is applied after truncation so
 /// `%4.4s` and `%-.4s` render correctly -- previously `%s` dropped width
 /// entirely.
-fn render_str_spec(spec: &Spec, value: &Value) -> String {
-    let base = render_string(value);
+fn render_str_spec(
+    spec: &Spec,
+    value: &Value,
+    type_kind: &TypeKind,
+    stop_at_newline: bool,
+) -> String {
+    let apply_bound = is_bounded_string_family(type_kind);
+    let bounded = render_string_bounded(value, apply_bound, stop_at_newline);
     // Truncate to `p` chars in a single pass bounded by `p` (no preceding full
     // `chars().count()` pass, and no byte slicing -- the repo forbids `&s[n..]`
     // for UTF-8 safety). `take(p)` stops after at most `p` chars regardless of
     // string length; when `p >= len` this collects an identical copy, which is
     // a cheap, correct no-op for the rare precision case.
     let truncated = match spec.precision {
-        Some(p) => base.chars().take(p).collect::<String>(),
-        None => base,
+        Some(p) => bounded.chars().take(p).collect::<String>(),
+        None => bounded,
     };
     pad_non_numeric(&truncated, spec)
-}
-
-/// Render a [`Value`] for `%s`. Strings pass through; byte sequences are
-/// converted via lossy UTF-8; numbers render as decimal (GNU `file` does
-/// the same for mixed-type `%s` substitutions).
-fn render_string(value: &Value) -> String {
-    match value {
-        Value::String(s) => s.clone(),
-        Value::Bytes(b) => String::from_utf8_lossy(b).into_owned(),
-        Value::Uint(n) => n.to_string(),
-        Value::Int(n) => n.to_string(),
-        Value::Float(f) => f.to_string(),
-    }
 }
 
 /// Coerce a numeric-ish [`Value`] to `i64`. Float values are truncated
@@ -905,5 +1057,234 @@ mod tests {
         };
         let out = format_magic_message("%x", &Value::Int(-1), &short_t);
         assert_eq!(out, "ffff");
+    }
+
+    // ---- R1/R2/R3/R5/R14: bounded description field -------------------
+
+    fn string16_t() -> TypeKind {
+        TypeKind::String16 {
+            endian: crate::parser::ast::Endianness::Little,
+        }
+    }
+
+    fn pstring_t() -> TypeKind {
+        TypeKind::PString {
+            max_length: None,
+            length_width: crate::parser::ast::PStringLengthWidth::OneByte,
+            length_includes_itself: false,
+        }
+    }
+
+    fn regex_t() -> TypeKind {
+        TypeKind::Regex {
+            flags: crate::parser::ast::RegexFlags::default(),
+            count: crate::parser::ast::RegexCount::Default,
+        }
+    }
+
+    fn str_t() -> TypeKind {
+        TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default(),
+        }
+    }
+
+    #[test]
+    fn test_bound_truncates_long_ascii_value_to_127_bytes() {
+        // AE1: a 304-byte ASCII value renders exactly 127 bytes.
+        let value = "A".repeat(304);
+        let out = format_magic_message_with_gate("%s", &Value::String(value), &str_t(), false);
+        assert_eq!(out.len(), 127, "rendered field must be exactly 127 bytes");
+    }
+
+    #[test]
+    fn test_bound_boundary_lengths_127_passes_128_truncates() {
+        let exactly_127 = "B".repeat(127);
+        let out = format_magic_message_with_gate(
+            "%s",
+            &Value::String(exactly_127.clone()),
+            &str_t(),
+            false,
+        );
+        assert_eq!(
+            out, exactly_127,
+            "a 127-byte value must pass through untouched"
+        );
+
+        let exactly_128 = "B".repeat(128);
+        let out =
+            format_magic_message_with_gate("%s", &Value::String(exactly_128), &str_t(), false);
+        assert_eq!(out.len(), 127, "a 128-byte value must render as 127 bytes");
+    }
+
+    #[test]
+    fn test_bound_cuts_on_utf8_character_boundary() {
+        // 126 ASCII bytes followed by a 2-byte UTF-8 character ('\u{00e9}',
+        // "e" with acute accent) straddling the 127-byte cut: bytes 126-127
+        // hold the character's first byte, byte 128 its second. The cut
+        // must land at 126, not split the character.
+        let mut value = "C".repeat(126);
+        value.push('\u{00e9}');
+        value.push_str("TAIL");
+        assert_eq!(
+            value.as_bytes()[126],
+            0xc3,
+            "fixture sanity: char starts at 126"
+        );
+
+        let out = format_magic_message_with_gate("%s", &Value::String(value), &str_t(), false);
+        assert!(
+            std::str::from_utf8(out.as_bytes()).is_ok(),
+            "output must be valid UTF-8"
+        );
+        assert_eq!(
+            out.len(),
+            126,
+            "the straddling character is dropped whole, not split"
+        );
+        assert_eq!(out, "C".repeat(126));
+    }
+
+    #[test]
+    fn test_gated_rule_stops_at_first_newline() {
+        let out = format_magic_message_with_gate(
+            "STR=[%s]",
+            &Value::String("ZZZZABC\nSECOND".to_string()),
+            &str_t(),
+            true,
+        );
+        assert_eq!(out, "STR=[ZZZZABC]", "must stop before the \\n");
+    }
+
+    #[test]
+    fn test_gated_rule_stops_at_first_carriage_return() {
+        let out = format_magic_message_with_gate(
+            "STR=[%s]",
+            &Value::String("ZZZZABC\rSECOND".to_string()),
+            &str_t(),
+            true,
+        );
+        assert_eq!(out, "STR=[ZZZZABC]", "must stop before the \\r");
+    }
+
+    #[test]
+    fn test_ungated_rule_does_not_stop_at_newline() {
+        // An equality-compared rule (stop_at_newline = false) renders the
+        // whole field, newline and all.
+        let out = format_magic_message_with_gate(
+            "STR=[%s]",
+            &Value::String("ZZZZABC\nSECOND".to_string()),
+            &str_t(),
+            false,
+        );
+        assert_eq!(out, "STR=[ZZZZABC\nSECOND]");
+    }
+
+    #[test]
+    fn test_regex_type_exempt_from_bound_and_newline_stop() {
+        // R5: regex renders through a separate, unbounded path -- even
+        // when `stop_at_newline` is (incorrectly) set to true by a caller,
+        // the regex arm must not apply either the 127-byte bound or the
+        // newline stop.
+        let mut value = "D".repeat(150);
+        value.push('\n');
+        value.push_str("more-after-newline");
+        let expected = value.clone();
+        let out = format_magic_message_with_gate("%s", &Value::String(value), &regex_t(), true);
+        assert_eq!(
+            out, expected,
+            "regex must render past 127 bytes and across a newline"
+        );
+    }
+
+    #[test]
+    fn test_pstring_and_string16_are_bounded_and_gated() {
+        let value = "E".repeat(304);
+        for type_kind in [pstring_t(), string16_t()] {
+            let out = format_magic_message_with_gate(
+                "%s",
+                &Value::String(value.clone()),
+                &type_kind,
+                false,
+            );
+            assert_eq!(
+                out.len(),
+                127,
+                "type {type_kind:?} must be bounded to 127 bytes"
+            );
+        }
+
+        let mut newline_value = "F".repeat(10);
+        newline_value.push('\n');
+        newline_value.push_str("tail");
+        for type_kind in [pstring_t(), string16_t()] {
+            let out = format_magic_message_with_gate(
+                "%s",
+                &Value::String(newline_value.clone()),
+                &type_kind,
+                true,
+            );
+            assert_eq!(
+                out,
+                "F".repeat(10),
+                "type {type_kind:?} must stop at newline when gated"
+            );
+        }
+    }
+
+    #[test]
+    fn test_bound_measured_on_raw_bytes_not_lossy_decoded_string() {
+        // The 127-byte budget must be measured on FILE-DERIVED bytes,
+        // before any lossy UTF-8 decode. `String::from_utf8_lossy` expands
+        // each invalid byte into the 3-byte U+FFFD replacement character;
+        // if the bound were measured on the decoded String's byte length,
+        // 3 invalid bytes among 200 raw bytes would inflate to 9 decoded
+        // bytes and burn the 127-byte budget far too fast, rendering a
+        // field derived from fewer than 127 *file* bytes.
+        let mut raw = vec![b'H'; 200];
+        raw[10] = 0xff;
+        raw[11] = 0xff;
+        raw[12] = 0xff;
+
+        let out = format_magic_message_with_gate("%s", &Value::Bytes(raw.clone()), &str_t(), false);
+
+        // Decode exactly the first 127 RAW bytes the same way the
+        // implementation must, and compare against that -- not against a
+        // fixed byte length, since 3 invalid bytes decode to 9 output
+        // bytes (3 x U+FFFD), so the correct rendered length is
+        // 127 - 3 (dropped invalid bytes) + 3*3 (their U+FFFD encoding)
+        // relative to the raw prefix, not a naive 127.
+        let expected = String::from_utf8_lossy(&raw[..127]).into_owned();
+        assert_eq!(
+            out, expected,
+            "must decode exactly the first 127 raw file bytes, not 127 post-decode bytes"
+        );
+    }
+
+    #[test]
+    fn test_precision_composes_as_minimum_with_bound() {
+        // `%.200s` and `%.50s` each compose with the 127-byte bound as a
+        // minimum: precision wider than the bound is a no-op past it,
+        // precision narrower than the bound truncates further.
+        let value = "G".repeat(300);
+
+        let out = format_magic_message_with_gate(
+            "%.200s",
+            &Value::String(value.clone()),
+            &str_t(),
+            false,
+        );
+        assert_eq!(
+            out.len(),
+            127,
+            "precision wider than the bound is capped at the bound"
+        );
+
+        let out = format_magic_message_with_gate("%.50s", &Value::String(value), &str_t(), false);
+        assert_eq!(
+            out.len(),
+            50,
+            "precision narrower than the bound still applies"
+        );
     }
 }

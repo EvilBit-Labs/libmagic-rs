@@ -14,7 +14,7 @@
 
 use crate::LibmagicError;
 use crate::evaluator::{operators, types};
-use crate::parser::ast::{MagicRule, TypeKind};
+use crate::parser::ast::{MagicRule, Operator, TypeKind, Value};
 use log::debug;
 
 /// Evaluate a pattern-bearing rule (`TypeKind::Regex` / `TypeKind::Search`).
@@ -220,5 +220,136 @@ pub(crate) fn string_ordering_display_value(
         }
     } else {
         compared
+    }
+}
+
+/// Whether R2's newline-stop gate applies to `rule`'s rendered `%s` value.
+///
+/// The gate fires for an any-value rule (`x`), or for an ordering-compared
+/// rule (`<`/`>`/`<=`/`>=`) whose declared comparison pattern's first byte
+/// is a null byte. This mirrors upstream libmagic's `*m->value.s == '\0'`
+/// first-byte test -- NOT a zero-length test: measured against `file-5.41`,
+/// the 4-byte pattern `>\0ABC` gates and the 1-byte pattern `>0` does not,
+/// because `'0'` (0x30) is not a null byte.
+///
+/// Neither the rule's operator nor its pattern's first byte reaches
+/// [`crate::output::format::format_magic_message_with_gate`] today, so
+/// this signal is computed here -- where `rule` is already in scope --
+/// for the caller to carry to the formatter (R14), rather than
+/// re-deriving it there.
+///
+/// Not yet wired to a call site: threading this into
+/// `evaluate_pattern_rule`/`evaluate_value_rule`'s return value cascades
+/// into `evaluate_single_rule_with_anchor` (`engine/mod.rs`) and further
+/// into `RuleMatch`/`concatenate_messages` (`lib.rs`), outside this unit's
+/// scope. The any-value read-bound unit (R12) is the intended consumer.
+#[allow(dead_code)]
+pub(crate) fn newline_stop_gate(rule: &MagicRule) -> bool {
+    if matches!(rule.op, Operator::AnyValue) {
+        return true;
+    }
+    let is_ordering = matches!(
+        rule.op,
+        Operator::LessThan | Operator::GreaterThan | Operator::LessEqual | Operator::GreaterEqual
+    );
+    is_ordering && pattern_first_byte_is_null(&rule.value)
+}
+
+/// Whether `pattern`'s first byte is a null byte (0x00).
+#[allow(dead_code)]
+fn pattern_first_byte_is_null(pattern: &Value) -> bool {
+    match pattern {
+        Value::String(s) => s.as_bytes().first() == Some(&0),
+        Value::Bytes(b) => b.first() == Some(&0),
+        Value::Uint(_) | Value::Int(_) | Value::Float(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::ast::{OffsetSpec, StringFlags};
+
+    fn rule_with(op: Operator, value: Value) -> MagicRule {
+        MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default(),
+            },
+            op,
+            value,
+            "msg".to_string(),
+        )
+    }
+
+    #[test]
+    fn test_any_value_rule_gates() {
+        let rule = rule_with(Operator::AnyValue, Value::String(String::new()));
+        assert!(newline_stop_gate(&rule));
+    }
+
+    #[test]
+    fn test_ordering_rule_with_null_first_byte_pattern_gates() {
+        // The measured oracle case: `>\0ABC` gates.
+        let rule = rule_with(
+            Operator::GreaterThan,
+            Value::Bytes(vec![0, b'A', b'B', b'C']),
+        );
+        assert!(newline_stop_gate(&rule));
+    }
+
+    #[test]
+    fn test_ordering_rule_with_non_null_first_byte_pattern_does_not_gate() {
+        // The measured oracle case: `>0` does not gate -- '0' (0x30) is not
+        // a null byte, even though the pattern is only 1 byte long. This is
+        // the first-byte test, not a zero-length test.
+        let rule = rule_with(Operator::GreaterThan, Value::String("0".to_string()));
+        assert!(!newline_stop_gate(&rule));
+    }
+
+    #[test]
+    fn test_equality_rule_does_not_gate_even_with_null_first_byte_pattern() {
+        // The gate is scoped to any-value or *ordering*-compared rules;
+        // an equality comparison never gates, regardless of pattern.
+        let rule = rule_with(Operator::Equal, Value::Bytes(vec![0, b'A']));
+        assert!(!newline_stop_gate(&rule));
+    }
+
+    #[test]
+    fn test_equality_rule_with_ordinary_pattern_does_not_gate() {
+        let rule = rule_with(Operator::Equal, Value::String("hello".to_string()));
+        assert!(!newline_stop_gate(&rule));
+    }
+
+    #[test]
+    fn test_ordering_rule_with_empty_pattern_does_not_panic_or_gate() {
+        // An empty pattern has no first byte; must not gate and must not
+        // panic on `.first()`.
+        let rule = rule_with(Operator::LessThan, Value::String(String::new()));
+        assert!(!newline_stop_gate(&rule));
+    }
+
+    #[test]
+    fn test_all_four_ordering_operators_check_first_byte() {
+        for op in [
+            Operator::LessThan,
+            Operator::GreaterThan,
+            Operator::LessEqual,
+            Operator::GreaterEqual,
+        ] {
+            let op_dbg = format!("{op:?}");
+            let gated = rule_with(op.clone(), Value::Bytes(vec![0, b'X']));
+            assert!(
+                newline_stop_gate(&gated),
+                "operator {op_dbg} with null-first-byte pattern must gate"
+            );
+
+            let ungated = rule_with(op, Value::String("X".to_string()));
+            assert!(
+                !newline_stop_gate(&ungated),
+                "operator {op_dbg} with non-null-first-byte pattern must not gate"
+            );
+        }
     }
 }
