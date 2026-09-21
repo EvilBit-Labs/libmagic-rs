@@ -102,6 +102,12 @@ fn test_bytes_consumed_search_with_pattern_is_match_end() {
     // Regression guard for the pre-fix behavior that returned the
     // entire window size instead of match-end. Per GNU `file` softmagic.c
     // FILE_SEARCH, the anchor advances to `base + match_idx + pattern.len()`.
+    //
+    // R6 sanity control: this is an unflagged pattern, so the declared
+    // pattern length and the walked-byte count coincide -- match-end here
+    // is unaffected by the R6 fix (U4). See
+    // `test_bytes_consumed_search_flagged_w_declared_length_not_walked_length`
+    // below for the case where they diverge.
     let buf = b"abcWorld_xyz";
     let typ = TypeKind::Search {
         range: ::std::num::NonZeroUsize::new(10),
@@ -113,6 +119,89 @@ fn test_bytes_consumed_search_with_pattern_is_match_end() {
         bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)),
         8,
         "expected match-end (8), not window-end (10)"
+    );
+}
+
+/// R6 (U4), measured against real `file`-5.41: `search/32/w` pattern
+/// `A\ B` (declared length 3) over buffer `A   Bqz` (a 3-space run where
+/// the pattern has one optional space) resolves the anchor to index 3 --
+/// match position (0) plus DECLARED pattern length (3) -- not the walked
+/// match-end (5). Exercised through the public `bytes_consumed_with_pattern`
+/// dispatch, mirroring `search_bytes_consumed`'s own unit coverage in
+/// `search.rs`. See GOTCHAS S2.6.
+#[test]
+fn test_bytes_consumed_search_flagged_w_declared_length_not_walked_length() {
+    let buf = b"A   Bqz";
+    let typ = TypeKind::Search {
+        range: ::std::num::NonZeroUsize::new(32),
+        flags: SearchFlags::default().with_compact_optional_whitespace(true),
+    };
+    let pattern = Value::String("A B".to_string());
+    assert_eq!(
+        bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)),
+        3,
+        "anchor must land at declared-length index 3, matching real `file`, not walked index 5"
+    );
+}
+
+/// R6/R8: the `/s` start-anchor flag still resolves the child to the
+/// match POSITION, orthogonal to the declared-length fix above. Combined
+/// with `/w` so the test also confirms `/s` takes priority over the
+/// declared-length branch rather than the two interacting incorrectly.
+#[test]
+fn test_bytes_consumed_search_start_anchor_resolves_to_match_position() {
+    let buf = b"junkA   Bqz";
+    let typ = TypeKind::Search {
+        range: ::std::num::NonZeroUsize::new(32),
+        flags: SearchFlags::default()
+            .with_compact_optional_whitespace(true)
+            .with_start_anchor(true),
+    };
+    let pattern = Value::String("A B".to_string());
+    // Match starts at index 4 ("junk" is 4 bytes); /s anchors there
+    // regardless of declared length or walked length.
+    assert_eq!(
+        bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)),
+        4,
+        "/s must resolve to match-start (4), not a declared- or walked-length advance"
+    );
+}
+
+/// A bare `search` (range `None`, scan-to-EOF) behaves as the ranged
+/// form for anchor purposes: the advance is still the declared pattern
+/// length under `/w`, not the walked byte count.
+#[test]
+fn test_bytes_consumed_search_bare_range_behaves_as_ranged_form_for_anchor() {
+    let buf = b"A   Bqz_trailing_data_past_the_match";
+    let typ = TypeKind::Search {
+        range: None,
+        flags: SearchFlags::default().with_compact_optional_whitespace(true),
+    };
+    let pattern = Value::String("A B".to_string());
+    assert_eq!(
+        bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)),
+        3,
+        "bare search (range None) must use declared length (3), matching the ranged form"
+    );
+}
+
+/// R8: a `/w` search whose declared-length advance exceeds the remaining
+/// buffer must not panic. `bytes_consumed_with_pattern` simply reports
+/// the declared length unclamped; a downstream relative-offset child at
+/// that out-of-bounds offset fails to match (GOTCHAS S15.1), which is
+/// the correct, deliberately out-of-scope-here outcome.
+#[test]
+fn test_bytes_consumed_search_flagged_declared_length_can_exceed_buffer() {
+    let buf = b"ab";
+    let typ = TypeKind::Search {
+        range: ::std::num::NonZeroUsize::new(20),
+        flags: SearchFlags::default().with_compact_optional_whitespace(true),
+    };
+    let pattern = Value::String("a b".to_string());
+    assert_eq!(
+        bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)),
+        3,
+        "declared length (3) must be returned unclamped, even past the 2-byte buffer"
     );
 }
 

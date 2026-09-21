@@ -45,6 +45,11 @@ fn trim_ascii_whitespace(s: &[u8]) -> &[u8] {
 /// number of buffer bytes consumed by the match (which may exceed
 /// `pattern.len()` under `/w`/`/W` whitespace flags or fall short of it
 /// under `/T` trim).
+///
+/// `matched_len` is the byte-walk's own primitive -- correct as reported --
+/// but [`search_bytes_consumed`] does NOT use it to compute the
+/// relative-offset anchor advance (R6, GOTCHAS S2.6). The advance is
+/// derived from the pattern's DECLARED length instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ScanHit {
     match_idx: usize,
@@ -179,33 +184,39 @@ pub fn read_search(
 
 /// Compute the anchor-advance distance for a successful search match.
 ///
-/// GNU `file` advances its previous-match anchor to the byte just past the
-/// matched pattern -- `base_offset + match_index + matched_len`, not past
-/// the full search window. See `src/softmagic.c` `moffset()` / `FILE_SEARCH`
-/// branch (`vlen = m->vallen; o = ms->search.offset + vlen - offset;`) where
-/// `ms->search.offset` has already been advanced by `idx` (the match index
-/// within the window).
+/// GNU `file`'s `moffset()` (`src/softmagic.c`, `FILE_SEARCH` branch:
+/// `vlen = m->vallen; o = ms->search.offset + vlen - offset;`) advances the
+/// previous-match anchor by the pattern's own DECLARED length (`m->vallen`),
+/// unconditional on which search flags are set -- never by however many
+/// FILE bytes `/w` or `/W` actually walked to confirm the match. An earlier
+/// revision of this function derived the advance from the byte-walk's
+/// `matched_len`, which is correct only for the unflagged case where
+/// match-end and declared-length coincide. Measured against real
+/// `file`-5.41: `search/32/w` pattern `A\ B` (declared length 3) over
+/// buffer `A   Bqz` (a 3-space run where the pattern has one optional
+/// space) resolves a relative-offset child to index 3, not the walked
+/// match-end (5). See GOTCHAS S2.6 (issue #498, R6).
 ///
 /// When `flags.start_anchor` is set (the `/s` modifier), the anchor lands
-/// on `match_index` instead of past-end. This mirrors libmagic's
-/// `FILE_SEARCH` / search-start handling in `softmagic.c`'s `moffset`.
+/// on `match_idx` instead -- this is orthogonal to the declared-length
+/// correction above and unaffected by it.
 ///
-/// `matched_len` is the source of truth for the past-end branch: under
-/// `/T` trim the comparator inspects fewer bytes than `pattern.len()`,
-/// and under `/w`/`/W` the comparator can consume more. The
-/// [`compare_string_with_flags`] return value carries the actual count.
-/// On the fast path (no comparison-altering flags) `matched_len ==
-/// pattern.len()` because `memmem` is byte-exact.
+/// The declared length honors `/T` trim: when set, the pattern that was
+/// actually compared (and therefore its declared length) is the trimmed
+/// pattern, matching the window `find_match` scanned.
 ///
 /// This function re-runs the same scan as [`read_search`] and returns the
 /// advance. On miss or invalid state it returns `0`; the engine only
 /// calls it after a successful read so the defensive paths are
 /// belt-and-braces.
 ///
-/// The result is clamped against `buffer.len().saturating_sub(offset)`
-/// (the remaining-buffer length) to defend against any pattern-length math
-/// that could overflow on adversarial input -- mirroring the pstring
-/// anchor clamp at `docs/solutions/security-issues/pstring-anchor-poisoning.md`.
+/// **No clamp against the remaining buffer.** A `/w`/`/W` declared length
+/// can exceed however many bytes the file actually walked, so the returned
+/// advance may legitimately point past `buffer.len()`. `saturating_add`
+/// only guards against integer overflow; a downstream relative-offset
+/// child at an out-of-bounds offset simply fails to match (GOTCHAS
+/// S15.1), which is the correct outcome (R8) -- mirroring the flagged
+/// `string` anchor (GOTCHAS S6.8).
 ///
 /// Note: like [`crate::evaluator::types::regex::regex_bytes_consumed`], this
 /// pays the cost of a second scan rather than threading the match position
@@ -232,15 +243,21 @@ pub(super) fn search_bytes_consumed(
         return 0;
     };
 
-    let raw = if flags.start_anchor {
-        hit.match_idx
+    if flags.start_anchor {
+        return hit.match_idx;
+    }
+
+    // The declared length is the pattern actually compared -- trimmed by
+    // /T when set, matching `find_match`'s `effective_pattern`. This is
+    // deliberately NOT `hit.matched_len` (the byte-walk's consumed count,
+    // still correct as a primitive -- see `ScanHit`'s docs); see this
+    // function's docs above for why.
+    let declared_len = if flags.trim {
+        trim_ascii_whitespace(pattern).len()
     } else {
-        // Use saturating_add so we never panic; the clamp below converts
-        // any saturation into a buffer-bounded value.
-        hit.match_idx.saturating_add(hit.matched_len)
+        pattern.len()
     };
-    let remaining = buffer.len().saturating_sub(offset);
-    raw.min(remaining)
+    hit.match_idx.saturating_add(declared_len)
 }
 
 #[cfg(test)]
@@ -493,18 +510,83 @@ mod tests {
 
     #[test]
     fn test_search_compact_optional_whitespace() {
-        // `/w` -- pattern whitespace matches zero or more whitespace
-        // bytes in the file. The comparator consumes the wider whitespace
-        // run; matched_len reflects the actual buffer bytes inspected.
+        // `/w` -- pattern whitespace matches zero or more whitespace bytes
+        // in the file. The comparator walks all 9 buffer bytes to confirm
+        // the match, but per R6 (GOTCHAS S2.6, measured against real
+        // `file`-5.41) the anchor advance is the pattern's own DECLARED
+        // length (7: "foo bar"), not however many file bytes the walk
+        // consumed. This assertion previously expected 9 (the walked
+        // count); that was the contract this fix corrects, not a case
+        // this fix leaves alone -- see AE2.
         let buffer = b"foo   bar"; // three spaces
         let flags = SearchFlags::default().with_compact_optional_whitespace(true);
         let result = read_search(buffer, 0, b"foo bar", nz(20), flags).unwrap();
         assert!(result.is_some(), "/w should match wider whitespace runs");
-        // match_idx 0, matched_len 9 (all 9 buffer bytes consumed) -> 9.
         assert_eq!(
             search_bytes_consumed(buffer, 0, b"foo bar", nz(20), flags),
-            9,
-            "matched_len under /w reflects the wider whitespace run"
+            7,
+            "anchor advance is the declared pattern length (7), not the walked byte count (9)"
+        );
+    }
+
+    #[test]
+    fn test_search_flag_w_anchor_uses_declared_pattern_length_not_walked_length() {
+        // AE2 / R6, measured against real `file`-5.41: `search/32/w`
+        // pattern `A\ B` (declared length 3: 'A', ' ', 'B') over buffer
+        // `A   Bqz` (a 3-space run where the pattern has one optional
+        // space) resolves a relative-offset child to index 3 -- the match
+        // position (0) plus the pattern's DECLARED length (3) -- not the
+        // walked match-end (5, where the comparator actually stopped
+        // after absorbing all three file spaces). This is the defect this
+        // unit corrects; GOTCHAS S2.6 records the measurement.
+        let buffer = b"A   Bqz";
+        let flags = SearchFlags::default().with_compact_optional_whitespace(true);
+        let result = read_search(buffer, 0, b"A B", nz(32), flags).unwrap();
+        assert!(result.is_some(), "/w should absorb the wider space run");
+        assert_eq!(
+            search_bytes_consumed(buffer, 0, b"A B", nz(32), flags),
+            3,
+            "anchor must land at declared-length index 3, matching real `file`, not walked index 5"
+        );
+    }
+
+    #[test]
+    fn test_search_bytes_consumed_declared_length_can_exceed_remaining_buffer_under_w() {
+        // R8: the declared-length advance is not clamped to the remaining
+        // buffer. Pattern "a b" (declared length 3) matches file "ab" (2
+        // bytes) via /w consuming zero optional whitespace at the space
+        // position. The declared length (3) exceeds the 2-byte buffer;
+        // the function must return it as-is (not clamp to 2, not panic).
+        // A downstream relative-offset child at that out-of-bounds
+        // position simply fails to match (GOTCHAS S15.1) -- the correct
+        // outcome per R8, not this unit's concern to re-verify.
+        let buffer = b"ab";
+        let flags = SearchFlags::default().with_compact_optional_whitespace(true);
+        let result = read_search(buffer, 0, b"a b", nz(20), flags).unwrap();
+        assert!(
+            result.is_some(),
+            "/w should match with zero file whitespace"
+        );
+        assert_eq!(
+            search_bytes_consumed(buffer, 0, b"a b", nz(20), flags),
+            3,
+            "declared length (3) must be returned unclamped, even past the 2-byte buffer"
+        );
+    }
+
+    #[test]
+    fn test_search_bytes_consumed_bare_range_none_uses_declared_length_under_w() {
+        // A bare `search` (range `None`, scan-to-EOF) behaves like the
+        // ranged form for anchor purposes: the advance is still the
+        // pattern's declared length, not the walked byte count.
+        let buffer = b"A   Bqz_trailing_data_past_the_match";
+        let flags = SearchFlags::default().with_compact_optional_whitespace(true);
+        let result = read_search(buffer, 0, b"A B", None, flags).unwrap();
+        assert!(result.is_some());
+        assert_eq!(
+            search_bytes_consumed(buffer, 0, b"A B", None, flags),
+            3,
+            "bare search (range None) must use declared length (3) for anchor advance, matching the ranged form"
         );
     }
 
@@ -533,19 +615,18 @@ mod tests {
     }
 
     #[test]
-    fn test_search_bytes_consumed_clamps_against_buffer_length() {
-        // Pattern very close to buffer end. The clamp guarantees the
-        // returned advance never exceeds `buffer.len() - offset`,
-        // protecting against arithmetic overshoot on adversarial input.
+    fn test_search_bytes_consumed_unflagged_pattern_near_buffer_end_lands_at_buffer_end() {
+        // Pattern very close to buffer end. There is no clamp against the
+        // remaining buffer (R8, GOTCHAS S2.6) -- for an unflagged pattern
+        // the declared length always equals the walked length, so this
+        // case coincidentally lands exactly at buffer end either way.
         let buffer = b"hello";
-        // Pattern "lo" at index 3, matched_len 2, raw = 5; remaining =
-        // buffer.len() - offset = 5 - 0 = 5. Clamp leaves it at 5.
+        // Pattern "lo" at index 3, declared length 2, raw = 3 + 2 = 5.
         assert_eq!(
             search_bytes_consumed(buffer, 0, b"lo", nz(100), default_flags()),
             5
         );
-        // Pattern at offset 3: remaining = 5 - 3 = 2; match_idx 0 +
-        // matched_len 2 = 2, clamp leaves it at 2.
+        // Pattern at offset 3: match_idx 0, declared length 2, raw = 2.
         assert_eq!(
             search_bytes_consumed(buffer, 3, b"lo", nz(100), default_flags()),
             2
