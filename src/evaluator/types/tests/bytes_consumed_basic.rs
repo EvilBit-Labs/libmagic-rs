@@ -326,3 +326,100 @@ fn test_bytes_consumed_fixed_width_returns_zero_past_end() {
         0
     );
 }
+
+// =============================================================================
+// R12: the any-value (`string x`, `pattern: None`) anchor must follow the
+// same 127-byte / newline-stop bound as the read that feeds it (U3).
+// =============================================================================
+
+#[test]
+fn test_bytes_consumed_any_value_stops_at_first_newline() {
+    // Measured against `file-5.41`: `0 string x` over `ABC\nZZ\n` resolves
+    // a relative-offset child to index 3 -- the newline itself, not past
+    // it and not the full remaining buffer.
+    let buf = b"ABC\nZZ\n";
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 3);
+}
+
+#[test]
+fn test_bytes_consumed_any_value_stops_at_first_carriage_return() {
+    let buf = b"AB\rCD";
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 2);
+}
+
+#[test]
+fn test_bytes_consumed_any_value_caps_at_127_bytes_with_no_newline() {
+    // 300 'Q' bytes, no \r or \n anywhere -- the anchor must land exactly
+    // at the 127-byte description-field bound (R1), not the full buffer.
+    let buf = vec![b'Q'; 300];
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+    assert_eq!(bytes_consumed_with_pattern(&buf, 0, &typ, None), 127);
+}
+
+#[test]
+fn test_bytes_consumed_any_value_127_cap_boundary_is_stable() {
+    // A distinguishing marker just past the 127-byte window (index 127)
+    // must not affect the result; the same marker moved to the last byte
+    // still inside the window (index 126) must not affect it either --
+    // both resolve to the same 127-byte cap. Pins the exact boundary
+    // rather than an off-by-one on either edge.
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+
+    let mut marker_outside = vec![b'Q'; 300];
+    marker_outside[127] = b'X';
+    assert_eq!(
+        bytes_consumed_with_pattern(&marker_outside, 0, &typ, None),
+        127
+    );
+
+    let mut marker_at_last_included_byte = vec![b'Q'; 300];
+    marker_at_last_included_byte[126] = b'X';
+    assert_eq!(
+        bytes_consumed_with_pattern(&marker_at_last_included_byte, 0, &typ, None),
+        127
+    );
+}
+
+#[test]
+fn test_bytes_consumed_any_value_shorter_than_bound_advances_by_own_length() {
+    // No newline, buffer shorter than the 127-byte bound -- the anchor
+    // advances by the buffer's own remaining length, not the bound.
+    let buf = b"Hi";
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 2);
+}
+
+#[test]
+fn test_bytes_consumed_pattern_compared_read_unaffected_by_any_value_bound() {
+    // A pattern-compared (Equal-style) read over the SAME long, newline-
+    // bearing buffer must be governed purely by the pattern's own length
+    // -- R12 only touches the `(None, _)` any-value dispatch arm.
+    let mut buf = vec![b'Q'; 300];
+    buf[3] = b'\n';
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+    let pattern = Value::String("QQQ".to_string());
+    assert_eq!(
+        bytes_consumed_with_pattern(&buf, 0, &typ, Some(&pattern)),
+        3
+    );
+}

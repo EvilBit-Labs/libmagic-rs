@@ -1015,3 +1015,137 @@ impl EvaluationMetadata {
 
 #[cfg(test)]
 mod tests;
+
+/// End-to-end proof that R2's newline-stop gate is live through the real
+/// evaluation + rendering pipeline (issue #498, U3/R12/R14).
+///
+/// Inline (rather than added to `mod tests` / `src/tests.rs`) because this
+/// unit's touched-file set does not include that file. These tests
+/// exercise the production dispatch chain directly:
+/// `evaluate_rules` -> `evaluate_single_rule_with_anchor` ->
+/// `evaluate_value_rule` -> `read_typed_value_with_pattern`'s any-value
+/// arm (now bounded, see `evaluator::types::any_value_string_bound`) ->
+/// `MagicDatabase::concatenate_messages` -> `format_magic_message`. The
+/// newline stop is enforced entirely at the READ (Half A / R12); the
+/// render-layer `format_magic_message_with_gate` signal is not threaded
+/// through `RuleMatch` in this unit (see `newline_stop_gate`'s doc
+/// comment in `evaluator::engine::value_eval` for why).
+#[cfg(test)]
+mod newline_gate_end_to_end_tests {
+    use super::MagicDatabase;
+    use crate::evaluator::evaluate_rules;
+    use crate::parser::ast::StringFlags;
+    use crate::{EvaluationContext, MagicRule, OffsetSpec, Operator, TypeKind, Value};
+
+    /// Proof scenario from the plan: `0 string x STR=[%s]` over
+    /// `ZZZZABC\nSECOND\n` must render exactly one line, matching
+    /// `file-5.41`'s newline-stop behavior for the any-value idiom.
+    /// Before this unit: 3 lines (the value read the whole multi-line
+    /// buffer). After: 1 line.
+    #[test]
+    fn test_any_value_string_x_renders_single_line_across_embedded_newline() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default(),
+            },
+            Operator::AnyValue,
+            Value::Uint(0),
+            "STR=[%s]".to_string(),
+        );
+        let buffer = b"ZZZZABC\nSECOND\n";
+        let mut ctx = EvaluationContext::new(crate::EvaluationConfig::default());
+        let matches = evaluate_rules(std::slice::from_ref(&rule), buffer, &mut ctx)
+            .expect("evaluate_rules should not error for this simple rule");
+        assert_eq!(matches.len(), 1, "the any-value rule should match once");
+
+        let description = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(
+            description.lines().count(),
+            1,
+            "description must be a single line, got: {description:?}"
+        );
+        assert_eq!(description, "STR=[ZZZZABC]");
+    }
+
+    /// Proof scenario from the plan: an equality-compared rule whose
+    /// PATTERN itself contains an embedded newline (so the matched buffer
+    /// must contain it too) renders that newline verbatim -- equality
+    /// never gates R2's stop, regardless of content.
+    #[test]
+    fn test_equality_compared_rule_with_embedded_newline_does_not_stop() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default(),
+            },
+            Operator::Equal,
+            Value::String("AB\nCD".to_string()),
+            "eq=[%s]".to_string(),
+        );
+        let buffer = b"AB\nCD";
+        let mut ctx = EvaluationContext::new(crate::EvaluationConfig::default());
+        let matches = evaluate_rules(std::slice::from_ref(&rule), buffer, &mut ctx)
+            .expect("evaluate_rules should not error for this simple rule");
+        assert_eq!(matches.len(), 1, "the equality rule should match once");
+
+        let description = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(
+            description, "eq=[AB\nCD]",
+            "an equality-compared rule must never stop at an embedded newline"
+        );
+    }
+
+    /// Proof scenario from the plan: an ordering rule whose pattern's
+    /// first byte is a null byte gates R2's newline stop for its
+    /// full-field display render; one whose pattern's first byte is NOT
+    /// null does not gate and keeps the embedded newline.
+    #[test]
+    fn test_ordering_rule_null_first_byte_gates_end_to_end() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default(),
+            },
+            Operator::GreaterThan,
+            Value::Bytes(vec![0, b'A']), // null-first-byte pattern: gates
+            "gated=[%s]".to_string(),
+        );
+        let buffer = b"ZZZZ\nSECOND";
+        let mut ctx = EvaluationContext::new(crate::EvaluationConfig::default());
+        let matches = evaluate_rules(std::slice::from_ref(&rule), buffer, &mut ctx)
+            .expect("evaluate_rules should not error for this simple rule");
+        assert_eq!(matches.len(), 1);
+
+        let description = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(description, "gated=[ZZZZ]");
+    }
+
+    #[test]
+    fn test_ordering_rule_non_null_first_byte_does_not_gate_end_to_end() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default(),
+            },
+            Operator::GreaterThan,
+            Value::String("A".to_string()), // non-null-first-byte: does not gate
+            "ungated=[%s]".to_string(),
+        );
+        let buffer = b"ZZZZ\nSECOND";
+        let mut ctx = EvaluationContext::new(crate::EvaluationConfig::default());
+        let matches = evaluate_rules(std::slice::from_ref(&rule), buffer, &mut ctx)
+            .expect("evaluate_rules should not error for this simple rule");
+        assert_eq!(matches.len(), 1);
+
+        let description = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(
+            description, "ungated=[ZZZZ\nSECOND]",
+            "non-gated ordering render must keep the embedded newline"
+        );
+    }
+}

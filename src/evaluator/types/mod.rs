@@ -418,12 +418,17 @@ pub(crate) fn read_typed_value_with_pattern(
                 (Some(n), _) => read_string_exact(buffer, offset, *n),
                 (None, Some(Value::String(p))) => read_string_exact(buffer, offset, p.len()),
                 (None, Some(Value::Bytes(b))) => read_string_exact(buffer, offset, b.len()),
-                // 2A-H1: thread the configured cap into the scan-mode read.
-                // Without this, `string x` rules against attacker-controlled
-                // NUL-free buffers could allocate up to the full buffer
-                // length, defeating the CWE-770 control documented in
-                // `EvaluationConfig::max_string_length`.
-                (None, _) => read_string(buffer, offset, Some(max_string_length)),
+                // 2A-H1 / R1 / R2 / R12: thread BOTH the configured
+                // CWE-770 scan cap (`max_string_length`) and the
+                // description-render bound (127 bytes, newline-stopped)
+                // into the scan-mode read, so the value stored on the
+                // match is already the same text the renderer would show
+                // -- see `any_value_string_bound`.
+                (None, _) => read_string(
+                    buffer,
+                    offset,
+                    Some(any_value_string_bound(buffer, offset, max_string_length)),
+                ),
             }
         }
         TypeKind::String16 { endian } => read_string16(buffer, offset, *endian),
@@ -934,7 +939,20 @@ pub(crate) fn bytes_consumed_with_pattern(
                         .checked_add(blen)
                         .map_or(0, |end| if end > buffer.len() { 0 } else { blen })
                 }
-                (None, _) => string_bytes_consumed(buffer, offset, None),
+                // R12: the any-value anchor must advance by exactly what
+                // the bounded read at this offset actually consumed, not
+                // by an unbounded NUL scan. `bytes_consumed_with_pattern`
+                // has no `max_string_length` parameter (its signature is
+                // shared with call sites this unit does not own), so this
+                // arm bounds purely by `MAX_DESCRIPTION_FIELD_LEN` --
+                // matching the read side whenever `max_string_length` is
+                // at or above that default-sized bound, which is the case
+                // for every shipped `EvaluationConfig` preset.
+                (None, _) => string_bytes_consumed(
+                    buffer,
+                    offset,
+                    Some(any_value_string_bound(buffer, offset, usize::MAX)),
+                ),
             }
         }
         TypeKind::String16 { endian } => string16_bytes_consumed(buffer, offset, *endian),
@@ -1033,6 +1051,44 @@ pub(crate) fn bytes_consumed_with_pattern(
         // any future `TypeKind` variant triggers a compile error.
         TypeKind::Meta(_) => 0,
     }
+}
+
+/// Compute the effective `max_length` cap for an unconstrained (`x`,
+/// any-value) `string` read or its matching anchor-advance computation.
+///
+/// Bounded to at most [`crate::output::format::MAX_DESCRIPTION_FIELD_LEN`]
+/// bytes (R1) and, within that bound, cut at the first `\r` or `\n` byte
+/// found (R2) -- mirroring upstream's `*m->value.s == '\0'` first-byte
+/// stop for the any-value idiom. `max_string_length` (the configured
+/// CWE-770 scan cap, GOTCHAS 2A-H1) is folded in as an additional lower
+/// bound so a caller-configured cap smaller than the render bound is
+/// still honored; pass `usize::MAX` to ignore it entirely.
+///
+/// Reusing this single computed value as the `max_length` argument to
+/// both [`read_string`] (the value read) and [`string_bytes_consumed`]
+/// (the anchor advance) is what keeps the two in agreement (R12): the
+/// anchor always equals exactly what the read actually consumed.
+///
+/// Measured against `file-5.41`: `0 string x` over `ABC\nZZ\n` resolves a
+/// relative-offset child to index 3 (the newline), not the full remaining
+/// buffer.
+// Slicing is invariant-safe: `cap` is clamped to `remaining` above, so
+// `offset..offset + cap` is always within `buffer`'s bounds when
+// `offset <= buffer.len()`; `buffer.get(..)` guards the case where it
+// is not (`.unwrap_or(cap)` falls back to the pre-clamped cap).
+pub(crate) fn any_value_string_bound(
+    buffer: &[u8],
+    offset: usize,
+    max_string_length: usize,
+) -> usize {
+    let remaining = buffer.len().saturating_sub(offset);
+    let cap = remaining
+        .min(max_string_length)
+        .min(crate::output::format::MAX_DESCRIPTION_FIELD_LEN);
+    buffer
+        .get(offset..offset.saturating_add(cap))
+        .and_then(|window| window.iter().position(|&b| b == b'\r' || b == b'\n'))
+        .unwrap_or(cap)
 }
 
 /// Compute the anchor-advance distance for a successful c-string match.

@@ -216,7 +216,14 @@ const MAX_FORMAT_WIDTH: usize = 4096;
 /// `string16` ([`is_bounded_string_family`]); `regex` and `search` are
 /// bounded elsewhere by their own scan-window limits and are exempt from
 /// this bound and from the newline stop (R5).
-const MAX_DESCRIPTION_FIELD_LEN: usize = 127;
+///
+/// `pub(crate)` so the any-value and ordering-display *readers*
+/// (`evaluator::types::any_value_string_bound`,
+/// `evaluator::engine::value_eval::string_ordering_display_value`) can
+/// reuse the same constant rather than redefining it (R12, KTD2) --
+/// keeping the read/anchor bound and the render bound numerically
+/// identical by construction.
+pub(crate) const MAX_DESCRIPTION_FIELD_LEN: usize = 127;
 
 /// Parse a format specifier starting at `start` (the first byte after the
 /// leading `%`). Returns `None` if the sequence does not end in a
