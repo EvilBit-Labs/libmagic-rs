@@ -649,24 +649,26 @@ pub(crate) fn read_pattern_match(
 
 /// Anchor-advance count for a flagged `string` rule.
 ///
-/// Flagged string rules go through the pattern-bearing-type contract (see
-/// `read_pattern_match`), so their anchor advance is whatever
-/// `compare_string_with_flags` consumed -- which can exceed `pattern.len()`
-/// when `/w` or `/W` let the file have additional whitespace. Re-running
-/// the comparison here recovers the consumed-bytes count without storing
-/// it on the match value, matching the regex/search precedent.
+/// GNU `file`'s `moffset()` (`src/softmagic.c`) advances the previous-match
+/// anchor by the pattern's own declared length (`m->vallen`), unconditional
+/// on which string flags are set -- never by how many FILE bytes `/w` or
+/// `/W` actually walked. This function re-runs `compare_string_with_flags`
+/// only to confirm the rule matched (`Some(_)` vs `None`); the returned
+/// advance is the (possibly `/T`-trimmed) pattern's own length, not the
+/// comparator's walked-byte count. See GOTCHAS S6.8 for the oracle
+/// measurements this corrects (issue #498, R6).
 ///
-/// **NUL-terminator inclusion**: when the byte immediately after the
-/// matched region is `0x00`, the consumed count includes that NUL so
-/// relative-offset children land *after* the terminator. This mirrors
-/// the unflagged-string path in `bytes_consumed_with_pattern` and is the
-/// behavior `relative_after_string_parent_includes_nul_terminator` pins
-/// for the byte-exact path.
+/// **No NUL-terminator bump.** A byte immediately following the matched
+/// region is never counted as part of the advance, even when it is `0x00`
+/// -- the anchor lands ON that NUL, matching `moffset()`, which never adds
+/// a byte for a trailing NUL. This mirrors the unflagged-string path in
+/// `bytes_consumed_with_pattern` (R7).
 ///
-/// **`max_length` cap**: when `max_length: Some(n)` is set, the scan is
-/// bounded to `n` bytes from `offset`, matching the unflagged path. The
-/// NUL-terminator inclusion is also clamped to this window so we cannot
-/// advance past the configured boundary.
+/// **`max_length` cap**: when `max_length: Some(n)` is set, the comparator
+/// is still bounded to that window to decide match-or-miss (an
+/// all-whitespace-optional pattern could otherwise trivially match outside
+/// the intended scan range). The window does not further clamp the
+/// returned advance, which is always the pattern's declared length.
 fn flagged_string_bytes_consumed(
     buffer: &[u8],
     offset: usize,
@@ -706,21 +708,13 @@ fn flagged_string_bytes_consumed(
     } else {
         buffer
     };
-    let consumed =
-        string::compare_string_with_flags(effective, scan_buffer, offset, flags).unwrap_or(0);
-    if consumed == 0 {
+    // Re-run the comparator only to confirm match-or-miss. Its returned
+    // walked-byte count is deliberately discarded (R6) -- the advance
+    // below comes from the pattern's own declared length, not the walk.
+    if string::compare_string_with_flags(effective, scan_buffer, offset, flags).is_none() {
         return 0;
     }
-    // Mirror the unflagged path: peek the byte immediately after the
-    // matched region. If it is NUL, include it in the anchor advance so
-    // relative-offset children resolve past the terminator. Bounded by
-    // the same scan window, so a `max_length`-clamped match cannot
-    // accidentally cross the cap.
-    let after = offset.saturating_add(consumed);
-    match scan_buffer.get(after) {
-        Some(&0) => consumed.saturating_add(1),
-        _ => consumed,
-    }
+    effective.len()
 }
 
 /// Trim leading and trailing ASCII whitespace from a byte slice.
@@ -912,27 +906,18 @@ pub(crate) fn bytes_consumed_with_pattern(
             // For the (`max_length: None`, string literal pattern)
             // combination we now compare exactly `pattern.len()` bytes
             // in `read_typed_value_with_pattern` (libmagic semantics).
-            // Keep the NUL-terminator inclusion that the chained-record
-            // tests rely on by peeking at the byte immediately after
-            // the pattern window: if it is NUL, consume one extra
-            // byte; otherwise stop at the pattern boundary. Explicit
-            // `max_length` rules and non-string patterns keep the
-            // original NUL-scan behavior.
+            // The anchor advances by exactly that pattern length --
+            // including when a NUL immediately follows the match: the
+            // anchor lands ON that NUL, never past it (R7, GOTCHAS
+            // S6.8). Explicit `max_length` rules and non-string
+            // patterns keep the original NUL-scan behavior.
             match (max_length, pattern) {
                 (Some(n), _) => string_bytes_consumed(buffer, offset, Some(*n)),
                 (None, Some(Value::String(p))) => {
                     let plen = p.len();
-                    let base = offset
+                    offset
                         .checked_add(plen)
-                        .map_or(0, |end| if end > buffer.len() { 0 } else { plen });
-                    if base == 0 {
-                        0
-                    } else {
-                        match buffer.get(offset.saturating_add(plen)) {
-                            Some(&0) => base.saturating_add(1),
-                            _ => base,
-                        }
-                    }
+                        .map_or(0, |end| if end > buffer.len() { 0 } else { plen })
                 }
                 // `Value::Bytes` patterns reach this arm for backslash-escape
                 // values like `\177ELF` (parsed via `parse_mixed_hex_ascii`).

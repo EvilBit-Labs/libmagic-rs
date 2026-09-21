@@ -310,6 +310,10 @@ magic(5) and libmagic `src/file.h` reserve `/B` (`CHAR_PSTRING_1_BE`) as a `pstr
 
 Cross-type `String`/`Bytes` equality and ordering (S2.3) compare by byte sequence, so the returned variant (`String` for the all-UTF-8 case, `Bytes` for the high-byte case) always compares correctly against the read value regardless of which variant the read side produced. The fix covers **both** escape forms that can carry a high byte in a bareword: `\x9b` (hex) and `\376` (octal). Regression: `parse_bare_string_value_high_byte_returns_bytes_not_lossy_string` (parse) and `os2_inf_high_byte_signature_matches` (end-to-end). See the high-byte-utf8-corruption recurring-bug class.
 
+### 6.8 A Flag-Walked `string` Match Advances the Anchor by the Pattern's Declared Length, Not the Walk Count (Measured Correction, issue #498)
+
+An earlier revision of this section (and of `flagged_string_bytes_consumed`'s doc comment) claimed that when `/w` or `/W` let the file consume more or fewer bytes than the pattern, the relative-offset anchor advanced by that **walked** byte count, with a NUL immediately following the match adding one more byte on top. Both halves of that claim were measured wrong against the real `file`-5.41 binary: `moffset()` in `softmagic.c` advances by `m->vallen` -- the pattern's own declared length -- unconditionally on flags, and never adds a byte for a trailing NUL. `flagged_string_bytes_consumed` and the two unflagged `bytes_consumed_with_pattern` arms for `Value::String` now derive the advance from the pattern's (`/T`-trimmed) declared length and no longer bump past an adjacent NUL; `compare_string_with_flags` itself is unchanged and still reports the walked count, but nothing uses that count for anchor advance anymore. See `tests/relative_offset_evaluation.rs` and `src/evaluator/engine/tests/string_flags_dispatch_tests.rs` for the oracle-measured regression tests.
+
 ## 7. Testing
 
 ### 7.1 Doctest Import Paths

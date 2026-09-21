@@ -165,10 +165,15 @@ fn relative_chain_marches_forward() {
     assert_eq!(offsets, vec![0, 4, 8]);
 }
 
+/// R7 (measured against real `file`-5.41; `moffset()` in `softmagic.c`
+/// never adds a byte for a trailing NUL): a relative-offset child of a
+/// `string` parent lands ON a NUL that immediately follows the match, not
+/// past it. An earlier revision of this test asserted the opposite
+/// (inverted here -- see GOTCHAS S6.8).
 #[test]
-fn relative_after_string_parent_includes_nul_terminator() {
-    // String "MZ" at offset 0 followed by NUL (3 bytes consumed), then a
-    // byte the child reads via Relative(0).
+fn relative_after_string_parent_lands_on_nul_terminator() {
+    // String "MZ" at offset 0 (2 bytes), immediately followed by a NUL at
+    // offset 2. The anchor lands ON that NUL, not past it.
     let buffer = b"MZ\x00\x42rest";
 
     let parent = MagicRule::new(
@@ -184,24 +189,29 @@ fn relative_after_string_parent_includes_nul_terminator() {
     .with_children(vec![child_rule(
         OffsetSpec::Relative(0),
         TypeKind::Byte { signed: false },
-        Value::Uint(0x42),
-        "byte-after-mz",
+        Value::Uint(0x00),
+        "nul-terminator",
     )]);
 
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[parent], buffer, &mut ctx).unwrap();
-    assert_eq!(matches.len(), 2, "child should match after MZ + NUL");
-    assert_eq!(matches[1].offset, 3);
+    assert_eq!(
+        matches.len(),
+        2,
+        "child should match ON the NUL at offset 2"
+    );
+    assert_eq!(matches[1].offset, 2);
 }
 
-/// Same shape as `relative_after_string_parent_includes_nul_terminator`,
+/// Same shape as `relative_after_string_parent_lands_on_nul_terminator`,
 /// but the parent rule has a non-default `StringFlags` (`/c`). The
-/// flagged-string anchor-advance path must include the trailing NUL the
-/// same way as the byte-exact path does, otherwise relative-offset
-/// children land on the NUL byte instead of the byte after it.
-/// Pinned by Copilot PR #288 review (thread PRRT_kwDOP5Naes6E-VOX).
+/// flagged-string anchor-advance path must land on the trailing NUL the
+/// same way as the byte-exact path does (R6/R7), not past it. An earlier
+/// revision of this test asserted the opposite (inverted here -- see
+/// GOTCHAS S6.8). Originally pinned by Copilot PR #288 review (thread
+/// PRRT_kwDOP5Naes6E-VOX).
 #[test]
-fn relative_after_flagged_string_parent_includes_nul_terminator() {
+fn relative_after_flagged_string_parent_lands_on_nul_terminator() {
     let buffer = b"MZ\x00\x42rest";
     let parent = MagicRule::new(
         OffsetSpec::Absolute(0),
@@ -218,19 +228,19 @@ fn relative_after_flagged_string_parent_includes_nul_terminator() {
     .with_children(vec![child_rule(
         OffsetSpec::Relative(0),
         TypeKind::Byte { signed: false },
-        Value::Uint(0x42),
-        "byte-after-mz-flagged",
+        Value::Uint(0x00),
+        "nul-terminator-flagged",
     )]);
     let mut ctx = EvaluationContext::new(cfg());
     let matches = evaluate_rules(&[parent], buffer, &mut ctx).unwrap();
     assert_eq!(
         matches.len(),
         2,
-        "flagged-string parent + relative child should both match (NUL consumed)"
+        "flagged-string parent + relative child should both match (anchor lands ON the NUL)"
     );
     assert_eq!(
-        matches[1].offset, 3,
-        "child must land on byte AFTER the NUL terminator, not on it"
+        matches[1].offset, 2,
+        "child must land ON the NUL terminator, not past it"
     );
 }
 

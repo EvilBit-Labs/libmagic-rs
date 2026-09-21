@@ -156,12 +156,17 @@ pub fn read_string_exact(
 /// the match (which can exceed `pattern.len()` when `/w` or `/W` allowed the
 /// file to have additional whitespace). Returns `None` on miss.
 ///
-/// **Buffer bytes consumed is load-bearing for relative-offset child rules.**
-/// `&N` offsets resolve against the previous match's end position
-/// (GOTCHAS S3.8). When `/w` or `/W` lets the file consume more bytes than
-/// the pattern, that count is what advances the anchor, NOT `pattern.len()`.
-/// Returning the consumed count here keeps `bytes_consumed_with_pattern`
-/// honest without re-scanning the buffer at anchor-advance time.
+/// **The returned count is NOT what advances the relative-offset anchor.**
+/// `&N` offsets resolve against the previous match's end position (GOTCHAS
+/// S3.8), and GNU `file`'s `moffset()` (`src/softmagic.c`) advances that
+/// anchor by the pattern's own declared length (`m->vallen`), unconditional
+/// on flags -- never by how many file bytes `/w` or `/W` actually walked.
+/// Callers that need the anchor advance (`flagged_string_bytes_consumed` in
+/// the parent module) use this function only to confirm match-or-miss and
+/// derive the advance from the pattern length themselves; the walked count
+/// this function returns is exposed for callers that genuinely need it
+/// (e.g. locating the matched region's end for other purposes), not for
+/// anchor advance. See GOTCHAS S6.8 for the measured correction.
 ///
 /// **Trim is applied by the caller, not here.** `read_pattern_match` (in
 /// the parent module) trims the pattern before invoking this function
@@ -1525,18 +1530,20 @@ mod tests {
     }
 
     #[test]
-    fn test_compare_string_with_flags_consumed_bytes_drives_anchor() {
-        // This is the load-bearing contract from the U4 plan: when /W
-        // consumes more file bytes than pattern bytes, the returned count
-        // is what relative-offset child rules use to advance the anchor.
-        // The regression risk is returning `pattern.len()` instead.
+    fn test_compare_string_with_flags_returns_actual_walked_byte_count() {
+        // `compare_string_with_flags` itself still reports how many FILE
+        // bytes the walk consumed -- that primitive is unchanged. What
+        // changed (R6, GOTCHAS S6.8) is that callers no longer use this
+        // count to advance the relative-offset anchor; the anchor now
+        // derives from the pattern's own declared length instead. See
+        // `flagged_string_bytes_consumed` in `evaluator/types/mod.rs`.
         let flags = StringFlags::default().with_compact_whitespace(true);
-        // Pattern "a b" (3 bytes) against file "a    b" (6 bytes) ->
-        // anchor must advance by 6, NOT 3.
+        // Pattern "a b" (3 bytes) against file "a    b" (6 bytes): the
+        // walk consumes 6 bytes, which this function still reports.
         assert_eq!(
             compare_string_with_flags(b"a b", b"a    b", 0, flags),
             Some(6),
-            "anchor-advance contract: consumed_bytes reflects file consumption"
+            "the comparator's own return value is the walked byte count, unchanged"
         );
     }
 }

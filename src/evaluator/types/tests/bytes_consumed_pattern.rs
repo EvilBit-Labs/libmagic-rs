@@ -193,3 +193,86 @@ fn test_bytes_consumed_string_with_bytes_pattern_is_exact_length() {
         "usize::MAX offset must return 0 via checked_add"
     );
 }
+
+/// R6 sanity control: an unflagged `string` match has no flag-walk
+/// divergence, so the pattern's declared length and the file bytes
+/// consumed always coincide. This is unaffected by the R6 fix -- listed
+/// here so the invariant is explicit, not merely implied by other tests.
+#[test]
+fn test_bytes_consumed_unflagged_string_pattern_walk_equals_declared_length() {
+    let buf = b"HELLOxyz";
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+    let pattern = Value::String("HELLO".to_string());
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 5);
+}
+
+/// R7 (measured against real `file`-5.41; `moffset()` in `softmagic.c`
+/// never adds a byte for a trailing NUL): the anchor lands ON a NUL that
+/// immediately follows an unflagged `string` match, not past it.
+#[test]
+fn test_bytes_consumed_unflagged_string_pattern_lands_on_immediate_nul() {
+    let buf = b"HELLO\0zz";
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+    let pattern = Value::String("HELLO".to_string());
+    assert_eq!(
+        bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)),
+        5,
+        "anchor must land ON the NUL at index 5, not past it at index 6"
+    );
+}
+
+/// R6: a flagged `string` match's anchor advance is the pattern's
+/// declared length, not `compare_string_with_flags`'s walked-byte
+/// count -- even when that walk is shorter than the declared length.
+/// Regression guard for the `consumed == 0` shortcut the pre-fix code
+/// used to (incorrectly) treat as "no advance": here the /w-optional
+/// whitespace character in the pattern walks zero file bytes, so the
+/// OLD walked-byte count was 0 even though the rule matched and the
+/// pattern's declared length is 1.
+#[test]
+fn test_bytes_consumed_flagged_string_declared_length_used_even_when_walk_is_shorter() {
+    // Pattern " " (a single optional-whitespace char) against a file
+    // byte that is NOT whitespace: /w matches trivially (zero file
+    // bytes consumed), but the anchor must still advance by the
+    // pattern's declared length (1), landing at offset 1 -- not stay at
+    // offset 0 as the old walked-byte-count-driven code would.
+    let buf = b"X";
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default().with_compact_optional_whitespace(true),
+    };
+    let pattern = Value::String(" ".to_string());
+    assert_eq!(
+        bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)),
+        1,
+        "declared pattern length (1) must drive the advance, not the walked count (0)"
+    );
+}
+
+/// R6/R8: a `/w`-flagged pattern whose declared length exceeds the
+/// buffer's remaining bytes must not panic. `bytes_consumed_with_pattern`
+/// simply reports the declared length; the caller's `saturating_add`
+/// produces an anchor past EOF, and the downstream child read fails
+/// gracefully (see the engine-level
+/// `test_flagged_string_w_near_end_of_buffer_anchor_does_not_panic_and_child_is_non_match`
+/// test for the end-to-end non-match behavior).
+#[test]
+fn test_bytes_consumed_flagged_string_declared_length_can_exceed_remaining_buffer() {
+    // Pattern "#! X" (4 bytes) matches "#!X" (3 bytes) via /w consuming
+    // zero optional whitespace. The declared length (4) exceeds the
+    // 3-byte buffer, but the function must still return it, not panic
+    // or silently clamp to 0.
+    let buf = b"#!X";
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default().with_compact_optional_whitespace(true),
+    };
+    let pattern = Value::String("#! X".to_string());
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 4);
+}
