@@ -328,6 +328,118 @@ fn test_bytes_consumed_fixed_width_returns_zero_past_end() {
 }
 
 // =============================================================================
+// R5: the plain-`string` any-value newline-stop + 127-byte bound (R2/R12,
+// see the module doc at the top of this file's sibling
+// `bytes_consumed_pattern.rs` and `lib.rs`'s `newline_gate_end_to_end_tests`)
+// extended to `pstring` and `string16`. `pattern: None` is the any-value
+// dispatch shape (GOTCHAS S3.6: a real comparison pattern for a
+// string-family type is always `Some(Value::String(_) | Value::Bytes(_))`,
+// so a `None` pattern -- or, at the engine call site, an `AnyValue` rule's
+// `Value::Uint(0)` placeholder -- is what routes through the bounded arm).
+// =============================================================================
+
+#[test]
+fn test_bytes_consumed_pstring_any_value_stops_at_first_newline_includes_prefix_width() {
+    // prefix(1) + "ABC\ndef" payload (7 declared bytes) + trailing garbage.
+    // Measured against `file-5.41` with a relative-offset child (`&0`):
+    // the anchor lands at absolute index 4 -- prefix width (1) plus the
+    // newline's index within the payload (3) -- i.e. it lands ON the
+    // newline byte, matching the plain-`string` any-value convention.
+    let buf = b"\x07ABC\ndeftail\n";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::OneByte,
+        length_includes_itself: false,
+    };
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 4);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_any_value_caps_at_127_with_prefix_width_included() {
+    // Declared payload length 200, no newline -- measured against
+    // `file-5.41`: the anchor lands at prefix width (1) + 127 = 128.
+    let mut buf = vec![200u8];
+    buf.extend(std::iter::repeat_n(b'Q', 200));
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::OneByte,
+        length_includes_itself: false,
+    };
+    assert_eq!(bytes_consumed_with_pattern(&buf, 0, &typ, None), 128);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_equality_pattern_not_bounded_with_embedded_newline() {
+    // A real comparison pattern (`Some(Value::String(_))`) is never
+    // gated -- the anchor advances by the full prefix + declared payload
+    // length regardless of an embedded newline.
+    let buf = b"\x07ABC\ndef";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::OneByte,
+        length_includes_itself: false,
+    };
+    let pattern = Value::String("ABC\ndef".to_string());
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 8);
+}
+
+#[test]
+fn test_bytes_consumed_string16_any_value_stops_at_first_newline() {
+    // "AB\ncd" as UCS-2LE. Measured against `file-5.41` (a `&0` relative
+    // child on a `lestring16 x` rule): the anchor lands at 2 -- the
+    // DECODED code-unit count before the newline, NOT `2 * units` raw
+    // source bytes (which would be 4) and with no terminator adjustment.
+    // This is a genuine, measured libmagic quirk for FILE_LESTRING16 (see
+    // `string::any_value_string16_bound`'s doc comment).
+    let mut buf = Vec::new();
+    for ch in "AB\ncd".chars() {
+        buf.extend_from_slice(&(ch as u16).to_le_bytes());
+    }
+    buf.extend_from_slice(&[0, 0]);
+    buf.extend_from_slice(b"tail");
+    let typ = TypeKind::String16 {
+        endian: Endianness::Little,
+    };
+    assert_eq!(bytes_consumed_with_pattern(&buf, 0, &typ, None), 2);
+}
+
+#[test]
+fn test_bytes_consumed_string16_any_value_caps_at_127_units_with_no_newline() {
+    // 300 'Q' code units, no newline -- measured against `file-5.41`: the
+    // anchor lands at exactly 127 (decoded units), not 254 (raw bytes).
+    let mut buf = Vec::new();
+    for _ in 0..300 {
+        buf.extend_from_slice(&u16::from(b'Q').to_le_bytes());
+    }
+    buf.extend_from_slice(&[0, 0]);
+    let typ = TypeKind::String16 {
+        endian: Endianness::Little,
+    };
+    assert_eq!(bytes_consumed_with_pattern(&buf, 0, &typ, None), 127);
+}
+
+#[test]
+fn test_bytes_consumed_string16_equality_pattern_not_bounded() {
+    // A real comparison pattern keeps the EXISTING (untouched)
+    // `string16_bytes_consumed` raw-byte-doubled-plus-terminator
+    // convention -- this R5 unit only changes the any-value dispatch arm.
+    let mut buf = Vec::new();
+    for ch in "AB\ncd".chars() {
+        buf.extend_from_slice(&(ch as u16).to_le_bytes());
+    }
+    buf.extend_from_slice(&[0, 0]);
+    let typ = TypeKind::String16 {
+        endian: Endianness::Little,
+    };
+    let pattern = Value::String("AB\ncd".to_string());
+    // 5 units * 2 bytes + 2-byte NUL terminator = 12.
+    assert_eq!(
+        bytes_consumed_with_pattern(&buf, 0, &typ, Some(&pattern)),
+        12
+    );
+}
+
+// =============================================================================
 // R12: the any-value (`string x`, `pattern: None`) anchor must follow the
 // same 127-byte / newline-stop bound as the read that feeds it (U3).
 // =============================================================================

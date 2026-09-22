@@ -1149,3 +1149,272 @@ mod newline_gate_end_to_end_tests {
         );
     }
 }
+
+/// End-to-end proof that R5 (extending R1/R2's any-value newline-stop +
+/// 127-byte render bound to `pstring` and `string16`) is live through the
+/// real evaluation + rendering pipeline, mirroring
+/// `newline_gate_end_to_end_tests` above for plain `string`.
+///
+/// Every rendered string in this module was measured directly against
+/// `file-5.41` with an equivalent hand-written magic file (see this
+/// session's verification notes); each test's doc comment states the
+/// measured oracle value.
+#[cfg(test)]
+mod pstring_string16_newline_gate_end_to_end_tests {
+    use super::MagicDatabase;
+    use crate::evaluator::evaluate_rules;
+    use crate::parser::ast::PStringLengthWidth;
+    use crate::{
+        EvaluationConfig, EvaluationContext, MagicRule, OffsetSpec, Operator, TypeKind, Value,
+    };
+
+    fn pstring_type() -> TypeKind {
+        TypeKind::PString {
+            max_length: None,
+            length_width: PStringLengthWidth::OneByte,
+            length_includes_itself: false,
+        }
+    }
+
+    fn le_string16_type() -> TypeKind {
+        TypeKind::String16 {
+            endian: crate::Endianness::Little,
+        }
+    }
+
+    fn ucs2le(s: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        for ch in s.chars() {
+            out.extend_from_slice(&(ch as u16).to_le_bytes());
+        }
+        out
+    }
+
+    /// Measured: `0 pstring x PS=[%s]` over a 1-byte-prefix "ABC\ndef"
+    /// payload followed by unrelated trailing bytes renders `PS=[ABC]`
+    /// (one line), not the full multi-line payload.
+    #[test]
+    fn test_pstring_any_value_renders_single_line_across_embedded_newline() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            pstring_type(),
+            Operator::AnyValue,
+            Value::Uint(0),
+            "PS=[%s]".to_string(),
+        );
+        let buffer = b"\x07ABC\ndeftail\n";
+        let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+        let matches = evaluate_rules(std::slice::from_ref(&rule), buffer, &mut ctx)
+            .expect("evaluate_rules should not error for this simple rule");
+        assert_eq!(matches.len(), 1);
+        let description = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(description.lines().count(), 1);
+        assert_eq!(description, "PS=[ABC]");
+    }
+
+    /// Measured: `0 lestring16 x S16=[%s]` over "AB\ncd" (UCS-2LE,
+    /// NUL-terminated) followed by unrelated trailing bytes renders
+    /// `S16=[AB]` (one line).
+    #[test]
+    fn test_string16_any_value_renders_single_line_across_embedded_newline() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            le_string16_type(),
+            Operator::AnyValue,
+            Value::Uint(0),
+            "S16=[%s]".to_string(),
+        );
+        let mut buffer = ucs2le("AB\ncd");
+        buffer.extend_from_slice(&[0, 0]);
+        buffer.extend_from_slice(b"tail");
+        let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+        let matches = evaluate_rules(std::slice::from_ref(&rule), &buffer, &mut ctx)
+            .expect("evaluate_rules should not error for this simple rule");
+        assert_eq!(matches.len(), 1);
+        let description = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(description.lines().count(), 1);
+        assert_eq!(description, "S16=[AB]");
+    }
+
+    /// Measured: `0 pstring =ABC\ndef EQ=[%s]` over the same payload
+    /// renders the embedded newline verbatim (`EQ=[ABC` / `def]` -- two
+    /// lines) -- an equality-compared pstring never stops.
+    #[test]
+    fn test_pstring_equality_compared_with_embedded_newline_does_not_stop() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            pstring_type(),
+            Operator::Equal,
+            Value::String("ABC\ndef".to_string()),
+            "EQ=[%s]".to_string(),
+        );
+        let buffer = b"\x07ABC\ndef";
+        let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+        let matches = evaluate_rules(std::slice::from_ref(&rule), buffer, &mut ctx)
+            .expect("evaluate_rules should not error for this simple rule");
+        assert_eq!(matches.len(), 1);
+        let description = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(description, "EQ=[ABC\ndef]");
+    }
+
+    /// Measured: `0 lestring16 =AB\ncd EQ16=[%s]` over the same payload
+    /// renders the embedded newline verbatim -- an equality-compared
+    /// string16 never stops either.
+    #[test]
+    fn test_string16_equality_compared_with_embedded_newline_does_not_stop() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            le_string16_type(),
+            Operator::Equal,
+            Value::String("AB\ncd".to_string()),
+            "EQ16=[%s]".to_string(),
+        );
+        let mut buffer = ucs2le("AB\ncd");
+        buffer.extend_from_slice(&[0, 0]);
+        let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+        let matches = evaluate_rules(std::slice::from_ref(&rule), &buffer, &mut ctx)
+            .expect("evaluate_rules should not error for this simple rule");
+        assert_eq!(matches.len(), 1);
+        let description = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(description, "EQ16=[AB\ncd]");
+    }
+
+    /// Measured: a 200-byte pstring payload of 'Q' with no newline renders
+    /// exactly 127 'Q' characters (the R1 render bound), not the full
+    /// declared payload.
+    #[test]
+    fn test_pstring_any_value_caps_at_127_bytes() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            pstring_type(),
+            Operator::AnyValue,
+            Value::Uint(0),
+            "PS=[%s]".to_string(),
+        );
+        let mut buffer = vec![200u8];
+        buffer.extend(std::iter::repeat_n(b'Q', 200));
+        let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+        let matches = evaluate_rules(std::slice::from_ref(&rule), &buffer, &mut ctx)
+            .expect("evaluate_rules should not error for this simple rule");
+        let description = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(description, format!("PS=[{}]", "Q".repeat(127)));
+    }
+
+    /// Measured: a 300-code-unit lestring16 payload of 'Q' with no
+    /// newline renders exactly 127 'Q' characters -- the bound is in
+    /// DECODED characters, not raw (2-bytes-per-unit) source bytes.
+    #[test]
+    fn test_string16_any_value_caps_at_127_chars() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            le_string16_type(),
+            Operator::AnyValue,
+            Value::Uint(0),
+            "S16=[%s]".to_string(),
+        );
+        let buffer = ucs2le(&"Q".repeat(300));
+        let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+        let matches = evaluate_rules(std::slice::from_ref(&rule), &buffer, &mut ctx)
+            .expect("evaluate_rules should not error for this simple rule");
+        let description = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(description, format!("S16=[{}]", "Q".repeat(127)));
+    }
+
+    /// A configured `max_string_length` smaller than 127 (the existing
+    /// CWE-770 security pin, GOTCHAS 2A-H1) must still win over the
+    /// 127-byte render bound for BOTH pstring and string16 any-value
+    /// reads -- this is rmagic's own safety composition, not a `file`
+    /// behavior (GNU `file` has no equivalent config), so it is verified
+    /// as an internal invariant rather than against a `file` oracle.
+    #[test]
+    fn test_max_string_length_config_wins_over_127_for_pstring_and_string16() {
+        let config = EvaluationConfig::default().with_max_string_length(10);
+
+        let pstring_rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            pstring_type(),
+            Operator::AnyValue,
+            Value::Uint(0),
+            "PS=[%s]".to_string(),
+        );
+        let mut pstring_buffer = vec![200u8];
+        pstring_buffer.extend(std::iter::repeat_n(b'Q', 200));
+        let mut ctx = EvaluationContext::new(config.clone());
+        let matches = evaluate_rules(
+            std::slice::from_ref(&pstring_rule),
+            &pstring_buffer,
+            &mut ctx,
+        )
+        .expect("evaluate_rules should not error for this simple rule");
+        let description = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(description, format!("PS=[{}]", "Q".repeat(10)));
+
+        let string16_rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            le_string16_type(),
+            Operator::AnyValue,
+            Value::Uint(0),
+            "S16=[%s]".to_string(),
+        );
+        let string16_buffer = ucs2le(&"Q".repeat(300));
+        let mut ctx = EvaluationContext::new(config);
+        let matches = evaluate_rules(
+            std::slice::from_ref(&string16_rule),
+            &string16_buffer,
+            &mut ctx,
+        )
+        .expect("evaluate_rules should not error for this simple rule");
+        let description = MagicDatabase::concatenate_messages(&matches);
+        assert_eq!(description, format!("S16=[{}]", "Q".repeat(10)));
+    }
+
+    /// Measured with a relative-offset child (`>&0 byte x next=0x%02x`):
+    /// the pstring any-value anchor lands at prefix width (1) + the
+    /// newline's index within the payload (3) = 4, which is the newline
+    /// byte itself (`0x0a`).
+    #[test]
+    fn test_pstring_any_value_anchor_advances_past_prefix_width_and_stops_at_newline() {
+        let child = MagicRule::new(
+            OffsetSpec::Relative(0),
+            TypeKind::Byte { signed: false },
+            Operator::AnyValue,
+            Value::Uint(0),
+            "next=%d".to_string(),
+        );
+        let parent = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            pstring_type(),
+            Operator::AnyValue,
+            Value::Uint(0),
+            "PS=[%s]".to_string(),
+        )
+        .with_children(vec![child]);
+        let buffer = b"\x07ABC\ndeftail\n";
+        let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+        let matches = evaluate_rules(std::slice::from_ref(&parent), buffer, &mut ctx)
+            .expect("evaluate_rules should not error for this simple rule");
+        // parent match + child match
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[1].value, Value::Uint(u64::from(b'\n')));
+    }
+
+    /// A pstring whose declared prefix length exceeds the remaining
+    /// buffer must still degrade to a non-match without panicking, even
+    /// for an any-value rule now routed through the new bounded read
+    /// path (existing behavior, must not regress).
+    #[test]
+    fn test_pstring_any_value_declared_prefix_exceeds_buffer_degrades_to_non_match() {
+        let rule = MagicRule::new(
+            OffsetSpec::Absolute(0),
+            pstring_type(),
+            Operator::AnyValue,
+            Value::Uint(0),
+            "PS=[%s]".to_string(),
+        );
+        let buffer = b"\x05ab"; // declares 5 bytes, only 2 available
+        let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+        let matches = evaluate_rules(std::slice::from_ref(&rule), buffer, &mut ctx)
+            .expect("evaluate_rules should not error (a read failure is a non-match, not a propagated error)");
+        assert!(matches.is_empty());
+    }
+}

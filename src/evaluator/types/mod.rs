@@ -431,17 +431,29 @@ pub(crate) fn read_typed_value_with_pattern(
                 ),
             }
         }
-        TypeKind::String16 { endian } => read_string16(buffer, offset, *endian),
+        // R5: extend R1/R2's any-value newline-stop + 127-byte render bound
+        // (already applied to plain `string` above) to `string16` and
+        // `pstring`. See `is_string_family_comparison_pattern` for the
+        // shared gate both dispatch helpers use (GOTCHAS S3.6): an
+        // equality- or ordering-compared pstring/string16 pattern is
+        // always the real-pattern shape and therefore never gated here --
+        // matching the "equality never stops" contract (measured against
+        // `file-5.41`).
+        TypeKind::String16 { endian } => {
+            read_string16_dispatch(buffer, offset, *endian, pattern, max_string_length)
+        }
         TypeKind::PString {
             max_length,
             length_width,
             length_includes_itself,
-        } => read_pstring(
+        } => read_pstring_dispatch(
             buffer,
             offset,
             *max_length,
             *length_width,
             *length_includes_itself,
+            pattern,
+            max_string_length,
         ),
         TypeKind::Regex { flags, count } => {
             // Dual `String`/`Bytes` acceptance mirrors the `Search` arm
@@ -955,17 +967,27 @@ pub(crate) fn bytes_consumed_with_pattern(
                 ),
             }
         }
-        TypeKind::String16 { endian } => string16_bytes_consumed(buffer, offset, *endian),
+        // R5/R12: mirror the read-side gate immediately above via the SAME
+        // `is_string_family_comparison_pattern` test, so the anchor can
+        // never disagree with what the bounded read actually consumed.
+        // Neither dispatch helper below has a `max_string_length`
+        // parameter (mirroring the plain-`string` any-value arm's own
+        // `usize::MAX` use), so the anchor bound is purely
+        // `MAX_DESCRIPTION_FIELD_LEN`.
+        TypeKind::String16 { endian } => {
+            string16_bytes_consumed_dispatch(buffer, offset, *endian, pattern)
+        }
         TypeKind::PString {
             max_length,
             length_width,
             length_includes_itself,
-        } => pstring_bytes_consumed(
+        } => pstring_bytes_consumed_dispatch(
             buffer,
             offset,
             *max_length,
             *length_width,
             *length_includes_itself,
+            pattern,
         ),
         TypeKind::Regex { flags, count } => match pattern {
             Some(Value::String(s)) => {
@@ -1053,6 +1075,106 @@ pub(crate) fn bytes_consumed_with_pattern(
     }
 }
 
+/// Whether `pattern` is a real string-family comparison operand
+/// (`Some(Value::String(_) | Value::Bytes(_))`), as opposed to an
+/// `AnyValue` rule's `Value::Uint(0)` placeholder or no pattern at all.
+///
+/// Per GOTCHAS S3.6, a real comparison pattern for a string-family type
+/// (`string`, `pstring`, `string16`) is ALWAYS one of these two variants,
+/// since `parse_string_family_value` never parses a string-family
+/// bareword as a number, so anything else is the any-value dispatch
+/// shape. This is the shared R5 gate for `pstring`/`string16`'s
+/// any-value newline-stop + 127-byte bound; `String`'s own `(None, _)`
+/// dispatch arm relies on this same distinction implicitly (a
+/// `Value::Uint`/`Value::Float` pattern falls through its `match` to the
+/// bounded catch-all arm).
+fn is_string_family_comparison_pattern(pattern: Option<&Value>) -> bool {
+    matches!(pattern, Some(Value::String(_) | Value::Bytes(_)))
+}
+
+/// R5 read dispatch for `TypeKind::String16`: a real comparison pattern
+/// reads the full (unbounded) decoded value; anything else is the
+/// any-value shape and gets [`string::read_string16_any_value`]'s
+/// newline-stop + 127-unit bound.
+fn read_string16_dispatch(
+    buffer: &[u8],
+    offset: usize,
+    endian: crate::parser::ast::Endianness,
+    pattern: Option<&Value>,
+    max_string_length: usize,
+) -> Result<Value, TypeReadError> {
+    if is_string_family_comparison_pattern(pattern) {
+        read_string16(buffer, offset, endian)
+    } else {
+        string::read_string16_any_value(buffer, offset, endian, max_string_length)
+    }
+}
+
+/// R5 read dispatch for `TypeKind::PString`: a real comparison pattern
+/// reads the full (unbounded) payload; anything else is the any-value
+/// shape and gets [`read_pstring`]'s `any_value_bound` newline-stop +
+/// 127-byte treatment.
+fn read_pstring_dispatch(
+    buffer: &[u8],
+    offset: usize,
+    max_length: Option<usize>,
+    length_width: crate::parser::ast::PStringLengthWidth,
+    length_includes_itself: bool,
+    pattern: Option<&Value>,
+    max_string_length: usize,
+) -> Result<Value, TypeReadError> {
+    let any_value_bound =
+        (!is_string_family_comparison_pattern(pattern)).then_some(max_string_length);
+    read_pstring(
+        buffer,
+        offset,
+        max_length,
+        length_width,
+        length_includes_itself,
+        any_value_bound,
+    )
+}
+
+/// R5/R12 anchor dispatch for `TypeKind::String16`, mirroring
+/// [`read_string16_dispatch`] so the anchor can never disagree with what
+/// the read actually consumed.
+fn string16_bytes_consumed_dispatch(
+    buffer: &[u8],
+    offset: usize,
+    endian: crate::parser::ast::Endianness,
+    pattern: Option<&Value>,
+) -> usize {
+    if is_string_family_comparison_pattern(pattern) {
+        string16_bytes_consumed(buffer, offset, endian)
+    } else {
+        match read_string16(buffer, offset, endian) {
+            Ok(Value::String(decoded)) => string::any_value_string16_bound(&decoded, usize::MAX),
+            _ => 0,
+        }
+    }
+}
+
+/// R5/R12 anchor dispatch for `TypeKind::PString`, mirroring
+/// [`read_pstring_dispatch`].
+fn pstring_bytes_consumed_dispatch(
+    buffer: &[u8],
+    offset: usize,
+    max_length: Option<usize>,
+    length_width: crate::parser::ast::PStringLengthWidth,
+    length_includes_itself: bool,
+    pattern: Option<&Value>,
+) -> usize {
+    let any_value_bound = (!is_string_family_comparison_pattern(pattern)).then_some(usize::MAX);
+    pstring_bytes_consumed(
+        buffer,
+        offset,
+        max_length,
+        length_width,
+        length_includes_itself,
+        any_value_bound,
+    )
+}
+
 /// Compute the effective `max_length` cap for an unconstrained (`x`,
 /// any-value) `string` read or its matching anchor-advance computation.
 ///
@@ -1063,6 +1185,12 @@ pub(crate) fn bytes_consumed_with_pattern(
 /// CWE-770 scan cap, GOTCHAS 2A-H1) is folded in as an additional lower
 /// bound so a caller-configured cap smaller than the render bound is
 /// still honored; pass `usize::MAX` to ignore it entirely.
+///
+/// R5 extends this same treatment to `pstring` (called directly on the raw
+/// buffer at the payload's start, see [`string::read_pstring`] and
+/// `pstring_bytes_consumed`) and `string16` (called on the DECODED
+/// narrow string's bytes rather than the raw 2-bytes-per-unit source, see
+/// [`string::any_value_string16_bound`] for the measured rationale).
 ///
 /// Reusing this single computed value as the `max_length` argument to
 /// both [`read_string`] (the value read) and [`string_bytes_consumed`]
@@ -1128,6 +1256,15 @@ fn string_bytes_consumed(buffer: &[u8], offset: usize, max_length: Option<usize>
 /// caps by `max_length`, and returns `prefix_width + payload_bytes`. Returns
 /// `0` for any unexpected condition (offset past end, prefix bytes missing,
 /// `/J` underflow), since the engine only calls this after a successful read.
+///
+/// `any_value_bound`: `Some(cap)` additionally bounds the PAYLOAD portion
+/// (not the prefix width, which always advances in full) via
+/// [`any_value_string_bound`] -- R5, mirroring `read_pstring`'s own
+/// `any_value_bound` parameter so the two can never disagree. Measured
+/// against `file-5.41`: the length-prefix width is NOT subject to the
+/// newline/127 bound -- only the payload is -- so the prefix width is
+/// added back unconditionally after computing the (possibly truncated)
+/// payload advance.
 // Indexing is invariant-safe: `len_bytes` is exactly `width >= 1` bytes,
 // validated by the `checked_add` + `get` above.
 #[allow(clippy::indexing_slicing)]
@@ -1137,6 +1274,7 @@ fn pstring_bytes_consumed(
     max_length: Option<usize>,
     length_width: crate::parser::ast::PStringLengthWidth,
     length_includes_itself: bool,
+    any_value_bound: Option<usize>,
 ) -> usize {
     use crate::parser::ast::PStringLengthWidth;
     let width = length_width.byte_count();
@@ -1195,7 +1333,17 @@ fn pstring_bytes_consumed(
     let remaining_after_prefix = buffer.len().saturating_sub(prefix_end);
     let bounded_payload = payload_length.min(remaining_after_prefix);
     let actual_length = max_length.map_or(bounded_payload, |m| m.min(bounded_payload));
-    width.saturating_add(actual_length)
+
+    // R5: the payload advance is further bounded/newline-stopped for an
+    // any-value read, exactly mirroring `read_pstring`'s own truncation so
+    // the anchor always equals what the bounded read actually consumed.
+    // The prefix width itself is never truncated -- it always advances in
+    // full, regardless of where the payload bound lands.
+    let payload_advance = match any_value_bound {
+        Some(cfg_cap) => any_value_string_bound(buffer, prefix_end, cfg_cap.min(actual_length)),
+        None => actual_length,
+    };
+    width.saturating_add(payload_advance)
 }
 
 #[cfg(test)]
