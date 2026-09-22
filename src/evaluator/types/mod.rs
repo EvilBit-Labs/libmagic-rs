@@ -958,13 +958,11 @@ pub(crate) fn bytes_consumed_with_pattern_bounded(
                 }
                 // R12: the any-value anchor must advance by exactly what
                 // the bounded read at this offset actually consumed, not
-                // by an unbounded NUL scan. `bytes_consumed_with_pattern`
-                // has no `max_string_length` parameter (its signature is
-                // shared with call sites this unit does not own), so this
-                // arm bounds purely by `MAX_DESCRIPTION_FIELD_LEN` --
-                // honoring the configured `max_string_length` exactly as
-                // the read side does, so the two can never disagree even
-                // when a caller configures a cap below the 127-byte bound.
+                // by an unbounded NUL scan. The arm therefore reuses the
+                // same `any_value_string_bound` call the read side uses,
+                // threading the configured `max_string_length` through so
+                // the two can never disagree -- including when a caller
+                // configures a cap below the 127-byte render bound.
                 (None, _) => string_bytes_consumed(
                     buffer,
                     offset,
