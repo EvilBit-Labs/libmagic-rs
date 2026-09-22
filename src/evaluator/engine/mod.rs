@@ -910,11 +910,12 @@ pub fn evaluate_rules(
             // anchor. The anchor is updated unconditionally to the end of
             // this match -- it may move forward or backward depending on
             // where successive rules match (it is *not* a high-watermark).
-            let consumed = types::bytes_consumed_with_pattern(
+            let consumed = types::bytes_consumed_with_pattern_bounded(
                 buffer,
                 absolute_offset,
                 &rule.typ,
                 Some(&rule.value),
+                context.max_string_length(),
             );
             let new_anchor = absolute_offset.saturating_add(consumed);
             context.set_last_match_end(new_anchor);

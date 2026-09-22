@@ -13,6 +13,7 @@
 //! See `docs/adr/0001-gnu-file-output-contract.md` for which strings here are
 //! binding detection results and which are diagnostics we are free to word.
 
+use std::borrow::Cow;
 use std::path::Path;
 
 /// A CLI-produced classification for a symlink path
@@ -66,7 +67,7 @@ fn path_bytes(path: &Path) -> Vec<u8> {
 /// what keeps redirected and piped output byte-for-byte identical to GNU
 /// `file` -- do not collapse the two branches into unconditional escaping.
 pub fn render_symlink_target(target: &Path, escape_control_bytes: bool) -> Vec<u8> {
-    escape_terminal_control_bytes(&path_bytes(target), escape_control_bytes)
+    escape_terminal_control_bytes(&path_bytes(target), escape_control_bytes).into_owned()
 }
 
 /// Render terminal-actionable characters in a byte sequence inert
@@ -86,12 +87,15 @@ pub fn render_symlink_target(target: &Path, escape_control_bytes: bool) -> Vec<u
 /// `\xHH` or `\u{HHHH}` escape. Operates on the whole slice at once, so an
 /// escape sequence can never be split by this function; callers that also
 /// truncate must truncate first (R13) so a cut cannot land inside one either.
-pub fn escape_terminal_control_bytes(bytes: &[u8], escape: bool) -> Vec<u8> {
+pub fn escape_terminal_control_bytes(bytes: &[u8], escape: bool) -> Cow<'_, [u8]> {
     use std::fmt::Write;
 
     if !escape {
-        // The parity branch: verbatim, including invalid UTF-8.
-        return bytes.to_vec();
+        // The parity branch: verbatim, including invalid UTF-8. Borrowed
+        // rather than copied -- this is the common path (every piped,
+        // redirected, or scripted run) and the bytes are never mutated
+        // here, so the clone was pure waste per file.
+        return Cow::Borrowed(bytes);
     }
 
     // The presentation branch. This one only ever reaches an interactive
@@ -115,7 +119,7 @@ pub fn escape_terminal_control_bytes(bytes: &[u8], escape: bool) -> Vec<u8> {
             escaped.push(character);
         }
     }
-    escaped.into_bytes()
+    Cow::Owned(escaped.into_bytes())
 }
 
 /// Whether a terminal would act on this character rather than print it
@@ -327,7 +331,7 @@ mod tests {
     fn test_escape_terminal_control_bytes_is_verbatim_when_not_escaping() {
         let raw = b"before\x1b]0;pwn\x07after";
         assert_eq!(
-            escape_terminal_control_bytes(raw, false),
+            escape_terminal_control_bytes(raw, false).as_ref(),
             raw,
             "the pass-through branch must return the byte slice unchanged"
         );
@@ -339,7 +343,7 @@ mod tests {
         // OSC-title sequence, as a planted description could carry.
         let raw = b"before\x1b]0;pwn\x07after";
         let escaped = escape_terminal_control_bytes(raw, true);
-        assert_eq!(escaped, b"before\\x1b]0;pwn\\x07after");
+        assert_eq!(escaped.as_ref(), b"before\\x1b]0;pwn\\x07after");
     }
 
     #[test]
@@ -349,7 +353,7 @@ mod tests {
         // symlink-target contract this helper was extracted from.
         let raw = "c1\u{9d}bidi\u{202e}end".as_bytes();
         let escaped = escape_terminal_control_bytes(raw, true);
-        assert_eq!(escaped, b"c1\\x9dbidi\\u{202e}end");
+        assert_eq!(escaped.as_ref(), b"c1\\x9dbidi\\u{202e}end");
     }
 
     #[test]

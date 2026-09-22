@@ -869,15 +869,19 @@ pub(crate) fn coerce_value_to_type<'a>(value: &'a Value, type_kind: &TypeKind) -
 ///   exceed `buffer.len()`. This guard mirrors the variable-width path so
 ///   the anchor cannot advance past the end of the buffer regardless of
 ///   how the function is called.
-/// - **C-string** (`TypeKind::String`): scans for the first NUL within a
-///   window of `max_length` bytes (or to the buffer end if `max_length` is
-///   `None`). When a NUL is found inside the window, returns
-///   `nul_index + 1` -- the NUL byte is counted as consumed, so the next
-///   relative offset reads the byte *after* the NUL. When no NUL is found
-///   inside the window, returns the window size (no implicit terminator
-///   byte is added). The NUL inclusion is intentional and matches GNU
-///   `file` semantics: a `Relative(0)` rule following a NUL-terminated
-///   string match reads the first byte after the terminator.
+/// - **C-string** (`TypeKind::String`), any-value and explicit-`max_length`
+///   paths: scans for the first NUL within a window of `max_length` bytes
+///   (or to the buffer end if `max_length` is `None`). When a NUL is found
+///   inside the window, returns `nul_index + 1` -- the NUL byte is counted
+///   as consumed, so the next relative offset reads the byte *after* the
+///   NUL. When no NUL is found inside the window, returns the window size
+///   (no implicit terminator byte is added).
+/// - **C-string compared against a pattern** (including the flagged
+///   `/w`/`/W` walk): advances by the pattern's own DECLARED length from
+///   the match position and does NOT add a byte for an adjacent NUL -- the
+///   anchor lands ON the terminator. Measurement against `file-5.41`
+///   disproved the older claim that this path also steps past the NUL; see
+///   R6/R7 and GOTCHAS S6.8.
 /// - **Pascal string** (`TypeKind::PString`): reads the length prefix (1, 2,
 ///   or 4 bytes, BE/LE), accounts for the `/J` flag (stored length includes
 ///   prefix width), caps by `max_length`, and returns `prefix_width +
@@ -885,11 +889,12 @@ pub(crate) fn coerce_value_to_type<'a>(value: &'a Value, type_kind: &TypeKind) -
 ///   buffer length so a malicious oversized length prefix cannot poison the
 ///   anchor.
 #[must_use]
-pub(crate) fn bytes_consumed_with_pattern(
+pub(crate) fn bytes_consumed_with_pattern_bounded(
     buffer: &[u8],
     offset: usize,
     type_kind: &TypeKind,
     pattern: Option<&Value>,
+    max_string_length: usize,
 ) -> usize {
     if let Some(bits) = type_kind.bit_width() {
         // `bit_width()` returns multiples of 8, so the division is exact.
@@ -957,25 +962,24 @@ pub(crate) fn bytes_consumed_with_pattern(
                 // has no `max_string_length` parameter (its signature is
                 // shared with call sites this unit does not own), so this
                 // arm bounds purely by `MAX_DESCRIPTION_FIELD_LEN` --
-                // matching the read side whenever `max_string_length` is
-                // at or above that default-sized bound, which is the case
-                // for every shipped `EvaluationConfig` preset.
+                // honoring the configured `max_string_length` exactly as
+                // the read side does, so the two can never disagree even
+                // when a caller configures a cap below the 127-byte bound.
                 (None, _) => string_bytes_consumed(
                     buffer,
                     offset,
-                    Some(any_value_string_bound(buffer, offset, usize::MAX)),
+                    Some(any_value_string_bound(buffer, offset, max_string_length)),
                 ),
             }
         }
         // R5/R12: mirror the read-side gate immediately above via the SAME
         // `is_string_family_comparison_pattern` test, so the anchor can
         // never disagree with what the bounded read actually consumed.
-        // Neither dispatch helper below has a `max_string_length`
-        // parameter (mirroring the plain-`string` any-value arm's own
-        // `usize::MAX` use), so the anchor bound is purely
-        // `MAX_DESCRIPTION_FIELD_LEN`.
+        // Both dispatch helpers take the configured `max_string_length`
+        // so the anchor honors a cap below `MAX_DESCRIPTION_FIELD_LEN`,
+        // matching the read side rather than assuming the default preset.
         TypeKind::String16 { endian } => {
-            string16_bytes_consumed_dispatch(buffer, offset, *endian, pattern)
+            string16_bytes_consumed_dispatch(buffer, offset, *endian, pattern, max_string_length)
         }
         TypeKind::PString {
             max_length,
@@ -988,6 +992,7 @@ pub(crate) fn bytes_consumed_with_pattern(
             *length_width,
             *length_includes_itself,
             pattern,
+            max_string_length,
         ),
         TypeKind::Regex { flags, count } => match pattern {
             Some(Value::String(s)) => {
@@ -1143,12 +1148,17 @@ fn string16_bytes_consumed_dispatch(
     offset: usize,
     endian: crate::parser::ast::Endianness,
     pattern: Option<&Value>,
+    max_string_length: usize,
 ) -> usize {
     if is_string_family_comparison_pattern(pattern) {
         string16_bytes_consumed(buffer, offset, endian)
     } else {
         match read_string16(buffer, offset, endian) {
-            Ok(Value::String(decoded)) => string::any_value_string16_bound(&decoded, usize::MAX),
+            // `.units`, not `.byte_cut`: the anchor walks the raw source in
+            // code units, and the two differ for non-ASCII content.
+            Ok(Value::String(decoded)) => {
+                string::any_value_string16_bound(&decoded, max_string_length).units
+            }
             _ => 0,
         }
     }
@@ -1163,8 +1173,10 @@ fn pstring_bytes_consumed_dispatch(
     length_width: crate::parser::ast::PStringLengthWidth,
     length_includes_itself: bool,
     pattern: Option<&Value>,
+    max_string_length: usize,
 ) -> usize {
-    let any_value_bound = (!is_string_family_comparison_pattern(pattern)).then_some(usize::MAX);
+    let any_value_bound =
+        (!is_string_family_comparison_pattern(pattern)).then_some(max_string_length);
     pstring_bytes_consumed(
         buffer,
         offset,
@@ -1200,10 +1212,9 @@ fn pstring_bytes_consumed_dispatch(
 /// Measured against `file-5.41`: `0 string x` over `ABC\nZZ\n` resolves a
 /// relative-offset child to index 3 (the newline), not the full remaining
 /// buffer.
-// Slicing is invariant-safe: `cap` is clamped to `remaining` above, so
-// `offset..offset + cap` is always within `buffer`'s bounds when
-// `offset <= buffer.len()`; `buffer.get(..)` guards the case where it
-// is not (`.unwrap_or(cap)` falls back to the pre-clamped cap).
+// No raw slicing here: `buffer.get(..)` returns `None` when `offset` is
+// past the end, and `.unwrap_or(cap)` treats that as a window with no
+// newline in it rather than an error.
 pub(crate) fn any_value_string_bound(
     buffer: &[u8],
     offset: usize,
@@ -1213,10 +1224,42 @@ pub(crate) fn any_value_string_bound(
     let cap = remaining
         .min(max_string_length)
         .min(crate::output::format::MAX_DESCRIPTION_FIELD_LEN);
-    buffer
-        .get(offset..offset.saturating_add(cap))
+    let rest = buffer.get(offset..).unwrap_or(&[]);
+    match rest
+        .get(..cap)
         .and_then(|window| window.iter().position(|&b| b == b'\r' || b == b'\n'))
-        .unwrap_or(cap)
+    {
+        // A newline is always its own character, so its index is already a
+        // boundary.
+        Some(newline) => newline,
+        // The cap can land mid-sequence; `read_string` lossy-decodes, which
+        // would turn the split tail into a U+FFFD the file never contained.
+        // Walked against the whole remaining buffer, not the capped window:
+        // the byte that decides this is the one AT the cut, which the window
+        // by definition does not contain.
+        None => walk_back_to_char_boundary(rest, cap),
+    }
+}
+
+/// Walk `cut` back over UTF-8 continuation bytes so a truncation never
+/// splits a multi-byte sequence (R3).
+///
+/// Mirrors `output::format::bound_bytes` on the render side. Both operate
+/// on raw file bytes that need not be UTF-8 at all; on genuinely binary
+/// content this can trim up to three bytes that a raw-byte cut would have
+/// kept, which is the divergence from `file` that R3 accepts. Callers must
+/// use the returned value for BOTH the read and the anchor advance so the
+/// two stay in agreement (R12).
+fn walk_back_to_char_boundary(bytes: &[u8], cut: usize) -> usize {
+    let mut cut = cut.min(bytes.len());
+    while cut > 0
+        && bytes
+            .get(cut)
+            .is_some_and(|&b| b & 0b1100_0000 == 0b1000_0000)
+    {
+        cut -= 1;
+    }
+    cut
 }
 
 /// Compute the anchor-advance distance for a successful c-string match.
@@ -1348,3 +1391,20 @@ fn pstring_bytes_consumed(
 
 #[cfg(test)]
 mod tests;
+
+/// Test-only 4-argument form of [`bytes_consumed_with_pattern_bounded`].
+///
+/// Passes `usize::MAX` for `max_string_length`, isolating the
+/// `MAX_DESCRIPTION_FIELD_LEN` bound from any configured cap. It is
+/// `#[cfg(test)]` on purpose: production must thread the real configured
+/// value so the anchor cannot disagree with the bounded read.
+#[cfg(test)]
+#[must_use]
+pub(crate) fn bytes_consumed_with_pattern(
+    buffer: &[u8],
+    offset: usize,
+    type_kind: &TypeKind,
+    pattern: Option<&Value>,
+) -> usize {
+    bytes_consumed_with_pattern_bounded(buffer, offset, type_kind, pattern, usize::MAX)
+}

@@ -435,13 +435,49 @@ pub(crate) fn string16_bytes_consumed(buffer: &[u8], offset: usize, endian: Endi
 /// found) can still land inside a multi-byte UTF-8 sequence for non-ASCII
 /// BMP content or a surrogate-substituted U+FFFD -- walked back to the
 /// nearest character boundary to avoid an invalid slice.
-pub(crate) fn any_value_string16_bound(decoded: &str, max_string_length: usize) -> usize {
-    let bound = super::any_value_string_bound(decoded.as_bytes(), 0, max_string_length);
-    let mut cut = bound.min(decoded.len());
-    while cut > 0 && !decoded.is_char_boundary(cut) {
-        cut -= 1;
+///
+/// The two returned numbers are deliberately different units and must not
+/// be used interchangeably. Each decoded character came from exactly one
+/// 2-byte source code unit, so the character count is what the anchor
+/// advances by; the UTF-8 byte index is only valid for slicing `decoded`.
+/// They coincide for ASCII, which is why conflating them stayed invisible
+/// until a non-ASCII `string16` value was measured.
+pub(crate) fn any_value_string16_bound(decoded: &str, max_string_length: usize) -> String16Bound {
+    let cap = max_string_length.min(crate::output::format::MAX_DESCRIPTION_FIELD_LEN);
+    // Walked per character rather than through `super::any_value_string_bound`:
+    // that helper measures the cap in bytes, which is right for a c-string's
+    // raw buffer and wrong here, where one decoded character is one source
+    // code unit no matter how many UTF-8 bytes it takes.
+    for (units, (byte_idx, ch)) in decoded.char_indices().enumerate() {
+        if ch == '\r' || ch == '\n' {
+            return String16Bound {
+                units,
+                byte_cut: byte_idx,
+            };
+        }
+        if units == cap {
+            return String16Bound {
+                units,
+                byte_cut: byte_idx,
+            };
+        }
     }
-    cut
+    String16Bound {
+        units: decoded.chars().count(),
+        byte_cut: decoded.len(),
+    }
+}
+
+/// The result of [`any_value_string16_bound`]: a truncation point measured
+/// two ways, because its two consumers need different units.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct String16Bound {
+    /// Decoded code units kept. This is what the relative-offset anchor
+    /// advances by -- not doubled for the 2-byte source encoding, per the
+    /// measurement described above.
+    pub(crate) units: usize,
+    /// Byte index into the decoded UTF-8 string, for slicing it.
+    pub(crate) byte_cut: usize,
 }
 
 /// Read a `string16` value for an any-value (`x`, no comparison pattern)
@@ -471,11 +507,11 @@ pub(crate) fn read_string16_any_value(
         Value::String(s) => s,
         _ => String::new(),
     };
-    let cut = any_value_string16_bound(&decoded, max_string_length);
-    // Invariant-safe: `cut` is walked back to a `str` char boundary by
+    let bound = any_value_string16_bound(&decoded, max_string_length);
+    // Invariant-safe: `byte_cut` is walked back to a `str` char boundary by
     // `any_value_string16_bound` above.
     #[allow(clippy::indexing_slicing)]
-    Ok(Value::String(decoded[..cut].to_string()))
+    Ok(Value::String(decoded[..bound.byte_cut].to_string()))
 }
 
 /// Read and decode a pstring's raw length-prefix value (before the `/J`
@@ -943,8 +979,54 @@ mod tests {
     #[test]
     fn test_any_value_string16_bound_max_string_length_wins_over_127() {
         let decoded = "Q".repeat(300);
-        assert_eq!(any_value_string16_bound(&decoded, 10), 10);
-        assert_eq!(any_value_string16_bound(&decoded, usize::MAX), 127);
+        assert_eq!(any_value_string16_bound(&decoded, 10).units, 10);
+        assert_eq!(any_value_string16_bound(&decoded, usize::MAX).units, 127);
+    }
+
+    #[test]
+    fn test_any_value_string16_bound_counts_code_units_not_utf8_bytes() {
+        // Each of these decoded characters came from exactly ONE 2-byte
+        // UCS-2 code unit, but they occupy 1, 2 and 3 UTF-8 bytes
+        // respectively. The anchor must advance by the code-unit count; a
+        // byte-length bound would over-count and land the next relative
+        // offset past where `file` puts it.
+        let table: &[(&str, usize, usize)] = &[
+            // (decoded, expected units, expected UTF-8 byte length)
+            ("AB", 2, 2),
+            ("\u{e9}X", 2, 3),          // e-acute: 2 UTF-8 bytes
+            ("\u{4e2d}\u{6587}", 2, 6), // two CJK chars: 3 UTF-8 bytes each
+            ("A\u{fffd}B", 3, 5),       // surrogate half substituted by read_string16
+        ];
+        for (decoded, want_units, want_bytes) in table {
+            let bound = any_value_string16_bound(decoded, usize::MAX);
+            assert_eq!(
+                decoded.len(),
+                *want_bytes,
+                "fixture {decoded:?} is not the UTF-8 length the case assumes"
+            );
+            assert_eq!(
+                bound.units, *want_units,
+                "{decoded:?}: anchor must advance by decoded code units, not UTF-8 bytes"
+            );
+            assert_eq!(
+                bound.byte_cut,
+                decoded.len(),
+                "{decoded:?}: an untruncated value slices to its whole length"
+            );
+        }
+    }
+
+    #[test]
+    fn test_any_value_string16_bound_truncation_splits_units_and_bytes() {
+        // 200 CJK characters: 200 code units, 600 UTF-8 bytes. The 127-char
+        // render bound must yield 127 units for the anchor and 381 bytes for
+        // the slice. Measuring the cap in UTF-8 bytes instead truncates the
+        // rendered value to 42 characters and under-advances the anchor.
+        let decoded = "\u{4e2d}".repeat(200);
+        let bound = any_value_string16_bound(&decoded, usize::MAX);
+        assert_eq!(bound.units, 127, "anchor advance is in code units");
+        assert_eq!(bound.byte_cut, 127 * 3, "slice index is in UTF-8 bytes");
+        assert!(decoded.is_char_boundary(bound.byte_cut));
     }
 
     use crate::evaluator::types::read_typed_value;

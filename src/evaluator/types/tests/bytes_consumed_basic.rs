@@ -535,3 +535,111 @@ fn test_bytes_consumed_pattern_compared_read_unaffected_by_any_value_bound() {
         3
     );
 }
+
+/// A configured `max_string_length` below the 127-byte render bound must
+/// bound the ANCHOR too, not just the read.
+///
+/// The anchor path previously substituted `usize::MAX` for the configured
+/// cap, so a caller configuring a cap under 127 got a read bounded to their
+/// value and an anchor bounded to 127 -- the read/anchor disagreement class
+/// that `docs/solutions/security-issues/pstring-anchor-poisoning.md` exists
+/// to prevent, on the same field that serves as the CWE-770 size cap.
+/// Asserted for all three value-buffer types, since each dispatches
+/// separately.
+#[test]
+fn any_value_anchor_honors_a_max_string_length_below_the_render_bound() {
+    // 200 bytes, no newline: only a cap can stop it short of the buffer.
+    let payload = vec![b'Q'; 200];
+
+    let string_typ = TypeKind::String {
+        max_length: None,
+        flags: crate::parser::ast::StringFlags::default(),
+    };
+    let any = Value::Uint(0);
+
+    // Config cap of 10 wins over both the 200-byte buffer and the 127 bound.
+    assert_eq!(
+        bytes_consumed_with_pattern_bounded(&payload, 0, &string_typ, Some(&any), 10),
+        10,
+        "string anchor must honor a configured cap below 127"
+    );
+    // With no configured cap the 127 bound still applies.
+    assert_eq!(
+        bytes_consumed_with_pattern_bounded(&payload, 0, &string_typ, Some(&any), usize::MAX),
+        127,
+        "string anchor falls back to the 127 render bound"
+    );
+
+    // pstring: a 1-byte prefix declaring 200 payload bytes, capped at 10.
+    let mut pstr = vec![200u8];
+    pstr.extend_from_slice(&payload);
+    let pstring_typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::OneByte,
+        length_includes_itself: false,
+    };
+    assert_eq!(
+        bytes_consumed_with_pattern_bounded(&pstr, 0, &pstring_typ, Some(&any), 10),
+        11,
+        "pstring anchor honors the cap on the payload and still counts the prefix"
+    );
+
+    // string16: 200 UCS-2 code units, capped at 10 decoded units.
+    let mut utf16 = Vec::new();
+    for _ in 0..200 {
+        utf16.extend_from_slice(&[b'Q', 0x00]);
+    }
+    utf16.extend_from_slice(&[0x00, 0x00]);
+    let s16_typ = TypeKind::String16 {
+        endian: crate::parser::ast::Endianness::Little,
+    };
+    assert_eq!(
+        bytes_consumed_with_pattern_bounded(&utf16, 0, &s16_typ, Some(&any), 10),
+        10,
+        "string16 anchor honors the cap in decoded code units"
+    );
+}
+
+#[test]
+fn test_any_value_string_bound_cut_never_splits_a_utf8_character() {
+    // A 2-byte e-acute straddling the 127-byte cap. `read_string`
+    // lossy-decodes, so cutting between the two bytes renders a U+FFFD the
+    // file never contained; the bound walks back instead. Both halves of
+    // the R12 pair (read and anchor) take this same value, so they stay in
+    // agreement at the shorter cut.
+    let mut buffer = vec![b'a'; 126];
+    buffer.extend_from_slice("\u{e9}".as_bytes()); // bytes 126 and 127
+    buffer.extend_from_slice(&[b'z'; 8]);
+
+    let bound = crate::evaluator::types::any_value_string_bound(&buffer, 0, usize::MAX);
+    assert_eq!(
+        bound, 126,
+        "the cut walks back off the continuation byte at index 127"
+    );
+
+    let Value::String(rendered) =
+        crate::evaluator::types::string::read_string(&buffer, 0, Some(bound)).unwrap()
+    else {
+        panic!("expected Value::String");
+    };
+    assert!(
+        !rendered.contains('\u{fffd}'),
+        "a boundary-respecting cut cannot introduce a replacement character"
+    );
+    assert_eq!(rendered.len(), 126);
+}
+
+#[test]
+fn test_any_value_string_bound_keeps_a_character_that_ends_exactly_at_the_cap() {
+    // The same character one byte earlier, so it ENDS at the cap: nothing to
+    // walk back, and the full 127 bytes are kept.
+    let mut buffer = vec![b'a'; 125];
+    buffer.extend_from_slice("\u{e9}".as_bytes()); // bytes 125 and 126
+    buffer.extend_from_slice(&[b'z'; 8]);
+
+    assert_eq!(
+        crate::evaluator::types::any_value_string_bound(&buffer, 0, usize::MAX),
+        127,
+        "a sequence that ends before the cap is kept whole"
+    );
+}
