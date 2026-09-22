@@ -42,7 +42,7 @@ use crate::parser::ast::{TypeKind, Value};
 /// values correctly. For non-hex specifiers `type_kind` is ignored.
 ///
 /// For a `%s` substitution against a `string`/`pstring`/`string16` value,
-/// the rendered field is bounded to at most [`MAX_DESCRIPTION_FIELD_LEN`]
+/// the rendered field is bounded to at most `MAX_DESCRIPTION_FIELD_LEN`
 /// bytes (cut on a UTF-8 character boundary); `regex`/`search` values
 /// render through a separate, unbounded path and are exempt. This entry
 /// point never stops at a newline (R2's gate) -- use
@@ -87,7 +87,7 @@ pub fn format_magic_message(template: &str, value: &Value, type_kind: &TypeKind)
 /// Identical to [`format_magic_message`] except for `stop_at_newline`: when
 /// set, a `%s` substitution against a `string`/`pstring`/`string16` value
 /// additionally stops at the first `\r` or `\n` byte within the
-/// [`MAX_DESCRIPTION_FIELD_LEN`]-byte bound. The caller computes
+/// `MAX_DESCRIPTION_FIELD_LEN`-byte bound. The caller computes
 /// `stop_at_newline` from the rule's operator and pattern (see
 /// `evaluator::engine::value_eval::newline_stop_gate` in the crate
 /// source) -- neither reaches this formatter otherwise (R14).
@@ -405,7 +405,7 @@ fn is_bounded_string_family(type_kind: &TypeKind) -> bool {
     )
 }
 
-/// Bound `base` to at most [`MAX_DESCRIPTION_FIELD_LEN`] bytes, cutting at
+/// Bound `base` to at most `MAX_DESCRIPTION_FIELD_LEN` bytes, cutting at
 /// a UTF-8 character boundary at or before the limit (R3): a multi-byte
 /// character straddling the limit is dropped whole rather than split,
 /// which renders a few bytes shorter than `file`'s raw-byte cut -- an
@@ -436,7 +436,7 @@ fn bound_description_field(base: &str, stop_at_newline: bool) -> String {
 /// Raw-byte counterpart of [`bound_description_field`] for `Value::Bytes`.
 ///
 /// Operates on the file-derived byte slice directly, before any lossy
-/// UTF-8 decode, so the [`MAX_DESCRIPTION_FIELD_LEN`] budget is measured on
+/// UTF-8 decode, so the `MAX_DESCRIPTION_FIELD_LEN` budget is measured on
 /// file bytes rather than on decode-inflated `U+FFFD` bytes (see
 /// [`render_string_bounded`] for why that ordering matters).
 ///
