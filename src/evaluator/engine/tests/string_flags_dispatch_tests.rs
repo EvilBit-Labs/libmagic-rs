@@ -7,8 +7,9 @@
 //! `flags` field is non-default must route through `evaluate_pattern_rule`
 //! (same path as regex/search), not the default value-rule fast path.
 //! The visible effect is that `/c` makes case-insensitive matches succeed
-//! where the byte-exact path would fail, and `/W` advances the
-//! relative-offset anchor by the file's actual whitespace consumption.
+//! where the byte-exact path would fail, and a relative-offset child of a
+//! `/w`/`/W`-flagged parent lands at the pattern's own declared length
+//! (GOTCHAS S6.8), not at however many file bytes the flag walked.
 //!
 //! The lower-level algorithm tests for `compare_string_with_flags` live in
 //! `src/evaluator/types/string.rs::tests`; the integration / conformance
@@ -143,16 +144,20 @@ fn test_flagged_string_ordering_operator_uses_lexicographic_value_path() {
 }
 
 #[test]
-fn test_flagged_string_w_whitespace_consumes_extra_file_bytes_for_anchor() {
-    // Load-bearing: when /W matches "a b" against "a    b", the anchor
-    // must advance by 6 (file bytes consumed), not 3 (pattern length).
-    // A relative-offset child reads from the post-match position.
+fn test_flagged_string_w_whitespace_anchor_uses_declared_pattern_length() {
+    // R6, measured against real `file`-5.41 (`moffset()` in softmagic.c
+    // advances by `m->vallen`, the pattern's own declared length,
+    // unconditional on flags): when /W matches "a b" against "a    b",
+    // the anchor must advance by 3 (pattern length), NOT 6 (file bytes
+    // walked). A relative-offset child therefore lands on one of the
+    // whitespace bytes /W consumed (index 3), not on the '!' that
+    // follows the walked region (index 6).
     let child = MagicRule {
         offset: OffsetSpec::Relative(0),
         typ: TypeKind::Byte { signed: false },
         op: Operator::Equal,
-        value: Value::Uint(b'!'.into()),
-        message: "exclaim".to_string(),
+        value: Value::Uint(u64::from(b' ')),
+        message: "space-at-declared-length".to_string(),
         children: vec![],
         level: 1,
         strength_modifier: None,
@@ -174,13 +179,143 @@ fn test_flagged_string_w_whitespace_consumes_extra_file_bytes_for_anchor() {
     };
     let mut context =
         EvaluationContext::new(EvaluationConfig::default().with_stop_at_first_match(false));
-    // File: "a    b!" -> parent consumes 6 bytes, child reads byte at
-    // offset 6 which is '!'. The contract from U3 test
-    // `test_compare_string_with_flags_consumed_bytes_drives_anchor` is
-    // what makes this work end-to-end.
+    // File: "a    b!" -> parent's declared pattern length is 3, so the
+    // anchor lands at offset 3 (a whitespace byte /W walked over), NOT
+    // offset 6 (the byte after the walk, '!').
     let matches = evaluate_rules(&[parent], b"a    b!", &mut context).unwrap();
     assert_eq!(matches.len(), 2, "parent + child must both match");
-    assert_eq!(matches[1].message, "exclaim");
+    assert_eq!(matches[1].message, "space-at-declared-length");
+}
+
+#[test]
+fn test_flagged_string_w_optional_whitespace_anchor_matches_measured_oracle_fixtures() {
+    // R6, measured against real `file`-5.41. Each fixture pairs a `/w`
+    // (whitespace-optional) pattern with a buffer whose file-side
+    // whitespace walk differs from the pattern's declared length; the
+    // relative-offset child must land at `offset + pattern.len()`,
+    // never at the walked position.
+    struct Fixture {
+        pattern: &'static str,
+        buffer: &'static [u8],
+        expected_byte: u8,
+    }
+    let fixtures = [
+        Fixture {
+            pattern: "#! ",
+            buffer: b"#!/bin/xx",
+            expected_byte: b'b',
+        },
+        Fixture {
+            pattern: "#! ",
+            buffer: b"#! /bin/xx",
+            expected_byte: b'/',
+        },
+        Fixture {
+            pattern: "#! ",
+            buffer: b"#!   /bin/xx",
+            expected_byte: b' ',
+        },
+        Fixture {
+            pattern: "#! X",
+            buffer: b"#!Xbin/xx",
+            expected_byte: b'i',
+        },
+        Fixture {
+            pattern: "#! X",
+            buffer: b"#!  Xbin/xx",
+            expected_byte: b'X',
+        },
+    ];
+
+    for fx in fixtures {
+        let child = MagicRule {
+            offset: OffsetSpec::Relative(0),
+            typ: TypeKind::Byte { signed: false },
+            op: Operator::Equal,
+            value: Value::Uint(u64::from(fx.expected_byte)),
+            message: "anchor-byte".to_string(),
+            children: vec![],
+            level: 1,
+            strength_modifier: None,
+            value_transform: None,
+        };
+        let parent = MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default().with_compact_optional_whitespace(true),
+            },
+            op: Operator::Equal,
+            value: Value::String(fx.pattern.to_string()),
+            message: "shebang".to_string(),
+            children: vec![child],
+            level: 0,
+            strength_modifier: None,
+            value_transform: None,
+        };
+        let mut context =
+            EvaluationContext::new(EvaluationConfig::default().with_stop_at_first_match(false));
+        let matches = evaluate_rules(&[parent], fx.buffer, &mut context).unwrap_or_else(|e| {
+            panic!(
+                "fixture pattern {:?} buffer {:?} failed to evaluate: {e}",
+                fx.pattern, fx.buffer
+            )
+        });
+        assert_eq!(
+            matches.len(),
+            2,
+            "fixture pattern {:?} buffer {:?}: parent + child must both match at the \
+             declared-length anchor (byte {:?})",
+            fx.pattern,
+            fx.buffer,
+            fx.expected_byte as char,
+        );
+    }
+}
+
+#[test]
+fn test_flagged_string_w_near_end_of_buffer_anchor_does_not_panic_and_child_is_non_match() {
+    // R6/R8: the declared-length anchor can land past the end of a short
+    // buffer when /w consumed zero optional whitespace bytes. The
+    // relative child's own read then hits a buffer overrun and simply
+    // fails to match -- no panic, and the parent's own match still
+    // stands.
+    let child = MagicRule {
+        offset: OffsetSpec::Relative(0),
+        typ: TypeKind::Byte { signed: false },
+        op: Operator::Equal,
+        value: Value::Uint(u64::from(b'X')),
+        message: "unreachable".to_string(),
+        children: vec![],
+        level: 1,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let parent = MagicRule {
+        offset: OffsetSpec::Absolute(0),
+        typ: TypeKind::String {
+            max_length: None,
+            flags: StringFlags::default().with_compact_optional_whitespace(true),
+        },
+        op: Operator::Equal,
+        value: Value::String("#! X".to_string()),
+        message: "shebang".to_string(),
+        children: vec![child],
+        level: 0,
+        strength_modifier: None,
+        value_transform: None,
+    };
+    let mut context =
+        EvaluationContext::new(EvaluationConfig::default().with_stop_at_first_match(false));
+    // Buffer ends exactly where the /w walk ends ("#!X", 3 bytes), one
+    // byte short of the pattern's declared length (4).
+    let matches = evaluate_rules(&[parent], b"#!X", &mut context).unwrap();
+    assert_eq!(
+        matches.len(),
+        1,
+        "parent matches but the child's declared-length anchor (4) is past EOF (3), \
+         so it must not match -- and evaluation must not panic"
+    );
 }
 
 #[test]

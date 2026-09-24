@@ -326,3 +326,320 @@ fn test_bytes_consumed_fixed_width_returns_zero_past_end() {
         0
     );
 }
+
+// =============================================================================
+// R5: the plain-`string` any-value newline-stop + 127-byte bound (R2/R12,
+// see the module doc at the top of this file's sibling
+// `bytes_consumed_pattern.rs` and `lib.rs`'s `newline_gate_end_to_end_tests`)
+// extended to `pstring` and `string16`. `pattern: None` is the any-value
+// dispatch shape (GOTCHAS S3.6: a real comparison pattern for a
+// string-family type is always `Some(Value::String(_) | Value::Bytes(_))`,
+// so a `None` pattern -- or, at the engine call site, an `AnyValue` rule's
+// `Value::Uint(0)` placeholder -- is what routes through the bounded arm).
+// =============================================================================
+
+#[test]
+fn test_bytes_consumed_pstring_any_value_stops_at_first_newline_includes_prefix_width() {
+    // prefix(1) + "ABC\ndef" payload (7 declared bytes) + trailing garbage.
+    // Measured against `file-5.41` with a relative-offset child (`&0`):
+    // the anchor lands at absolute index 4 -- prefix width (1) plus the
+    // newline's index within the payload (3) -- i.e. it lands ON the
+    // newline byte, matching the plain-`string` any-value convention.
+    let buf = b"\x07ABC\ndeftail\n";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::OneByte,
+        length_includes_itself: false,
+    };
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 4);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_any_value_caps_at_127_with_prefix_width_included() {
+    // Declared payload length 200, no newline -- measured against
+    // `file-5.41`: the anchor lands at prefix width (1) + 127 = 128.
+    let mut buf = vec![200u8];
+    buf.extend(std::iter::repeat_n(b'Q', 200));
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::OneByte,
+        length_includes_itself: false,
+    };
+    assert_eq!(bytes_consumed_with_pattern(&buf, 0, &typ, None), 128);
+}
+
+#[test]
+fn test_bytes_consumed_pstring_equality_pattern_not_bounded_with_embedded_newline() {
+    // A real comparison pattern (`Some(Value::String(_))`) is never
+    // gated -- the anchor advances by the full prefix + declared payload
+    // length regardless of an embedded newline.
+    let buf = b"\x07ABC\ndef";
+    let typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::OneByte,
+        length_includes_itself: false,
+    };
+    let pattern = Value::String("ABC\ndef".to_string());
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 8);
+}
+
+#[test]
+fn test_bytes_consumed_string16_any_value_stops_at_first_newline() {
+    // "AB\ncd" as UCS-2LE. Measured against `file-5.41` (a `&0` relative
+    // child on a `lestring16 x` rule): the anchor lands at 2 -- the
+    // DECODED code-unit count before the newline, NOT `2 * units` raw
+    // source bytes (which would be 4) and with no terminator adjustment.
+    // This is a genuine, measured libmagic quirk for FILE_LESTRING16 (see
+    // `string::any_value_string16_bound`'s doc comment).
+    let mut buf = Vec::new();
+    for ch in "AB\ncd".chars() {
+        buf.extend_from_slice(&(ch as u16).to_le_bytes());
+    }
+    buf.extend_from_slice(&[0, 0]);
+    buf.extend_from_slice(b"tail");
+    let typ = TypeKind::String16 {
+        endian: Endianness::Little,
+    };
+    assert_eq!(bytes_consumed_with_pattern(&buf, 0, &typ, None), 2);
+}
+
+#[test]
+fn test_bytes_consumed_string16_any_value_caps_at_127_units_with_no_newline() {
+    // 300 'Q' code units, no newline -- measured against `file-5.41`: the
+    // anchor lands at exactly 127 (decoded units), not 254 (raw bytes).
+    let mut buf = Vec::new();
+    for _ in 0..300 {
+        buf.extend_from_slice(&u16::from(b'Q').to_le_bytes());
+    }
+    buf.extend_from_slice(&[0, 0]);
+    let typ = TypeKind::String16 {
+        endian: Endianness::Little,
+    };
+    assert_eq!(bytes_consumed_with_pattern(&buf, 0, &typ, None), 127);
+}
+
+#[test]
+fn test_bytes_consumed_string16_equality_pattern_not_bounded() {
+    // A real comparison pattern keeps the EXISTING (untouched)
+    // `string16_bytes_consumed` raw-byte-doubled-plus-terminator
+    // convention -- this R5 unit only changes the any-value dispatch arm.
+    let mut buf = Vec::new();
+    for ch in "AB\ncd".chars() {
+        buf.extend_from_slice(&(ch as u16).to_le_bytes());
+    }
+    buf.extend_from_slice(&[0, 0]);
+    let typ = TypeKind::String16 {
+        endian: Endianness::Little,
+    };
+    let pattern = Value::String("AB\ncd".to_string());
+    // 5 units * 2 bytes + 2-byte NUL terminator = 12.
+    assert_eq!(
+        bytes_consumed_with_pattern(&buf, 0, &typ, Some(&pattern)),
+        12
+    );
+}
+
+// =============================================================================
+// R12: the any-value (`string x`, `pattern: None`) anchor must follow the
+// same 127-byte / newline-stop bound as the read that feeds it (U3).
+// =============================================================================
+
+#[test]
+fn test_bytes_consumed_any_value_stops_at_first_newline() {
+    // Measured against `file-5.41`: `0 string x` over `ABC\nZZ\n` resolves
+    // a relative-offset child to index 3 -- the newline itself, not past
+    // it and not the full remaining buffer.
+    let buf = b"ABC\nZZ\n";
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 3);
+}
+
+#[test]
+fn test_bytes_consumed_any_value_stops_at_first_carriage_return() {
+    let buf = b"AB\rCD";
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 2);
+}
+
+#[test]
+fn test_bytes_consumed_any_value_caps_at_127_bytes_with_no_newline() {
+    // 300 'Q' bytes, no \r or \n anywhere -- the anchor must land exactly
+    // at the 127-byte description-field bound (R1), not the full buffer.
+    let buf = vec![b'Q'; 300];
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+    assert_eq!(bytes_consumed_with_pattern(&buf, 0, &typ, None), 127);
+}
+
+#[test]
+fn test_bytes_consumed_any_value_127_cap_boundary_is_stable() {
+    // A distinguishing marker just past the 127-byte window (index 127)
+    // must not affect the result; the same marker moved to the last byte
+    // still inside the window (index 126) must not affect it either --
+    // both resolve to the same 127-byte cap. Pins the exact boundary
+    // rather than an off-by-one on either edge.
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+
+    let mut marker_outside = vec![b'Q'; 300];
+    marker_outside[127] = b'X';
+    assert_eq!(
+        bytes_consumed_with_pattern(&marker_outside, 0, &typ, None),
+        127
+    );
+
+    let mut marker_at_last_included_byte = vec![b'Q'; 300];
+    marker_at_last_included_byte[126] = b'X';
+    assert_eq!(
+        bytes_consumed_with_pattern(&marker_at_last_included_byte, 0, &typ, None),
+        127
+    );
+}
+
+#[test]
+fn test_bytes_consumed_any_value_shorter_than_bound_advances_by_own_length() {
+    // No newline, buffer shorter than the 127-byte bound -- the anchor
+    // advances by the buffer's own remaining length, not the bound.
+    let buf = b"Hi";
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, None), 2);
+}
+
+#[test]
+fn test_bytes_consumed_pattern_compared_read_unaffected_by_any_value_bound() {
+    // A pattern-compared (Equal-style) read over the SAME long, newline-
+    // bearing buffer must be governed purely by the pattern's own length
+    // -- R12 only touches the `(None, _)` any-value dispatch arm.
+    let mut buf = vec![b'Q'; 300];
+    buf[3] = b'\n';
+    let typ = TypeKind::String {
+        max_length: None,
+        flags: StringFlags::default(),
+    };
+    let pattern = Value::String("QQQ".to_string());
+    assert_eq!(
+        bytes_consumed_with_pattern(&buf, 0, &typ, Some(&pattern)),
+        3
+    );
+}
+
+/// A configured `max_string_length` below the 127-byte render bound must
+/// bound the ANCHOR too, not just the read.
+///
+/// The anchor path previously substituted `usize::MAX` for the configured
+/// cap, so a caller configuring a cap under 127 got a read bounded to their
+/// value and an anchor bounded to 127 -- the read/anchor disagreement class
+/// that `docs/solutions/security-issues/pstring-anchor-poisoning.md` exists
+/// to prevent, on the same field that serves as the CWE-770 size cap.
+/// Asserted for all three value-buffer types, since each dispatches
+/// separately.
+#[test]
+fn any_value_anchor_honors_a_max_string_length_below_the_render_bound() {
+    // 200 bytes, no newline: only a cap can stop it short of the buffer.
+    let payload = vec![b'Q'; 200];
+
+    let string_typ = TypeKind::String {
+        max_length: None,
+        flags: crate::parser::ast::StringFlags::default(),
+    };
+    let any = Value::Uint(0);
+
+    // Config cap of 10 wins over both the 200-byte buffer and the 127 bound.
+    assert_eq!(
+        bytes_consumed_with_pattern_bounded(&payload, 0, &string_typ, Some(&any), 10),
+        10,
+        "string anchor must honor a configured cap below 127"
+    );
+    // With no configured cap the 127 bound still applies.
+    assert_eq!(
+        bytes_consumed_with_pattern_bounded(&payload, 0, &string_typ, Some(&any), usize::MAX),
+        127,
+        "string anchor falls back to the 127 render bound"
+    );
+
+    // pstring: a 1-byte prefix declaring 200 payload bytes, capped at 10.
+    let mut pstr = vec![200u8];
+    pstr.extend_from_slice(&payload);
+    let pstring_typ = TypeKind::PString {
+        max_length: None,
+        length_width: PStringLengthWidth::OneByte,
+        length_includes_itself: false,
+    };
+    assert_eq!(
+        bytes_consumed_with_pattern_bounded(&pstr, 0, &pstring_typ, Some(&any), 10),
+        11,
+        "pstring anchor honors the cap on the payload and still counts the prefix"
+    );
+
+    // string16: 200 UCS-2 code units, capped at 10 decoded units.
+    let mut utf16 = Vec::new();
+    for _ in 0..200 {
+        utf16.extend_from_slice(&[b'Q', 0x00]);
+    }
+    utf16.extend_from_slice(&[0x00, 0x00]);
+    let s16_typ = TypeKind::String16 {
+        endian: crate::parser::ast::Endianness::Little,
+    };
+    assert_eq!(
+        bytes_consumed_with_pattern_bounded(&utf16, 0, &s16_typ, Some(&any), 10),
+        10,
+        "string16 anchor honors the cap in decoded code units"
+    );
+}
+
+#[test]
+fn test_any_value_string_bound_cut_never_splits_a_utf8_character() {
+    // A 2-byte e-acute straddling the 127-byte cap. `read_string`
+    // lossy-decodes, so cutting between the two bytes renders a U+FFFD the
+    // file never contained; the bound walks back instead. Both halves of
+    // the R12 pair (read and anchor) take this same value, so they stay in
+    // agreement at the shorter cut.
+    let mut buffer = vec![b'a'; 126];
+    buffer.extend_from_slice("\u{e9}".as_bytes()); // bytes 126 and 127
+    buffer.extend_from_slice(&[b'z'; 8]);
+
+    let bound = crate::evaluator::types::any_value_string_bound(&buffer, 0, usize::MAX);
+    assert_eq!(
+        bound, 126,
+        "the cut walks back off the continuation byte at index 127"
+    );
+
+    let Value::String(rendered) =
+        crate::evaluator::types::string::read_string(&buffer, 0, Some(bound)).unwrap()
+    else {
+        panic!("expected Value::String");
+    };
+    assert!(
+        !rendered.contains('\u{fffd}'),
+        "a boundary-respecting cut cannot introduce a replacement character"
+    );
+    assert_eq!(rendered.len(), 126);
+}
+
+#[test]
+fn test_any_value_string_bound_keeps_a_character_that_ends_exactly_at_the_cap() {
+    // The same character one byte earlier, so it ENDS at the cap: nothing to
+    // walk back, and the full 127 bytes are kept.
+    let mut buffer = vec![b'a'; 125];
+    buffer.extend_from_slice("\u{e9}".as_bytes()); // bytes 125 and 126
+    buffer.extend_from_slice(&[b'z'; 8]);
+
+    assert_eq!(
+        crate::evaluator::types::any_value_string_bound(&buffer, 0, usize::MAX),
+        127,
+        "a sequence that ends before the cap is kept whole"
+    );
+}

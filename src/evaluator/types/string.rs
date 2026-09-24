@@ -156,12 +156,17 @@ pub fn read_string_exact(
 /// the match (which can exceed `pattern.len()` when `/w` or `/W` allowed the
 /// file to have additional whitespace). Returns `None` on miss.
 ///
-/// **Buffer bytes consumed is load-bearing for relative-offset child rules.**
-/// `&N` offsets resolve against the previous match's end position
-/// (GOTCHAS S3.8). When `/w` or `/W` lets the file consume more bytes than
-/// the pattern, that count is what advances the anchor, NOT `pattern.len()`.
-/// Returning the consumed count here keeps `bytes_consumed_with_pattern`
-/// honest without re-scanning the buffer at anchor-advance time.
+/// **The returned count is NOT what advances the relative-offset anchor.**
+/// `&N` offsets resolve against the previous match's end position (GOTCHAS
+/// S3.8), and GNU `file`'s `moffset()` (`src/softmagic.c`) advances that
+/// anchor by the pattern's own declared length (`m->vallen`), unconditional
+/// on flags -- never by how many file bytes `/w` or `/W` actually walked.
+/// Callers that need the anchor advance (`flagged_string_bytes_consumed` in
+/// the parent module) use this function only to confirm match-or-miss and
+/// derive the advance from the pattern length themselves; the walked count
+/// this function returns is exposed for callers that genuinely need it
+/// (e.g. locating the matched region's end for other purposes), not for
+/// anchor advance. See GOTCHAS S6.8 for the measured correction.
 ///
 /// **Trim is applied by the caller, not here.** `read_pattern_match` (in
 /// the parent module) trims the pattern before invoking this function
@@ -407,6 +412,161 @@ pub(crate) fn string16_bytes_consumed(buffer: &[u8], offset: usize, endian: Endi
     consumed
 }
 
+/// Compute the R5 any-value bound for an already-decoded `string16` value,
+/// in DECODED CHARACTERS -- not raw (2-bytes-per-unit) source bytes.
+///
+/// Reuses [`super::any_value_string_bound`] on `decoded`'s own UTF-8 bytes
+/// (rather than the raw file buffer): measured against `file-5.41`, a
+/// `lestring16 x` rule's rendered value AND its relative-offset anchor
+/// both advance by the DECODED code-unit count directly, never `2x` that
+/// for the raw source bytes, and with no `+1` adjustment for a
+/// terminating NUL (unlike the c-string `string` convention -- see
+/// `string_bytes_consumed`). Three cases were measured to confirm this:
+/// an untruncated 2-character string, a newline-truncated string, and a
+/// 300-character string hitting the 127-unit cap -- all three land at
+/// exactly the decoded unit count, never double it. This mirrors
+/// upstream treating the already-decoded "narrow" buffer exactly like a
+/// plain string value once UCS-2 decoding is done, with no memory left
+/// of the 2-byte source encoding.
+///
+/// A `\r`/`\n` BYTE found by the inner scan is always a genuine decoded
+/// character (UTF-8 continuation bytes are `0x80..=0xBF`, so `0x0A`/`0x0D`
+/// can never appear mid-character), but the FALLBACK cut (no newline
+/// found) can still land inside a multi-byte UTF-8 sequence for non-ASCII
+/// BMP content or a surrogate-substituted U+FFFD -- walked back to the
+/// nearest character boundary to avoid an invalid slice.
+///
+/// The two returned numbers are deliberately different units and must not
+/// be used interchangeably. Each decoded character came from exactly one
+/// 2-byte source code unit, so the character count is what the anchor
+/// advances by; the UTF-8 byte index is only valid for slicing `decoded`.
+/// They coincide for ASCII, which is why conflating them stayed invisible
+/// until a non-ASCII `string16` value was measured.
+pub(crate) fn any_value_string16_bound(decoded: &str, max_string_length: usize) -> String16Bound {
+    let cap = max_string_length.min(crate::output::format::MAX_DESCRIPTION_FIELD_LEN);
+    // Walked per character rather than through `super::any_value_string_bound`:
+    // that helper measures the cap in bytes, which is right for a c-string's
+    // raw buffer and wrong here, where one decoded character is one source
+    // code unit no matter how many UTF-8 bytes it takes.
+    for (units, (byte_idx, ch)) in decoded.char_indices().enumerate() {
+        if ch == '\r' || ch == '\n' {
+            return String16Bound {
+                units,
+                byte_cut: byte_idx,
+            };
+        }
+        if units == cap {
+            return String16Bound {
+                units,
+                byte_cut: byte_idx,
+            };
+        }
+    }
+    String16Bound {
+        units: decoded.chars().count(),
+        byte_cut: decoded.len(),
+    }
+}
+
+/// The result of [`any_value_string16_bound`]: a truncation point measured
+/// two ways, because its two consumers need different units.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct String16Bound {
+    /// Decoded code units kept. This is what the relative-offset anchor
+    /// advances by -- not doubled for the 2-byte source encoding, per the
+    /// measurement described above.
+    pub(crate) units: usize,
+    /// Byte index into the decoded UTF-8 string, for slicing it.
+    pub(crate) byte_cut: usize,
+}
+
+/// Read a `string16` value for an any-value (`x`, no comparison pattern)
+/// rule, applying the [`any_value_string16_bound`] truncation (R5).
+///
+/// Decodes the full UCS-2 string first (bounded internally by
+/// [`STRING16_MAX_UNITS`], matching [`read_string16`]'s existing CWE-770
+/// guard), then truncates the decoded value. See
+/// [`any_value_string16_bound`] for why truncation operates on the
+/// decoded string rather than the raw source bytes.
+///
+/// # Errors
+///
+/// Returns `TypeReadError::BufferOverrun` when `offset >= buffer.len()`
+/// (propagated from [`read_string16`]).
+pub(crate) fn read_string16_any_value(
+    buffer: &[u8],
+    offset: usize,
+    endian: Endianness,
+    max_string_length: usize,
+) -> Result<Value, TypeReadError> {
+    // `read_string16` always returns `Value::String` on success; the
+    // fallback empty string is unreachable in practice but avoids an
+    // `unreachable!()` panic path (project policy: no panics in library
+    // code).
+    let decoded = match read_string16(buffer, offset, endian)? {
+        Value::String(s) => s,
+        _ => String::new(),
+    };
+    let bound = any_value_string16_bound(&decoded, max_string_length);
+    // Invariant-safe: `byte_cut` is walked back to a `str` char boundary by
+    // `any_value_string16_bound` above.
+    #[allow(clippy::indexing_slicing)]
+    Ok(Value::String(decoded[..bound.byte_cut].to_string()))
+}
+
+/// Read and decode a pstring's raw length-prefix value (before the `/J`
+/// adjustment), for the given `length_width`, at `offset`.
+///
+/// Extracted from [`read_pstring`] purely to keep that function under the
+/// project's line-count lint; no behavior change from the inlined form.
+///
+/// # Errors
+///
+/// Returns `TypeReadError::BufferOverrun` if the prefix bytes are not
+/// fully available at `offset`.
+fn read_pstring_length_prefix(
+    buffer: &[u8],
+    offset: usize,
+    length_width: PStringLengthWidth,
+) -> Result<usize, TypeReadError> {
+    let width = length_width.byte_count();
+    let prefix_end = offset
+        .checked_add(width)
+        .ok_or(TypeReadError::BufferOverrun {
+            offset,
+            buffer_len: buffer.len(),
+        })?;
+    let len_bytes = buffer
+        .get(offset..prefix_end)
+        .ok_or(TypeReadError::BufferOverrun {
+            offset,
+            buffer_len: buffer.len(),
+        })?;
+    let overrun = || TypeReadError::BufferOverrun {
+        offset,
+        buffer_len: buffer.len(),
+    };
+    match length_width {
+        PStringLengthWidth::OneByte => Ok(usize::from(*len_bytes.first().ok_or_else(overrun)?)),
+        PStringLengthWidth::TwoByteBE => {
+            let arr: [u8; 2] = len_bytes.try_into().map_err(|_| overrun())?;
+            Ok(usize::from(u16::from_be_bytes(arr)))
+        }
+        PStringLengthWidth::TwoByteLE => {
+            let arr: [u8; 2] = len_bytes.try_into().map_err(|_| overrun())?;
+            Ok(usize::from(u16::from_le_bytes(arr)))
+        }
+        PStringLengthWidth::FourByteBE => {
+            let arr: [u8; 4] = len_bytes.try_into().map_err(|_| overrun())?;
+            Ok(u32::from_be_bytes(arr) as usize)
+        }
+        PStringLengthWidth::FourByteLE => {
+            let arr: [u8; 4] = len_bytes.try_into().map_err(|_| overrun())?;
+            Ok(u32::from_le_bytes(arr) as usize)
+        }
+    }
+}
+
 /// Reads a Pascal-style length-prefixed string from the buffer.
 ///
 /// Pascal strings store the length prefix (1, 2, or 4 bytes depending on
@@ -418,6 +578,14 @@ pub(crate) fn string16_bytes_consumed(buffer: &[u8], offset: usize, endian: Endi
 /// * `buffer` - The byte buffer to read from
 /// * `offset` - The offset position to start reading from
 /// * `max_length` - Optional maximum length limit (caps the length byte value)
+/// * `any_value_bound` - `Some(max_string_length)` additionally bounds the
+///   payload (after `max_length` and the declared prefix length are
+///   applied) to at most [`crate::output::format::MAX_DESCRIPTION_FIELD_LEN`]
+///   bytes, cut at the first `\r`/`\n` byte found within that bound -- the
+///   R5 any-value treatment already applied to plain `string` (see
+///   `super::any_value_string_bound`). `None` skips this for a real
+///   comparison pattern read, matching libmagic: an equality- or
+///   ordering-compared pstring never stops at an embedded newline.
 ///
 /// # Returns
 ///
@@ -438,15 +606,15 @@ pub(crate) fn string16_bytes_consumed(buffer: &[u8], offset: usize, endian: Endi
 /// use libmagic_rs::parser::ast::{Value, PStringLengthWidth};
 ///
 /// let buffer = b"\x05Hello";
-/// let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false).unwrap();
+/// let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false, None).unwrap();
 /// assert_eq!(result, Value::String("Hello".to_string()));
 ///
 /// let buffer = b"\x00\x05Hello";
-/// let result = read_pstring(buffer, 0, None, PStringLengthWidth::TwoByteBE, false).unwrap();
+/// let result = read_pstring(buffer, 0, None, PStringLengthWidth::TwoByteBE, false, None).unwrap();
 /// assert_eq!(result, Value::String("Hello".to_string()));
 ///
 /// let buffer = b"\x05\x00\x00\x00Hello";
-/// let result = read_pstring(buffer, 0, None, PStringLengthWidth::FourByteLE, false).unwrap();
+/// let result = read_pstring(buffer, 0, None, PStringLengthWidth::FourByteLE, false, None).unwrap();
 /// assert_eq!(result, Value::String("Hello".to_string()));
 /// ```
 ///
@@ -456,7 +624,9 @@ pub(crate) fn string16_bytes_consumed(buffer: &[u8], offset: usize, endian: Endi
 /// - The offset is beyond buffer bounds (cannot read the length prefix)
 /// - The string data (length prefix value) extends beyond the buffer
 // Slicing is invariant-safe: `string_start..string_end` is validated
-// against `buffer.len()` before the slice.
+// against `buffer.len()` before the slice, and the further
+// `any_value_bound` truncation only ever shrinks a slice that was already
+// validated in-bounds.
 #[allow(clippy::indexing_slicing)]
 pub fn read_pstring(
     buffer: &[u8],
@@ -464,65 +634,10 @@ pub fn read_pstring(
     max_length: Option<usize>,
     length_width: PStringLengthWidth,
     length_includes_itself: bool,
+    any_value_bound: Option<usize>,
 ) -> Result<Value, TypeReadError> {
     let width = length_width.byte_count();
-    // Check if we can read the length prefix (checked arithmetic to prevent overflow)
-    let prefix_end = offset
-        .checked_add(width)
-        .ok_or(TypeReadError::BufferOverrun {
-            offset,
-            buffer_len: buffer.len(),
-        })?;
-    let len_bytes = buffer
-        .get(offset..prefix_end)
-        .ok_or(TypeReadError::BufferOverrun {
-            offset,
-            buffer_len: buffer.len(),
-        })?;
-    let string_length = match length_width {
-        PStringLengthWidth::OneByte => {
-            usize::from(*len_bytes.first().ok_or(TypeReadError::BufferOverrun {
-                offset,
-                buffer_len: buffer.len(),
-            })?)
-        }
-        PStringLengthWidth::TwoByteBE => {
-            let arr: [u8; 2] = len_bytes
-                .try_into()
-                .map_err(|_| TypeReadError::BufferOverrun {
-                    offset,
-                    buffer_len: buffer.len(),
-                })?;
-            usize::from(u16::from_be_bytes(arr))
-        }
-        PStringLengthWidth::TwoByteLE => {
-            let arr: [u8; 2] = len_bytes
-                .try_into()
-                .map_err(|_| TypeReadError::BufferOverrun {
-                    offset,
-                    buffer_len: buffer.len(),
-                })?;
-            usize::from(u16::from_le_bytes(arr))
-        }
-        PStringLengthWidth::FourByteBE => {
-            let arr: [u8; 4] = len_bytes
-                .try_into()
-                .map_err(|_| TypeReadError::BufferOverrun {
-                    offset,
-                    buffer_len: buffer.len(),
-                })?;
-            u32::from_be_bytes(arr) as usize
-        }
-        PStringLengthWidth::FourByteLE => {
-            let arr: [u8; 4] = len_bytes
-                .try_into()
-                .map_err(|_| TypeReadError::BufferOverrun {
-                    offset,
-                    buffer_len: buffer.len(),
-                })?;
-            u32::from_le_bytes(arr) as usize
-        }
-    };
+    let string_length = read_pstring_length_prefix(buffer, offset, length_width)?;
 
     // /J flag: the stored length includes the prefix width itself
     let string_length = if length_includes_itself {
@@ -562,6 +677,27 @@ pub fn read_pstring(
         });
     }
     let string_bytes = &buffer[string_start..string_end];
+
+    // R5: an any-value read is further bounded to at most
+    // `MAX_DESCRIPTION_FIELD_LEN` bytes and cut at the first `\r`/`\n`
+    // byte within that bound, composing as a minimum with the caller's
+    // `max_string_length` cap -- applied AFTER the bounds check above, so
+    // this can only ever shrink an already-valid slice, never mask a
+    // genuine buffer overrun. `bytes_to_string_fast` still runs on the
+    // (possibly truncated) raw bytes, so a lossy UTF-8 decode can never
+    // desync the truncation point from what was actually read.
+    let string_bytes = match any_value_bound {
+        Some(cfg_cap) => {
+            let bound = super::any_value_string_bound(
+                buffer,
+                string_start,
+                cfg_cap.min(string_bytes.len()),
+            );
+            &buffer[string_start..string_start + bound]
+        }
+        None => string_bytes,
+    };
+
     let string_value = bytes_to_string_fast(string_bytes);
     Ok(Value::String(string_value))
 }
@@ -576,11 +712,26 @@ mod tests {
     use crate::parser::ast::{PStringLengthWidth, StringFlags, TypeKind};
     #[test]
     fn test_read_pstring_one_byte_width() {
-        let result = read_pstring(b"\x03abc", 0, None, PStringLengthWidth::OneByte, false).unwrap();
+        let result = read_pstring(
+            b"\x03abc",
+            0,
+            None,
+            PStringLengthWidth::OneByte,
+            false,
+            None,
+        )
+        .unwrap();
         assert_eq!(result, Value::String("abc".to_string()));
 
-        let result =
-            read_pstring(b"\x05Hello", 0, Some(3), PStringLengthWidth::OneByte, false).unwrap();
+        let result = read_pstring(
+            b"\x05Hello",
+            0,
+            Some(3),
+            PStringLengthWidth::OneByte,
+            false,
+            None,
+        )
+        .unwrap();
         assert_eq!(result, Value::String("Hel".to_string()));
     }
 
@@ -592,6 +743,7 @@ mod tests {
             None,
             PStringLengthWidth::TwoByteLE,
             false,
+            None,
         )
         .unwrap();
         assert_eq!(result, Value::String("abc".to_string()));
@@ -602,6 +754,7 @@ mod tests {
             Some(3),
             PStringLengthWidth::TwoByteLE,
             false,
+            None,
         )
         .unwrap();
         assert_eq!(result, Value::String("Hel".to_string()));
@@ -615,6 +768,7 @@ mod tests {
             None,
             PStringLengthWidth::FourByteLE,
             false,
+            None,
         )
         .unwrap();
         assert_eq!(result, Value::String("abc".to_string()));
@@ -625,6 +779,7 @@ mod tests {
             Some(3),
             PStringLengthWidth::FourByteLE,
             false,
+            None,
         )
         .unwrap();
         assert_eq!(result, Value::String("Hel".to_string()));
@@ -640,7 +795,7 @@ mod tests {
             (b"\x01\x00", 0, PStringLengthWidth::FourByteLE),
         ];
         for &(buffer, offset, width) in cases {
-            let result = read_pstring(buffer, offset, None, width, false);
+            let result = read_pstring(buffer, offset, None, width, false, None);
             assert!(
                 matches!(result, Err(TypeReadError::BufferOverrun { .. })),
                 "Expected buffer overrun for buffer {buffer:?}, offset {offset}, width {width:?}"
@@ -657,13 +812,223 @@ mod tests {
             (b"\x05\x00\x00\x00ab", 0, PStringLengthWidth::FourByteLE),
         ];
         for &(buffer, offset, width) in cases {
-            let result = read_pstring(buffer, offset, None, width, false);
+            let result = read_pstring(buffer, offset, None, width, false, None);
             assert!(
                 matches!(result, Err(TypeReadError::BufferOverrun { .. })),
                 "Expected buffer overrun for buffer {buffer:?}, offset {offset}, width {width:?}"
             );
         }
     }
+
+    // =========================================================================
+    // R5: extend the R1/R2 any-value newline-stop + 127-byte bound (already
+    // applied to plain `string`, see `lib.rs`'s `newline_gate_end_to_end_tests`)
+    // to `pstring`. Measured against `file-5.41`: `0 pstring x PS=[%s]` over
+    // a 1-byte-prefix "ABC\ndef" payload followed by unrelated trailing
+    // bytes renders `PS=[ABC]`, not the full "ABC\ndef" payload.
+    // =========================================================================
+
+    #[test]
+    fn test_read_pstring_any_value_stops_at_first_newline() {
+        // prefix=7, payload "ABC\ndef" (7 bytes), then unrelated trailing
+        // bytes that must never be reached.
+        let buffer = b"\x07ABC\ndeftail\n";
+        let result = read_pstring(
+            buffer,
+            0,
+            None,
+            PStringLengthWidth::OneByte,
+            false,
+            Some(usize::MAX),
+        )
+        .unwrap();
+        assert_eq!(result, Value::String("ABC".to_string()));
+    }
+
+    #[test]
+    fn test_read_pstring_any_value_caps_at_127_bytes_with_no_newline() {
+        // Declared payload length 200 (fits in a 1-byte prefix), no
+        // newline anywhere -- the render bound must cap at exactly 127
+        // bytes, matching `file-5.41` measured on the same fixture shape.
+        let mut buffer = vec![200u8];
+        buffer.extend(std::iter::repeat_n(b'Q', 200));
+        let result = read_pstring(
+            &buffer,
+            0,
+            None,
+            PStringLengthWidth::OneByte,
+            false,
+            Some(usize::MAX),
+        )
+        .unwrap();
+        let Value::String(s) = result else {
+            panic!("expected Value::String");
+        };
+        assert_eq!(s.len(), 127);
+        assert!(s.bytes().all(|b| b == b'Q'));
+    }
+
+    #[test]
+    fn test_read_pstring_any_value_max_string_length_config_wins_over_127() {
+        // A configured cap smaller than 127 must still win (the existing
+        // CWE-770 security pin, GOTCHAS 2A-H1) -- composed as a minimum,
+        // not overridden by the 127-byte render bound.
+        let mut buffer = vec![200u8];
+        buffer.extend(std::iter::repeat_n(b'Q', 200));
+        let result = read_pstring(
+            &buffer,
+            0,
+            None,
+            PStringLengthWidth::OneByte,
+            false,
+            Some(10),
+        )
+        .unwrap();
+        assert_eq!(result, Value::String("Q".repeat(10)));
+    }
+
+    #[test]
+    fn test_read_pstring_equality_shape_never_stops_at_embedded_newline() {
+        // `any_value_bound: None` is the dispatch's equality/ordering-
+        // pattern shape (GOTCHAS S3.6) -- it must render the embedded
+        // newline verbatim, matching `file-5.41`'s measured
+        // `EQ=[ABC\ndef]` (literal two-line output) for an
+        // equality-compared pstring.
+        let buffer = b"\x07ABC\ndef";
+        let result =
+            read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false, None).unwrap();
+        assert_eq!(result, Value::String("ABC\ndef".to_string()));
+    }
+
+    #[test]
+    fn test_read_pstring_any_value_declared_prefix_exceeds_buffer_still_errors_not_panics() {
+        // Existing behavior (S15.1-adjacent overrun contract) must not
+        // regress now that an `any_value_bound` is threaded through: the
+        // bounds check runs BEFORE the new truncation, so a genuine
+        // overrun still errors rather than silently truncating to a
+        // shorter "successful" read.
+        let buffer = b"\x05ab"; // declares 5 bytes, only 2 available
+        let result = read_pstring(
+            buffer,
+            0,
+            None,
+            PStringLengthWidth::OneByte,
+            false,
+            Some(usize::MAX),
+        );
+        assert!(matches!(result, Err(TypeReadError::BufferOverrun { .. })));
+    }
+
+    // =========================================================================
+    // R5: the same any-value treatment for `string16`, measured in DECODED
+    // CODE UNITS (not raw 2-bytes-per-unit source bytes) -- see
+    // `any_value_string16_bound`'s doc comment for the three measurements
+    // that pin this.
+    // =========================================================================
+
+    #[test]
+    fn test_read_string16_any_value_stops_at_first_newline() {
+        // "AB\ncd" as UCS-2LE, NUL-terminated, then unrelated trailing
+        // bytes. Measured against `file-5.41`: renders `S16=[AB]`.
+        let mut buffer = Vec::new();
+        for ch in "AB\ncd".chars() {
+            buffer.extend_from_slice(&(ch as u16).to_le_bytes());
+        }
+        buffer.extend_from_slice(&[0, 0]);
+        buffer.extend_from_slice(b"tail");
+        let result = read_string16_any_value(&buffer, 0, Endianness::Little, usize::MAX).unwrap();
+        assert_eq!(result, Value::String("AB".to_string()));
+    }
+
+    #[test]
+    fn test_read_string16_any_value_caps_at_127_chars_with_no_newline() {
+        // 300 'Q' code units, no newline -- measured against `file-5.41`:
+        // renders exactly 127 characters (the render bound is in DECODED
+        // characters, not raw source bytes -- 127 raw bytes would only
+        // decode to ~63 characters).
+        let mut buffer = Vec::new();
+        for _ in 0..300 {
+            buffer.extend_from_slice(&u16::from(b'Q').to_le_bytes());
+        }
+        buffer.extend_from_slice(&[0, 0]);
+        let result = read_string16_any_value(&buffer, 0, Endianness::Little, usize::MAX).unwrap();
+        let Value::String(s) = result else {
+            panic!("expected Value::String");
+        };
+        assert_eq!(s.chars().count(), 127);
+        assert!(s.chars().all(|c| c == 'Q'));
+    }
+
+    #[test]
+    fn test_read_string16_any_value_max_string_length_config_wins_over_127() {
+        let mut buffer = Vec::new();
+        for _ in 0..300 {
+            buffer.extend_from_slice(&u16::from(b'Q').to_le_bytes());
+        }
+        let result = read_string16_any_value(&buffer, 0, Endianness::Little, 10).unwrap();
+        assert_eq!(result, Value::String("Q".repeat(10)));
+    }
+
+    #[test]
+    fn test_read_string16_any_value_offset_past_end_still_errors_not_panics() {
+        let buffer = b"AB";
+        let result = read_string16_any_value(buffer, 5, Endianness::Little, usize::MAX);
+        assert!(matches!(result, Err(TypeReadError::BufferOverrun { .. })));
+    }
+
+    #[test]
+    fn test_any_value_string16_bound_max_string_length_wins_over_127() {
+        let decoded = "Q".repeat(300);
+        assert_eq!(any_value_string16_bound(&decoded, 10).units, 10);
+        assert_eq!(any_value_string16_bound(&decoded, usize::MAX).units, 127);
+    }
+
+    #[test]
+    fn test_any_value_string16_bound_counts_code_units_not_utf8_bytes() {
+        // Each of these decoded characters came from exactly ONE 2-byte
+        // UCS-2 code unit, but they occupy 1, 2 and 3 UTF-8 bytes
+        // respectively. The anchor must advance by the code-unit count; a
+        // byte-length bound would over-count and land the next relative
+        // offset past where `file` puts it.
+        let table: &[(&str, usize, usize)] = &[
+            // (decoded, expected units, expected UTF-8 byte length)
+            ("AB", 2, 2),
+            ("\u{e9}X", 2, 3),          // e-acute: 2 UTF-8 bytes
+            ("\u{4e2d}\u{6587}", 2, 6), // two CJK chars: 3 UTF-8 bytes each
+            ("A\u{fffd}B", 3, 5),       // surrogate half substituted by read_string16
+        ];
+        for (decoded, want_units, want_bytes) in table {
+            let bound = any_value_string16_bound(decoded, usize::MAX);
+            assert_eq!(
+                decoded.len(),
+                *want_bytes,
+                "fixture {decoded:?} is not the UTF-8 length the case assumes"
+            );
+            assert_eq!(
+                bound.units, *want_units,
+                "{decoded:?}: anchor must advance by decoded code units, not UTF-8 bytes"
+            );
+            assert_eq!(
+                bound.byte_cut,
+                decoded.len(),
+                "{decoded:?}: an untruncated value slices to its whole length"
+            );
+        }
+    }
+
+    #[test]
+    fn test_any_value_string16_bound_truncation_splits_units_and_bytes() {
+        // 200 CJK characters: 200 code units, 600 UTF-8 bytes. The 127-char
+        // render bound must yield 127 units for the anchor and 381 bytes for
+        // the slice. Measuring the cap in UTF-8 bytes instead truncates the
+        // rendered value to 42 characters and under-advances the anchor.
+        let decoded = "\u{4e2d}".repeat(200);
+        let bound = any_value_string16_bound(&decoded, usize::MAX);
+        assert_eq!(bound.units, 127, "anchor advance is in code units");
+        assert_eq!(bound.byte_cut, 127 * 3, "slice index is in UTF-8 bytes");
+        assert!(decoded.is_char_boundary(bound.byte_cut));
+    }
+
     use crate::evaluator::types::read_typed_value;
 
     #[test]
@@ -922,57 +1287,70 @@ mod tests {
     #[test]
     fn test_read_pstring_basic() {
         let buffer = b"\x05Hello";
-        let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false).unwrap();
+        let result =
+            read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false, None).unwrap();
         assert_eq!(result, Value::String("Hello".to_string()));
     }
 
     #[test]
     fn test_read_pstring_at_offset() {
         let buffer = b"PREFIX\x03Foo";
-        let result = read_pstring(buffer, 6, None, PStringLengthWidth::OneByte, false).unwrap();
+        let result =
+            read_pstring(buffer, 6, None, PStringLengthWidth::OneByte, false, None).unwrap();
         assert_eq!(result, Value::String("Foo".to_string()));
     }
 
     #[test]
     fn test_read_pstring_empty_string() {
         let buffer = b"\x00trailing";
-        let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false).unwrap();
+        let result =
+            read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false, None).unwrap();
         assert_eq!(result, Value::String(String::new()));
     }
 
     #[test]
     fn test_read_pstring_single_char() {
         let buffer = b"\x01A";
-        let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false).unwrap();
+        let result =
+            read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false, None).unwrap();
         assert_eq!(result, Value::String("A".to_string()));
     }
 
     #[test]
     fn test_read_pstring_max_length_limits() {
         let buffer = b"\x0aHelloWorld";
-        let result = read_pstring(buffer, 0, Some(5), PStringLengthWidth::OneByte, false).unwrap();
+        let result =
+            read_pstring(buffer, 0, Some(5), PStringLengthWidth::OneByte, false, None).unwrap();
         assert_eq!(result, Value::String("Hello".to_string()));
     }
 
     #[test]
     fn test_read_pstring_max_length_larger_than_prefix() {
         let buffer = b"\x03Foo";
-        let result =
-            read_pstring(buffer, 0, Some(100), PStringLengthWidth::OneByte, false).unwrap();
+        let result = read_pstring(
+            buffer,
+            0,
+            Some(100),
+            PStringLengthWidth::OneByte,
+            false,
+            None,
+        )
+        .unwrap();
         assert_eq!(result, Value::String("Foo".to_string()));
     }
 
     #[test]
     fn test_read_pstring_max_length_zero() {
         let buffer = b"\x05Hello";
-        let result = read_pstring(buffer, 0, Some(0), PStringLengthWidth::OneByte, false).unwrap();
+        let result =
+            read_pstring(buffer, 0, Some(0), PStringLengthWidth::OneByte, false, None).unwrap();
         assert_eq!(result, Value::String(String::new()));
     }
 
     #[test]
     fn test_read_pstring_buffer_overrun_offset_past_end() {
         let buffer = b"Hello";
-        let result = read_pstring(buffer, 10, None, PStringLengthWidth::OneByte, false);
+        let result = read_pstring(buffer, 10, None, PStringLengthWidth::OneByte, false, None);
         assert_eq!(
             result.unwrap_err(),
             TypeReadError::BufferOverrun {
@@ -985,7 +1363,7 @@ mod tests {
     #[test]
     fn test_read_pstring_buffer_overrun_empty_buffer() {
         let buffer = b"";
-        let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false);
+        let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false, None);
         assert_eq!(
             result.unwrap_err(),
             TypeReadError::BufferOverrun {
@@ -999,7 +1377,7 @@ mod tests {
     fn test_read_pstring_buffer_overrun_length_exceeds_data() {
         // Length byte says 10 but only 3 bytes follow
         let buffer = b"\x0aFoo";
-        let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false);
+        let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false, None);
         assert_eq!(
             result.unwrap_err(),
             TypeReadError::BufferOverrun {
@@ -1013,7 +1391,7 @@ mod tests {
     fn test_read_pstring_length_byte_only() {
         // Buffer has length byte but no string data, and length > 0
         let buffer = b"\x05";
-        let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false);
+        let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false, None);
         assert_eq!(
             result.unwrap_err(),
             TypeReadError::BufferOverrun {
@@ -1026,7 +1404,14 @@ mod tests {
     #[test]
     fn test_read_pstring_offset_overflow() {
         let buffer = b"\x05Hello";
-        let result = read_pstring(buffer, usize::MAX, None, PStringLengthWidth::OneByte, false);
+        let result = read_pstring(
+            buffer,
+            usize::MAX,
+            None,
+            PStringLengthWidth::OneByte,
+            false,
+            None,
+        );
         assert_eq!(
             result.unwrap_err(),
             TypeReadError::BufferOverrun {
@@ -1040,7 +1425,8 @@ mod tests {
     fn test_read_pstring_max_length_caps_when_buffer_short() {
         // Length byte says 10, only 5 data bytes follow, but max_length=5 caps the read
         let buffer = b"\x0aHello";
-        let result = read_pstring(buffer, 0, Some(5), PStringLengthWidth::OneByte, false).unwrap();
+        let result =
+            read_pstring(buffer, 0, Some(5), PStringLengthWidth::OneByte, false, None).unwrap();
         assert_eq!(result, Value::String("Hello".to_string()));
     }
 
@@ -1048,14 +1434,16 @@ mod tests {
     fn test_read_pstring_utf8_valid() {
         // "Café" in UTF-8 is 5 bytes: 43 61 66 c3 a9
         let buffer = b"\x05Caf\xc3\xa9";
-        let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false).unwrap();
+        let result =
+            read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false, None).unwrap();
         assert_eq!(result, Value::String("Café".to_string()));
     }
 
     #[test]
     fn test_read_pstring_utf8_invalid() {
         let buffer = b"\x03\xff\xfe\xfd";
-        let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false).unwrap();
+        let result =
+            read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false, None).unwrap();
         if let Value::String(s) = result {
             assert!(s.contains('\u{FFFD}'));
         } else {
@@ -1068,7 +1456,8 @@ mod tests {
         // Length byte = 255, with exactly 255 bytes of data
         let mut buffer = vec![0xFF];
         buffer.extend(std::iter::repeat_n(b'A', 255));
-        let result = read_pstring(&buffer, 0, None, PStringLengthWidth::OneByte, false).unwrap();
+        let result =
+            read_pstring(&buffer, 0, None, PStringLengthWidth::OneByte, false, None).unwrap();
         assert_eq!(result, Value::String("A".repeat(255)));
     }
 
@@ -1076,7 +1465,7 @@ mod tests {
     fn test_read_pstring_consistency_with_typed_value() {
         let buffer = b"\x04Test";
         let direct_result =
-            read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false).unwrap();
+            read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, false, None).unwrap();
 
         let type_kind = TypeKind::PString {
             max_length: None,
@@ -1093,7 +1482,7 @@ mod tests {
     fn test_read_pstring_consistency_with_max_length() {
         let buffer = b"\x0aLongString";
         let direct_result =
-            read_pstring(buffer, 0, Some(4), PStringLengthWidth::OneByte, false).unwrap();
+            read_pstring(buffer, 0, Some(4), PStringLengthWidth::OneByte, false, None).unwrap();
 
         let type_kind = TypeKind::PString {
             max_length: Some(4),
@@ -1119,7 +1508,7 @@ mod tests {
             ),
         ];
         for &(buffer, width, expected) in cases {
-            let result = read_pstring(buffer, 0, None, width, false);
+            let result = read_pstring(buffer, 0, None, width, false, None);
             assert_eq!(
                 result.unwrap(),
                 Value::String(expected.to_string()),
@@ -1158,7 +1547,7 @@ mod tests {
             ),
         ];
         for &(buffer, width, includes_itself, expected) in cases {
-            let result = read_pstring(buffer, 0, None, width, includes_itself);
+            let result = read_pstring(buffer, 0, None, width, includes_itself, None);
             assert_eq!(
                 result.unwrap(),
                 Value::String(expected.to_string()),
@@ -1171,7 +1560,8 @@ mod tests {
     fn test_read_pstring_j_flag_length_equals_prefix_width() {
         // /J where length exactly equals prefix width -> empty string
         let buffer = b"\x01";
-        let result = read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, true).unwrap();
+        let result =
+            read_pstring(buffer, 0, None, PStringLengthWidth::OneByte, true, None).unwrap();
         assert_eq!(result, Value::String(String::new()));
     }
 
@@ -1180,7 +1570,7 @@ mod tests {
         // /J where length < prefix width -> InvalidPStringLength error
         // LE bytes [0x01, 0x00] = stored length 1, but prefix width is 2
         let buffer = b"\x01\x00xx";
-        let result = read_pstring(buffer, 0, None, PStringLengthWidth::TwoByteLE, true);
+        let result = read_pstring(buffer, 0, None, PStringLengthWidth::TwoByteLE, true, None);
         assert!(
             matches!(
                 result,
@@ -1198,7 +1588,14 @@ mod tests {
         // /J + max_length interaction: subtract prefix width first, then cap
         // stored length=9, width=4, /J gives 5, max_length=3 caps to 3
         let buffer = b"\x09\x00\x00\x00Hello";
-        let result = read_pstring(buffer, 0, Some(3), PStringLengthWidth::FourByteLE, true);
+        let result = read_pstring(
+            buffer,
+            0,
+            Some(3),
+            PStringLengthWidth::FourByteLE,
+            true,
+            None,
+        );
         assert_eq!(result.unwrap(), Value::String("Hel".to_string()));
     }
 
@@ -1213,7 +1610,7 @@ mod tests {
             (b"\x04\x00\x00\x00", PStringLengthWidth::FourByteLE),
         ];
         for &(buffer, width) in cases {
-            let result = read_pstring(buffer, 0, None, width, true);
+            let result = read_pstring(buffer, 0, None, width, true, None);
             assert_eq!(
                 result.unwrap(),
                 Value::String(String::new()),
@@ -1525,18 +1922,20 @@ mod tests {
     }
 
     #[test]
-    fn test_compare_string_with_flags_consumed_bytes_drives_anchor() {
-        // This is the load-bearing contract from the U4 plan: when /W
-        // consumes more file bytes than pattern bytes, the returned count
-        // is what relative-offset child rules use to advance the anchor.
-        // The regression risk is returning `pattern.len()` instead.
+    fn test_compare_string_with_flags_returns_actual_walked_byte_count() {
+        // `compare_string_with_flags` itself still reports how many FILE
+        // bytes the walk consumed -- that primitive is unchanged. What
+        // changed (R6, GOTCHAS S6.8) is that callers no longer use this
+        // count to advance the relative-offset anchor; the anchor now
+        // derives from the pattern's own declared length instead. See
+        // `flagged_string_bytes_consumed` in `evaluator/types/mod.rs`.
         let flags = StringFlags::default().with_compact_whitespace(true);
-        // Pattern "a b" (3 bytes) against file "a    b" (6 bytes) ->
-        // anchor must advance by 6, NOT 3.
+        // Pattern "a b" (3 bytes) against file "a    b" (6 bytes): the
+        // walk consumes 6 bytes, which this function still reports.
         assert_eq!(
             compare_string_with_flags(b"a b", b"a    b", 0, flags),
             Some(6),
-            "anchor-advance contract: consumed_bytes reflects file consumption"
+            "the comparator's own return value is the walked byte count, unchanged"
         );
     }
 }

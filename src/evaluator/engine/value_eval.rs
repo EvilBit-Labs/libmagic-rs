@@ -14,7 +14,7 @@
 
 use crate::LibmagicError;
 use crate::evaluator::{operators, types};
-use crate::parser::ast::{MagicRule, TypeKind};
+use crate::parser::ast::{MagicRule, Operator, TypeKind, Value};
 use log::debug;
 
 /// Evaluate a pattern-bearing rule (`TypeKind::Regex` / `TypeKind::Search`).
@@ -201,7 +201,20 @@ pub(crate) fn string_ordering_display_value(
 
     let is_ordering = matches!(rule.op, LessThan | GreaterThan | LessEqual | GreaterEqual);
     if is_ordering && matches!(rule.typ, TypeKind::String { .. }) {
-        match types::read_string(buffer, absolute_offset, Some(max_string_length)) {
+        // R2/R12 (U3 step 3): when the null-first-byte idiom gates (see
+        // `newline_stop_gate`), the display read is ALSO bounded and
+        // newline-stopped, matching the any-value read path -- otherwise
+        // a `>\0...` rule's rendered field could still carry an embedded
+        // newline that only the render-time bound (127 bytes, no stop)
+        // would catch. The ordinary (non-gated) ordering idiom -- e.g.
+        // `>0.6.1 ... %s` -- keeps the unbounded-by-newline full-field
+        // read it always had (GOTCHAS S14.3).
+        let read_cap = if newline_stop_gate(rule) {
+            types::any_value_string_bound(buffer, absolute_offset, max_string_length)
+        } else {
+            max_string_length
+        };
+        match types::read_string(buffer, absolute_offset, Some(read_cap)) {
             Ok(full_field) => full_field,
             // A matched rule must not abort on a display-only read (the compared
             // prefix was already read successfully at this offset moments ago),
@@ -220,5 +233,190 @@ pub(crate) fn string_ordering_display_value(
         }
     } else {
         compared
+    }
+}
+
+/// Whether R2's newline-stop gate applies to `rule`'s rendered `%s` value.
+///
+/// The gate fires for an any-value rule (`x`), or for an ordering-compared
+/// rule (`<`/`>`/`<=`/`>=`) whose declared comparison pattern's first byte
+/// is a null byte. This mirrors upstream libmagic's `*m->value.s == '\0'`
+/// first-byte test -- NOT a zero-length test: measured against `file-5.41`,
+/// the 4-byte pattern `>\0ABC` gates and the 1-byte pattern `>0` does not,
+/// because `'0'` (0x30) is not a null byte.
+///
+/// Neither the rule's operator nor its pattern's first byte reaches
+/// [`crate::output::format::format_magic_message_with_gate`] today. This
+/// unit's live consumer is [`string_ordering_display_value`], which reads
+/// the gate directly (`rule` is already in scope there) rather than
+/// threading it through `RuleMatch`/`concatenate_messages`
+/// (`lib.rs`) -- see this crate's plan doc R14 for why that fuller
+/// end-to-end wire was left for a follow-up: `RuleMatch` is
+/// `#[non_exhaustive]` public API and several in-crate struct-literal
+/// construction sites outside this unit's touched-file set would need
+/// updating to add a field to it.
+pub(crate) fn newline_stop_gate(rule: &MagicRule) -> bool {
+    if matches!(rule.op, Operator::AnyValue) {
+        return true;
+    }
+    let is_ordering = matches!(
+        rule.op,
+        Operator::LessThan | Operator::GreaterThan | Operator::LessEqual | Operator::GreaterEqual
+    );
+    is_ordering && pattern_first_byte_is_null(&rule.value)
+}
+
+/// Whether `pattern`'s first byte is a null byte (0x00).
+fn pattern_first_byte_is_null(pattern: &Value) -> bool {
+    match pattern {
+        Value::String(s) => s.as_bytes().first() == Some(&0),
+        Value::Bytes(b) => b.first() == Some(&0),
+        Value::Uint(_) | Value::Int(_) | Value::Float(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::ast::{OffsetSpec, StringFlags};
+
+    fn rule_with(op: Operator, value: Value) -> MagicRule {
+        MagicRule::new(
+            OffsetSpec::Absolute(0),
+            TypeKind::String {
+                max_length: None,
+                flags: StringFlags::default(),
+            },
+            op,
+            value,
+            "msg".to_string(),
+        )
+    }
+
+    #[test]
+    fn test_any_value_rule_gates() {
+        let rule = rule_with(Operator::AnyValue, Value::String(String::new()));
+        assert!(newline_stop_gate(&rule));
+    }
+
+    #[test]
+    fn test_ordering_rule_with_null_first_byte_pattern_gates() {
+        // The measured oracle case: `>\0ABC` gates.
+        let rule = rule_with(
+            Operator::GreaterThan,
+            Value::Bytes(vec![0, b'A', b'B', b'C']),
+        );
+        assert!(newline_stop_gate(&rule));
+    }
+
+    #[test]
+    fn test_ordering_rule_with_non_null_first_byte_pattern_does_not_gate() {
+        // The measured oracle case: `>0` does not gate -- '0' (0x30) is not
+        // a null byte, even though the pattern is only 1 byte long. This is
+        // the first-byte test, not a zero-length test.
+        let rule = rule_with(Operator::GreaterThan, Value::String("0".to_string()));
+        assert!(!newline_stop_gate(&rule));
+    }
+
+    #[test]
+    fn test_equality_rule_does_not_gate_even_with_null_first_byte_pattern() {
+        // The gate is scoped to any-value or *ordering*-compared rules;
+        // an equality comparison never gates, regardless of pattern.
+        let rule = rule_with(Operator::Equal, Value::Bytes(vec![0, b'A']));
+        assert!(!newline_stop_gate(&rule));
+    }
+
+    #[test]
+    fn test_equality_rule_with_ordinary_pattern_does_not_gate() {
+        let rule = rule_with(Operator::Equal, Value::String("hello".to_string()));
+        assert!(!newline_stop_gate(&rule));
+    }
+
+    #[test]
+    fn test_ordering_rule_with_empty_pattern_does_not_panic_or_gate() {
+        // An empty pattern has no first byte; must not gate and must not
+        // panic on `.first()`.
+        let rule = rule_with(Operator::LessThan, Value::String(String::new()));
+        assert!(!newline_stop_gate(&rule));
+    }
+
+    #[test]
+    fn test_all_four_ordering_operators_check_first_byte() {
+        for op in [
+            Operator::LessThan,
+            Operator::GreaterThan,
+            Operator::LessEqual,
+            Operator::GreaterEqual,
+        ] {
+            let op_dbg = format!("{op:?}");
+            let gated = rule_with(op.clone(), Value::Bytes(vec![0, b'X']));
+            assert!(
+                newline_stop_gate(&gated),
+                "operator {op_dbg} with null-first-byte pattern must gate"
+            );
+
+            let ungated = rule_with(op, Value::String("X".to_string()));
+            assert!(
+                !newline_stop_gate(&ungated),
+                "operator {op_dbg} with non-null-first-byte pattern must not gate"
+            );
+        }
+    }
+
+    // =========================================================================
+    // R12 (U3 step 3): `string_ordering_display_value` must apply R2's
+    // newline stop ONLY when `newline_stop_gate` fires for the rule, and
+    // must leave the non-gated ordering render at its full field (R1's
+    // 127-byte bound is applied later, at render time, not here).
+    // =========================================================================
+
+    #[test]
+    fn test_ordering_display_value_gated_by_null_first_byte_stops_at_newline() {
+        // `>\0ABC` gates (R2): the null-first-byte idiom. The compared
+        // value is irrelevant here -- only the DISPLAY read is under test.
+        let rule = rule_with(
+            Operator::GreaterThan,
+            Value::Bytes(vec![0, b'A', b'B', b'C']),
+        );
+        let buffer = b"ZZZZABC\nSECOND\n";
+        let display = string_ordering_display_value(
+            &rule,
+            buffer,
+            0,
+            8192,
+            Value::String(String::new()), // compared value is irrelevant here
+        );
+        assert_eq!(display, Value::String("ZZZZABC".to_string()));
+    }
+
+    #[test]
+    fn test_ordering_display_value_ungated_keeps_full_field_with_embedded_newline() {
+        // Non-null-first-byte pattern does not gate (R2): the display read
+        // must NOT stop at the embedded newline -- it renders the whole
+        // field (bounded only by `max_string_length`, unchanged from
+        // before this unit). Regression guard for GOTCHAS S14.3's
+        // `>0.6.1 ... %s` full-field-render idiom.
+        let rule = rule_with(Operator::GreaterThan, Value::String("0.6.1".to_string()));
+        let buffer = b"0.6.2\nrelease notes";
+        let display =
+            string_ordering_display_value(&rule, buffer, 0, 8192, Value::String(String::new()));
+        assert_eq!(display, Value::String("0.6.2\nrelease notes".to_string()));
+    }
+
+    #[test]
+    fn test_ordering_display_value_equality_op_is_never_gated_or_reached() {
+        // Equality never routes through this function at all (only
+        // ordering ops do) -- `compared` passes straight through
+        // regardless of buffer content.
+        let rule = rule_with(Operator::Equal, Value::Bytes(vec![0, b'A']));
+        let buffer = b"whatever\ncontent";
+        let display = string_ordering_display_value(
+            &rule,
+            buffer,
+            0,
+            8192,
+            Value::String("compared".to_string()),
+        );
+        assert_eq!(display, Value::String("compared".to_string()));
     }
 }

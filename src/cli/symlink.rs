@@ -13,6 +13,7 @@
 //! See `docs/adr/0001-gnu-file-output-contract.md` for which strings here are
 //! binding detection results and which are diagnostics we are free to word.
 
+use std::borrow::Cow;
 use std::path::Path;
 
 /// A CLI-produced classification for a symlink path
@@ -59,27 +60,49 @@ fn path_bytes(path: &Path) -> Vec<u8> {
 /// containing `0xFF 0xFE`, `file` emits those two bytes unchanged.
 ///
 /// When `escape_control_bytes` is set, characters a terminal would act on are
-/// rendered inert: C0 controls and DEL, the C1 range (whose UTF-8 forms a
-/// terminal decodes to 8-bit CSI/OSC), and the Unicode bidi/format overrides
-/// that let a target display as something other than its real bytes.
+/// rendered inert -- see [`escape_terminal_control_bytes`] for the byte-level
+/// implementation shared with the magic-description text-output paths.
 ///
 /// Callers set the flag from [`super::stdout_is_terminal`]. The pass-through branch is
 /// what keeps redirected and piped output byte-for-byte identical to GNU
 /// `file` -- do not collapse the two branches into unconditional escaping.
 pub fn render_symlink_target(target: &Path, escape_control_bytes: bool) -> Vec<u8> {
+    escape_terminal_control_bytes(&path_bytes(target), escape_control_bytes).into_owned()
+}
+
+/// Render terminal-actionable characters in a byte sequence inert
+///
+/// This is the path-independent core of [`render_symlink_target`]'s escape
+/// branch, extracted (issue #498, U5) so the CLI's two magic-description
+/// text-output paths can share it rather than duplicating the escape loop.
+///
+/// When `escape` is `false`, `bytes` is returned unchanged -- this is the
+/// parity branch that keeps redirected/piped output byte-for-byte identical
+/// to GNU `file`, including any invalid UTF-8 it may contain.
+///
+/// When `escape` is `true`, `bytes` is lossily decoded as UTF-8 (acceptable
+/// here: this branch only ever reaches an interactive terminal, which cannot
+/// render an invalid byte sequence meaningfully anyway) and every character a
+/// terminal would act on -- see [`is_terminal_control`] -- is rewritten as a
+/// `\xHH` or `\u{HHHH}` escape. Operates on the whole slice at once, so an
+/// escape sequence can never be split by this function; callers that also
+/// truncate must truncate first (R13) so a cut cannot land inside one either.
+pub fn escape_terminal_control_bytes(bytes: &[u8], escape: bool) -> Cow<'_, [u8]> {
     use std::fmt::Write;
 
-    let raw = path_bytes(target);
-    if !escape_control_bytes {
-        // The parity branch: verbatim, including invalid UTF-8.
-        return raw;
+    if !escape {
+        // The parity branch: verbatim, including invalid UTF-8. Borrowed
+        // rather than copied -- this is the common path (every piped,
+        // redirected, or scripted run) and the bytes are never mutated
+        // here, so the clone was pure waste per file.
+        return Cow::Borrowed(bytes);
     }
 
     // The presentation branch. This one only ever reaches an interactive
     // terminal, so a lossy decode is acceptable here -- unlike above, no
     // byte-for-byte contract applies, and a terminal cannot render an invalid
     // sequence meaningfully anyway.
-    let decoded = String::from_utf8_lossy(&raw);
+    let decoded = String::from_utf8_lossy(bytes);
     let mut escaped = String::with_capacity(decoded.len());
     for character in decoded.chars() {
         let code = character as u32;
@@ -96,7 +119,7 @@ pub fn render_symlink_target(target: &Path, escape_control_bytes: bool) -> Vec<u
             escaped.push(character);
         }
     }
-    escaped.into_bytes()
+    Cow::Owned(escaped.into_bytes())
 }
 
 /// Whether a terminal would act on this character rather than print it
@@ -296,6 +319,61 @@ mod tests {
                 "interactive output must neutralize {input:?}"
             );
         }
+    }
+
+    // =========================================================================
+    // Byte-level escape helper (issue #498, U5) -- exercised directly rather
+    // than only through render_symlink_target's Path-coupled wrapper, since
+    // the magic-description text-output paths call the byte-level form.
+    // =========================================================================
+
+    #[test]
+    fn test_escape_terminal_control_bytes_is_verbatim_when_not_escaping() {
+        let raw = b"before\x1b]0;pwn\x07after";
+        assert_eq!(
+            escape_terminal_control_bytes(raw, false).as_ref(),
+            raw,
+            "the pass-through branch must return the byte slice unchanged"
+        );
+    }
+
+    #[test]
+    fn test_escape_terminal_control_bytes_neutralizes_an_osc_sequence() {
+        // The scenario named in the U5 requirements: a raw ESC ] 0 ; ... BEL
+        // OSC-title sequence, as a planted description could carry.
+        let raw = b"before\x1b]0;pwn\x07after";
+        let escaped = escape_terminal_control_bytes(raw, true);
+        assert_eq!(escaped.as_ref(), b"before\\x1b]0;pwn\\x07after");
+    }
+
+    #[test]
+    fn test_escape_terminal_control_bytes_covers_c1_and_bidi_not_just_c0() {
+        // A C1 control (whose UTF-8 form a terminal decodes back to 8-bit
+        // CSI/OSC) and a bidi override must both be escaped, matching the
+        // symlink-target contract this helper was extracted from.
+        let raw = "c1\u{9d}bidi\u{202e}end".as_bytes();
+        let escaped = escape_terminal_control_bytes(raw, true);
+        assert_eq!(escaped.as_ref(), b"c1\\x9dbidi\\u{202e}end");
+    }
+
+    #[test]
+    fn test_escape_terminal_control_bytes_never_splits_a_sequence_at_a_boundary() {
+        // This function has no truncation logic of its own -- it operates on
+        // the whole slice -- so a control byte positioned anywhere, including
+        // right at a hypothetical truncation boundary, always yields one
+        // intact escape sequence rather than a partial one. Callers that also
+        // truncate (a separate unit) must truncate BEFORE calling this, per
+        // R13, so a cut can never land inside the escape text this produces.
+        let mut raw = vec![b'Q'; 126];
+        raw.push(0x1b); // control byte at index 126, adjacent to a 127 boundary
+        raw.push(b'X');
+        let escaped = escape_terminal_control_bytes(&raw, true);
+
+        let expected: Vec<u8> = [vec![b'Q'; 126], b"\\x1b".to_vec(), vec![b'X']].concat();
+        assert_eq!(
+            escaped, expected,
+            "the escape sequence for the boundary-adjacent control byte must be intact"
+        );
     }
 
     #[cfg(unix)]
