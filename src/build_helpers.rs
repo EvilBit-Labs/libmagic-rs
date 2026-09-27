@@ -259,10 +259,12 @@ mod tests {
             result_relative: false,
             endian: Endianness::Big,
         };
-        assert!(
-            serialize_offset_spec(&spec)
-                .contains("pointer_type: TypeKind::Id3 { endian: Endianness::Big }"),
-            "indirect offset must serialize its ID3 pointer type"
+        assert_eq!(
+            serialize_offset_spec(&spec),
+            "OffsetSpec::Indirect { base_offset: 6, base_relative: false, \
+             pointer_type: TypeKind::Id3 { endian: Endianness::Big }, adjustment: 10, \
+             adjustment_op: IndirectAdjustmentOp::Add, result_relative: false, \
+             endian: Endianness::Big }"
         );
     }
 
