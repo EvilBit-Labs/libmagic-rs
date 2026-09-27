@@ -68,6 +68,21 @@ pub(crate) fn has_message_bearing_match(matches: &[RuleMatch], from: usize) -> b
         .is_some_and(|tail| tail.iter().any(|m| is_message_bearing(&m.message)))
 }
 
+/// Whether the first match that renders text came from a top-level rule.
+///
+/// libmagic's `match()` prints a top-level description with no leading space
+/// but spaces a continuation description when `need_separator` is set, and an
+/// `indirect` re-entry inherits the caller's flag. So an ID3 tag's
+/// `\b, contains:` followed by MPEG ADTS (description on a continuation)
+/// renders `contains: MPEG`, while Mach-O's inner top-level rule renders
+/// `:Mach-O` (GOTCHAS S14.5). Returns `false` when nothing renders text.
+pub(crate) fn first_message_bearing_is_top_level(matches: &[RuleMatch]) -> bool {
+    matches
+        .iter()
+        .find(|m| is_message_bearing(&m.message))
+        .is_some_and(|m| m.level == 0)
+}
+
 /// Prepend the GNU `file` no-separator marker to the first message-bearing
 /// match, returning a new vector.
 ///
@@ -77,10 +92,10 @@ pub(crate) fn has_message_bearing_match(matches: &[RuleMatch], from: usize) -> b
 /// - A `use` site whose own message carries the marker (`>0 use mach-o-cpu \b`)
 ///   must suppress the space before the subroutine's first output, so
 ///   `[` + `x86_64` renders `[x86_64`.
-/// - An `indirect` re-entry always continues its rule's message
-///   (`>(8.L) indirect x \b:` renders `:Mach-O ...`). Magic files supply their
-///   own spacing when they want it -- `archive`'s `\b, contains ` ends with a
-///   space for exactly this reason.
+/// - An `indirect` re-entry whose first fragment comes from a top-level rule
+///   continues its rule's message (`>(8.L) indirect x \b:` renders
+///   `:Mach-O ...`). The caller gates this with
+///   [`first_message_bearing_is_top_level`].
 ///
 /// The marker is applied to the first match that actually renders text, so a
 /// leading message-less match cannot swallow it and leave the separator in

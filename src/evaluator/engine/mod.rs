@@ -631,15 +631,14 @@ pub fn evaluate_rules(
                 anchor_scope.context().set_indirect_reentry(true);
                 match evaluate_rules(&root_rules, sub_buffer, anchor_scope.context()) {
                     Ok(sub_matches) => {
-                        // The re-entered classification always continues the
-                        // preceding fragment rather than starting a new one.
-                        // Two independent cases agree: mach-o's `\b:` renders
-                        // `:Mach-O ...`, and jpeg's message-less
-                        // `>>>10 indirect/r x` must render `[TIFF ...` after
-                        // its sibling's `[`. Magic files supply their own
-                        // spacing when they want it -- `archive`'s
-                        // `\b, contains ` ends with a space for this reason.
-                        matches.extend(output::attach_no_separator_to_first(sub_matches));
+                        // libmagic never spaces a top-level description but
+                        // spaces a continuation one (GOTCHAS S14.5), so only a
+                        // level-0 first fragment attaches unspaced.
+                        if output::first_message_bearing_is_top_level(&sub_matches) {
+                            matches.extend(output::attach_no_separator_to_first(sub_matches));
+                        } else {
+                            matches.extend(sub_matches);
+                        }
                     }
                     Err(LibmagicError::Timeout { timeout_ms }) => {
                         return Err(LibmagicError::Timeout { timeout_ms });
