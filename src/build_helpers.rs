@@ -75,7 +75,8 @@ pub fn format_parse_error(error: &ParseError) -> String {
 mod tests {
     use super::*;
     use crate::parser::ast::{
-        Endianness, MagicRule, OffsetSpec, Operator, SearchFlags, StringFlags, TypeKind, Value,
+        Endianness, IndirectAdjustmentOp, MagicRule, OffsetSpec, Operator, SearchFlags,
+        StringFlags, TypeKind, Value,
     };
     use crate::parser::codegen::format_string_literal;
 
@@ -224,6 +225,45 @@ mod tests {
         assert!(serialized2.contains("TypeKind::Quad"));
         assert!(serialized2.contains("Endianness::Big"));
         assert!(serialized2.contains("signed: false"));
+    }
+
+    #[test]
+    fn test_serialize_type_kind_id3() {
+        let cases = [
+            (
+                TypeKind::Id3 {
+                    endian: Endianness::Little,
+                },
+                "TypeKind::Id3 { endian: Endianness::Little }",
+            ),
+            (
+                TypeKind::Id3 {
+                    endian: Endianness::Big,
+                },
+                "TypeKind::Id3 { endian: Endianness::Big }",
+            ),
+        ];
+        for (typ, expected) in &cases {
+            assert_eq!(serialize_type_kind(typ), *expected);
+        }
+
+        // audio:308's `(6.I+10)` pointer, as build-time codegen emits it.
+        let spec = OffsetSpec::Indirect {
+            base_offset: 6,
+            base_relative: false,
+            pointer_type: TypeKind::Id3 {
+                endian: Endianness::Big,
+            },
+            adjustment: 10,
+            adjustment_op: IndirectAdjustmentOp::Add,
+            result_relative: false,
+            endian: Endianness::Big,
+        };
+        assert!(
+            serialize_offset_spec(&spec)
+                .contains("pointer_type: TypeKind::Id3 { endian: Endianness::Big }"),
+            "indirect offset must serialize its ID3 pointer type"
+        );
     }
 
     #[test]
