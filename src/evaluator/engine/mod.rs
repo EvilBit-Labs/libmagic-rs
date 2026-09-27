@@ -634,11 +634,7 @@ pub fn evaluate_rules(
                         // libmagic never spaces a top-level description but
                         // spaces a continuation one (GOTCHAS S14.5), so only a
                         // level-0 first fragment attaches unspaced.
-                        if output::first_message_bearing_is_top_level(&sub_matches) {
-                            matches.extend(output::attach_no_separator_to_first(sub_matches));
-                        } else {
-                            matches.extend(sub_matches);
-                        }
+                        matches.extend(output::attach_no_separator_if_top_level(sub_matches));
                     }
                     Err(LibmagicError::Timeout { timeout_ms }) => {
                         return Err(LibmagicError::Timeout { timeout_ms });
