@@ -56,15 +56,17 @@
 
 #![allow(clippy::expect_used)]
 
-use std::io::Write;
-use std::path::Path;
-use std::process::Command;
+mod common;
 
+use std::io::Write;
+
+use common::magic_oracle::{
+    OracleReadiness, file_says, magic_source_file_count, stage_system_magic,
+};
 use libmagic_rs::{EvaluationConfig, MagicDatabase};
 use tempfile::NamedTempFile;
 
 const FIXTURE: &str = "tests/fixtures/jpeg_segment_walk.jpg";
-const SYSTEM_MAGIC_DIR: &str = "/usr/share/file/magic";
 
 /// SOF0's position in the committed fixture -- the third segment, and the one
 /// the walk reaches only by rebasing twice. Named so the truncation slice below
@@ -128,13 +130,6 @@ fn fixture_bytes() -> Vec<u8> {
     bytes
 }
 
-fn has_file_binary() -> bool {
-    Command::new("file")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success())
-}
-
 /// The committed fixture's walk must reach the third segment.
 ///
 /// `320x200` comes from SOF0 at position 64, which the walk reaches only by
@@ -179,101 +174,6 @@ fn truncated_fixture_does_not_render_the_unreached_segment() {
     );
 }
 
-/// Why the oracle cannot simply be `file --magic-file <system dir>`.
-///
-/// Measured on this host with `file-5.41`: `--magic-file <dir>` prefers a
-/// sibling compiled `<dir>.mgc` over the directory itself, and
-/// `/usr/share/file/magic.mgc` exists next to `/usr/share/file/magic`. A
-/// directory holding only a sentinel rule still yields the built-in
-/// classification. The naive form therefore compares rmagic-on-source-files
-/// against file-on-compiled-database -- two different databases, which is not a
-/// parity check and cannot notice the two drifting apart.
-enum OracleReadiness {
-    /// A staged copy whose magic directory `file` provably reads.
-    Ready(tempfile::TempDir),
-    /// The environment cannot support a like-for-like comparison.
-    Skip(String),
-}
-
-/// Count the plain files in `dir`.
-///
-/// Named and extracted so the skip decision rests on testable logic rather than
-/// an inline closure. Debian and Ubuntu ship only the compiled `magic.mgc` and
-/// leave the source directory empty; that is the case this detects.
-fn magic_source_file_count(dir: &Path) -> usize {
-    std::fs::read_dir(dir).map_or(0, |entries| {
-        entries
-            .filter_map(Result::ok)
-            .filter(|e| e.path().is_file())
-            .count()
-    })
-}
-
-/// Ask `file` to classify `target` using only `magic_dir`.
-///
-/// `MAGIC=` rather than `--magic-file`: measured on this host, the flag did not
-/// restrict the database while the environment variable did.
-fn file_says(magic_dir: &Path, target: &str) -> String {
-    let output = Command::new("file")
-        .env("MAGIC", magic_dir)
-        .arg("-b")
-        .arg(target)
-        .output()
-        .expect("invoking `file` must not fail once it is known present");
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
-}
-
-/// Stage a magic directory `file` demonstrably reads, or explain why not.
-///
-/// The canary is the load-bearing step. Every earlier version of this test gated
-/// on a symptom -- whether `file`'s answer looked right -- which passes exactly
-/// when a silent fallback is masking the mismatch. This proves the negative
-/// instead: point `file` at a database knowing only a sentinel type and require
-/// the fixture NOT to classify as JPEG. If it still does, `file` is answering
-/// from elsewhere and no comparison here would mean anything.
-fn stage_oracle() -> OracleReadiness {
-    let system_dir = Path::new(SYSTEM_MAGIC_DIR);
-    if !system_dir.is_dir() {
-        return OracleReadiness::Skip(format!("{SYSTEM_MAGIC_DIR} is not present"));
-    }
-    if magic_source_file_count(system_dir) == 0 {
-        return OracleReadiness::Skip(format!(
-            "{SYSTEM_MAGIC_DIR} holds no source magic files (compiled-only install)"
-        ));
-    }
-    if !has_file_binary() {
-        return OracleReadiness::Skip("`file` is not on PATH".to_string());
-    }
-
-    let staged = tempfile::TempDir::new().expect("temp dir for the staged magic copy");
-
-    let canary_dir = staged.path().join("canary");
-    std::fs::create_dir_all(&canary_dir).expect("create canary dir");
-    std::fs::write(
-        canary_dir.join("sentinel"),
-        "0\tstring\tZZ-SENTINEL-NEVER-MATCHES\tsentinel\n",
-    )
-    .expect("write sentinel rule");
-    let canary = file_says(&canary_dir, FIXTURE);
-    assert!(
-        !canary.contains("JPEG"),
-        "`file` classified the fixture as JPEG from a database holding only a \
-         sentinel rule, so it is answering from some other database and this \
-         comparison would be meaningless. Got: {canary:?}"
-    );
-
-    let magic_copy = staged.path().join("magic");
-    std::fs::create_dir_all(&magic_copy).expect("create staged magic dir");
-    for entry in std::fs::read_dir(system_dir).expect("read system magic dir") {
-        let entry = entry.expect("read system magic entry");
-        if entry.path().is_file() {
-            std::fs::copy(entry.path(), magic_copy.join(entry.file_name()))
-                .expect("copy magic source file");
-        }
-    }
-    OracleReadiness::Ready(staged)
-}
-
 /// Parity against real `file` on a magic database both sides provably share.
 ///
 /// A divergence is not automatically an evaluator regression: the runtime loader
@@ -282,7 +182,7 @@ fn stage_oracle() -> OracleReadiness {
 /// concluding anything.
 #[test]
 fn differential_parity_against_gnu_file_on_the_committed_fixture() {
-    let staged = match stage_oracle() {
+    let staged = match stage_system_magic(FIXTURE, "JPEG") {
         OracleReadiness::Ready(dir) => dir,
         OracleReadiness::Skip(reason) => {
             eprintln!("SKIP: {reason} -- parity test skipped cleanly");

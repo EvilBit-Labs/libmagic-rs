@@ -15,6 +15,8 @@
 // clippy.toml); these lack an allow-*-in-tests config option.
 #![allow(clippy::expect_used)]
 
+pub mod magic_oracle;
+
 use assert_cmd::Command;
 use tempfile::TempDir;
 
