@@ -100,6 +100,7 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
             .prop_map(|(endian, signed)| { TypeKind::Long { endian, signed } }),
         (arb_endianness(), any::<bool>())
             .prop_map(|(endian, signed)| { TypeKind::Quad { endian, signed } }),
+        arb_endianness().prop_map(|endian| TypeKind::Id3 { endian }),
         arb_endianness().prop_map(|endian| TypeKind::Float { endian }),
         arb_endianness().prop_map(|endian| TypeKind::Double { endian }),
         (0usize..256usize, any::<u8>()).prop_map(|(len, bits)| TypeKind::String {
@@ -361,13 +362,15 @@ proptest! {
     fn prop_indirect_offset_never_panics(
         buffer in prop::collection::vec(any::<u8>(), 0..4096),
         base in 0i64..8192,
-        width in prop_oneof![Just(1u8), Just(2), Just(4), Just(8)],
+        // 3 selects the 4-byte ID3 synchsafe pointer (magic(5) `I`).
+        width in prop_oneof![Just(1u8), Just(2), Just(3), Just(4), Just(8)],
         adjust in -1024i64..1024,
     ) {
         use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
         let (pointer_type, endian) = match width {
             1 => (TypeKind::Byte { signed: false }, Endianness::Little),
             2 => (TypeKind::Short { endian: Endianness::Little, signed: false }, Endianness::Little),
+            3 => (TypeKind::Id3 { endian: Endianness::Big }, Endianness::Big),
             4 => (TypeKind::Long { endian: Endianness::Little, signed: false }, Endianness::Little),
             _ => (TypeKind::Quad { endian: Endianness::Little, signed: false }, Endianness::Little),
         };

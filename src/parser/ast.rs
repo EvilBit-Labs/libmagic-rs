@@ -458,6 +458,23 @@ pub enum TypeKind {
         /// Whether value is signed
         signed: bool,
     },
+    /// 32-bit ID3 "synchsafe" integer: four bytes that each contribute
+    /// their low 7 bits (magic(5) `i`/`I` indirect pointer specifiers,
+    /// libmagic `FILE_LEID3`/`FILE_BEID3`). A set high bit is masked, as
+    /// upstream `cvt_id3` does.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libmagic_rs::parser::ast::{TypeKind, Endianness};
+    ///
+    /// let id3 = TypeKind::Id3 { endian: Endianness::Big };
+    /// assert_eq!(id3.bit_width(), Some(32));
+    /// ```
+    Id3 {
+        /// Byte order of the four stored bytes
+        endian: Endianness,
+    },
     /// 64-bit integer
     ///
     /// # Examples
@@ -1239,7 +1256,9 @@ impl TypeKind {
         match self {
             Self::Byte { .. } => Some(8),
             Self::Short { .. } => Some(16),
-            Self::Long { .. } | Self::Float { .. } | Self::Date { .. } => Some(32),
+            Self::Long { .. } | Self::Id3 { .. } | Self::Float { .. } | Self::Date { .. } => {
+                Some(32)
+            }
             Self::Quad { .. } | Self::Double { .. } | Self::QDate { .. } => Some(64),
             Self::String { .. }
             | Self::String16 { .. }

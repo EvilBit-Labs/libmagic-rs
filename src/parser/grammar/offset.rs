@@ -37,6 +37,8 @@ use super::parse_number;
 /// | `L`       | 4 byte | Big-endian    |
 /// | `q`       | 8 byte | Little-endian |
 /// | `Q`       | 8 byte | Big-endian    |
+/// | `i`       | 4 byte | Little-endian ID3 synchsafe |
+/// | `I`       | 4 byte | Big-endian ID3 synchsafe    |
 fn pointer_specifier_to_type(spec: char) -> Option<(TypeKind, Endianness)> {
     match spec {
         'b' => Some((TypeKind::Byte { signed: true }, Endianness::Little)),
@@ -83,28 +85,16 @@ fn pointer_specifier_to_type(spec: char) -> Option<(TypeKind, Endianness)> {
             },
             Endianness::Big,
         )),
-        // `i` and `I` are magic(5) "ID3 variable-byte int" pointer
-        // specifiers used in audio:308 for ID3 frame size decoding.
-        // We parse them so the magic file loads, but for now treat
-        // them as plain 32-bit longs with the corresponding endianness
-        // -- real ID3 7-bit-per-byte decoding is a follow-up. Tracked
-        // separately as a parsing-vs-semantics gap. The bodies match
-        // `l`/`L` exactly today; clippy::match_same_arms is allowed
-        // because the arms are intentionally distinct entry points
-        // that future ID3-decoding work will diverge.
-        #[allow(clippy::match_same_arms)]
+        // ID3 synchsafe integers (audio:308's `(6.I+10)`).
         'i' => Some((
-            TypeKind::Long {
+            TypeKind::Id3 {
                 endian: Endianness::Little,
-                signed: true,
             },
             Endianness::Little,
         )),
-        #[allow(clippy::match_same_arms)]
         'I' => Some((
-            TypeKind::Long {
+            TypeKind::Id3 {
                 endian: Endianness::Big,
-                signed: true,
             },
             Endianness::Big,
         )),

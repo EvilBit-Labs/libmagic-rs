@@ -67,6 +67,21 @@ fn test_parse_offset_indirect_all_specifiers() {
             },
             Endianness::Big,
         ),
+        // .i / .I - ID3 synchsafe (issue #237), not a plain long
+        (
+            "(0.i)",
+            TypeKind::Id3 {
+                endian: Endianness::Little,
+            },
+            Endianness::Little,
+        ),
+        (
+            "(0.I)",
+            TypeKind::Id3 {
+                endian: Endianness::Big,
+            },
+            Endianness::Big,
+        ),
     ];
 
     for (input, expected_type, expected_endian) in cases {
@@ -458,4 +473,27 @@ fn indirect_relative_suffix_parses() {
         crate::parser::grammar::parse_magic_rule(input)
             .unwrap_or_else(|e| panic!("{input:?} must parse: {e:?}"));
     }
+}
+
+/// `audio:308`'s `>(6.I+10)` reads the ID3 tag size as a synchsafe integer
+/// and adds the 10-byte header (issue #237).
+#[test]
+fn test_parse_offset_id3_pointer_with_inner_adjustment() {
+    assert_eq!(
+        parse_offset("(6.I+10)"),
+        Ok((
+            "",
+            OffsetSpec::Indirect {
+                base_offset: 6,
+                base_relative: false,
+                pointer_type: TypeKind::Id3 {
+                    endian: Endianness::Big,
+                },
+                adjustment: 10,
+                adjustment_op: IndirectAdjustmentOp::Add,
+                result_relative: false,
+                endian: Endianness::Big,
+            }
+        ))
+    );
 }
