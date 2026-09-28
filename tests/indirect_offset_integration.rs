@@ -226,6 +226,47 @@ fn test_indirect_offset_child_with_adjustment_after_paren() {
     );
 }
 
+/// A hand-built spec whose pointer type and outer endian disagree is rejected
+/// instead of being read with whichever field the resolver happened to use.
+#[test]
+fn test_indirect_pointer_endianness_mismatch_is_an_error() {
+    use libmagic_rs::evaluator::offset::resolve_offset;
+    use libmagic_rs::parser::ast::{Endianness, IndirectAdjustmentOp, OffsetSpec, TypeKind};
+
+    let mismatched = |pointer_type: TypeKind| OffsetSpec::Indirect {
+        base_offset: 0,
+        base_relative: false,
+        pointer_type,
+        adjustment: 0,
+        adjustment_op: IndirectAdjustmentOp::Add,
+        result_relative: false,
+        endian: Endianness::Little,
+    };
+    let buffer = [0u8; 16];
+    let big = Endianness::Big;
+
+    for typ in [
+        TypeKind::Short {
+            endian: big,
+            signed: true,
+        },
+        TypeKind::Long {
+            endian: big,
+            signed: true,
+        },
+        TypeKind::Id3 { endian: big },
+        TypeKind::Quad {
+            endian: big,
+            signed: true,
+        },
+    ] {
+        assert!(
+            resolve_offset(&mismatched(typ.clone()), &buffer).is_err(),
+            "mismatched endianness on {typ:?} must be rejected"
+        );
+    }
+}
+
 /// ID3 synchsafe pointers (`i`/`I`, issue #237). The tag size bytes decode to
 /// 2084 as synchsafe but read as 4132 as a plain long, so a sentinel at each
 /// `size + 10` target shows which offset the pointer resolved to.

@@ -325,7 +325,7 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 
 ### Adding New Type Support
 
-> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Id3` (from the `i`/`I` pointer specifiers; the `leid3`/`beid3` rule keywords are not parsed yet), `Quad`, `Float`, `Double`, `Date`, `QDate`, `String`, `String16`, `PString`, `Regex`, and `Search`. See "Current Limitations" for the remaining gaps in regex/search flag coverage.
+> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Id3` (the `leid3`/`beid3` keywords and the `i`/`I` pointer specifiers), `Quad`, `Float`, `Double`, `Date`, `QDate`, `String`, `String16`, `PString`, `Regex`, and `Search`. See "Current Limitations" for the remaining gaps in regex/search flag coverage.
 
 1. Extend `TypeKind` enum in `src/parser/ast.rs`
 2. Add keyword parsing in `src/parser/types.rs` (`parse_type_keyword` and `type_keyword_to_kind`)

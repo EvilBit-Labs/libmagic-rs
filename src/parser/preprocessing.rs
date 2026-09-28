@@ -183,13 +183,17 @@ pub(crate) fn preprocess_lines(input: &str) -> Result<Vec<LineInfo>, ParseError>
         if start_line_number.is_none() {
             start_line_number = Some(i + 1);
         }
-        line_buf.push_str(line.trim());
-        if has_continuation(line) {
-            // Remove trailing backslash in-place (O(1)) instead of
-            // strip_suffix().to_string() which allocates a new String
+        // Trailing whitespace stays: libmagic copies a description verbatim
+        // to end of line, and `archive`'s `\b, contains ` depends on it.
+        let body = line.trim_start().trim_end_matches('\r');
+        if has_continuation(body) {
+            // Drop the trailing backslash in place; the whitespace after it
+            // is line-ending noise, not description text.
+            line_buf.push_str(body.trim_end());
             line_buf.pop();
             continue;
         }
+        line_buf.push_str(body);
         // Bug 2 fix: Use the stored starting line number instead of calculating from cont_ctr
         let rule_line_number = start_line_number.unwrap_or(i + 1);
         lines_info.push(LineInfo::new(

@@ -30,11 +30,11 @@ fn test_default_message_less_match_does_not_stop_at_first_match() {
     assert_eq!(matches[1].message, "Real message");
 }
 
-/// Same contract for `indirect`: a message-less indirect directive (here,
-/// re-entering an empty root-rule list so the re-entry itself produces
-/// nothing) must not shadow a later message-bearing sibling.
+/// Same contract for `indirect`: a re-entry into an empty root-rule list
+/// renders nothing, so the directive is a non-match (libmagic's `mget`
+/// returns 0) and must not shadow a later message-bearing sibling.
 #[test]
-fn test_indirect_message_less_match_does_not_stop_at_first_match() {
+fn test_indirect_with_empty_reentry_does_not_stop_at_first_match() {
     let table = build_name_table(vec![]);
     let mut context = make_context_with_env(table, &[]);
     let rules = vec![
@@ -46,11 +46,10 @@ fn test_indirect_message_less_match_does_not_stop_at_first_match() {
 
     assert_eq!(
         matches.len(),
-        2,
-        "both the indirect directive and the real rule should match"
+        1,
+        "an indirect whose re-entry renders nothing is a non-match"
     );
-    assert_eq!(matches[0].message, "");
-    assert_eq!(matches[1].message, "Real message");
+    assert_eq!(matches[0].message, "Real message");
 }
 
 #[test]

@@ -41,10 +41,10 @@ use super::parse_number;
 pub fn parse_message(input: &str) -> IResult<&str, String> {
     let (input, _) = multispace0(input)?;
 
-    // Take everything until end of line, trimming whitespace
-    // Use take_while instead of take_while1 to handle empty messages
+    // Everything to end of line. Trailing whitespace is kept: libmagic copies
+    // the description verbatim, and `archive`'s `\b, contains ` relies on it.
     let (input, message_text) = take_while(|c: char| c != '\n' && c != '\r').parse(input)?;
-    let message = message_text.trim().to_string();
+    let message = message_text.trim_start().to_string();
 
     Ok((input, message))
 }

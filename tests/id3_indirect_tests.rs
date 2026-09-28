@@ -31,7 +31,7 @@ mod common;
 
 use std::io::Write;
 
-use common::magic_oracle::{OracleReadiness, file_says, stage_system_magic};
+use common::magic_oracle::{OracleReadiness, file_says, skip, stage_system_magic};
 use libmagic_rs::MagicDatabase;
 use tempfile::NamedTempFile;
 
@@ -71,14 +71,35 @@ fn hermetic_synchsafe_pointer_reaches_the_inner_mpeg_frame() {
 }
 
 /// Negative control: the same chain read as a plain big-endian long lands at
-/// 4142, where no MPEG frame exists, so nothing follows `contains:`. Without
-/// this, the positive test could pass with the decode removed.
+/// 4142, where no MPEG frame exists, so the re-entry renders nothing and the
+/// `indirect` is a non-match (its `contains:` is dropped). Without this, the
+/// positive test could pass with the decode removed.
 #[test]
 fn hermetic_plain_long_pointer_misses_the_inner_frame() {
     assert_eq!(
         describe_fixture_with_pointer("L"),
-        "Audio file with ID3 version 2.2.0, contains:"
+        "Audio file with ID3 version 2.2.0"
     );
+}
+
+/// `beid3`/`leid3` read the same synchsafe value as a rule type: the fixture's
+/// size field at offset 6 renders as 2084, not the plain-long 4132.
+#[test]
+fn hermetic_id3_keywords_read_synchsafe_values() {
+    let bytes = std::fs::read(FIXTURE).expect("committed ID3 fixture must exist");
+    let cases = [
+        ("6 beid3 x size %d", "size 2084"),
+        ("6 leid3 x size %d", "size 75759616"),
+        ("6 beid3 2084 exact", "exact"),
+    ];
+    for (rule, expected) in cases {
+        let mut f = NamedTempFile::new().expect("temp magic file");
+        writeln!(f, "{rule}").expect("write temp magic");
+        f.flush().expect("flush temp magic");
+        let db = MagicDatabase::load_from_file(f.path()).expect("id3 keyword rule must load");
+        let got = db.evaluate_buffer(&bytes).expect("evaluate").description;
+        assert_eq!(got, expected, "rule: {rule}");
+    }
 }
 
 /// Parity against real `file` on a magic database both sides provably share.
@@ -87,7 +108,7 @@ fn differential_parity_against_gnu_file_on_the_id3_fixture() {
     let staged = match stage_system_magic(FIXTURE, "ID3") {
         OracleReadiness::Ready(dir) => dir,
         OracleReadiness::Skip(reason) => {
-            eprintln!("SKIP: {reason} -- parity test skipped cleanly");
+            skip(&reason);
             return;
         }
     };

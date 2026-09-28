@@ -462,9 +462,8 @@ pub enum TypeKind {
     /// their low 7 bits. A set high bit is masked, as upstream `cvt_id3` does.
     ///
     /// This is libmagic's `FILE_LEID3`/`FILE_BEID3`: magic(5)'s `i`/`I`
-    /// indirect pointer specifiers produce it, and it is also the value type
-    /// for the `leid3`/`beid3` rule keywords, which the parser does not accept
-    /// yet.
+    /// indirect pointer specifiers produce it, and the `leid3`/`beid3` rule
+    /// keywords read it as a value.
     ///
     /// # Examples
     ///

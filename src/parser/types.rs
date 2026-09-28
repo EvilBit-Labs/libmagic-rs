@@ -48,7 +48,7 @@ pub struct UnknownTypeKeyword {
 /// # Supported Keywords
 ///
 /// - 64-bit: `ubequad`, `ulequad`, `uquad`, `bequad`, `lequad`, `quad`
-/// - 32-bit: `ubelong`, `ulelong`, `ulong`, `belong`, `lelong`, `long`
+/// - 32-bit: `ubelong`, `ulelong`, `ulong`, `belong`, `lelong`, `long`, `beid3`, `leid3`
 /// - 16-bit: `ubeshort`, `uleshort`, `ushort`, `beshort`, `leshort`, `short`
 /// - 8-bit: `ubyte`, `byte`
 /// - String: `pstring`, `string`
@@ -85,6 +85,8 @@ pub fn parse_type_keyword(input: &str) -> IResult<&str, &str> {
             tag("belong"),
             tag("lelong"),
             tag("long"),
+            tag("beid3"),
+            tag("leid3"),
         )),
         // 16-bit types (6 branches)
         alt((
@@ -296,6 +298,16 @@ fn long_family(name: &str) -> Option<TypeKind> {
         "ulelong" => (Endianness::Little, false),
         "belong" => (Endianness::Big, true),
         "ubelong" => (Endianness::Big, false),
+        "beid3" => {
+            return Some(TypeKind::Id3 {
+                endian: Endianness::Big,
+            });
+        }
+        "leid3" => {
+            return Some(TypeKind::Id3 {
+                endian: Endianness::Little,
+            });
+        }
         _ => return None,
     };
     Some(TypeKind::Long { endian, signed })
@@ -710,6 +722,8 @@ mod tests {
             "lelong",
             "ulelong",
             "belong",
+            "beid3",
+            "leid3",
             "ubelong",
             "quad",
             "uquad",
