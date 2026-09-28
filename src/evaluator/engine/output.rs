@@ -1,14 +1,14 @@
 // Copyright (c) 2025-2026 the libmagic-rs contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Message-bearing-match predicates used by the `stop_at_first_match` dispatch
-//! in [`super::evaluate_rules`].
+//! Output-shaping helpers for [`super::evaluate_rules`].
 //!
-//! Extracted from `engine/mod.rs` as a pure code-motion split (issue #391 item
-//! 1, Unit U3): these two functions decide whether a rule's match (and any
+//! The message-bearing predicates decide whether a rule's match (and any
 //! descendant matches) actually contributed usable description text, so that
 //! a message-less gating rule cannot shadow a later, more specific rule under
-//! `stop_at_first_match: true` (see GOTCHAS S13.2).
+//! `stop_at_first_match: true` (see GOTCHAS S13.2). The no-separator helpers
+//! attach GNU `file`'s `\b` marker where a `use` or `indirect` re-entry
+//! continues the preceding fragment (GOTCHAS S14.4, S14.5).
 
 use super::RuleMatch;
 
@@ -68,29 +68,33 @@ pub(crate) fn has_message_bearing_match(matches: &[RuleMatch], from: usize) -> b
         .is_some_and(|tail| tail.iter().any(|m| is_message_bearing(&m.message)))
 }
 
+/// The first match that actually renders text, skipping message-less ones.
+fn first_rendering_match(matches: &mut [RuleMatch]) -> Option<&mut RuleMatch> {
+    matches.iter_mut().find(|m| is_message_bearing(&m.message))
+}
+
+/// Prefix the no-separator marker unless the message already carries one.
+fn mark_no_separator(target: &mut RuleMatch) {
+    if crate::evaluator::strip_no_separator_marker(&target.message).is_none() {
+        target.message = format!("\\b{}", target.message);
+    }
+}
+
 /// Prepend the GNU `file` no-separator marker to the first message-bearing
 /// match, returning a new vector.
 ///
-/// Two callers need this, both because their emitted text continues the
-/// invoking rule's own message rather than starting a new fragment:
-///
-/// - A `use` site whose own message carries the marker (`>0 use mach-o-cpu \b`)
-///   must suppress the space before the subroutine's first output, so
-///   `[` + `x86_64` renders `[x86_64`.
-/// - An `indirect` re-entry continues its rule's message
-///   (`>(8.L) indirect x \b:` renders `:Mach-O ...`), but only when the
-///   first fragment is top-level -- see [`attach_no_separator_if_top_level`].
+/// Used by a `use` site whose own message carries the marker
+/// (`>0 use mach-o-cpu \b`), so `[` + `x86_64` renders `[x86_64` (GOTCHAS
+/// S14.4). `indirect` re-entries use the level-gated
+/// [`attach_no_separator_if_top_level`] instead.
 ///
 /// The marker is applied to the first match that actually renders text, so a
 /// leading message-less match cannot swallow it and leave the separator in
 /// place. A match already carrying a marker is left untouched rather than
 /// double-marked.
 pub(crate) fn attach_no_separator_to_first(mut matches: Vec<RuleMatch>) -> Vec<RuleMatch> {
-    let Some(target) = matches.iter_mut().find(|m| is_message_bearing(&m.message)) else {
-        return matches;
-    };
-    if crate::evaluator::strip_no_separator_marker(&target.message).is_none() {
-        target.message = format!("\\b{}", target.message);
+    if let Some(target) = first_rendering_match(&mut matches) {
+        mark_no_separator(target);
     }
     matches
 }
@@ -105,11 +109,8 @@ pub(crate) fn attach_no_separator_to_first(mut matches: Vec<RuleMatch>) -> Vec<R
 /// renders `contains: MPEG`, while Mach-O's inner top-level rule renders
 /// `:Mach-O` (GOTCHAS S14.5).
 pub(crate) fn attach_no_separator_if_top_level(mut matches: Vec<RuleMatch>) -> Vec<RuleMatch> {
-    let Some(target) = matches.iter_mut().find(|m| is_message_bearing(&m.message)) else {
-        return matches;
-    };
-    if target.level == 0 && crate::evaluator::strip_no_separator_marker(&target.message).is_none() {
-        target.message = format!("\\b{}", target.message);
+    if let Some(target) = first_rendering_match(&mut matches).filter(|m| m.level == 0) {
+        mark_no_separator(target);
     }
     matches
 }
@@ -186,6 +187,45 @@ mod tests {
                 expected,
                 "nothing to mark leaves the vector unchanged"
             );
+        }
+    }
+
+    fn match_at_level(message: &str, level: u32) -> RuleMatch {
+        RuleMatch {
+            level,
+            ..match_with(message)
+        }
+    }
+
+    #[test]
+    fn attach_no_separator_if_top_level_is_gated_on_the_first_rendering_match() {
+        let cases: &[(&str, Vec<RuleMatch>, Vec<&str>)] = &[
+            (
+                "level-0 first fragment takes the marker",
+                vec![match_at_level("MachO", 0), match_at_level("x86_64", 1)],
+                vec!["\\bMachO", "x86_64"],
+            ),
+            (
+                "continuation first fragment stays spaced",
+                vec![match_at_level("MPEG ADTS", 1)],
+                vec!["MPEG ADTS"],
+            ),
+            (
+                "message-less level-0 match defers to the level-1 fragment",
+                vec![match_at_level("", 0), match_at_level("MPEG ADTS", 1)],
+                vec!["", "MPEG ADTS"],
+            ),
+            (
+                "level-0 fragment already marked is not doubled",
+                vec![match_at_level("\\b[TIFF", 0)],
+                vec!["\\b[TIFF"],
+            ),
+            ("nothing renders", vec![match_at_level("", 0)], vec![""]),
+        ];
+
+        for (name, input, expected) in cases {
+            let out = attach_no_separator_if_top_level(input.clone());
+            assert_eq!(messages(&out), *expected, "case: {name}");
         }
     }
 }

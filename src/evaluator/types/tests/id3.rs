@@ -61,6 +61,15 @@ fn test_read_id3_byte_order_is_resolved_before_decoding() {
         Value::Uint((0x24 << 21) | (0x10 << 14)),
         "`I` reads big-endian"
     );
+
+    // Only a hand-built AST reaches `Native`; it follows host byte order.
+    let native = read_typed_value(&bytes, 0, &id3(Endianness::Native)).unwrap();
+    let host = if cfg!(target_endian = "little") {
+        little
+    } else {
+        big
+    };
+    assert_eq!(native, host, "`Native` reads in host byte order");
 }
 
 #[test]

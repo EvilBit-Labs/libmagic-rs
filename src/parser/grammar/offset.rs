@@ -25,7 +25,8 @@ use super::parse_number;
 /// Map a single-character pointer specifier to its `TypeKind` and `Endianness`.
 ///
 /// GNU `file` semantics: lowercase = little-endian, uppercase = big-endian.
-/// Numeric pointer types are signed by default per GOTCHAS S6.3.
+/// Numeric pointer types are signed by default per GOTCHAS S6.3, except
+/// `i`/`I`, which decode an ID3 synchsafe integer to an unsigned 28-bit value.
 ///
 /// | Specifier | Width  | Endianness    |
 /// |-----------|--------|---------------|
@@ -37,8 +38,8 @@ use super::parse_number;
 /// | `L`       | 4 byte | Big-endian    |
 /// | `q`       | 8 byte | Little-endian |
 /// | `Q`       | 8 byte | Big-endian    |
-/// | `i`       | 4 byte | Little-endian ID3 synchsafe |
-/// | `I`       | 4 byte | Big-endian ID3 synchsafe    |
+/// | `i`       | 4 byte | Little-endian |
+/// | `I`       | 4 byte | Big-endian    |
 fn pointer_specifier_to_type(spec: char) -> Option<(TypeKind, Endianness)> {
     match spec {
         'b' => Some((TypeKind::Byte { signed: true }, Endianness::Little)),

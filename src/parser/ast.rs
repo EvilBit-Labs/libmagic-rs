@@ -459,9 +459,12 @@ pub enum TypeKind {
         signed: bool,
     },
     /// 32-bit ID3 "synchsafe" integer: four bytes that each contribute
-    /// their low 7 bits (magic(5) `i`/`I` indirect pointer specifiers,
-    /// libmagic `FILE_LEID3`/`FILE_BEID3`). A set high bit is masked, as
-    /// upstream `cvt_id3` does.
+    /// their low 7 bits. A set high bit is masked, as upstream `cvt_id3` does.
+    ///
+    /// This is libmagic's `FILE_LEID3`/`FILE_BEID3`: magic(5)'s `i`/`I`
+    /// indirect pointer specifiers produce it, and it is also the value type
+    /// for the `leid3`/`beid3` rule keywords, which the parser does not accept
+    /// yet.
     ///
     /// # Examples
     ///

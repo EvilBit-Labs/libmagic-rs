@@ -111,7 +111,7 @@ evaluator/
 ├── types/          // Type interpretation with endianness (directory module, issue #63)
 │   ├── mod.rs      // read_typed_value, read_pattern_match, bytes_consumed_with_pattern,
 │   │               //   TypeReadError (MissingPatternOperand/RegexCompileError, S2.1)
-│   ├── numeric.rs  // byte/short/long/quad readers
+│   ├── numeric.rs  // byte/short/long/quad/id3 readers
 │   ├── string.rs   // string/pstring readers
 │   ├── float.rs    // float/double readers
 │   ├── date.rs     // date/qdate readers and timestamp formatting
@@ -325,7 +325,7 @@ sample.bin: ELF 64-bit LSB executable, x86-64, version 1 (SYSV)
 
 ### Adding New Type Support
 
-> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Id3` (pointer-only; no rule keyword), `Quad`, `Float`, `Double`, `Date`, `QDate`, `String`, `String16`, `PString`, `Regex`, and `Search`. See "Current Limitations" for the remaining gaps in regex/search flag coverage.
+> **Note:** Currently implemented types are `Byte`, `Short`, `Long`, `Id3` (from the `i`/`I` pointer specifiers; the `leid3`/`beid3` rule keywords are not parsed yet), `Quad`, `Float`, `Double`, `Date`, `QDate`, `String`, `String16`, `PString`, `Regex`, and `Search`. See "Current Limitations" for the remaining gaps in regex/search flag coverage.
 
 1. Extend `TypeKind` enum in `src/parser/ast.rs`
 2. Add keyword parsing in `src/parser/types.rs` (`parse_type_keyword` and `type_keyword_to_kind`)
