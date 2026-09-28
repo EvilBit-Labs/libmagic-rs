@@ -59,6 +59,7 @@
 mod common;
 
 use std::io::Write;
+use std::path::Path;
 
 use common::magic_oracle::{
     OracleReadiness, file_says, magic_source_file_count, stage_system_magic,
@@ -217,10 +218,11 @@ fn differential_parity_against_gnu_file_on_the_committed_fixture() {
 /// skips or produces a bogus comparison.
 #[test]
 fn magic_source_file_count_distinguishes_empty_from_populated() {
+    let count = |dir: &Path| magic_source_file_count(dir).expect("readable temp dir");
     let temp = tempfile::TempDir::new().expect("temp dir for the count probe");
 
     assert_eq!(
-        magic_source_file_count(temp.path()),
+        count(temp.path()),
         0,
         "an empty directory must count as no source magic, or a compiled-only \
          install would compare rmagic against `file`'s built-in database"
@@ -229,7 +231,7 @@ fn magic_source_file_count_distinguishes_empty_from_populated() {
     std::fs::write(temp.path().join("jpeg"), "0\tbeshort\t0xffd8\tJPEG\n")
         .expect("write a magic source file");
     assert_eq!(
-        magic_source_file_count(temp.path()),
+        count(temp.path()),
         1,
         "a directory holding a magic source file must count it, or the parity \
          test would skip on every host and never compare anything"
@@ -240,8 +242,15 @@ fn magic_source_file_count_distinguishes_empty_from_populated() {
     let nested = tempfile::TempDir::new().expect("second temp dir");
     std::fs::create_dir_all(nested.path().join("subdir")).expect("create subdir");
     assert_eq!(
-        magic_source_file_count(nested.path()),
+        count(nested.path()),
         0,
         "directories must not be counted as source magic files"
+    );
+
+    // An unreadable directory is an error, not a compiled-only install, so the
+    // skip reason names the real failure.
+    assert!(
+        magic_source_file_count(&temp.path().join("missing")).is_err(),
+        "a directory that cannot be read must not count as empty"
     );
 }

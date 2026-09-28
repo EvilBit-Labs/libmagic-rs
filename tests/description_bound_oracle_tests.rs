@@ -25,7 +25,7 @@
 //!    `file` being present, a SOURCE (not compiled-only) system magic
 //!    directory existing (Debian/Ubuntu ship only `magic.mgc` with no
 //!    source dir -- see `magic_source_file_count`, mirroring
-//!    `tests/jpeg_oracle_tests.rs`), and a `file` version of 5.39 or
+//!    `tests/common/magic_oracle.rs`), and a `file` version of 5.39 or
 //!    later. Below 5.39 the test FAILS rather than skips: the 127-byte
 //!    bound is GNU `file`'s `MAXstring - 1`, and `MAXstring` was 96 (not
 //!    128) through `file` 5.38, so a silent skip on an old binary would
@@ -419,7 +419,7 @@ mod oracle {
     }
 
     /// Count the plain files in `dir`. Mirrors
-    /// `tests/jpeg_oracle_tests.rs::magic_source_file_count`: Debian and
+    /// `tests/common/magic_oracle.rs::magic_source_file_count`: Debian and
     /// Ubuntu ship only the compiled `magic.mgc` and leave the source
     /// directory empty (or absent) -- that is the case this detects.
     fn magic_source_file_count(dir: &Path) -> usize {

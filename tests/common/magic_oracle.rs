@@ -34,20 +34,21 @@ pub fn has_file_binary() -> bool {
 /// Count the plain files in `dir`.
 ///
 /// Debian and Ubuntu ship only the compiled `magic.mgc` and leave the source
-/// directory empty; that is the case this detects.
-pub fn magic_source_file_count(dir: &Path) -> usize {
-    std::fs::read_dir(dir).map_or(0, |entries| {
-        entries
-            .filter_map(Result::ok)
-            .filter(|e| e.path().is_file())
-            .count()
-    })
+/// directory empty; that is the case a zero count detects. A directory that
+/// cannot be read is an error, not an empty directory.
+pub fn magic_source_file_count(dir: &Path) -> std::io::Result<usize> {
+    Ok(std::fs::read_dir(dir)?
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_file())
+        .count())
 }
 
 /// Ask `file` to classify `target` using only `magic_dir`.
 ///
 /// `MAGIC=` rather than `--magic-file`: measured on this host, the flag did not
-/// restrict the database while the environment variable did.
+/// restrict the database while the environment variable did. Panics with
+/// `file`'s stderr when it exits non-zero, so a rejected database is not
+/// mistaken for an empty classification.
 pub fn file_says(magic_dir: &Path, target: &str) -> String {
     let output = Command::new("file")
         .env("MAGIC", magic_dir)
@@ -55,6 +56,12 @@ pub fn file_says(magic_dir: &Path, target: &str) -> String {
         .arg(target)
         .output()
         .expect("invoking `file` must not fail once it is known present");
+    assert!(
+        output.status.success(),
+        "`file` failed on {target} with MAGIC={}: {}",
+        magic_dir.display(),
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
@@ -69,10 +76,16 @@ pub fn stage_system_magic(canary_target: &str, real_class: &str) -> OracleReadin
     if !system_dir.is_dir() {
         return OracleReadiness::Skip(format!("{SYSTEM_MAGIC_DIR} is not present"));
     }
-    if magic_source_file_count(system_dir) == 0 {
-        return OracleReadiness::Skip(format!(
-            "{SYSTEM_MAGIC_DIR} holds no source magic files (compiled-only install)"
-        ));
+    match magic_source_file_count(system_dir) {
+        Ok(0) => {
+            return OracleReadiness::Skip(format!(
+                "{SYSTEM_MAGIC_DIR} holds no source magic files (compiled-only install)"
+            ));
+        }
+        Ok(_) => {}
+        Err(e) => {
+            return OracleReadiness::Skip(format!("{SYSTEM_MAGIC_DIR} is unreadable: {e}"));
+        }
     }
     if !has_file_binary() {
         return OracleReadiness::Skip("`file` is not on PATH".to_string());
