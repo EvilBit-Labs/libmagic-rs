@@ -65,6 +65,8 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use std::num::NonZeroUsize;
 
 use libmagic_rs::evaluator::evaluate_rules;
@@ -506,7 +508,7 @@ mod oracle {
         match require_oracle_ready() {
             OracleReadiness::Ready => true,
             OracleReadiness::Skip(reason) => {
-                eprintln!("SKIP: {reason} -- oracle test skipped cleanly");
+                crate::common::magic_oracle::skip(&reason);
                 false
             }
         }

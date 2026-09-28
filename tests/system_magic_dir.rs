@@ -64,6 +64,9 @@
 //! instead exercise the exact `stop_at_first_match: true` path the CLI
 //! uses.
 
+mod common;
+
+use common::magic_oracle::{has_file_binary, skip};
 use libmagic_rs::{EvaluationConfig, MagicDatabase};
 use std::path::Path;
 use std::process::Command;
@@ -84,17 +87,6 @@ const SYSTEM_MAGIC_DIR: &str = "/usr/share/file/magic/";
 /// installed.
 fn has_system_magic_dir(path: &Path) -> bool {
     path.is_dir()
-}
-
-/// Whether the `file` binary is available on `PATH`, checked via
-/// `file --version` rather than `which file` so the check works
-/// identically on hosts where `which` itself might not be installed
-/// (e.g., some minimal container images).
-fn has_file_binary() -> bool {
-    Command::new("file")
-        .arg("--version")
-        .output()
-        .is_ok_and(|output| output.status.success())
 }
 
 /// The "clean skip" path itself must be reachable and correct, verified
@@ -124,10 +116,9 @@ fn test_skip_gate_is_reachable_for_a_missing_directory() {
 fn test_system_magic_dir_loads_and_evaluates_cargo_toml_without_fatal_error() {
     let system_dir = Path::new(SYSTEM_MAGIC_DIR);
     if !has_system_magic_dir(system_dir) {
-        eprintln!(
-            "SKIP: {SYSTEM_MAGIC_DIR} not present on this host -- \
-             gated system-DB load test skipped cleanly"
-        );
+        skip(&format!(
+            "{SYSTEM_MAGIC_DIR} not present on this host (gated system-DB load test)"
+        ));
         return;
     }
 
@@ -157,16 +148,15 @@ fn test_system_magic_dir_loads_and_evaluates_cargo_toml_without_fatal_error() {
 fn test_system_magic_dir_loads_and_evaluates_rmagic_binary_if_present() {
     let system_dir = Path::new(SYSTEM_MAGIC_DIR);
     if !has_system_magic_dir(system_dir) {
-        eprintln!(
-            "SKIP: {SYSTEM_MAGIC_DIR} not present on this host -- \
-             gated system-DB load test skipped cleanly"
-        );
+        skip(&format!(
+            "{SYSTEM_MAGIC_DIR} not present on this host (gated system-DB load test)"
+        ));
         return;
     }
 
     let binary_path = Path::new("target/debug/rmagic");
     if !binary_path.exists() {
-        eprintln!("SKIP: target/debug/rmagic not built -- binary-target load test skipped");
+        skip("target/debug/rmagic not built (binary-target load test)");
         return;
     }
 
@@ -282,14 +272,13 @@ fn file_binary_detects_assembler(path: &Path) -> bool {
 fn test_differential_parity_against_gnu_file_for_assembler_detection() {
     let system_dir = Path::new(SYSTEM_MAGIC_DIR);
     if !has_system_magic_dir(system_dir) {
-        eprintln!(
-            "SKIP: {SYSTEM_MAGIC_DIR} not present on this host -- \
-             differential parity test skipped cleanly"
-        );
+        skip(&format!(
+            "{SYSTEM_MAGIC_DIR} not present on this host (differential parity test)"
+        ));
         return;
     }
     if !has_file_binary() {
-        eprintln!("SKIP: `file` binary not on PATH -- differential parity test skipped cleanly");
+        skip("`file` binary not on PATH (differential parity test)");
         return;
     }
 
@@ -407,10 +396,9 @@ fn deterministic_binary_blob() -> Vec<u8> {
 fn test_default_config_assembler_source_no_longer_blank() {
     let system_dir = Path::new(SYSTEM_MAGIC_DIR);
     if !has_system_magic_dir(system_dir) {
-        eprintln!(
-            "SKIP: {SYSTEM_MAGIC_DIR} not present on this host -- \
-             default-config assembler test skipped cleanly"
-        );
+        skip(&format!(
+            "{SYSTEM_MAGIC_DIR} not present on this host (default-config assembler test)"
+        ));
         return;
     }
 
@@ -461,10 +449,9 @@ fn test_default_config_assembler_source_no_longer_blank() {
 fn test_default_config_plain_ascii_text_no_longer_blank() {
     let system_dir = Path::new(SYSTEM_MAGIC_DIR);
     if !has_system_magic_dir(system_dir) {
-        eprintln!(
-            "SKIP: {SYSTEM_MAGIC_DIR} not present on this host -- \
-             default-config plain-text test skipped cleanly"
-        );
+        skip(&format!(
+            "{SYSTEM_MAGIC_DIR} not present on this host (default-config plain-text test)"
+        ));
         return;
     }
 
@@ -505,10 +492,9 @@ fn test_default_config_plain_ascii_text_no_longer_blank() {
 fn test_default_config_c_source_is_c_program_text() {
     let system_dir = Path::new(SYSTEM_MAGIC_DIR);
     if !has_system_magic_dir(system_dir) {
-        eprintln!(
-            "SKIP: {SYSTEM_MAGIC_DIR} not present on this host -- \
-             default-config c-source test skipped cleanly"
-        );
+        skip(&format!(
+            "{SYSTEM_MAGIC_DIR} not present on this host (default-config c-source test)"
+        ));
         return;
     }
 
@@ -559,10 +545,9 @@ fn test_default_config_c_source_is_c_program_text() {
 fn test_default_config_binary_blob_is_data() {
     let system_dir = Path::new(SYSTEM_MAGIC_DIR);
     if !has_system_magic_dir(system_dir) {
-        eprintln!(
-            "SKIP: {SYSTEM_MAGIC_DIR} not present on this host -- \
-             default-config binary-blob test skipped cleanly"
-        );
+        skip(&format!(
+            "{SYSTEM_MAGIC_DIR} not present on this host (default-config binary-blob test)"
+        ));
         return;
     }
 
@@ -591,10 +576,9 @@ fn test_default_config_binary_blob_is_data() {
 fn test_default_config_differential_parity_three_cases() {
     let system_dir = Path::new(SYSTEM_MAGIC_DIR);
     if !has_system_magic_dir(system_dir) {
-        eprintln!(
-            "SKIP: {SYSTEM_MAGIC_DIR} not present on this host -- \
-             default-config differential parity test skipped cleanly"
-        );
+        skip(&format!(
+            "{SYSTEM_MAGIC_DIR} not present on this host (default-config differential parity test)"
+        ));
         return;
     }
     if !has_file_binary() {

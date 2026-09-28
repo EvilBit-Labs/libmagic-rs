@@ -62,7 +62,7 @@ use std::io::Write;
 use std::path::Path;
 
 use common::magic_oracle::{
-    OracleReadiness, file_says, magic_source_file_count, stage_system_magic,
+    OracleReadiness, file_says, magic_source_file_count, skip, stage_system_magic,
 };
 use libmagic_rs::{EvaluationConfig, MagicDatabase};
 use tempfile::NamedTempFile;
@@ -186,7 +186,7 @@ fn differential_parity_against_gnu_file_on_the_committed_fixture() {
     let staged = match stage_system_magic(FIXTURE, "JPEG") {
         OracleReadiness::Ready(dir) => dir,
         OracleReadiness::Skip(reason) => {
-            eprintln!("SKIP: {reason} -- parity test skipped cleanly");
+            skip(&reason);
             return;
         }
     };

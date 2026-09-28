@@ -16,6 +16,19 @@ use std::process::Command;
 
 pub const SYSTEM_MAGIC_DIR: &str = "/usr/share/file/magic";
 
+/// Report a skipped oracle test, or fail when `RMAGIC_REQUIRE_ORACLE` is set.
+///
+/// A skipped differential still counts as a pass, so a host that is supposed
+/// to have `file` and the source magic (the macOS CI job) sets the variable to
+/// turn a silent skip into a failure.
+pub fn skip(reason: &str) {
+    assert!(
+        std::env::var_os("RMAGIC_REQUIRE_ORACLE").is_none(),
+        "RMAGIC_REQUIRE_ORACLE is set but the oracle is unavailable: {reason}"
+    );
+    eprintln!("SKIP: {reason} -- oracle test skipped cleanly");
+}
+
 /// Whether a like-for-like comparison against `file` is possible here.
 pub enum OracleReadiness {
     /// A staged copy of the system magic sources, at `<dir>/magic`.
