@@ -23,7 +23,7 @@ pub const SYSTEM_MAGIC_DIR: &str = "/usr/share/file/magic";
 /// turn a silent skip into a failure.
 pub fn skip(reason: &str) {
     assert!(
-        std::env::var_os("RMAGIC_REQUIRE_ORACLE").is_none(),
+        std::env::var("RMAGIC_REQUIRE_ORACLE").ok().as_deref() != Some("1"),
         "RMAGIC_REQUIRE_ORACLE is set but the oracle is unavailable: {reason}"
     );
     eprintln!("SKIP: {reason} -- oracle test skipped cleanly");
