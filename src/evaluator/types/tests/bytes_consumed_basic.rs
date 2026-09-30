@@ -419,24 +419,17 @@ fn test_bytes_consumed_string16_any_value_caps_at_127_units_with_no_newline() {
 }
 
 #[test]
-fn test_bytes_consumed_string16_equality_pattern_not_bounded() {
-    // A real comparison pattern keeps the EXISTING (untouched)
-    // `string16_bytes_consumed` raw-byte-doubled-plus-terminator
-    // convention -- this R5 unit only changes the any-value dispatch arm.
-    let mut buf = Vec::new();
-    for ch in "AB\ncd".chars() {
-        buf.extend_from_slice(&(ch as u16).to_le_bytes());
-    }
-    buf.extend_from_slice(&[0, 0]);
+fn test_bytes_consumed_string16_equality_advances_by_pattern_length() {
+    // Measured against `file-5.41`: `0 lestring16 ABC EQ` + `>&0 byte x
+    // next=%d` over "ABC" (UCS-2LE, NUL-terminated, then 0x07) prints
+    // `next=0` -- the anchor lands at 3 (`m->vallen`, the pattern's byte
+    // length), not at 8 (2 bytes per unit plus the terminator).
+    let buf = b"A\x00B\x00C\x00\x00\x00\x07\x08";
     let typ = TypeKind::String16 {
         endian: Endianness::Little,
     };
-    let pattern = Value::String("AB\ncd".to_string());
-    // 5 units * 2 bytes + 2-byte NUL terminator = 12.
-    assert_eq!(
-        bytes_consumed_with_pattern(&buf, 0, &typ, Some(&pattern)),
-        12
-    );
+    let pattern = Value::String("ABC".to_string());
+    assert_eq!(bytes_consumed_with_pattern(buf, 0, &typ, Some(&pattern)), 3);
 }
 
 // =============================================================================

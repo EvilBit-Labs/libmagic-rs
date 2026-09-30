@@ -651,6 +651,39 @@ mod oracle {
         assert_eq!(ours, "S=[AB]");
     }
 
+    /// #381, verified against the real oracle: `lestring16` keeps one byte
+    /// per 16-bit unit (libmagic `mcopy`), so the sfnt name-table `-17`
+    /// idiom over UTF-16BE Braille renders raw low bytes (a space where the
+    /// low byte is zero), and a `>&0` child lands at the kept byte count.
+    #[test]
+    fn string16_narrows_to_low_bytes_and_anchors_by_kept_count_like_gnu_file() {
+        if !gate() {
+            return;
+        }
+        let magic = "0\tlestring16\tx\tS=[%s]\n>&0\tbyte\tx\t\\b next=%d\n";
+        let buffer = b"\x28\x01\x28\x02\x00\x0a\x28\x1d";
+        let ours = ours_says(magic, buffer);
+        let theirs = file_says(magic, buffer);
+        assert_eq!(ours, theirs);
+        assert_eq!(ours, "S=[(( (] next=0");
+    }
+
+    /// #381, verified against the real oracle: an equality-compared
+    /// `lestring16` advances the anchor by the pattern's byte length
+    /// (`m->vallen`), not by two bytes per unit plus a terminator.
+    #[test]
+    fn string16_equality_anchor_advances_by_pattern_length_like_gnu_file() {
+        if !gate() {
+            return;
+        }
+        let magic = "0\tlestring16\tABC\tEQ\n>&0\tbyte\tx\t\\b next=%d\n";
+        let buffer = b"A\x00B\x00C\x00\x00\x00\x07\x08";
+        let ours = ours_says(magic, buffer);
+        let theirs = file_says(magic, buffer);
+        assert_eq!(ours, theirs);
+        assert_eq!(ours, "EQ next=0");
+    }
+
     /// AE2/R6, verified against the real oracle: a flagged `string/w`
     /// parent's relative child anchors at the declared pattern length
     /// (3), and `file`-5.41 agrees byte for byte -- no #382 tail here

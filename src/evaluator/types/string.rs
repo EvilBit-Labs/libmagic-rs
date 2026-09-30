@@ -291,29 +291,27 @@ fn bytes_to_string_fast(bytes: &[u8]) -> String {
     }
 }
 
-/// Reads a UCS-2 string from the buffer with the given endianness.
+/// Reads a `lestring16`/`bestring16` value the way libmagic's `mcopy` does.
 ///
-/// Each character is encoded as a 16-bit code unit; the reader consumes
-/// pairs of bytes until it encounters a U+0000 terminator (the 2-byte
-/// sequence `0x00 0x00`), runs out of buffer, or hits the
-/// `STRING16_MAX_UNITS` cap. A trailing odd byte (when the remaining
-/// buffer length is not even) is ignored.
-///
-/// Surrogate-pair (D800-DFFF) code units are emitted as the Unicode
-/// replacement character (U+FFFD) -- libmagic's UCS-2 path does not
-/// resolve surrogates, and emitting a placeholder keeps the comparison
-/// length stable for ASCII rules.
+/// libmagic never decodes UCS-2. It keeps ONE byte of every 16-bit unit --
+/// byte 0 for `lestring16`, byte 1 for `bestring16` -- and stops at the
+/// first all-zero unit, the end of the buffer, or `STRING16_MAX_UNITS`. A
+/// zero low byte under a nonzero high byte becomes a space. The sfnt
+/// name-table rules in `magic/fonts` read UTF-16BE text one byte in
+/// (`&(&-14.S-17)`) and rely on exactly this narrowing to print its low
+/// bytes as ASCII (GOTCHAS S6.9). The result is `Value::String` when the
+/// kept bytes are valid UTF-8 and `Value::Bytes` otherwise, mirroring
+/// [`read_string_exact`].
 ///
 /// # Arguments
 ///
 /// * `buffer` -- The byte buffer to read from.
 /// * `offset` -- Absolute byte offset to start reading at.
-/// * `endian` -- Byte order of the 16-bit code units.
+/// * `endian` -- Which byte of each 16-bit unit is kept.
 ///
 /// # Returns
 ///
-/// `Ok(Value::String(decoded))` on success. The decoded string is empty
-/// when the offset is exactly at the start of a NUL terminator.
+/// The narrowed bytes as a `Value`; empty when the offset is on a zero unit.
 ///
 /// # Errors
 ///
@@ -335,9 +333,6 @@ fn bytes_to_string_fast(bytes: &[u8]) -> String {
 /// let result = read_string16(buffer, 0, Endianness::Big).unwrap();
 /// assert_eq!(result, Value::String("MZ".to_string()));
 /// ```
-// Indexing is invariant-safe: `offset < buffer.len()` is checked at entry
-// and `chunks_exact(2)` yields exactly 2-byte slices.
-#[allow(clippy::indexing_slicing)]
 pub fn read_string16(
     buffer: &[u8],
     offset: usize,
@@ -349,169 +344,103 @@ pub fn read_string16(
             buffer_len: buffer.len(),
         });
     }
-
-    let remaining = &buffer[offset..];
-    let mut decoded = String::new();
-    let mut chunks = remaining.chunks_exact(2);
-    let mut units_read = 0usize;
-    for pair in chunks.by_ref() {
-        if units_read >= STRING16_MAX_UNITS {
-            break;
-        }
-        let code_unit = match endian {
-            Endianness::Little | Endianness::Native => u16::from_le_bytes([pair[0], pair[1]]),
-            Endianness::Big => u16::from_be_bytes([pair[0], pair[1]]),
-        };
-        if code_unit == 0 {
-            break;
-        }
-        // UCS-2 only covers the BMP; surrogate halves are not a valid
-        // standalone code point, so substitute U+FFFD.
-        let ch = char::from_u32(u32::from(code_unit)).unwrap_or('\u{FFFD}');
-        decoded.push(ch);
-        units_read = units_read.saturating_add(1);
-    }
-
-    Ok(Value::String(decoded))
+    Ok(narrowed_to_value(narrow_string16(buffer, offset, endian)))
 }
 
-/// Compute the bytes consumed by a successful `read_string16` call.
-///
-/// Mirrors [`read_string16`]: walks 16-bit code units and stops at the
-/// terminator, the buffer end, or the [`STRING16_MAX_UNITS`] cap. Returns
-/// the byte count (always a multiple of 2, except when a NUL terminator is
-/// included -- in which case the count is still even because the
-/// terminator itself is two bytes). A successful read with zero bytes
-/// returns `0`.
-// Indexing is invariant-safe: `chunks_exact(2)` yields exactly 2-byte
-// slices.
-#[allow(clippy::indexing_slicing)]
-pub(crate) fn string16_bytes_consumed(buffer: &[u8], offset: usize, endian: Endianness) -> usize {
-    let Some(remaining) = buffer.get(offset..) else {
-        return 0;
+/// Keep one byte per 16-bit unit, as libmagic `softmagic.c::mcopy` does for
+/// `FILE_LESTRING16`/`FILE_BESTRING16` (see [`read_string16`]). A trailing
+/// odd byte is a unit whose other byte is missing: `lestring16` keeps it,
+/// `bestring16` never reaches it -- both measured against `file-5.41`.
+fn narrow_string16(buffer: &[u8], offset: usize, endian: Endianness) -> Vec<u8> {
+    let is_big = matches!(endian, Endianness::Big);
+    let mut src = if is_big {
+        offset.saturating_add(1)
+    } else {
+        offset
     };
-    let mut units_read = 0usize;
-    let mut consumed = 0usize;
-    for pair in remaining.chunks_exact(2) {
-        if units_read >= STRING16_MAX_UNITS {
-            return consumed;
-        }
-        let code_unit = match endian {
-            Endianness::Little | Endianness::Native => u16::from_le_bytes([pair[0], pair[1]]),
-            Endianness::Big => u16::from_be_bytes([pair[0], pair[1]]),
+    let mut out = Vec::new();
+    while out.len() < STRING16_MAX_UNITS {
+        let Some(&low) = buffer.get(src) else {
+            break;
         };
-        if code_unit == 0 {
-            // Include the NUL terminator in the consumed byte count so the
-            // relative-offset anchor advances past it (matching the
-            // string/pstring conventions).
-            return consumed.saturating_add(2);
+        let other = if is_big {
+            src.checked_sub(1).and_then(|i| buffer.get(i))
+        } else {
+            src.checked_add(1).and_then(|i| buffer.get(i))
+        };
+        match (low, other.copied().unwrap_or(0)) {
+            (0, 0) => break,
+            (0, _) => out.push(b' '),
+            (kept, _) => out.push(kept),
         }
-        consumed = consumed.saturating_add(2);
-        units_read = units_read.saturating_add(1);
+        src = src.saturating_add(2);
     }
-    consumed
+    out
 }
 
-/// Compute the R5 any-value bound for an already-decoded `string16` value,
-/// in DECODED CHARACTERS -- not raw (2-bytes-per-unit) source bytes.
-///
-/// Reuses [`super::any_value_string_bound`] on `decoded`'s own UTF-8 bytes
-/// (rather than the raw file buffer): measured against `file-5.41`, a
-/// `lestring16 x` rule's rendered value AND its relative-offset anchor
-/// both advance by the DECODED code-unit count directly, never `2x` that
-/// for the raw source bytes, and with no `+1` adjustment for a
-/// terminating NUL (unlike the c-string `string` convention -- see
-/// `string_bytes_consumed`). Three cases were measured to confirm this:
-/// an untruncated 2-character string, a newline-truncated string, and a
-/// 300-character string hitting the 127-unit cap -- all three land at
-/// exactly the decoded unit count, never double it. This mirrors
-/// upstream treating the already-decoded "narrow" buffer exactly like a
-/// plain string value once UCS-2 decoding is done, with no memory left
-/// of the 2-byte source encoding.
-///
-/// A `\r`/`\n` BYTE found by the inner scan is always a genuine decoded
-/// character (UTF-8 continuation bytes are `0x80..=0xBF`, so `0x0A`/`0x0D`
-/// can never appear mid-character), but the FALLBACK cut (no newline
-/// found) can still land inside a multi-byte UTF-8 sequence for non-ASCII
-/// BMP content or a surrogate-substituted U+FFFD -- walked back to the
-/// nearest character boundary to avoid an invalid slice.
-///
-/// The two returned numbers are deliberately different units and must not
-/// be used interchangeably. Each decoded character came from exactly one
-/// 2-byte source code unit, so the character count is what the anchor
-/// advances by; the UTF-8 byte index is only valid for slicing `decoded`.
-/// They coincide for ASCII, which is why conflating them stayed invisible
-/// until a non-ASCII `string16` value was measured.
-pub(crate) fn any_value_string16_bound(decoded: &str, max_string_length: usize) -> String16Bound {
-    let cap = max_string_length.min(crate::output::format::MAX_DESCRIPTION_FIELD_LEN);
-    // Walked per character rather than through `super::any_value_string_bound`:
-    // that helper measures the cap in bytes, which is right for a c-string's
-    // raw buffer and wrong here, where one decoded character is one source
-    // code unit no matter how many UTF-8 bytes it takes.
-    for (units, (byte_idx, ch)) in decoded.char_indices().enumerate() {
-        if ch == '\r' || ch == '\n' {
-            return String16Bound {
-                units,
-                byte_cut: byte_idx,
-            };
-        }
-        if units == cap {
-            return String16Bound {
-                units,
-                byte_cut: byte_idx,
-            };
-        }
-    }
-    String16Bound {
-        units: decoded.chars().count(),
-        byte_cut: decoded.len(),
+/// `Value::String` when valid UTF-8, else the raw bytes -- the policy
+/// [`read_string_exact`] uses (GOTCHAS S6.7).
+fn narrowed_to_value(bytes: Vec<u8>) -> Value {
+    match String::from_utf8(bytes) {
+        Ok(text) => Value::String(text),
+        Err(err) => Value::Bytes(err.into_bytes()),
     }
 }
 
-/// The result of [`any_value_string16_bound`]: a truncation point measured
-/// two ways, because its two consumers need different units.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct String16Bound {
-    /// Decoded code units kept. This is what the relative-offset anchor
-    /// advances by -- not doubled for the 2-byte source encoding, per the
-    /// measurement described above.
-    pub(crate) units: usize,
-    /// Byte index into the decoded UTF-8 string, for slicing it.
-    pub(crate) byte_cut: usize,
+/// R5 any-value bound for a narrowed `string16` value: the index of the
+/// first `\r`/`\n`, else the smaller of `max_string_length` and the 127-byte
+/// render field. One narrowed byte is one source unit, so this is also the
+/// relative-offset anchor advance -- measured against `file-5.41`, the
+/// anchor moves by the kept byte count, never `2x` for the source encoding
+/// and with no terminator adjustment. Unlike [`super::any_value_string_bound`]
+/// there is no UTF-8 boundary walk-back: narrowed bytes are not UTF-8
+/// sequences, and a kept high byte such as 0xa9 must not be dropped as if
+/// it were a continuation byte.
+pub(crate) fn any_value_string16_bound(narrowed: &[u8], max_string_length: usize) -> usize {
+    let cap = max_string_length
+        .min(crate::output::format::MAX_DESCRIPTION_FIELD_LEN)
+        .min(narrowed.len());
+    narrowed
+        .get(..cap)
+        .and_then(|window| window.iter().position(|&b| b == b'\r' || b == b'\n'))
+        .unwrap_or(cap)
 }
 
 /// Read a `string16` value for an any-value (`x`, no comparison pattern)
 /// rule, applying the [`any_value_string16_bound`] truncation (R5).
 ///
-/// Decodes the full UCS-2 string first (bounded internally by
-/// [`STRING16_MAX_UNITS`], matching [`read_string16`]'s existing CWE-770
-/// guard), then truncates the decoded value. See
-/// [`any_value_string16_bound`] for why truncation operates on the
-/// decoded string rather than the raw source bytes.
-///
 /// # Errors
 ///
-/// Returns `TypeReadError::BufferOverrun` when `offset >= buffer.len()`
-/// (propagated from [`read_string16`]).
+/// Returns `TypeReadError::BufferOverrun` when `offset >= buffer.len()`.
 pub(crate) fn read_string16_any_value(
     buffer: &[u8],
     offset: usize,
     endian: Endianness,
     max_string_length: usize,
 ) -> Result<Value, TypeReadError> {
-    // `read_string16` always returns `Value::String` on success; the
-    // fallback empty string is unreachable in practice but avoids an
-    // `unreachable!()` panic path (project policy: no panics in library
-    // code).
-    let decoded = match read_string16(buffer, offset, endian)? {
-        Value::String(s) => s,
-        _ => String::new(),
-    };
-    let bound = any_value_string16_bound(&decoded, max_string_length);
-    // Invariant-safe: `byte_cut` is walked back to a `str` char boundary by
-    // `any_value_string16_bound` above.
-    #[allow(clippy::indexing_slicing)]
-    Ok(Value::String(decoded[..bound.byte_cut].to_string()))
+    if offset >= buffer.len() {
+        return Err(TypeReadError::BufferOverrun {
+            offset,
+            buffer_len: buffer.len(),
+        });
+    }
+    let mut narrowed = narrow_string16(buffer, offset, endian);
+    narrowed.truncate(any_value_string16_bound(&narrowed, max_string_length));
+    Ok(narrowed_to_value(narrowed))
+}
+
+/// Anchor advance for an any-value `string16` match: the byte count
+/// [`read_string16_any_value`] keeps. `0` when nothing could be read.
+pub(crate) fn string16_any_value_consumed(
+    buffer: &[u8],
+    offset: usize,
+    endian: Endianness,
+    max_string_length: usize,
+) -> usize {
+    if offset >= buffer.len() {
+        return 0;
+    }
+    any_value_string16_bound(&narrow_string16(buffer, offset, endian), max_string_length)
 }
 
 /// Read and decode a pstring's raw length-prefix value (before the `/J`
@@ -978,55 +907,17 @@ mod tests {
 
     #[test]
     fn test_any_value_string16_bound_max_string_length_wins_over_127() {
-        let decoded = "Q".repeat(300);
-        assert_eq!(any_value_string16_bound(&decoded, 10).units, 10);
-        assert_eq!(any_value_string16_bound(&decoded, usize::MAX).units, 127);
+        let narrowed = [b'Q'; 300];
+        assert_eq!(any_value_string16_bound(&narrowed, 10), 10);
+        assert_eq!(any_value_string16_bound(&narrowed, usize::MAX), 127);
     }
 
     #[test]
-    fn test_any_value_string16_bound_counts_code_units_not_utf8_bytes() {
-        // Each of these decoded characters came from exactly ONE 2-byte
-        // UCS-2 code unit, but they occupy 1, 2 and 3 UTF-8 bytes
-        // respectively. The anchor must advance by the code-unit count; a
-        // byte-length bound would over-count and land the next relative
-        // offset past where `file` puts it.
-        let table: &[(&str, usize, usize)] = &[
-            // (decoded, expected units, expected UTF-8 byte length)
-            ("AB", 2, 2),
-            ("\u{e9}X", 2, 3),          // e-acute: 2 UTF-8 bytes
-            ("\u{4e2d}\u{6587}", 2, 6), // two CJK chars: 3 UTF-8 bytes each
-            ("A\u{fffd}B", 3, 5),       // surrogate half substituted by read_string16
-        ];
-        for (decoded, want_units, want_bytes) in table {
-            let bound = any_value_string16_bound(decoded, usize::MAX);
-            assert_eq!(
-                decoded.len(),
-                *want_bytes,
-                "fixture {decoded:?} is not the UTF-8 length the case assumes"
-            );
-            assert_eq!(
-                bound.units, *want_units,
-                "{decoded:?}: anchor must advance by decoded code units, not UTF-8 bytes"
-            );
-            assert_eq!(
-                bound.byte_cut,
-                decoded.len(),
-                "{decoded:?}: an untruncated value slices to its whole length"
-            );
-        }
-    }
-
-    #[test]
-    fn test_any_value_string16_bound_truncation_splits_units_and_bytes() {
-        // 200 CJK characters: 200 code units, 600 UTF-8 bytes. The 127-char
-        // render bound must yield 127 units for the anchor and 381 bytes for
-        // the slice. Measuring the cap in UTF-8 bytes instead truncates the
-        // rendered value to 42 characters and under-advances the anchor.
-        let decoded = "\u{4e2d}".repeat(200);
-        let bound = any_value_string16_bound(&decoded, usize::MAX);
-        assert_eq!(bound.units, 127, "anchor advance is in code units");
-        assert_eq!(bound.byte_cut, 127 * 3, "slice index is in UTF-8 bytes");
-        assert!(decoded.is_char_boundary(bound.byte_cut));
+    fn test_any_value_string16_bound_stops_at_newline_and_keeps_high_bytes() {
+        // A narrowed high byte (0xa9) is one unit like any other; the bound
+        // must not walk back over it as if it were a UTF-8 continuation.
+        assert_eq!(any_value_string16_bound(b"AB\ncd", usize::MAX), 2);
+        assert_eq!(any_value_string16_bound(b"\xa9 2017", usize::MAX), 6);
     }
 
     use crate::evaluator::types::read_typed_value;
@@ -1620,39 +1511,98 @@ mod tests {
     }
 
     // ========================================================================
-    // read_string16 tests
+    // read_string16 tests -- libmagic `mcopy` narrowing (GOTCHAS S6.9)
     // ========================================================================
 
+    /// Every row measured against `file-5.41` with `0 lestring16 x LE[%s]`
+    /// or `0 bestring16 x BE[%s]` over the same bytes.
     #[test]
-    fn test_read_string16_le_ascii() {
-        // "NTLDR" in UCS-2 little-endian, NUL-terminated
-        let buffer = b"N\x00T\x00L\x00D\x00R\x00\x00\x00";
-        let result = read_string16(buffer, 0, Endianness::Little).unwrap();
-        assert_eq!(result, Value::String("NTLDR".to_string()));
-    }
-
-    #[test]
-    fn test_read_string16_be_ascii() {
-        // "NTLDR" in UCS-2 big-endian, NUL-terminated
-        let buffer = b"\x00N\x00T\x00L\x00D\x00R\x00\x00";
-        let result = read_string16(buffer, 0, Endianness::Big).unwrap();
-        assert_eq!(result, Value::String("NTLDR".to_string()));
-    }
-
-    #[test]
-    fn test_read_string16_no_terminator_runs_to_buffer_end() {
-        // 3 LE-encoded UCS-2 chars and no terminator -- read all of them.
-        let buffer = b"A\x00B\x00C\x00";
-        let result = read_string16(buffer, 0, Endianness::Little).unwrap();
-        assert_eq!(result, Value::String("ABC".to_string()));
-    }
-
-    #[test]
-    fn test_read_string16_empty_at_terminator() {
-        // Offset directly on a NUL pair -> zero-length string.
-        let buffer = b"\x00\x00rest";
-        let result = read_string16(buffer, 0, Endianness::Little).unwrap();
-        assert_eq!(result, Value::String(String::new()));
+    fn test_read_string16_narrows_each_unit_to_its_low_byte_like_mcopy() {
+        use Endianness::{Big, Little};
+        let table: &[(&str, Endianness, &[u8], Value)] = &[
+            (
+                "LE ascii, zero unit terminates",
+                Little,
+                b"A\x00B\x00C\x00\x00\x00trail",
+                Value::String("ABC".into()),
+            ),
+            (
+                "BE ascii",
+                Big,
+                b"\x00A\x00B\x00C\x00\x00",
+                Value::String("ABC".into()),
+            ),
+            (
+                "no terminator runs to buffer end",
+                Little,
+                b"A\x00B\x00C\x00",
+                Value::String("ABC".into()),
+            ),
+            (
+                "offset on a zero unit is empty",
+                Little,
+                b"\x00\x00rest",
+                Value::String(String::new()),
+            ),
+            // A zero low byte under a nonzero high byte renders as a space.
+            (
+                "LE reading BE text is spaces",
+                Little,
+                b"\x00A\x00B\x00C\x00\x00",
+                Value::String("   ".into()),
+            ),
+            (
+                "BE reading LE text is spaces",
+                Big,
+                b"A\x00B\x00C\x00\x00\x00",
+                Value::String("   ".into()),
+            ),
+            // fonts:316 reads UTF-16BE one byte in (`&(&-14.S-17)`): the low
+            // bytes of U+2801.. come out raw, never decoded as Braille.
+            (
+                "fonts -17 idiom over UTF-16BE Braille",
+                Little,
+                b"\x01\x28\x02\x28\x09\x00\x0a\x28",
+                Value::String("\u{1}\u{2}\t\n".into()),
+            ),
+            (
+                "LE over BE Braille: low 0x28, space for 0x0a00",
+                Little,
+                b"\x28\x01\x28\x02\x00\x0a\x28\x1d",
+                Value::String("(( (".into()),
+            ),
+            // A high byte is kept raw, so a non-UTF-8 result is `Value::Bytes`.
+            (
+                "BE copyright sign",
+                Big,
+                b"\x00\xa9\x00 \x00\x00",
+                Value::Bytes(vec![0xa9, b' ']),
+            ),
+            // Non-ASCII UCS-2 is NOT decoded: U+0391 LE narrows to 0x91.
+            (
+                "LE greek alpha narrows to its low byte",
+                Little,
+                b"\x91\x03\x00\x00",
+                Value::Bytes(vec![0x91]),
+            ),
+            // LE consumes a trailing odd byte as a low byte; BE ignores it.
+            (
+                "LE trailing odd byte",
+                Little,
+                b"A\x00B\x00\x42",
+                Value::String("ABB".into()),
+            ),
+            (
+                "BE trailing odd byte",
+                Big,
+                b"\x00A\x00B\x42",
+                Value::String("AB".into()),
+            ),
+        ];
+        for (name, endian, buffer, want) in table {
+            let got = read_string16(buffer, 0, *endian).unwrap();
+            assert_eq!(&got, want, "{name}");
+        }
     }
 
     #[test]
@@ -1660,48 +1610,6 @@ mod tests {
         let buffer = b"\x00\x00";
         let err = read_string16(buffer, 5, Endianness::Little).unwrap_err();
         assert!(matches!(err, TypeReadError::BufferOverrun { .. }));
-    }
-
-    #[test]
-    fn test_read_string16_trailing_odd_byte_is_ignored() {
-        // 4 LE bytes for "AB" + a single trailing byte that cannot form a
-        // 16-bit unit: the reader stops cleanly without panicking.
-        let buffer = b"A\x00B\x00\x42";
-        let result = read_string16(buffer, 0, Endianness::Little).unwrap();
-        assert_eq!(result, Value::String("AB".to_string()));
-    }
-
-    #[test]
-    fn test_read_string16_le_non_ascii() {
-        // Greek capital alpha (U+0391) in UCS-2 LE: 0x91 0x03
-        let buffer = b"\x91\x03\x00\x00";
-        let result = read_string16(buffer, 0, Endianness::Little).unwrap();
-        assert_eq!(result, Value::String("\u{0391}".to_string()));
-    }
-
-    #[test]
-    fn test_read_string16_be_surrogate_replaced_with_fffd() {
-        // 0xD800 is a high surrogate -- not a valid standalone scalar value
-        // in UCS-2 / Rust char. The reader must substitute U+FFFD instead
-        // of crashing.
-        let buffer = b"\xD8\x00\x00\x00";
-        let result = read_string16(buffer, 0, Endianness::Big).unwrap();
-        assert_eq!(result, Value::String("\u{FFFD}".to_string()));
-    }
-
-    #[test]
-    fn test_string16_bytes_consumed_matches_read() {
-        // 3 LE chars + NUL terminator -> 8 bytes consumed (incl. terminator).
-        let buffer = b"A\x00B\x00C\x00\x00\x00trail";
-        assert_eq!(string16_bytes_consumed(buffer, 0, Endianness::Little), 8);
-
-        // Same 3 chars, no terminator -> 6 bytes consumed (chars only).
-        let buffer = b"A\x00B\x00C\x00";
-        assert_eq!(string16_bytes_consumed(buffer, 0, Endianness::Little), 6);
-
-        // BE encoding: same expected lengths.
-        let buffer = b"\x00A\x00B\x00\x00rest";
-        assert_eq!(string16_bytes_consumed(buffer, 0, Endianness::Big), 6);
     }
 
     // -- compare_string_with_flags --------------------------------------
