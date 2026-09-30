@@ -397,7 +397,7 @@ fn string_family(name: &str) -> Option<TypeKind> {
     }
 }
 
-/// Map a UCS-2 string keyword (`lestring16`/`bestring16`) to its `TypeKind`.
+/// Map a 16-bit string keyword (`lestring16`/`bestring16`) to its `TypeKind`.
 ///
 /// magic(5) defines only the explicitly-endian forms; bare `string16` is not
 /// a valid keyword.

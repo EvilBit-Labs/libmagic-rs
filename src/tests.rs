@@ -796,6 +796,33 @@ mod pstring_string16_newline_gate_end_to_end_tests {
         assert_eq!(description, "EQ=[ABC\ndef]");
     }
 
+    /// Measured against `file-5.41`: `0 lestring16 ABC` matches the field
+    /// `ABCD` (libmagic's `file_strncmp(..., m->vallen)` is a prefix test)
+    /// and `!ABC` does not fire on it. A whole-field compare gets both
+    /// wrong, which left every OLE stream-name rule and the UTF-16 `.reg`
+    /// rule in the system DB dead (GOTCHAS S6.9).
+    #[test]
+    fn test_string16_comparison_is_prefix_limited_to_pattern_length() {
+        let buffer = ucs2le("ABCD");
+        let table: &[(&str, Operator, usize)] = &[
+            ("equal to a prefix matches", Operator::Equal, 1),
+            ("not-equal to a prefix does not fire", Operator::NotEqual, 0),
+        ];
+        for (name, op, want_matches) in table {
+            let rule = MagicRule::new(
+                OffsetSpec::Absolute(0),
+                le_string16_type(),
+                op.clone(),
+                Value::String("ABC".to_string()),
+                "S16".to_string(),
+            );
+            let mut ctx = EvaluationContext::new(EvaluationConfig::default());
+            let matches = evaluate_rules(std::slice::from_ref(&rule), &buffer, &mut ctx)
+                .expect("evaluate_rules should not error for this simple rule");
+            assert_eq!(matches.len(), *want_matches, "{name}");
+        }
+    }
+
     /// Measured: `0 lestring16 =AB\ncd EQ16=[%s]` over the same payload
     /// renders the embedded newline verbatim -- an equality-compared
     /// string16 never stops either.
@@ -840,8 +867,8 @@ mod pstring_string16_newline_gate_end_to_end_tests {
     }
 
     /// Measured: a 300-code-unit lestring16 payload of 'Q' with no
-    /// newline renders exactly 127 'Q' characters -- the bound is in
-    /// DECODED characters, not raw (2-bytes-per-unit) source bytes.
+    /// newline renders exactly 127 'Q' characters -- the bound is in kept
+    /// bytes (one per unit), not raw 2-bytes-per-unit source bytes.
     #[test]
     fn test_string16_any_value_caps_at_127_chars() {
         let rule = MagicRule::new(

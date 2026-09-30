@@ -23,7 +23,7 @@ pub(crate) use float::{read_double, read_float};
 pub(crate) use numeric::{read_byte, read_id3, read_long, read_quad, read_short};
 pub(crate) use regex::read_regex;
 pub(crate) use search::read_search;
-pub(crate) use string::{read_pstring, read_string, read_string_exact, read_string16};
+pub(crate) use string::{read_pstring, read_string, read_string_exact};
 
 /// Swap the declared endianness of an endian-bearing [`TypeKind`] for the
 /// magic(5) `use \^name` endian flip (issue #236).
@@ -1093,12 +1093,24 @@ pub(crate) fn bytes_consumed_with_pattern_bounded(
 /// `Value::Uint`/`Value::Float` pattern falls through its `match` to the
 /// bounded catch-all arm).
 fn is_string_family_comparison_pattern(pattern: Option<&Value>) -> bool {
-    matches!(pattern, Some(Value::String(_) | Value::Bytes(_)))
+    string_family_pattern_len(pattern).is_some()
+}
+
+/// The byte length of a real comparison pattern (libmagic `m->vallen`), or
+/// `None` for the any-value shape. Both `String16` dispatchers split on this
+/// one value, so the compared prefix and the anchor advance cannot disagree.
+fn string_family_pattern_len(pattern: Option<&Value>) -> Option<usize> {
+    match pattern {
+        Some(Value::String(s)) => Some(s.len()),
+        Some(Value::Bytes(b)) => Some(b.len()),
+        _ => None,
+    }
 }
 
 /// R5 read dispatch for `TypeKind::String16`: a real comparison pattern
-/// reads the full (unbounded) narrowed value; anything else is the
-/// any-value shape and gets [`string::read_string16_any_value`]'s
+/// reads at most `pattern.len()` narrowed bytes (libmagic's
+/// `file_strncmp(..., m->vallen)` prefix compare, GOTCHAS S6.9); anything
+/// else is the any-value shape and gets [`string::read_string16_any_value`]'s
 /// newline-stop + 127-byte bound.
 fn read_string16_dispatch(
     buffer: &[u8],
@@ -1107,10 +1119,9 @@ fn read_string16_dispatch(
     pattern: Option<&Value>,
     max_string_length: usize,
 ) -> Result<Value, TypeReadError> {
-    if is_string_family_comparison_pattern(pattern) {
-        read_string16(buffer, offset, endian)
-    } else {
-        string::read_string16_any_value(buffer, offset, endian, max_string_length)
+    match string_family_pattern_len(pattern) {
+        Some(units) => string::read_string16(buffer, offset, endian, units),
+        None => string::read_string16_any_value(buffer, offset, endian, max_string_length),
     }
 }
 
@@ -1139,11 +1150,15 @@ fn read_pstring_dispatch(
     )
 }
 
-/// R5/R12 anchor dispatch for `TypeKind::String16`, mirroring
-/// [`read_string16_dispatch`] so the anchor can never disagree with what
-/// the read actually consumed. A real comparison pattern advances by its
-/// own byte length (libmagic `m->vallen`; measured against `file-5.41`, a
-/// `>&0` child of `0 lestring16 ABC` lands at 3, not at 8).
+/// R5/R12 anchor dispatch for `TypeKind::String16`, split on the same
+/// [`string_family_pattern_len`] as [`read_string16_dispatch`]. The
+/// any-value arm advances by exactly the byte count
+/// [`string::read_string16_any_value`] keeps; a comparison pattern advances
+/// by its own byte length (libmagic `m->vallen`; measured against
+/// `file-5.41`, a `>&0` child of `0 lestring16 ABC` lands at 3, not at 8).
+/// libmagic uses `vallen` only for `=`/`!` and `strlen(p->s)` for ordering
+/// operators; no system-DB `string16` rule orders, so that case is not
+/// special-cased here (GOTCHAS S6.9).
 fn string16_bytes_consumed_dispatch(
     buffer: &[u8],
     offset: usize,
@@ -1151,10 +1166,9 @@ fn string16_bytes_consumed_dispatch(
     pattern: Option<&Value>,
     max_string_length: usize,
 ) -> usize {
-    match pattern {
-        Some(Value::String(s)) => s.len(),
-        Some(Value::Bytes(b)) => b.len(),
-        _ => string::string16_any_value_consumed(buffer, offset, endian, max_string_length),
+    match string_family_pattern_len(pattern) {
+        Some(units) => units,
+        None => string::string16_any_value_consumed(buffer, offset, endian, max_string_length),
     }
 }
 

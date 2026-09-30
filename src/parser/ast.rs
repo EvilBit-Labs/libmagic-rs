@@ -604,7 +604,9 @@ pub enum TypeKind {
     /// assert_eq!(be, TypeKind::String16 { endian: Endianness::Big });
     /// ```
     String16 {
-        /// Endianness for the 16-bit code units.
+        /// Which byte of each 16-bit unit is kept: byte 0 for `Little`
+        /// (and `Native`, which the parser never emits here), byte 1 for
+        /// `Big`.
         endian: Endianness,
     },
     /// Pascal string (length-prefixed, supports 1/2/4-byte prefix, with optional max length)
