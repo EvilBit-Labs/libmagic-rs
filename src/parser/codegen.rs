@@ -198,6 +198,10 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
             serialize_endianness(*endian),
             signed
         ),
+        TypeKind::Id3 { endian } => format!(
+            "TypeKind::Id3 {{ endian: {} }}",
+            serialize_endianness(*endian)
+        ),
         TypeKind::Quad { endian, signed } => format!(
             "TypeKind::Quad {{ endian: {}, signed: {} }}",
             serialize_endianness(*endian),

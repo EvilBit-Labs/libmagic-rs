@@ -137,15 +137,16 @@ fn test_parse_magic_rule_meta_name_use_reject_malformed_identifiers() {
         // site in the system magic DB that carries trailing text carries
         // exactly this.
         ("0 use mach-o-cpu \\b", "mach-o-cpu", "\\b"),
-        // Trailing whitespace after the marker still counts as lone.
-        ("0 use mach-o-cpu \\b   ", "mach-o-cpu", "\\b"),
+        // Trailing whitespace after the marker still counts as lone; it is
+        // kept verbatim, and the evaluator only inspects the leading marker.
+        ("0 use mach-o-cpu \\b   ", "mach-o-cpu", "\\b   "),
         // A marker followed by real text is NOT lone: the whole trailing
         // string drops, exactly as before.
         ("0 use foo \\b extra", "foo", ""),
         // The helper accepts both marker forms, so cover the raw U+0008 byte
         // as well as the literal `\b` above.
         ("0 use mach-o-cpu \u{0008}", "mach-o-cpu", "\u{0008}"),
-        ("0 use mach-o-cpu \u{0008}   ", "mach-o-cpu", "\u{0008}"),
+        ("0 use mach-o-cpu \u{0008}   ", "mach-o-cpu", "\u{0008}   "),
         ("0 use foo \u{0008} extra", "foo", ""),
     ];
     for (input, expected_id, expected_message) in trailing_text_cases {

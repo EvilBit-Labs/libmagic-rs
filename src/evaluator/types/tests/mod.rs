@@ -26,6 +26,7 @@ mod bytes_consumed_basic;
 mod bytes_consumed_pattern;
 mod coerce;
 mod endian_flip;
+mod id3;
 mod numeric_dispatch;
 mod regex_decode;
 mod regex_pattern_skip;

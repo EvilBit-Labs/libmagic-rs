@@ -591,31 +591,6 @@ pub fn evaluate_rules(
 
             let matches_before = matches.len();
 
-            // Advance the GNU `file` previous-match anchor to the indirect's
-            // resolved offset and emit a `RuleMatch` for the indirect rule
-            // itself BEFORE descending into the root re-entry or children.
-            // This matches the shared successful-match flow used by every
-            // other rule kind: advance anchor first, record the match, then
-            // recurse. Without this, sibling rules of the `indirect` resolve
-            // their relative offsets against the stale anchor and the
-            // directive's own `message` never surfaces in the output.
-            context.set_last_match_end(absolute_offset);
-
-            let indirect_match = RuleMatch::new(
-                rule.message.clone(),
-                absolute_offset,
-                rule.level,
-                crate::parser::ast::Value::String("indirect".to_string()),
-                rule.typ.clone(),
-                RuleMatch::calculate_confidence(rule.level),
-            );
-            matches.push(indirect_match);
-
-            // Indirect counts as a match for `sibling_matched` regardless of
-            // whether the sub-evaluation produced any matches -- the directive
-            // itself successfully dispatched.
-            sibling_matched = true;
-
             // Recursion guard + anchor scope: nested indirect / use cycles
             // surface as `RecursionLimitExceeded` instead of a stack overflow,
             // and the caller's anchor is restored on every exit path.
@@ -625,32 +600,45 @@ pub fn evaluate_rules(
             // semantics do NOT fire -- root rules in the re-entered
             // database chain their anchors across siblings like any
             // other top-level evaluation.
-            {
+            let sub_matches = {
                 let mut guard = RecursionGuard::enter(context)?;
                 let mut anchor_scope = AnchorScope::enter(guard.context(), 0);
                 anchor_scope.context().set_indirect_reentry(true);
-                match evaluate_rules(&root_rules, sub_buffer, anchor_scope.context()) {
-                    Ok(sub_matches) => {
-                        // The re-entered classification always continues the
-                        // preceding fragment rather than starting a new one.
-                        // Two independent cases agree: mach-o's `\b:` renders
-                        // `:Mach-O ...`, and jpeg's message-less
-                        // `>>>10 indirect/r x` must render `[TIFF ...` after
-                        // its sibling's `[`. Magic files supply their own
-                        // spacing when they want it -- `archive`'s
-                        // `\b, contains ` ends with a space for this reason.
-                        matches.extend(output::attach_no_separator_to_first(sub_matches));
-                    }
-                    Err(LibmagicError::Timeout { timeout_ms }) => {
-                        return Err(LibmagicError::Timeout { timeout_ms });
-                    }
-                    Err(e) => return Err(e),
-                }
-                // anchor_scope drops here, restoring the saved anchor
-                // (which is now `absolute_offset`, set above before the
-                // scope was entered).
+                evaluate_rules(&root_rules, sub_buffer, anchor_scope.context())?
+                // anchor_scope drops here, restoring the caller's anchor;
                 // guard drops next, decrementing the recursion depth.
+            };
+
+            // libmagic's `mget` returns 0 when the re-entry printed nothing,
+            // so the `indirect` rule is then a non-match: no message, no
+            // children, no sibling flag (XAR's `\b, contains ` is omitted
+            // for an uncompressed archive).
+            if !has_message_bearing_match(&sub_matches, 0) {
+                debug!(
+                    "Skipping indirect rule '{}': re-entry at {} matched nothing",
+                    rule.message, absolute_offset
+                );
+                continue;
             }
+
+            // Advance the GNU `file` previous-match anchor to the indirect's
+            // resolved offset and record the directive's own match ahead of
+            // the re-entered output, so its message renders and sibling
+            // rules resolve relative offsets against the new anchor.
+            context.set_last_match_end(absolute_offset);
+            matches.push(RuleMatch::new(
+                rule.message.clone(),
+                absolute_offset,
+                rule.level,
+                crate::parser::ast::Value::String("indirect".to_string()),
+                rule.typ.clone(),
+                RuleMatch::calculate_confidence(rule.level),
+            ));
+            // libmagic never spaces a top-level description but spaces a
+            // continuation one (GOTCHAS S14.5), so only a level-0 first
+            // fragment attaches unspaced.
+            matches.extend(output::attach_no_separator_if_top_level(sub_matches));
+            sibling_matched = true;
 
             // Evaluate the indirect rule's own children under the same
             // recursion-guard pattern used by every other successful rule.

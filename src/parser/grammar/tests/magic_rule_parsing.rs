@@ -25,13 +25,15 @@ fn test_parse_message_basic() {
 
 #[test]
 fn test_parse_message_with_whitespace() {
+    // Leading whitespace is skipped; trailing whitespace is part of the
+    // description, as in libmagic (`archive`'s `\b, contains ` needs it).
     assert_eq!(
         parse_message("  ELF executable  "),
-        Ok(("", "ELF executable".to_string()))
+        Ok(("", "ELF executable  ".to_string()))
     );
     assert_eq!(
         parse_message("\tPDF document\t"),
-        Ok(("", "PDF document".to_string()))
+        Ok(("", "PDF document\t".to_string()))
     );
     assert_eq!(parse_message("   "), Ok(("", String::new())));
 }
@@ -148,7 +150,8 @@ fn test_parse_magic_rule_with_whitespace() {
     assert_eq!(rule.typ, TypeKind::Byte { signed: true });
     assert_eq!(rule.op, Operator::Equal);
     assert_eq!(rule.value, Value::Uint(1));
-    assert_eq!(rule.message, "32-bit");
+    // Trailing whitespace is part of the description (libmagic copies it verbatim).
+    assert_eq!(rule.message, "32-bit  ");
 }
 
 #[test]

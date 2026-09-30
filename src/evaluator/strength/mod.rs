@@ -145,7 +145,10 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
         // 64-bit types are most specific among numerics
         TypeKind::Quad { .. } | TypeKind::Double { .. } | TypeKind::QDate { .. } => 16,
         // 32-bit types are fairly specific
-        TypeKind::Long { .. } | TypeKind::Float { .. } | TypeKind::Date { .. } => 15,
+        TypeKind::Long { .. }
+        | TypeKind::Id3 { .. }
+        | TypeKind::Float { .. }
+        | TypeKind::Date { .. } => 15,
         // 16-bit integers are moderately specific
         TypeKind::Short { .. } => 10,
         // Single bytes are least specific

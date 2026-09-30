@@ -90,6 +90,9 @@ jobs:
                       platform: "Linux"
                     - os: macos-latest
                       platform: "macOS"
+                      # macOS ships `file` and the source magic directory, so
+                      # the oracle tests must run here rather than skip.
+                      require_oracle: "1"
                     - os: windows-latest
                       platform: "Windows"
 
@@ -121,6 +124,8 @@ jobs:
                   github_token: ${{ secrets.GITHUB_TOKEN }}
 
             - run: mise x -- cargo nextest run --all-features
+              env:
+                  RMAGIC_REQUIRE_ORACLE: ${{ matrix.require_oracle }}
             - run: mise x -- cargo build --release --all-features
 
     coverage:

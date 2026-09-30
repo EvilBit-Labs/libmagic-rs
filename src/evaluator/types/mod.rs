@@ -20,7 +20,7 @@ use thiserror::Error;
 use date::format_timestamp_value;
 pub(crate) use date::{read_date, read_qdate};
 pub(crate) use float::{read_double, read_float};
-pub(crate) use numeric::{read_byte, read_long, read_quad, read_short};
+pub(crate) use numeric::{read_byte, read_id3, read_long, read_quad, read_short};
 pub(crate) use regex::read_regex;
 pub(crate) use search::read_search;
 use string::string16_bytes_consumed;
@@ -80,8 +80,8 @@ pub(crate) fn flip_type_endian(typ: &TypeKind) -> TypeKind {
             endian: swap(endian),
             utc,
         },
-        // Byte, String, String16, PString, Regex, Search, Meta: unchanged.
-        // (`String16` is intentionally absent from libmagic's `cvt_flip`.)
+        // Byte, Id3, String, String16, PString, Regex, Search, Meta: unchanged.
+        // (`Id3` and `String16` are intentionally absent from libmagic's `cvt_flip`.)
         ref other => other.clone(),
     }
 }
@@ -380,6 +380,7 @@ pub(crate) fn read_typed_value_with_pattern(
         TypeKind::Byte { signed } => read_byte(buffer, offset, *signed),
         TypeKind::Short { endian, signed } => read_short(buffer, offset, *endian, *signed),
         TypeKind::Long { endian, signed } => read_long(buffer, offset, *endian, *signed),
+        TypeKind::Id3 { endian } => read_id3(buffer, offset, *endian),
         TypeKind::Quad { endian, signed } => read_quad(buffer, offset, *endian, *signed),
         TypeKind::Float { endian } => read_float(buffer, offset, *endian),
         TypeKind::Double { endian } => read_double(buffer, offset, *endian),
@@ -1058,6 +1059,7 @@ pub(crate) fn bytes_consumed_with_pattern_bounded(
         TypeKind::Byte { .. }
         | TypeKind::Short { .. }
         | TypeKind::Long { .. }
+        | TypeKind::Id3 { .. }
         | TypeKind::Quad { .. }
         | TypeKind::Float { .. }
         | TypeKind::Double { .. }

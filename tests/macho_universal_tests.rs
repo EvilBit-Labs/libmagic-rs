@@ -232,10 +232,12 @@ fn arch_offset_pointing_at_unrecognized_bytes_keeps_brackets_balanced() {
         desc.matches(']').count(),
         "brackets must stay balanced when an arch fails to classify, got: {desc}"
     );
+    // Measured against file-5.41 on /usr/lib/dyld: when the re-entry
+    // classifies nothing, the `indirect x \b:` is a non-match and its `:`
+    // is not printed, so the group renders as a bare `[arm64e]`.
     assert!(
-        desc.contains("[arm64e:]"),
-        "the indirect rule still matches (its test is `x`) so its `:` prints \
-         with nothing after it, got: {desc}"
+        desc.contains("[arm64e]") && !desc.contains("[arm64e:"),
+        "an indirect whose re-entry renders nothing must not print its `:`, got: {desc}"
     );
 }
 

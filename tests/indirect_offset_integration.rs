@@ -225,3 +225,105 @@ fn test_indirect_offset_child_with_adjustment_after_paren() {
         result.description
     );
 }
+
+/// A hand-built spec whose pointer type and outer endian disagree is rejected
+/// instead of being read with whichever field the resolver happened to use.
+#[test]
+fn test_indirect_pointer_endianness_mismatch_is_an_error() {
+    use libmagic_rs::evaluator::offset::resolve_offset;
+    use libmagic_rs::parser::ast::{Endianness, IndirectAdjustmentOp, OffsetSpec, TypeKind};
+
+    let mismatched = |pointer_type: TypeKind| OffsetSpec::Indirect {
+        base_offset: 0,
+        base_relative: false,
+        pointer_type,
+        adjustment: 0,
+        adjustment_op: IndirectAdjustmentOp::Add,
+        result_relative: false,
+        endian: Endianness::Little,
+    };
+    let buffer = [0u8; 16];
+    let big = Endianness::Big;
+
+    for typ in [
+        TypeKind::Short {
+            endian: big,
+            signed: true,
+        },
+        TypeKind::Long {
+            endian: big,
+            signed: true,
+        },
+        TypeKind::Id3 { endian: big },
+        TypeKind::Quad {
+            endian: big,
+            signed: true,
+        },
+    ] {
+        assert!(
+            resolve_offset(&mismatched(typ.clone()), &buffer).is_err(),
+            "mismatched endianness on {typ:?} must be rejected"
+        );
+    }
+}
+
+/// ID3 synchsafe pointers (`i`/`I`, issue #237). The tag size bytes decode to
+/// 2084 as synchsafe but read as 4132 as a plain long, so a sentinel at each
+/// `size + 10` target shows which offset the pointer resolved to.
+#[test]
+fn test_id3_pointer_resolves_synchsafe_offset() {
+    const SYNCHSAFE_TARGET: usize = 2084 + 10;
+    const PLAIN_LONG_TARGET: usize = 4132 + 10;
+
+    let cases: &[(&str, &str, [u8; 4], &str)] = &[
+        (
+            "`I` big-endian",
+            "6.I+10",
+            [0x00, 0x00, 0x10, 0x24],
+            "Tag at=0xaa",
+        ),
+        (
+            "`i` little-endian",
+            "6.i+10",
+            [0x24, 0x10, 0x00, 0x00],
+            "Tag at=0xaa",
+        ),
+        (
+            "set high bits are masked",
+            "6.I+10",
+            [0x80, 0x80, 0x90, 0xa4],
+            "Tag at=0xaa",
+        ),
+        (
+            "plain `L` reads the raw long",
+            "6.L+10",
+            [0x00, 0x00, 0x10, 0x24],
+            "Tag at=0xbb",
+        ),
+        (
+            "decoded offset past the buffer",
+            "6.I+10",
+            [0x7f, 0x7f, 0x7f, 0x7f],
+            "Tag",
+        ),
+    ];
+
+    for (name, pointer, size_bytes, expected) in cases {
+        let temp_dir = TempDir::new().unwrap();
+        let magic_path = temp_dir.path().join("id3.magic");
+        let mut f = fs::File::create(&magic_path).unwrap();
+        writeln!(f, "0 string ID3 Tag").unwrap();
+        writeln!(f, ">({pointer}) ubyte x at=0x%02x").unwrap();
+        drop(f);
+        let db = MagicDatabase::load_from_file(&magic_path).unwrap();
+
+        let mut buf = vec![0u8; PLAIN_LONG_TARGET + 8];
+        buf[..3].copy_from_slice(b"ID3");
+        buf[6..10].copy_from_slice(size_bytes);
+        buf[SYNCHSAFE_TARGET] = 0xAA;
+        buf[PLAIN_LONG_TARGET] = 0xBB;
+
+        let result = db.evaluate_buffer(&buf).unwrap();
+        assert_eq!(result.description, *expected, "case: {name}");
+    }
+}

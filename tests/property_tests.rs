@@ -100,6 +100,7 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
             .prop_map(|(endian, signed)| { TypeKind::Long { endian, signed } }),
         (arb_endianness(), any::<bool>())
             .prop_map(|(endian, signed)| { TypeKind::Quad { endian, signed } }),
+        arb_endianness().prop_map(|endian| TypeKind::Id3 { endian }),
         arb_endianness().prop_map(|endian| TypeKind::Float { endian }),
         arb_endianness().prop_map(|endian| TypeKind::Double { endian }),
         (0usize..256usize, any::<u8>()).prop_map(|(len, bits)| TypeKind::String {
@@ -352,8 +353,8 @@ proptest! {
     }
 
     /// Property: indirect offset resolution never panics on arbitrary
-    /// (buffer, base, width, adjustment) combinations. Indirect
-    /// offsets chase a pointer read from `buffer[base..base+width]`
+    /// (buffer, base, pointer type, adjustment) combinations. Indirect
+    /// offsets chase a pointer read at `base` (1, 2, 4, or 8 bytes wide)
     /// and apply `adjustment`, both of which must be bounds-checked
     /// and overflow-checked. Regression coverage for review finding
     /// T-H2 (narrow property-test strategy).
@@ -361,14 +362,15 @@ proptest! {
     fn prop_indirect_offset_never_panics(
         buffer in prop::collection::vec(any::<u8>(), 0..4096),
         base in 0i64..8192,
-        width in prop_oneof![Just(1u8), Just(2), Just(4), Just(8)],
+        pointer_kind in prop_oneof![Just("byte"), Just("short"), Just("long"), Just("id3"), Just("quad")],
         adjust in -1024i64..1024,
     ) {
         use libmagic_rs::evaluator::{EvaluationContext, evaluate_rules};
-        let (pointer_type, endian) = match width {
-            1 => (TypeKind::Byte { signed: false }, Endianness::Little),
-            2 => (TypeKind::Short { endian: Endianness::Little, signed: false }, Endianness::Little),
-            4 => (TypeKind::Long { endian: Endianness::Little, signed: false }, Endianness::Little),
+        let (pointer_type, endian) = match pointer_kind {
+            "byte" => (TypeKind::Byte { signed: false }, Endianness::Little),
+            "short" => (TypeKind::Short { endian: Endianness::Little, signed: false }, Endianness::Little),
+            "id3" => (TypeKind::Id3 { endian: Endianness::Big }, Endianness::Big),
+            "long" => (TypeKind::Long { endian: Endianness::Little, signed: false }, Endianness::Little),
             _ => (TypeKind::Quad { endian: Endianness::Little, signed: false }, Endianness::Little),
         };
         let rule = MagicRule::new(

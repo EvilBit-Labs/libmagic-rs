@@ -141,6 +141,37 @@ pub fn read_long(
     }
 }
 
+/// Decodes an ID3 synchsafe integer: each of the four bytes contributes its
+/// low 7 bits, most-significant group first. A set high bit is masked rather
+/// than rejected, matching libmagic's `cvt_id3`.
+const fn decode_id3(raw: u32) -> u32 {
+    (raw & 0x7f)
+        | (((raw >> 8) & 0x7f) << 7)
+        | (((raw >> 16) & 0x7f) << 14)
+        | (((raw >> 24) & 0x7f) << 21)
+}
+
+/// Reads a 4-byte ID3 synchsafe integer (magic(5) `i`/`I` pointer types).
+///
+/// The bytes are assembled in `endian` order exactly as [`read_long`] does,
+/// then decoded with libmagic's `cvt_id3` rule. The result is at most 28 bits,
+/// so it is always returned as `Value::Uint`.
+///
+/// # Errors
+/// Returns `TypeReadError::BufferOverrun` if fewer than 4 bytes are available at the
+/// requested offset.
+pub fn read_id3(buffer: &[u8], offset: usize, endian: Endianness) -> Result<Value, TypeReadError> {
+    let arr: [u8; 4] = read_bytes_at(buffer, offset)?;
+
+    let raw = match endian {
+        Endianness::Little => u32::from_le_bytes(arr),
+        Endianness::Big => u32::from_be_bytes(arr),
+        Endianness::Native => u32::from_ne_bytes(arr),
+    };
+
+    Ok(Value::Uint(u64::from(decode_id3(raw))))
+}
+
 /// Safely reads a 64-bit integer from the buffer at the specified offset.
 ///
 /// # Arguments

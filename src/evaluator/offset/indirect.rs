@@ -8,7 +8,9 @@
 
 use crate::LibmagicError;
 use crate::error::EvaluationError;
-use crate::evaluator::types::{TypeReadError, read_byte, read_long, read_quad, read_short};
+use crate::evaluator::types::{
+    TypeReadError, read_byte, read_id3, read_long, read_quad, read_short,
+};
 use crate::parser::ast::{Endianness, IndirectAdjustmentOp, OffsetSpec, TypeKind, Value};
 
 use super::{map_offset_error, resolve_absolute_offset};
@@ -120,19 +122,19 @@ pub fn resolve_indirect_offset_with_anchor(
         }
     };
 
-    // Validate: outer endian must match inner TypeKind endian (single source of truth).
-    // Byte has no inner endian field so only multi-byte types need the check.
-    match pointer_type {
-        TypeKind::Short { endian: inner, .. }
-        | TypeKind::Long { endian: inner, .. }
-        | TypeKind::Quad { endian: inner, .. } => {
-            debug_assert_eq!(
-                *inner, endian,
-                "Indirect offset: inner TypeKind endianness ({inner:?}) \
-                 contradicts outer endian field ({endian:?})"
-            );
-        }
-        _ => {}
+    // The parser always sets both endian fields alike; a hand-built spec that
+    // disagrees is rejected rather than silently read with the outer value.
+    if let TypeKind::Short { endian: inner, .. }
+    | TypeKind::Long { endian: inner, .. }
+    | TypeKind::Id3 { endian: inner }
+    | TypeKind::Quad { endian: inner, .. } = pointer_type
+        && *inner != endian
+    {
+        return Err(LibmagicError::EvaluationError(
+            EvaluationError::InvalidOffset {
+                offset: base_offset,
+            },
+        ));
     }
 
     // Step 1: Resolve base_offset to an absolute position. When the
@@ -190,6 +192,7 @@ fn read_pointer(
         TypeKind::Byte { signed } => read_byte(buffer, offset, *signed),
         TypeKind::Short { signed, .. } => read_short(buffer, offset, endian, *signed),
         TypeKind::Long { signed, .. } => read_long(buffer, offset, endian, *signed),
+        TypeKind::Id3 { .. } => read_id3(buffer, offset, endian),
         TypeKind::Quad { signed, .. } => read_quad(buffer, offset, endian, *signed),
         _ => {
             return Err(LibmagicError::EvaluationError(
