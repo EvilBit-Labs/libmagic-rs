@@ -183,11 +183,9 @@ pub(crate) fn evaluate_value_rule(
 /// compared value already IS the field libmagic renders, so `compared` is
 /// returned unchanged.
 ///
-/// Only `TypeKind::String` gets this: `PString` (`read_pstring`) reads its
-/// full field independent of `pattern.len()`, numeric types render the whole
-/// value, and `String16`'s prefix-limited comparison read is left as the
-/// display value because no system-DB `string16` rule uses an ordering
-/// operator (GOTCHAS S6.9).
+/// `TypeKind::String` and `TypeKind::String16` get this: `PString`
+/// (`read_pstring`) reads its full field independent of `pattern.len()` and
+/// numeric types render the whole value (GOTCHAS S6.9, S14.3).
 ///
 /// On a display-side read error after a successful match, the compared value
 /// is returned rather than propagating -- a matched rule must not abort on a
@@ -202,7 +200,12 @@ pub(crate) fn string_ordering_display_value(
     use crate::parser::ast::Operator::{GreaterEqual, GreaterThan, LessEqual, LessThan};
 
     let is_ordering = matches!(rule.op, LessThan | GreaterThan | LessEqual | GreaterEqual);
-    if is_ordering && matches!(rule.typ, TypeKind::String { .. }) {
+    let string16_endian = match rule.typ {
+        TypeKind::String16 { endian } => Some(endian),
+        _ => None,
+    };
+    let is_string_like = string16_endian.is_some() || matches!(rule.typ, TypeKind::String { .. });
+    if is_ordering && is_string_like {
         // R2/R12 (U3 step 3): when the null-first-byte idiom gates (see
         // `newline_stop_gate`), the display read is ALSO bounded and
         // newline-stopped, matching the any-value read path -- otherwise
@@ -211,12 +214,20 @@ pub(crate) fn string_ordering_display_value(
         // would catch. The ordinary (non-gated) ordering idiom -- e.g.
         // `>0.6.1 ... %s` -- keeps the unbounded-by-newline full-field
         // read it always had (GOTCHAS S14.3).
-        let read_cap = if newline_stop_gate(rule) {
+        let gated = newline_stop_gate(rule);
+        let read_cap = if gated {
             types::any_value_string_bound(buffer, absolute_offset, max_string_length)
         } else {
             max_string_length
         };
-        match types::read_string(buffer, absolute_offset, Some(read_cap)) {
+        let full_read = match string16_endian {
+            Some(endian) if gated => {
+                types::read_string16_any_value(buffer, absolute_offset, endian, max_string_length)
+            }
+            Some(endian) => types::read_string16(buffer, absolute_offset, endian, read_cap),
+            None => types::read_string(buffer, absolute_offset, Some(read_cap)),
+        };
+        match full_read {
             Ok(full_field) => full_field,
             // A matched rule must not abort on a display-only read (the compared
             // prefix was already read successfully at this offset moments ago),
