@@ -165,10 +165,6 @@ jobs:
                   fail_ci_if_error: false
                   token: ${{ secrets.CODECOV_TOKEN }}
                   slug: EvilBit-Labs/libmagic-rs
-            - uses: qltysh/qlty-action/coverage@c9b09987143d1e4ac955f4803c7bea742102feb5 # v2.4.0
-              with:
-                  token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
-                  files: lcov.info
 
             - name: Upload coverage artifact
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
