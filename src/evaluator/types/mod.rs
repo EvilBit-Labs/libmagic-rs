@@ -23,7 +23,9 @@ pub(crate) use float::{read_double, read_float};
 pub(crate) use numeric::{read_byte, read_id3, read_long, read_quad, read_short};
 pub(crate) use regex::read_regex;
 pub(crate) use search::read_search;
-pub(crate) use string::{read_pstring, read_string, read_string_exact};
+pub(crate) use string::{
+    read_pstring, read_string, read_string_exact, read_string16, read_string16_any_value,
+};
 
 /// Swap the declared endianness of an endian-bearing [`TypeKind`] for the
 /// magic(5) `use \^name` endian flip (issue #236).
