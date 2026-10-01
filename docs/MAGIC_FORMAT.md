@@ -216,9 +216,9 @@ Examples:
 
 The `pstring` magic-file surface syntax does not accept a `max_length` value -- only the `/B`, `/H`, `/h`, `/L`, `/l`, and `/J` width/flag suffixes. The AST field `max_length: Option<usize>` is reserved for programmatic rule construction (e.g., callers building `TypeKind::PString { max_length: Some(N), ... }` directly) and for future grammar extensions. When set, it caps the length value to guard against attacker-controlled length-prefix saturation attacks where malicious files specify extreme length values; rules loaded from `.magic` text always have `max_length: None`.
 
-**UCS-2 Strings (lestring16 / bestring16)**
+**16-bit Strings (lestring16 / bestring16)**
 
-Wide-character strings encoded as 2 bytes per character with little-endian (`lestring16`) or big-endian (`bestring16`) byte order. Each string is null-terminated (U+0000) and capped at 8192 characters. Invalid surrogate halves are replaced with U+FFFD.
+Strings stored as 2 bytes per character with little-endian (`lestring16`) or big-endian (`bestring16`) byte order. As in libmagic, only the low byte of each unit is kept (byte 0 for `lestring16`, byte 1 for `bestring16`); a zero low byte under a nonzero high byte renders as a space, and an all-zero unit terminates the string. UCS-2 is not decoded, so non-Latin text renders as its low bytes. Capped at 8192 units.
 
 Examples:
 

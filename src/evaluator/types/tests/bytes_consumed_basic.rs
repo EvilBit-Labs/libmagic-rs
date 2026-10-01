@@ -386,11 +386,10 @@ fn test_bytes_consumed_pstring_equality_pattern_not_bounded_with_embedded_newlin
 #[test]
 fn test_bytes_consumed_string16_any_value_stops_at_first_newline() {
     // "AB\ncd" as UCS-2LE. Measured against `file-5.41` (a `&0` relative
-    // child on a `lestring16 x` rule): the anchor lands at 2 -- the
-    // DECODED code-unit count before the newline, NOT `2 * units` raw
-    // source bytes (which would be 4) and with no terminator adjustment.
-    // This is a genuine, measured libmagic quirk for FILE_LESTRING16 (see
-    // `string::any_value_string16_bound`'s doc comment).
+    // child on a `lestring16 x` rule): the anchor lands at 2 -- the kept
+    // byte count before the newline (one byte per unit), NOT `2 * units`
+    // raw source bytes (which would be 4) and with no terminator
+    // adjustment. See `string::any_value_string16_bound`.
     let mut buf = Vec::new();
     for ch in "AB\ncd".chars() {
         buf.extend_from_slice(&(ch as u16).to_le_bytes());
@@ -406,7 +405,7 @@ fn test_bytes_consumed_string16_any_value_stops_at_first_newline() {
 #[test]
 fn test_bytes_consumed_string16_any_value_caps_at_127_units_with_no_newline() {
     // 300 'Q' code units, no newline -- measured against `file-5.41`: the
-    // anchor lands at exactly 127 (decoded units), not 254 (raw bytes).
+    // anchor lands at exactly 127 (kept bytes), not 254 (raw source bytes).
     let mut buf = Vec::new();
     for _ in 0..300 {
         buf.extend_from_slice(&u16::from(b'Q').to_le_bytes());
@@ -419,23 +418,35 @@ fn test_bytes_consumed_string16_any_value_caps_at_127_units_with_no_newline() {
 }
 
 #[test]
-fn test_bytes_consumed_string16_equality_pattern_not_bounded() {
-    // A real comparison pattern keeps the EXISTING (untouched)
-    // `string16_bytes_consumed` raw-byte-doubled-plus-terminator
-    // convention -- this R5 unit only changes the any-value dispatch arm.
-    let mut buf = Vec::new();
-    for ch in "AB\ncd".chars() {
-        buf.extend_from_slice(&(ch as u16).to_le_bytes());
-    }
-    buf.extend_from_slice(&[0, 0]);
+fn test_bytes_consumed_string16_equality_advances_by_pattern_length() {
+    // Measured against `file-5.41`: `0 lestring16 ABC EQ` + `>&0 byte x
+    // next=%d` prints `next=0` -- the anchor lands at `m->vallen`, the
+    // pattern's byte length, not at 2 bytes per unit plus the terminator.
+    // The field is longer than the pattern so a full-field advance (8) and
+    // a doubled advance (6) both fail.
+    let buf = b"A\x00B\x00C\x00D\x00\x00\x00\x07\x08";
     let typ = TypeKind::String16 {
         endian: Endianness::Little,
     };
-    let pattern = Value::String("AB\ncd".to_string());
-    // 5 units * 2 bytes + 2-byte NUL terminator = 12.
+    let table: &[(&str, Value, usize)] = &[
+        ("String pattern", Value::String("ABC".to_string()), 3),
+        (
+            "Bytes pattern (hex bareword)",
+            Value::Bytes(vec![0x41, 0x42]),
+            2,
+        ),
+    ];
+    for (name, pattern, want) in table {
+        assert_eq!(
+            bytes_consumed_with_pattern(buf, 0, &typ, Some(pattern)),
+            *want,
+            "{name}"
+        );
+    }
+    // The any-value arm is offset-relative: kept bytes, not absolute position.
     assert_eq!(
-        bytes_consumed_with_pattern(&buf, 0, &typ, Some(&pattern)),
-        12
+        bytes_consumed_with_pattern(b"\xff\xffA\x00B\x00\x00\x00", 2, &typ, None),
+        2
     );
 }
 
@@ -584,7 +595,7 @@ fn any_value_anchor_honors_a_max_string_length_below_the_render_bound() {
         "pstring anchor honors the cap on the payload and still counts the prefix"
     );
 
-    // string16: 200 UCS-2 code units, capped at 10 decoded units.
+    // string16: 200 units, capped at 10 kept bytes.
     let mut utf16 = Vec::new();
     for _ in 0..200 {
         utf16.extend_from_slice(&[b'Q', 0x00]);
@@ -596,7 +607,7 @@ fn any_value_anchor_honors_a_max_string_length_below_the_render_bound() {
     assert_eq!(
         bytes_consumed_with_pattern_bounded(&utf16, 0, &s16_typ, Some(&any), 10),
         10,
-        "string16 anchor honors the cap in decoded code units"
+        "string16 anchor honors the cap in kept bytes"
     );
 }
 

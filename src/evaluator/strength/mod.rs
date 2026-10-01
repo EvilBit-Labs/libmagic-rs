@@ -101,8 +101,8 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
             let base = 20;
             if max_length.is_some() { base + 5 } else { base }
         }
-        // UCS-2 strings (`lestring16`/`bestring16`) match byte sequences too,
-        // but each character is two bytes wide. Treat them like an unbounded
+        // `lestring16`/`bestring16` keep one byte per 2-byte unit and match
+        // byte sequences too (GOTCHAS S6.9). Treat them like an unbounded
         // `string` -- no `max_length` knob exists at the magic-file level, so
         // the "constrained" bonus does not apply.
         TypeKind::String16 { .. } => 20,

@@ -582,14 +582,15 @@ pub enum TypeKind {
         /// Modifier flags from the `/[cCwWtTbf]` suffix
         flags: StringFlags,
     },
-    /// UCS-2 (16-bit Unicode) string with explicit byte order.
+    /// 16-bit-unit string with explicit byte order.
     ///
     /// Backs the magic(5) `lestring16` (little-endian) and `bestring16`
-    /// (big-endian) keywords. Each character occupies two bytes in the
-    /// file; the reader stops at a U+0000 terminator (encoded as the
-    /// 2-byte sequence `0x00 0x00`) or at the end of the buffer. The
-    /// decoded value is returned as a Rust `String` (so non-ASCII
-    /// characters are preserved when valid UCS-2).
+    /// (big-endian) keywords. Each unit occupies two bytes in the file;
+    /// following libmagic, the reader keeps only the low byte of each
+    /// unit (byte 0 for little-endian, byte 1 for big-endian), turns a
+    /// zero low byte under a nonzero high byte into a space, and stops
+    /// at an all-zero unit or the end of the buffer. UCS-2 is never
+    /// decoded (GOTCHAS S6.9).
     ///
     /// # Examples
     ///
@@ -603,7 +604,9 @@ pub enum TypeKind {
     /// assert_eq!(be, TypeKind::String16 { endian: Endianness::Big });
     /// ```
     String16 {
-        /// Endianness for the 16-bit code units.
+        /// Which byte of each 16-bit unit is kept: byte 0 for `Little`
+        /// (and `Native`, which the parser never emits here), byte 1 for
+        /// `Big`.
         endian: Endianness,
     },
     /// Pascal string (length-prefixed, supports 1/2/4-byte prefix, with optional max length)

@@ -651,6 +651,81 @@ mod oracle {
         assert_eq!(ours, "S=[AB]");
     }
 
+    /// #381, verified against the real oracle: `lestring16` keeps one byte
+    /// per 16-bit unit (libmagic `mcopy`), so the sfnt name-table `-17`
+    /// idiom over UTF-16BE Braille renders raw low bytes (a space where the
+    /// low byte is zero), and a `>&0` child lands at the kept byte count.
+    #[test]
+    fn string16_narrows_to_low_bytes_and_anchors_by_kept_count_like_gnu_file() {
+        if !gate() {
+            return;
+        }
+        let magic = "0\tlestring16\tx\tS=[%s]\n>&0\tbyte\tx\t\\b next=%d\n";
+        let buffer = b"\x28\x01\x28\x02\x00\x0a\x28\x1d";
+        let ours = ours_says(magic, buffer);
+        let theirs = file_says(magic, buffer);
+        assert_eq!(ours, theirs);
+        assert_eq!(ours, "S=[(( (] next=0");
+    }
+
+    /// #381, verified against the real oracle: `string16` comparison is a
+    /// `m->vallen`-byte prefix test, and an equality match advances the
+    /// anchor by that length. The field `ABCD` is longer than the pattern,
+    /// so a whole-field compare misses and a full-field advance lands at 4.
+    #[test]
+    fn string16_equality_is_prefix_limited_and_anchors_by_pattern_length_like_gnu_file() {
+        if !gate() {
+            return;
+        }
+        let magic = "0\tbestring16\tABC\tEQ\n>&0\tbyte\tx\t\\b next=%d\n";
+        let buffer = b"\x00A\x00B\x00C\x00D\x00\x00\x07";
+        let ours = ours_says(magic, buffer);
+        let theirs = file_says(magic, buffer);
+        assert_eq!(ours, theirs);
+        assert_eq!(
+            ours, "EQ next=66",
+            "66 is 'B' at index 3, the pattern length"
+        );
+    }
+
+    /// #381, verified against the real oracle: `!ABC` must not fire on a
+    /// field that starts with `ABC` (the `NotEqual` mirror of the prefix test).
+    #[test]
+    fn string16_not_equal_does_not_fire_on_prefix_like_gnu_file() {
+        if !gate() {
+            return;
+        }
+        let magic = "0\tlestring16\t!ABC\tNE\n";
+        let buffer = b"A\x00B\x00C\x00D\x00\x00\x00";
+        let ours = ours_says(magic, buffer);
+        let theirs = file_says(magic, buffer);
+        assert_eq!(ours, theirs);
+        assert_eq!(ours, "data");
+    }
+
+    /// #381, verified against the real oracle: the shape of `windows:474`
+    /// (`2 lestring16 Windows\ Registry\ Editor\ `) over a NUL-free
+    /// UTF-16LE registry export. Under a whole-field compare the field runs
+    /// to the 8192-unit cap and the rule can never match.
+    /// The header word is altered because macOS `file -m` also consults the
+    /// system DB, whose real `windows:474` rule would otherwise answer first.
+    #[test]
+    fn string16_prefix_rule_matches_nul_free_utf16_text_like_gnu_file() {
+        if !gate() {
+            return;
+        }
+        let magic = "2\tlestring16\tRmagic\\ Registry\\ Editor\\ \tREG\n";
+        let mut buffer = vec![0xff, 0xfe];
+        for unit in "Rmagic Registry Editor Version 5.00\r\n\r\n[HKEY_LOCAL_MACHINE]".encode_utf16()
+        {
+            buffer.extend_from_slice(&unit.to_le_bytes());
+        }
+        let ours = ours_says(magic, &buffer);
+        let theirs = file_says(magic, &buffer);
+        assert_eq!(ours, theirs);
+        assert_eq!(ours, "REG");
+    }
+
     /// AE2/R6, verified against the real oracle: a flagged `string/w`
     /// parent's relative child anchors at the declared pattern length
     /// (3), and `file`-5.41 agrees byte for byte -- no #382 tail here

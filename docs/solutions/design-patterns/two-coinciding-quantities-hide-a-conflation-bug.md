@@ -105,3 +105,7 @@ assert_eq!(bound.byte_cut, 127 * 3, "slice index is in UTF-8 bytes");
 - `docs/solutions/security-issues/pstring-anchor-poisoning.md` — the read/anchor agreement invariant these bugs all live inside. That doc covers an attacker-controlled length poisoning the anchor; this one covers the anchor and the read disagreeing because two units were conflated. Same invariant, different cause.
 - GOTCHAS S2.6 (search anchor), S6.8 (flagged-string anchor), S3.8 (the general buffer-derived rule and its exception), S14.8 (the description bound).
 - Issue #498.
+
+## Postscript (2026-09-29, issue #381)
+
+Superseded for `string16`: libmagic never decodes UCS-2 (GOTCHAS S6.9), so the value is one kept byte per unit and the two quantities coincide by construction. `String16Bound` was removed and `any_value_string16_bound` returns a single byte count again. The pattern advice above stands, and the `search`/flagged-`string` examples are unchanged.

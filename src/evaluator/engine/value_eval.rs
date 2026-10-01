@@ -183,9 +183,11 @@ pub(crate) fn evaluate_value_rule(
 /// compared value already IS the field libmagic renders, so `compared` is
 /// returned unchanged.
 ///
-/// Only `TypeKind::String` needs this: `PString` (`read_pstring`) and
-/// `String16` (`read_string16`) already read their full field independent of
-/// `pattern.len()`, and numeric types render the whole value.
+/// Only `TypeKind::String` gets this: `PString` (`read_pstring`) reads its
+/// full field independent of `pattern.len()`, numeric types render the whole
+/// value, and `String16`'s prefix-limited comparison read is left as the
+/// display value because no system-DB `string16` rule uses an ordering
+/// operator (GOTCHAS S6.9).
 ///
 /// On a display-side read error after a successful match, the compared value
 /// is returned rather than propagating -- a matched rule must not abort on a

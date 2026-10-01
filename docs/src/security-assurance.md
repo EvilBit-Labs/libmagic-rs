@@ -177,9 +177,9 @@ Symlink target text also reaches stdout, where it did not before -- a broken lin
 `EvaluationConfig::max_string_length` caps the buffer-length allocation for `TypeKind::String` scan-mode reads (both the unflagged `(None, _)` arm of `read_typed_value_with_pattern` and the flagged-string arm of `read_pattern_match`). It does **not** govern two adjacent string-family read paths:
 
 - **`TypeKind::PString`** uses an explicit length prefix decoded from the buffer and returns `TypeReadError::BufferOverrun` (rather than truncating) when the prefix declares a length that exceeds the remaining buffer. The error-on-overrun behaviour is a real bound -- the read function cannot allocate past the buffer length -- but it differs from the configurable cap that `max_string_length` provides. See GOTCHAS S3.8 for the load-bearing pstring anchor-clamp invariant.
-- **`TypeKind::String16`** is capped at a hardcoded `STRING16_MAX_UNITS = 8192` ceiling (2 bytes per UCS-2 unit, so up to 16 384 bytes per read). The configured cap is not consulted on this path.
+- **`TypeKind::String16`** is capped at a hardcoded `STRING16_MAX_UNITS = 8192` ceiling (2 source bytes per unit, so up to 16 384 bytes scanned and at most 8192 bytes kept per read). `max_string_length` is honored only on the any-value (`x`) read, as an extra lower bound beneath the 127-byte render field; a comparison-pattern read narrows at most `pattern.len()` units and ignores it.
 
-**Mitigation for callers:** Embedders who need a configurable cap on `String16` or `PString` reads cannot rely on `EvaluationConfig::max_string_length` for those types today. The existing built-in bounds (16 KiB ceiling on String16, error-on-overrun on PString) constrain the worst-case allocation. A configurable cap for these paths is tracked as follow-up work; the threat model entry will be updated when it lands.
+**Mitigation for callers:** Embedders who need a configurable cap on `String16` or `PString` reads cannot rely on `EvaluationConfig::max_string_length` for those types today. The existing built-in bounds (8 KiB worst-case allocation from a 16 KiB scan on String16, error-on-overrun on PString) constrain the worst-case allocation. A configurable cap for these paths is tracked as follow-up work; the threat model entry will be updated when it lands.
 
 ### 7.4 Caller-Supplied Readers Are Trusted to Terminate
 
