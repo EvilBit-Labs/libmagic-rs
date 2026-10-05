@@ -726,6 +726,39 @@ mod oracle {
         assert_eq!(ours, "REG");
     }
 
+    /// #511 review, verified against the real oracle: an ordering-compared
+    /// `string16` compares the `pattern.len()` prefix but renders the full
+    /// narrowed field, like `string` (GOTCHAS S14.3). The LE row also pins
+    /// the child anchor, which coincides with `file` here; the BE row omits
+    /// the child because `file` advances ordering matches by the field
+    /// length while rmagic keeps the pattern length (S6.9).
+    #[test]
+    fn string16_ordering_renders_full_field_like_gnu_file() {
+        if !gate() {
+            return;
+        }
+        let table: &[(&str, &str, &[u8], &str)] = &[
+            (
+                "lestring16 with child",
+                "0\tlestring16\t>A\tS=[%s]\n>&0\tbyte\tx\t\\b next=%d\n",
+                b"B\x00C\x00D\x00\x00\x00\x07",
+                "S=[BCD] next=0",
+            ),
+            (
+                "bestring16",
+                "0\tbestring16\t>A\tS=[%s]\n",
+                b"\x00B\x00C\x00D\x00\x00\x07",
+                "S=[BCD]",
+            ),
+        ];
+        for (name, magic, buffer, want) in table {
+            let ours = ours_says(magic, buffer);
+            let theirs = file_says(magic, buffer);
+            assert_eq!(ours, theirs, "{name}");
+            assert_eq!(ours, *want, "{name}");
+        }
+    }
+
     /// AE2/R6, verified against the real oracle: a flagged `string/w`
     /// parent's relative child anchors at the declared pattern length
     /// (3), and `file`-5.41 agrees byte for byte -- no #382 tail here
