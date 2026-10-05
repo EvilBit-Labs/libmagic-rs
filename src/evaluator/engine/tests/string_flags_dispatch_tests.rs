@@ -429,3 +429,72 @@ fn test_flagged_string_any_value_operator_does_not_panic_end_to_end() {
         "AnyValue (`x`) matches any buffer, so the gating rule fires"
     );
 }
+
+#[test]
+fn test_string16_ordering_renders_full_narrowed_field() {
+    use crate::parser::ast::Endianness;
+    // (endian, buffer, op, pattern, expected display)
+    let cases: &[(Endianness, &[u8], Operator, &str, &str)] = &[
+        (
+            Endianness::Little,
+            b"B\0C\0D\0\0\0",
+            Operator::GreaterThan,
+            "A",
+            "BCD",
+        ),
+        (
+            Endianness::Big,
+            b"\0B\0C\0D\0\0",
+            Operator::GreaterThan,
+            "A",
+            "BCD",
+        ),
+        // Equal keeps the compared prefix.
+        (
+            Endianness::Little,
+            b"B\0C\0D\0\0\0",
+            Operator::Equal,
+            "B",
+            "B",
+        ),
+        (Endianness::Big, b"\0B\0C\0D\0\0", Operator::Equal, "B", "B"),
+    ];
+    for (endian, buf, op, pat, want) in cases {
+        let child = MagicRule {
+            offset: OffsetSpec::Relative(0),
+            typ: TypeKind::Byte { signed: false },
+            op: Operator::AnyValue,
+            value: Value::Uint(0),
+            message: "child".to_string(),
+            children: vec![],
+            level: 1,
+            strength_modifier: None,
+            value_transform: None,
+        };
+        let rule = MagicRule {
+            offset: OffsetSpec::Absolute(0),
+            typ: TypeKind::String16 { endian: *endian },
+            op: op.clone(),
+            value: Value::String((*pat).to_string()),
+            message: "S=[%s]".to_string(),
+            children: vec![child],
+            level: 0,
+            strength_modifier: None,
+            value_transform: None,
+        };
+        let mut ctx =
+            EvaluationContext::new(EvaluationConfig::default().with_stop_at_first_match(false));
+        let m = evaluate_rules(&[rule], buf, &mut ctx).unwrap();
+        assert_eq!(m.len(), 2, "{endian:?} {op:?}: parent and child match");
+        assert_eq!(
+            m[0].value,
+            Value::String((*want).to_string()),
+            "{endian:?} {op:?}: display value"
+        );
+        // Anchor is the pattern length (1), so the child reads unit byte 1.
+        assert_eq!(
+            m[1].offset, 1,
+            "{endian:?} {op:?}: anchor at pattern length"
+        );
+    }
+}
