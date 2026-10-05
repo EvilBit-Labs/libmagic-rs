@@ -21,7 +21,7 @@ queue_rules:
       - check-success = test
       - check-success = test-cross-platform (ubuntu-latest, Linux)
       - check-success = test-cross-platform (ubuntu-22.04, Linux)
-      - check-success = test-cross-platform (macos-latest, macOS)
+      - check-success = test-cross-platform (macos-latest, macOS, 1)
       - check-success = test-cross-platform (windows-latest, Windows)
       - check-success = coverage
 
@@ -65,7 +65,7 @@ queue_rules:
       - check-success = test
       - check-success = test-cross-platform (ubuntu-latest, Linux)
       - check-success = test-cross-platform (ubuntu-22.04, Linux)
-      - check-success = test-cross-platform (macos-latest, macOS)
+      - check-success = test-cross-platform (macos-latest, macOS, 1)
       - check-success = test-cross-platform (windows-latest, Windows)
       - check-success = coverage
 
@@ -122,7 +122,7 @@ merge_protections:
       - check-success = test
       - check-success = test-cross-platform (ubuntu-latest, Linux)
       - check-success = test-cross-platform (ubuntu-22.04, Linux)
-      - check-success = test-cross-platform (macos-latest, macOS)
+      - check-success = test-cross-platform (macos-latest, macOS, 1)
       - check-success = test-cross-platform (windows-latest, Windows)
       - check-success = coverage
 
