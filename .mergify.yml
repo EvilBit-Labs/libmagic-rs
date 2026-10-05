@@ -21,7 +21,7 @@ queue_rules:
       - check-success = test
       - check-success = test-cross-platform (ubuntu-latest, Linux)
       - check-success = test-cross-platform (ubuntu-22.04, Linux)
-      - check-success = test-cross-platform (macos-latest, macOS, 1)
+      - check-success = test-cross-platform (macos-latest, macOS)
       - check-success = test-cross-platform (windows-latest, Windows)
       - check-success = coverage
 
@@ -65,7 +65,7 @@ queue_rules:
       - check-success = test
       - check-success = test-cross-platform (ubuntu-latest, Linux)
       - check-success = test-cross-platform (ubuntu-22.04, Linux)
-      - check-success = test-cross-platform (macos-latest, macOS, 1)
+      - check-success = test-cross-platform (macos-latest, macOS)
       - check-success = test-cross-platform (windows-latest, Windows)
       - check-success = coverage
 
@@ -122,7 +122,7 @@ merge_protections:
       - check-success = test
       - check-success = test-cross-platform (ubuntu-latest, Linux)
       - check-success = test-cross-platform (ubuntu-22.04, Linux)
-      - check-success = test-cross-platform (macos-latest, macOS, 1)
+      - check-success = test-cross-platform (macos-latest, macOS)
       - check-success = test-cross-platform (windows-latest, Windows)
       - check-success = coverage
 
@@ -135,11 +135,10 @@ merge_protections:
 merge_protections_settings:
   reporting_method: check-runs
   # Second of two layers restricting auto-merge to bots. The first layer is the
-  # explicit `queue_conditions` on the `default` queue (a human PR is not
-  # enqueued without the `ready-to-merge` label or an `@mergifyio queue`
-  # command). This block is the backstop: even if a PR reaches a queue, only
-  # the three bot patterns below may auto-merge. Keep both -- neither is
-  # redundant.
+  # explicit `queue_conditions` on the `default` queue (a human PR is only
+  # enqueued by an `@mergifyio queue` command). This block is the backstop:
+  # even if a PR reaches a queue, only the three bot patterns below may
+  # auto-merge. Keep both -- neither is redundant.
   auto_merge_conditions:
     - or:
         - and:

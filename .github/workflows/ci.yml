@@ -81,6 +81,9 @@ jobs:
               run: mise x -- cargo build --release --all-features
 
     test-cross-platform:
+        # Pin the check name so a new matrix key (like `require_oracle`) does
+        # not change it; `.mergify.yml` matches on these names.
+        name: test-cross-platform (${{ matrix.os }}, ${{ matrix.platform }})
         strategy:
             matrix:
                 include:
