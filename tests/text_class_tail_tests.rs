@@ -198,6 +198,7 @@ fn trailing_nuls_and_the_64k_encoding_window_match_gnu_file() {
     let nuls_after_64k = [b"hello\n".to_vec(), vec![b' '; 65540], vec![0; 4]].concat();
     let hit_after_64k = [vec![b'x'; 70000], b"QQTEXTS\n".to_vec()].concat();
     let hit_before_64k = [vec![b'x'; 60000], b"QQTEXTS\n".to_vec()].concat();
+    let cjk_cut = ["\u{4e00}".as_bytes().repeat(25000), b"\n".to_vec()].concat();
     let cases: &[(&str, &str, &[u8], &str)] = &[
         (
             "trailing NULs are trimmed before the text pass",
@@ -247,6 +248,12 @@ fn trailing_nuls_and_the_64k_encoding_window_match_gnu_file() {
             search,
             &hit_before_64k,
             "SMSG, ASCII text, with very long lines (60007)",
+        ),
+        (
+            "a 3-byte sequence cut by the window is dropped: 21845 code points",
+            REGEX6,
+            &cjk_cut,
+            "Unicode text, UTF-8 text, with very long lines (21845), with no line terminators",
         ),
     ];
     for (label, magic, buffer, expected) in cases {

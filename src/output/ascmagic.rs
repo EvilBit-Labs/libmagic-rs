@@ -223,13 +223,27 @@ pub(crate) fn text_window(buffer: &[u8]) -> TextWindow<'_> {
     }
 }
 
+/// The longest prefix of `buf` that is complete UTF-8: `file_looks_utf8`
+/// decodes into `ubuf` only finished code points, so a sequence cut off by
+/// the window end is dropped.
+fn complete_utf8_prefix(buf: &[u8]) -> &[u8] {
+    match std::str::from_utf8(buf) {
+        Ok(_) => buf,
+        Err(e) => buf.get(..e.valid_up_to()).unwrap_or(buf),
+    }
+}
+
 /// The bytes the text pass evaluates rules against.
 ///
 /// `file_ascmagic` runs its softmagic pass over `encode_utf8(ubuf)`, so
 /// a single-byte class (`ISO-8859 text`, `Non-ISO extended-ASCII text`)
-/// is first widened byte-for-code-point to UTF-8; ASCII and UTF-8 windows
-/// are already in that form. Multi-byte encodings are #524.
+/// is first widened byte-for-code-point to UTF-8, and a UTF-8 window loses
+/// a sequence the window end cut through; ASCII is already in that form.
+/// Multi-byte encodings are #524.
 pub(crate) fn text_pass_buffer<'a>(scan: &'a [u8], class: &str) -> std::borrow::Cow<'a, [u8]> {
+    if class == "Unicode text, UTF-8 text" {
+        return std::borrow::Cow::Borrowed(complete_utf8_prefix(scan));
+    }
     if !matches!(class, "ISO-8859 text" | "Non-ISO extended-ASCII text") {
         return std::borrow::Cow::Borrowed(scan);
     }
@@ -251,18 +265,17 @@ const NEL: u32 = 0x85;
 ///
 /// Returns the text-class suffix (each piece begins with `, with`), or an
 /// empty string when nothing applies. Scans Unicode scalar values when
-/// [`looks_utf8`] reports multi-byte UTF-8, otherwise bytes. A lone
+/// [`looks_utf8`] reports multi-byte UTF-8 (over the complete prefix, as
+/// `ubuf` holds only finished code points), otherwise bytes. A lone
 /// trailing CR counts for nothing: file 5.45 dropped 5.41's post-loop
 /// `seen_cr` flush.
 pub(crate) fn text_qualifiers(text: &[u8]) -> String {
-    let utf8 = match (looks_utf8(text), std::str::from_utf8(text)) {
-        (Utf8Look::Multibyte, Ok(s)) => Some(s),
-        _ => None,
-    };
-    match utf8 {
-        Some(s) => scan_qualifiers(s.chars().map(u32::from)),
-        None => scan_qualifiers(text.iter().map(|&b| u32::from(b))),
+    if looks_utf8(text) == Utf8Look::Multibyte
+        && let Ok(s) = std::str::from_utf8(complete_utf8_prefix(text))
+    {
+        return scan_qualifiers(s.chars().map(u32::from));
     }
+    scan_qualifiers(text.iter().map(|&b| u32::from(b)))
 }
 
 fn scan_qualifiers(code_points: impl Iterator<Item = u32>) -> String {
@@ -384,6 +397,12 @@ mod tests {
                 "utf8 untouched",
                 "Unicode text, UTF-8 text",
                 b"\xc3\xa9",
+                b"\xc3\xa9",
+            ),
+            (
+                "utf8 drops a sequence the window cut through",
+                "Unicode text, UTF-8 text",
+                b"\xc3\xa9\xc3",
                 b"\xc3\xa9",
             ),
         ];
@@ -522,6 +541,7 @@ mod tests {
         let combined = [b"a".repeat(301), b"\r\n\x1b\x08".to_vec()].concat();
         let utf8_301 = "\u{e9}".as_bytes().repeat(301);
         let utf8_200 = "\u{e9}".as_bytes().repeat(200);
+        let utf8_cut = ["\u{e9}".as_bytes().repeat(301), b"\xc3".to_vec()].concat();
         let cases: &[(&str, &[u8], &str)] = &[
             ("LF only", b"a\nb\n", ""),
             ("no terminator", b"abc", ", with no line terminators"),
@@ -569,6 +589,11 @@ mod tests {
                 "utf8 counts code points: 200 chars",
                 &utf8_200,
                 ", with no line terminators",
+            ),
+            (
+                "utf8 cut mid-sequence still counts code points",
+                &utf8_cut,
+                ", with very long lines (301), with no line terminators",
             ),
         ];
         for (label, input, expected) in cases {
