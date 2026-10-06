@@ -60,7 +60,8 @@ fn has_high_hex_escape(s: &str) -> bool {
 }
 
 /// Upstream's `file_looks_utf8(pattern) > 0` for a regex/search operand.
-fn pattern_is_text(rule: &MagicRule, is_regex: bool) -> bool {
+fn pattern_is_text(rule: &MagicRule) -> bool {
+    let is_regex = matches!(rule.typ, TypeKind::Regex { .. });
     let bytes = match &rule.value {
         Value::String(s) if is_regex && has_high_hex_escape(s) => return false,
         Value::String(s) => s.as_bytes(),
@@ -75,11 +76,10 @@ pub(crate) fn entry_test_type(rule: &MagicRule) -> EntryTestType {
     let (bin, text) = match &rule.typ {
         TypeKind::String { flags, .. } => (!flags.text_test, flags.text_test),
         TypeKind::Regex { .. } | TypeKind::Search { .. } => {
-            let is_regex = matches!(rule.typ, TypeKind::Regex { .. });
             let (b, t) = string_hints(rule).unwrap_or((false, false));
             if b || t {
                 (b, t)
-            } else if pattern_is_text(rule, is_regex) {
+            } else if pattern_is_text(rule) {
                 (false, true)
             } else {
                 (true, false)

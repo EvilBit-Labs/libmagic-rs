@@ -181,18 +181,49 @@ pub fn classify_fallback(buffer: &[u8]) -> &'static str {
 
 /// Upstream `MAXLINELEN` (`ascmagic.c`): longest line not reported as long.
 const MAXLINELEN: usize = 300;
-/// Upstream `FILE_BYTES_MAX` (`file.h`): how much of a file `file` reads,
-/// and so the most the text classification ever looks at.
+/// Upstream `FILE_BYTES_MAX` (`file.h`): how much of a file `file` reads.
 const BYTES_MAX: usize = 1_048_576;
+/// Upstream `FILE_ENCODING_MAX` (`file.h`): how much of that read
+/// `file_encoding` and the text pass inspect.
+const ENCODING_MAX: usize = 65_536;
 
-/// The prefix of `buffer` the text classification is computed over.
+/// The views of a buffer that GNU `file`'s text handling works on.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TextWindow<'a> {
+    /// First `ENCODING_MAX` bytes of the read after trailing NULs are
+    /// trimmed (`file_ascmagic`'s `trim_nuls`): what is classified, scanned
+    /// for qualifiers, and evaluated by the text pass.
+    pub(crate) scan: &'a [u8],
+    /// First `ENCODING_MAX` bytes of the untrimmed read: what
+    /// `file_buffer`'s `looks_text` hint for the `/b` and `/t` skips sees.
+    pub(crate) hint: &'a [u8],
+    /// Length of the trimmed read, for the trailing-CR truncation rule.
+    pub(crate) read_len: usize,
+}
+
+/// Upstream `trim_nuls`: drop trailing NULs, keeping at least one byte.
+fn trim_nuls(buf: &[u8]) -> &[u8] {
+    let mut len = buf.len();
+    while len > 1 && buf.get(len - 1) == Some(&0) {
+        len -= 1;
+    }
+    buf.get(..len).unwrap_or(buf)
+}
+
+/// The views of `buffer` the text classification is computed over.
 ///
-/// `file` reads at most `bytes_max` bytes, so classifying the whole mmapped
-/// file would both diverge from it and cost a full scan on every
-/// evaluation.
+/// `file` reads at most `BYTES_MAX` bytes and inspects at most
+/// `ENCODING_MAX` of them for text, so looking further would both diverge
+/// from it and cost a full scan on every evaluation.
 #[must_use]
-pub(crate) fn text_window(buffer: &[u8]) -> &[u8] {
-    buffer.get(..BYTES_MAX).unwrap_or(buffer)
+pub(crate) fn text_window(buffer: &[u8]) -> TextWindow<'_> {
+    let read = buffer.get(..BYTES_MAX).unwrap_or(buffer);
+    let trimmed = trim_nuls(read);
+    TextWindow {
+        scan: trimmed.get(..ENCODING_MAX).unwrap_or(trimmed),
+        hint: read.get(..ENCODING_MAX).unwrap_or(read),
+        read_len: trimmed.len(),
+    }
 }
 /// Code point of the X3.64 "next line" character.
 const NEL: u32 = 0x85;
@@ -201,15 +232,17 @@ const NEL: u32 = 0x85;
 ///
 /// Returns the text-class suffix (each piece begins with `, with`), or an
 /// empty string when nothing applies. Scans Unicode scalar values when
-/// [`looks_utf8`] reports multi-byte UTF-8, otherwise bytes.
-pub(crate) fn text_qualifiers(text: &[u8]) -> String {
+/// [`looks_utf8`] reports multi-byte UTF-8, otherwise bytes. `read_len` is
+/// the trimmed read length ([`TextWindow::read_len`]), which decides
+/// whether a trailing CR may have been cut off.
+pub(crate) fn text_qualifiers(text: &[u8], read_len: usize) -> String {
     let utf8 = match (looks_utf8(text), std::str::from_utf8(text)) {
         (Utf8Look::Multibyte, Ok(s)) => Some(s),
         _ => None,
     };
     match utf8 {
-        Some(s) => scan_qualifiers(s.chars().map(u32::from), text.len()),
-        None => scan_qualifiers(text.iter().map(|&b| u32::from(b)), text.len()),
+        Some(s) => scan_qualifiers(s.chars().map(u32::from), read_len),
+        None => scan_qualifiers(text.iter().map(|&b| u32::from(b)), read_len),
     }
 }
 
@@ -301,11 +334,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn text_window_caps_at_bytes_max() {
+    fn text_window_trims_trailing_nuls_then_caps_at_encoding_max() {
         let big = vec![b'a'; BYTES_MAX + 10];
-        assert_eq!(text_window(&big).len(), BYTES_MAX);
-        assert_eq!(text_window(b"abc"), b"abc");
-        assert_eq!(text_window(b""), b"");
+        let w = text_window(&big);
+        assert_eq!(
+            (w.scan.len(), w.hint.len(), w.read_len),
+            (ENCODING_MAX, ENCODING_MAX, BYTES_MAX)
+        );
+
+        let padded = [vec![b'a'; 70000], vec![0; 10]].concat();
+        let w = text_window(&padded);
+        assert_eq!((w.scan.len(), w.read_len), (ENCODING_MAX, 70000));
+
+        let w = text_window(b"ab\0\0");
+        assert_eq!(
+            (w.scan, w.hint, w.read_len),
+            (&b"ab"[..], &b"ab\0\0"[..], 2)
+        );
+
+        // trim_nuls keeps at least one byte.
+        let w = text_window(b"\0\0");
+        assert_eq!((w.scan, w.read_len), (&b"\0"[..], 1));
+        assert_eq!(text_window(b"").scan, b"");
     }
 
     #[test]
@@ -424,20 +474,16 @@ mod tests {
         }
     }
 
-    fn repeat(unit: &[u8], n: usize) -> Vec<u8> {
-        unit.repeat(n)
-    }
-
     #[test]
     fn text_qualifiers_match_upstream_scan() {
         // Long-line N: ll = i - last_line_end, fires when ll > 300, so a
         // line of L >= 301 chars reports L (first line: last_line_end = -1).
-        let long_nt = repeat(b"a", 301);
-        let long_lf = [repeat(b"a", 301), b"\n".to_vec()].concat();
-        let edge300 = repeat(b"a", 300);
-        let combined = [repeat(b"a", 301), b"\r\n\x1b\x08".to_vec()].concat();
-        let utf8_301 = repeat("\u{e9}".as_bytes(), 301);
-        let utf8_200 = repeat("\u{e9}".as_bytes(), 200);
+        let long_nt = b"a".repeat(301);
+        let long_lf = [b"a".repeat(301), b"\n".to_vec()].concat();
+        let edge300 = b"a".repeat(300);
+        let combined = [b"a".repeat(301), b"\r\n\x1b\x08".to_vec()].concat();
+        let utf8_301 = "\u{e9}".as_bytes().repeat(301);
+        let utf8_200 = "\u{e9}".as_bytes().repeat(200);
         let cases: &[(&str, &[u8], &str)] = &[
             ("LF only", b"a\nb\n", ""),
             ("no terminator", b"abc", ", with no line terminators"),
@@ -488,7 +534,11 @@ mod tests {
             ),
         ];
         for (label, input, expected) in cases {
-            assert_eq!(text_qualifiers(input), *expected, "case {label:?}");
+            assert_eq!(
+                text_qualifiers(input, input.len()),
+                *expected,
+                "case {label:?}"
+            );
         }
     }
 

@@ -175,6 +175,73 @@ fn two_pass_matrix_matches_gnu_file() {
     }
 }
 
+/// `file_ascmagic` trims trailing NULs from the read before classifying, and
+/// `file_encoding` plus the text pass inspect only the first
+/// `FILE_ENCODING_MAX` (64 KiB) bytes of that trimmed read, while the `/b`
+/// `/t` hint comes from the untrimmed bytes. Measured on file-5.41.
+#[test]
+fn trailing_nuls_and_the_64k_encoding_window_match_gnu_file() {
+    let search = "0 search/100000 QQTEXTS SMSG\n";
+    let long_line = [vec![b'a'; 70000], b"\n".to_vec()].concat();
+    let nuls_after_64k = [b"hello\n".to_vec(), vec![b' '; 65540], vec![0; 4]].concat();
+    let hit_after_64k = [vec![b'x'; 70000], b"QQTEXTS\n".to_vec()].concat();
+    let hit_before_64k = [vec![b'x'; 60000], b"QQTEXTS\n".to_vec()].concat();
+    let cases: &[(&str, &str, &[u8], &str)] = &[
+        (
+            "trailing NULs are trimmed before the text pass",
+            REGEX6,
+            b"QQTEXT6\n\0\0\0",
+            "TOPMSG6, ASCII text",
+        ),
+        (
+            "string/t is still skipped: the hint sees the untrimmed NUL",
+            "0 string/t QQTEXT4 TOPMSG4\n",
+            b"QQTEXT4\n\0\0",
+            "ASCII text",
+        ),
+        (
+            "no match, trailing NULs",
+            REGEX6,
+            b"hello\n\0\0",
+            "ASCII text",
+        ),
+        (
+            "two bytes then NUL",
+            REGEX6,
+            b"ab\0",
+            "ASCII text, with no line terminators",
+        ),
+        ("embedded NUL stays binary", REGEX6, b"ab\0cd", "data"),
+        (
+            "long line is measured over the 64 KiB window",
+            REGEX6,
+            &long_line,
+            "ASCII text, with very long lines (65536), with no line terminators",
+        ),
+        (
+            "NULs after 64 KiB are trimmed, then the window applies",
+            REGEX6,
+            &nuls_after_64k,
+            "ASCII text, with very long lines (65530)",
+        ),
+        (
+            "text pass does not see past 64 KiB",
+            search,
+            &hit_after_64k,
+            "ASCII text, with very long lines (65536), with no line terminators",
+        ),
+        (
+            "text pass sees a hit before 64 KiB",
+            search,
+            &hit_before_64k,
+            "SMSG, ASCII text, with very long lines (60007)",
+        ),
+    ];
+    for (label, magic, buffer, expected) in cases {
+        assert_eq!(describe(magic, buffer), *expected, "case {label:?}");
+    }
+}
+
 /// Measured on file-5.45 (Alpine via Docker, 2026-10-04) with inline magic
 /// mirroring the system DB's c-lang, shell, and sgml shapes. These pin the
 /// ` text` / ` text executable` rewrite, which the macOS 5.41 build skips.
