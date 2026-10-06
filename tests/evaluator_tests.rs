@@ -195,11 +195,11 @@ fn test_metadata_populated_for_buffer() {
 #[test]
 fn test_metadata_for_no_match() {
     let db = MagicDatabase::with_builtin_rules().unwrap();
-    // Plain ASCII content with no rule match falls back to "ASCII text"
-    // (GOTCHAS S13.2), matching GNU `file` -- not the old hardcoded "data".
+    // Plain ASCII content with no rule match falls back to the text class
+    // plus qualifiers (GOTCHAS S13.3/S13.7), matching GNU `file`.
     let result = db.evaluate_buffer(b"nothing matches this").unwrap();
 
-    assert_eq!(result.description, "ASCII text");
+    assert_eq!(result.description, "ASCII text, with no line terminators");
     assert!(result.metadata.rules_evaluated > 0);
 }
 

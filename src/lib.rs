@@ -169,6 +169,9 @@ pub struct MagicDatabase {
     mime_mapper: mime::MimeMapper,
 }
 
+/// GNU `file`'s description for a one-byte file (`funcs.c::file_buffer`).
+const VERY_SHORT_FILE: &str = "very short file (no magic)";
+
 impl MagicDatabase {
     /// Create a database using built-in magic rules.
     ///
@@ -660,13 +663,22 @@ impl MagicDatabase {
         buffer: &[u8],
         start_time: std::time::Instant,
     ) -> Result<EvaluationResult> {
-        use crate::evaluator::{EvaluationContext, RuleEnvironment, evaluate_rules};
+        use crate::evaluator::test_type::{PassMode, TopLevelPass};
+        use crate::evaluator::{
+            EvaluationContext, RuleEnvironment, evaluate_rules, has_message_bearing_match,
+        };
+        use crate::output::ascmagic::classify_fallback;
 
         let file_size = buffer.len() as u64;
 
         // Validate config once at the entry point to match the previous
         // behavior of `evaluate_rules_with_config`.
         self.config.validate()?;
+
+        // GNU `file` never consults magic for a one-byte file (`funcs.c`).
+        if buffer.len() == 1 {
+            return Ok(self.build_result(Vec::new(), VERY_SHORT_FILE, file_size, start_time));
+        }
 
         // Reset the thread-local regex compile cache so it is bounded to
         // the lifetime of a single top-level evaluation call.
@@ -677,59 +689,133 @@ impl MagicDatabase {
             root_rules: std::sync::Arc::clone(&self.root_rules),
         });
 
-        let mut context = EvaluationContext::new(self.config.clone()).with_rule_env(env);
+        // Two passes, as `file_buffer` -> `file_softmagic(BINTEST)` then
+        // `file_ascmagic` -> `file_softmagic(TEXTTEST)` (GOTCHAS S13.7).
+        // A text buffer gets the text pass only when the binary pass
+        // printed nothing; the text pass always ends with `, <class>`.
+        let class = classify_fallback(buffer);
+        let buffer_is_text = !matches!(class, "data" | "empty");
+        let bin_pass = TopLevelPass {
+            mode: PassMode::Bin,
+            buffer_is_text,
+        };
+        let mut context = EvaluationContext::new(self.config.clone())
+            .with_rule_env(std::sync::Arc::clone(&env))
+            .with_top_level_pass(Some(bin_pass));
+        let mut matches = evaluate_rules(&self.root_rules, buffer, &mut context)?;
 
-        // `evaluate_rules` returns `Ok(vec![])` for an empty rule list,
-        // so no `is_empty()` guard is needed here.
-        let matches = evaluate_rules(&self.root_rules, buffer, &mut context)?;
+        if !buffer_is_text || has_message_bearing_match(&matches, 0) {
+            let description = Self::render_description(&matches, buffer);
+            return Ok(self.build_result(matches, &description, file_size, start_time));
+        }
 
-        Ok(self.build_result(matches, buffer, file_size, start_time))
-    }
+        // One timeout budget across both passes: `evaluate_rules` starts
+        // its own clock per call, so pass 2 gets only what pass 1 left.
+        let remaining = self.remaining_timeout_ms(start_time)?;
+        let text_pass = TopLevelPass {
+            mode: PassMode::Text,
+            buffer_is_text,
+        };
+        let mut context = EvaluationContext::new(self.config.clone().with_timeout_ms(remaining))
+            .with_rule_env(env)
+            .with_top_level_pass(Some(text_pass));
+        matches.extend(evaluate_rules(&self.root_rules, buffer, &mut context)?);
 
-    /// Build an `EvaluationResult` from match results, file size, and start time.
-    ///
-    /// This is shared between `evaluate_file` and `evaluate_buffer_internal` to
-    /// avoid duplicating the result-construction logic.
-    ///
-    /// # Text/data fallback
-    ///
-    /// When rule evaluation produces no usable description -- either
-    /// because no rule matched at all, or because every match that did
-    /// occur carries no description text (a message-less gating rule
-    /// that was allowed to proceed past `stop_at_first_match` without a
-    /// message-bearing rule ever firing behind it, GOTCHAS S13.2) -- the
-    /// description falls back to [`crate::output::ascmagic::classify_fallback`]
-    /// against the original buffer, mirroring GNU `file`'s `file_ascmagic`
-    /// basic text/data classification. This is what keeps the CLI from
-    /// ever printing a blank description for a readable file.
-    fn build_result(
-        &self,
-        matches: Vec<evaluator::RuleMatch>,
-        buffer: &[u8],
-        file_size: u64,
-        start_time: std::time::Instant,
-    ) -> EvaluationResult {
-        let rule_description = if matches.is_empty() {
+        // The tail replaces the fallback here: an empty rendering becomes
+        // the bare class, not `ASCII, ASCII text`.
+        let rendered = if matches.is_empty() {
             String::new()
         } else {
             Self::concatenate_messages(&matches)
         };
+        let description = crate::output::ascmagic::append_text_class(
+            &rendered,
+            class,
+            &crate::output::ascmagic::text_qualifiers(buffer),
+        );
+        Ok(self.build_result_with_mime_source(
+            matches,
+            description,
+            &rendered,
+            class,
+            file_size,
+            start_time,
+        ))
+    }
 
-        let (description, confidence) = if rule_description.trim().is_empty() {
-            (
-                crate::output::ascmagic::classify_fallback(buffer).to_string(),
-                0.0,
-            )
+    /// The timeout left for a second pass, measured from `start_time`.
+    ///
+    /// `None` when no timeout is configured; `Timeout` when the budget is
+    /// already spent.
+    fn remaining_timeout_ms(&self, start_time: std::time::Instant) -> Result<Option<u64>> {
+        let Some(timeout_ms) = self.config.timeout_ms else {
+            return Ok(None);
+        };
+        let elapsed = u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX);
+        match timeout_ms.checked_sub(elapsed) {
+            Some(left) if left > 0 => Ok(Some(left)),
+            _ => Err(LibmagicError::Timeout { timeout_ms }),
+        }
+    }
+
+    /// Render the matches' messages, falling back to the text/data
+    /// classification when nothing usable was printed (GOTCHAS S13.3).
+    fn render_description(matches: &[evaluator::RuleMatch], buffer: &[u8]) -> String {
+        let rendered = if matches.is_empty() {
+            String::new()
         } else {
-            (
-                rule_description,
-                matches.first().map_or(0.0, |m| m.confidence),
-            )
+            Self::concatenate_messages(matches)
+        };
+        if rendered.trim().is_empty() {
+            crate::output::ascmagic::classify_fallback(buffer).to_string()
+        } else {
+            rendered
+        }
+    }
+
+    /// Build an `EvaluationResult` from match results and an already
+    /// rendered description (see [`Self::render_description`]).
+    fn build_result(
+        &self,
+        matches: Vec<evaluator::RuleMatch>,
+        description: &str,
+        file_size: u64,
+        start_time: std::time::Instant,
+    ) -> EvaluationResult {
+        self.build_result_with_mime_source(
+            matches,
+            description.to_string(),
+            description,
+            "",
+            file_size,
+            start_time,
+        )
+    }
+
+    /// Like [`Self::build_result`], but the MIME type comes from
+    /// `mime_source` (the description before the text-class tail), falling
+    /// back to `text_class`. `MimeMapper` picks the longest keyword, so
+    /// `HTML document, ASCII text` would otherwise map to `text/plain`.
+    fn build_result_with_mime_source(
+        &self,
+        matches: Vec<evaluator::RuleMatch>,
+        description: String,
+        mime_source: &str,
+        text_class: &str,
+        file_size: u64,
+        start_time: std::time::Instant,
+    ) -> EvaluationResult {
+        // A fallback-only description carries no rule confidence.
+        let confidence = if matches.is_empty() {
+            0.0
+        } else {
+            matches.first().map_or(0.0, |m| m.confidence)
         };
 
         let mime_type = if self.config.enable_mime_types {
             self.mime_mapper
-                .get_mime_type(&description)
+                .get_mime_type(mime_source)
+                .or_else(|| self.mime_mapper.get_mime_type(text_class))
                 .map(String::from)
         } else {
             None

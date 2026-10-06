@@ -132,3 +132,36 @@ pub fn stage_system_magic(canary_target: &str, real_class: &str) -> OracleReadin
     }
     OracleReadiness::Ready(staged)
 }
+
+/// Text classes `file` appends after a description (longest first so
+/// `Unicode text, UTF-8 text` is not split at its inner comma).
+const TEXT_CLASSES: &[&str] = &[
+    "Non-ISO extended-ASCII text",
+    "Unicode text, UTF-8 text",
+    "ISO-8859 text",
+    "ASCII text",
+];
+
+/// Apply file 5.45's description rewrite to a `file` output line so the
+/// macOS 5.41 build, which skips it, compares equal to rmagic: a description
+/// ending in ` text` becomes `base, <class>`, one ending in ` text executable`
+/// becomes `base, <class> executable`. Output already in the 5.45 shape, or
+/// with no text class, is returned unchanged.
+pub fn normalize_text_class_rewrite(line: &str) -> String {
+    for class in TEXT_CLASSES {
+        let needle = format!(", {class}");
+        let Some(pos) = line.find(&needle) else {
+            continue;
+        };
+        let (desc, rest) = line.split_at(pos);
+        let qualifiers = &rest[needle.len()..];
+        if let Some(base) = desc.strip_suffix(" text") {
+            return format!("{base}, {class}{qualifiers}");
+        }
+        if let Some(base) = desc.strip_suffix(" text executable") {
+            return format!("{base}, {class} executable{qualifiers}");
+        }
+        return line.to_string();
+    }
+    line.to_string()
+}

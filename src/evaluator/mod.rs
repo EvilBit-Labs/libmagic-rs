@@ -14,8 +14,10 @@ mod engine;
 pub mod offset;
 pub mod operators;
 pub mod strength;
+pub(crate) mod test_type;
 pub mod types;
 
+pub(crate) use engine::has_message_bearing_match;
 pub use engine::{evaluate_rules, evaluate_rules_with_config, evaluate_single_rule};
 
 /// Strip a single leading GNU `file` no-separator marker from `s`, if present.
@@ -121,6 +123,11 @@ pub struct EvaluationContext {
     /// because top-level rules in the re-entered database should
     /// chain sibling anchors like any other top-level evaluation.
     indirect_reentry: bool,
+    /// Which of GNU `file`'s two top-level passes this evaluation is, if
+    /// any. Consulted only by the top-level loop in `evaluate_rules`
+    /// (GOTCHAS S13.7); `None` keeps single-pass behavior for low-level
+    /// callers.
+    top_level_pass: Option<test_type::TopLevelPass>,
     /// Endian-flip state for `use \^name` subroutine invocation (magic(5)
     /// `\^` prefix; libmagic `softmagic.c` `cvt_flip`). When true, every
     /// endian-bearing typed read inside the current subroutine body
@@ -185,8 +192,30 @@ impl EvaluationContext {
             rule_env: None,
             base_offset: 0,
             indirect_reentry: false,
+            top_level_pass: None,
             flip_endian: false,
         }
+    }
+
+    /// The top-level pass this evaluation runs as, if one is set.
+    #[must_use]
+    pub(crate) const fn top_level_pass(&self) -> Option<test_type::TopLevelPass> {
+        self.top_level_pass
+    }
+
+    /// Set (or clear) the top-level pass.
+    pub(crate) const fn set_top_level_pass(&mut self, pass: Option<test_type::TopLevelPass>) {
+        self.top_level_pass = pass;
+    }
+
+    /// Builder form of [`Self::set_top_level_pass`].
+    #[must_use]
+    pub(crate) const fn with_top_level_pass(
+        mut self,
+        pass: Option<test_type::TopLevelPass>,
+    ) -> Self {
+        self.top_level_pass = pass;
+        self
     }
 
     /// Read-only access to the `use \^name` endian-flip state. True only
@@ -423,6 +452,7 @@ impl EvaluationContext {
         self.recursion_depth = 0;
         self.base_offset = 0;
         self.indirect_reentry = false;
+        self.top_level_pass = None;
         self.flip_endian = false;
     }
 }

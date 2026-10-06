@@ -214,7 +214,10 @@ const SAMPLES: &[Sample] = &[
 /// Does `message` (GNU `file`'s stdout, or one of our own rule
 /// messages) carry the assembler-source signal this fix restores?
 fn contains_assembler_signal(text: &str) -> bool {
-    text.contains("assembler source text")
+    // `assembler source text` before the text-class rewrite, `assembler
+    // source, ASCII text` after it (GOTCHAS S13.7); the host `file` may
+    // print either shape.
+    text.contains("assembler source")
 }
 
 /// Run this crate's evaluator (via the library API, `stop_at_first_match`
@@ -484,10 +487,10 @@ fn test_default_config_plain_ascii_text_no_longer_blank() {
 /// Host-gated on real `file` parity over the SAME `--magic-file` dir
 /// (macOS ships the c-lang source rules there; a host whose
 /// `/usr/share/file/magic/` lacks them makes `file` not say
-/// "c program text" either, so the assertion is vacuous rather than a
-/// false failure). Asserts `contains`, not `==`: real `file` also
-/// appends `, ASCII text` (the deferred combined-classification garnish,
-/// intentionally absent in rmagic).
+/// "c program" either, so the assertion is vacuous rather than a false
+/// failure). Asserts the `c program` prefix: the text-class tail rewrites
+/// `c program text, ASCII text` to `c program, ASCII text` (GOTCHAS S13.7),
+/// and the host's own `file` may print either shape.
 #[test]
 fn test_default_config_c_source_is_c_program_text() {
     let system_dir = Path::new(SYSTEM_MAGIC_DIR);
@@ -525,11 +528,11 @@ fn test_default_config_c_source_is_c_program_text() {
         // magic dir) detects the c-lang chain. This keeps the test
         // host-independent: where the c-lang rules are absent, `file`
         // won't say "c program text" and neither must rmagic.
-        if file_desc.contains("c program text") {
+        if file_desc.contains("c program") {
             assert!(
-                result.description.contains("c program text"),
+                result.description.starts_with("c program, "),
                 "message-bearing `clear` regression: rmagic must emit \
-                 \"c program text\" for a C source under the default config, \
+                 \"c program, <text class>\" for a C source under the default config, \
                  got: {:?} (file said: {:?})",
                 result.description,
                 file_desc.trim()

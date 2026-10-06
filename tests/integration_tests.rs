@@ -101,7 +101,7 @@ fn test_builtin_rules_unknown_fallback() {
 fn test_builtin_rules_unknown_ascii_fallback() {
     let db = MagicDatabase::with_builtin_rules().unwrap();
     let result = db.evaluate_buffer(b"random bytes").unwrap();
-    assert_eq!(result.description, "ASCII text");
+    assert_eq!(result.description, "ASCII text, with no line terminators");
 }
 
 // ============================================================
@@ -277,7 +277,7 @@ fn test_custom_rules_no_match_fallback() {
     // Plain ASCII content with no rule match falls back to "ASCII text"
     // (GOTCHAS S13.2), matching GNU `file` -- not the old hardcoded "data".
     let result = db.evaluate_buffer(b"no match here").unwrap();
-    assert_eq!(result.description, "ASCII text");
+    assert_eq!(result.description, "ASCII text, with no line terminators");
 }
 
 // ============================================================
@@ -353,8 +353,9 @@ fn test_signed_byte_comparison_integration() {
 
     let db = MagicDatabase::load_from_file(&magic_path).unwrap();
 
-    // 0x7f = 127 as signed, which is > 0
-    let result = db.evaluate_buffer(b"\x7f").unwrap();
+    // 0x7f = 127 as signed, which is > 0. Two bytes: a one-byte buffer is
+    // never evaluated (`very short file (no magic)`, GOTCHAS S13.7).
+    let result = db.evaluate_buffer(b"\x7f\x00").unwrap();
     assert!(
         result.description.contains("Positive first byte"),
         "Expected match for 0x7f (signed 127 > 0), got: {}",

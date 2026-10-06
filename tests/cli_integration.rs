@@ -625,11 +625,10 @@ fn test_very_small_file() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let path = create_data_file(&temp_dir, "small.bin", b"x");
 
-    // A single printable ASCII byte falls back to "ASCII text" (GOTCHAS
-    // S13.2), matching GNU `file` -- not "data".
+    // GNU `file` never consults magic for a one-byte file (GOTCHAS S13.7).
     rmagic_cmd()
         .args(["--use-builtin", path_str(&path)])
         .assert()
         .success()
-        .stdout(predicate::str::contains("ASCII text"));
+        .stdout(predicate::str::contains("very short file (no magic)"));
 }

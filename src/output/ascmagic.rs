@@ -14,20 +14,11 @@
 //!
 //! # Scope
 //!
-//! This is a deliberately narrow subset of GNU `file`'s real charset
-//! detection, which additionally distinguishes ISO-8859 variants, UTF-16,
-//! line-ending styles, and several "text with X" qualifiers (escape
-//! sequences, overstriking, CRLF terminators, byte-order marks, etc. --
-//! see `src/ascmagic.c` and `src/encoding.c` upstream). Replicating that
-//! fully is out of scope for this fallback: the goal here is solely to
-//! ensure the CLI never emits a blank description for a readable file
-//! (the assembler-source-text and plain-ASCII-text bugs this module
-//! fixes), not full charset fidelity. Every classification below is a
-//! true subset of what GNU `file` would print for the same input -- e.g.
-//! `file` prints `"ASCII text, with CRLF line terminators"` for a
-//! CRLF-terminated buffer where we print plain `"ASCII text"` -- so
-//! differential tests that check for a specific classification (rather
-//! than exact byte-for-byte output) still hold.
+//! This ports the byte-level subset of GNU `file`'s `ascmagic.c` and
+//! `encoding.c`: ASCII, UTF-8, ISO-8859 and non-ISO extended-ASCII
+//! classification, plus the line-terminator, long-line, escape and
+//! overstrike qualifiers. Still out of scope: UTF-16/UTF-32, UTF-7, EBCDIC
+//! and BOM stripping; such buffers classify as `"data"`.
 
 /// Bytes GNU `file`'s `ascmagic`/`encoding` text test treats as part of
 /// ordinary "text" content: printable ASCII (0x20..=0x7E) plus the common
@@ -137,14 +128,13 @@ pub(crate) fn looks_utf8(buf: &[u8]) -> Utf8Look {
     finish(ctrl, gotone)
 }
 
-/// Classify a buffer using the minimal text/data fallback described in
-/// the module doc.
+/// Classify a buffer with the text/data fallback described in the module
+/// doc, following upstream `file_encoding` order.
 ///
-/// Returns one of `"empty"`, `"ASCII text"`, `"Unicode text, UTF-8 text"`, or
-/// `"data"`. This is intentionally infallible -- there is no input for
-/// which classification can fail, so the caller never needs to handle
-/// an error path here (matching the evaluator's graceful-degradation
-/// discipline: a fallback that can itself fail would defeat its purpose).
+/// Returns one of `"empty"`, `"ASCII text"`, `"Unicode text, UTF-8 text"`,
+/// `"ISO-8859 text"`, `"Non-ISO extended-ASCII text"`, or `"data"`. This is
+/// intentionally infallible -- there is no input for which classification
+/// can fail, so the caller never needs to handle an error path here.
 ///
 /// # Examples
 ///
@@ -172,7 +162,127 @@ pub fn classify_fallback(buffer: &[u8]) -> &'static str {
         return "Unicode text, UTF-8 text";
     }
 
+    // Upstream `looks_latin1` then `looks_extended`.
+    if buffer
+        .iter()
+        .all(|&b| matches!(text_char_class(b), TextClass::Text | TextClass::Latin1))
+    {
+        return "ISO-8859 text";
+    }
+    if buffer
+        .iter()
+        .all(|&b| text_char_class(b) != TextClass::Binary)
+    {
+        return "Non-ISO extended-ASCII text";
+    }
+
     "data"
+}
+
+/// Upstream `MAXLINELEN` (`ascmagic.c`): longest line not reported as long.
+const MAXLINELEN: usize = 300;
+/// Upstream default `bytes_max`; a buffer shorter than this was not truncated.
+const BYTES_MAX: usize = 1_048_576;
+/// Code point of the X3.64 "next line" character.
+const NEL: u32 = 0x85;
+
+/// Port of the qualifier scan in `ascmagic.c::file_ascmagic_with_encoding`.
+///
+/// Returns the text-class suffix (each piece begins with `, with`), or an
+/// empty string when nothing applies. Scans Unicode scalar values when
+/// [`looks_utf8`] reports multi-byte UTF-8, otherwise bytes.
+pub(crate) fn text_qualifiers(text: &[u8]) -> String {
+    let utf8 = match (looks_utf8(text), std::str::from_utf8(text)) {
+        (Utf8Look::Multibyte, Ok(s)) => Some(s),
+        _ => None,
+    };
+    match utf8 {
+        Some(s) => scan_qualifiers(s.chars().map(u32::from), text.len()),
+        None => scan_qualifiers(text.iter().map(|&b| u32::from(b)), text.len()),
+    }
+}
+
+fn scan_qualifiers(code_points: impl Iterator<Item = u32>, nbytes: usize) -> String {
+    let (mut n_crlf, mut n_cr, mut n_lf, mut n_nel) = (0_usize, 0_usize, 0_usize, 0_usize);
+    let (mut has_escapes, mut has_backspace, mut seen_cr) = (false, false, false);
+    let mut longest = 0_usize;
+    // Index of the first char of the current line (upstream last_line_end + 1).
+    let mut line_start = 0_usize;
+    for (i, c) in code_points.enumerate() {
+        if c == u32::from(b'\n') {
+            if seen_cr {
+                n_crlf += 1;
+            } else {
+                n_lf += 1;
+            }
+            line_start = i + 1;
+        } else if seen_cr {
+            n_cr += 1;
+        }
+        seen_cr = c == u32::from(b'\r');
+        if seen_cr {
+            line_start = i + 1;
+        }
+        if c == NEL {
+            n_nel += 1;
+            line_start = i + 1;
+        }
+        let line_len = i + 1 - line_start;
+        if line_len > MAXLINELEN {
+            longest = longest.max(line_len);
+        }
+        has_escapes |= c == 0x1B;
+        has_backspace |= c == 0x08;
+    }
+    // A trailing CR may have been followed by an LF cut off by truncation.
+    if seen_cr && nbytes < BYTES_MAX {
+        n_cr += 1;
+    }
+
+    let mut out = String::new();
+    if longest > 0 {
+        out.push_str(", with very long lines (");
+        out.push_str(&longest.to_string());
+        out.push(')');
+    }
+    let none = n_crlf == 0 && n_cr == 0 && n_nel == 0 && n_lf == 0;
+    if none || n_crlf != 0 || n_cr != 0 || n_nel != 0 {
+        let kinds: Vec<&str> = [(n_crlf, "CRLF"), (n_cr, "CR"), (n_lf, "LF"), (n_nel, "NEL")]
+            .iter()
+            .filter(|(n, _)| *n != 0)
+            .map(|&(_, name)| name)
+            .collect();
+        out.push_str(", with ");
+        out.push_str(&if none {
+            "no".to_string()
+        } else {
+            kinds.join(", ")
+        });
+        out.push_str(" line terminators");
+    }
+    if has_escapes {
+        out.push_str(", with escape sequences");
+    }
+    if has_backspace {
+        out.push_str(", with overstriking");
+    }
+    out
+}
+
+/// Port of file 5.45's description rewrite: swap a trailing ` text` (or
+/// ` text executable`) for the text class, then append `qualifiers`.
+pub(crate) fn append_text_class(desc: &str, class: &str, qualifiers: &str) -> String {
+    let mut head = if desc.is_empty() {
+        class.to_string()
+    } else if let Some(base) = desc.strip_suffix(" text") {
+        format!("{base}, {class}")
+    } else if let Some(base) = desc.strip_suffix(" text executable") {
+        format!("{base}, {class} executable")
+    } else {
+        format!("{desc}, {class}")
+    };
+    head.push_str(qualifiers);
+    head
 }
 
 #[cfg(test)]
@@ -258,8 +368,6 @@ mod tests {
     fn classifies_binary_content_as_data() {
         let cases: &[(&str, &[u8])] = &[
             ("null byte in otherwise-ascii text", b"hello\x00world\n"),
-            ("random high bytes", &[0x80, 0x81, 0x82, 0x83]),
-            ("invalid utf8 continuation-only", &[0xC0, 0x80]),
             ("elf magic", &[0x7f, b'E', b'L', b'F']),
         ];
         for (label, input) in cases {
@@ -267,6 +375,135 @@ mod tests {
                 classify_fallback(input),
                 "data",
                 "case {label:?} should classify as data"
+            );
+        }
+    }
+
+    #[test]
+    fn classifies_8bit_text_per_file_encoding_order() {
+        let cases: &[(&str, &[u8], &str)] = &[
+            ("latin1 high byte", b"hello\xff\n", "ISO-8859 text"),
+            (
+                "only C1 control (0x90)",
+                b"hi\x90\n",
+                "Non-ISO extended-ASCII text",
+            ),
+            (
+                "latin1 plus C1 mix",
+                &[0xC0, 0x80],
+                "Non-ISO extended-ASCII text",
+            ),
+            (
+                "all C1",
+                &[0x80, 0x81, 0x82, 0x83],
+                "Non-ISO extended-ASCII text",
+            ),
+            ("NUL stays data", b"hi\xff\x00\n", "data"),
+        ];
+        for (label, input, expected) in cases {
+            assert_eq!(classify_fallback(input), *expected, "case {label:?}");
+        }
+    }
+
+    fn repeat(unit: &[u8], n: usize) -> Vec<u8> {
+        unit.repeat(n)
+    }
+
+    #[test]
+    fn text_qualifiers_match_upstream_scan() {
+        // Long-line N: ll = i - last_line_end, fires when ll > 300, so a
+        // line of L >= 301 chars reports L (first line: last_line_end = -1).
+        let long_nt = repeat(b"a", 301);
+        let long_lf = [repeat(b"a", 301), b"\n".to_vec()].concat();
+        let edge300 = repeat(b"a", 300);
+        let combined = [repeat(b"a", 301), b"\r\n\x1b\x08".to_vec()].concat();
+        let utf8_301 = repeat("\u{e9}".as_bytes(), 301);
+        let utf8_200 = repeat("\u{e9}".as_bytes(), 200);
+        let cases: &[(&str, &[u8], &str)] = &[
+            ("LF only", b"a\nb\n", ""),
+            ("no terminator", b"abc", ", with no line terminators"),
+            ("CRLF", b"a\r\nb\r\n", ", with CRLF line terminators"),
+            (
+                "CR then LF separately",
+                b"a\rb\n",
+                ", with CR, LF line terminators",
+            ),
+            (
+                "trailing CR counts as CR",
+                b"a\r",
+                ", with CR line terminators",
+            ),
+            ("NEL alone", b"a\x85b", ", with NEL line terminators"),
+            ("escape", b"a\x1bb\n", ", with escape sequences"),
+            ("backspace", b"a\x08b\n", ", with overstriking"),
+            (
+                "300 bytes is not long",
+                &edge300,
+                ", with no line terminators",
+            ),
+            (
+                "301 bytes no terminator: N=301",
+                &long_nt,
+                ", with very long lines (301), with no line terminators",
+            ),
+            (
+                "301 bytes then LF: N=301",
+                &long_lf,
+                ", with very long lines (301)",
+            ),
+            (
+                "upstream order",
+                &combined,
+                ", with very long lines (301), with CRLF line terminators, \
+                 with escape sequences, with overstriking",
+            ),
+            (
+                "utf8 counts code points: 301 chars",
+                &utf8_301,
+                ", with very long lines (301), with no line terminators",
+            ),
+            (
+                "utf8 counts code points: 200 chars",
+                &utf8_200,
+                ", with no line terminators",
+            ),
+        ];
+        for (label, input, expected) in cases {
+            assert_eq!(text_qualifiers(input), *expected, "case {label:?}");
+        }
+    }
+
+    #[test]
+    fn append_text_class_rewrites_description_like_file_545() {
+        let cases: &[(&str, &str, &str, &str)] = &[
+            ("", "ASCII text", "", "ASCII text"),
+            ("c program text", "ASCII text", "", "c program, ASCII text"),
+            (
+                "POSIX shell script text executable",
+                "ASCII text",
+                "",
+                "POSIX shell script, ASCII text executable",
+            ),
+            (
+                "GEDCOM genealogy text version 5.5",
+                "ASCII text",
+                "",
+                "GEDCOM genealogy text version 5.5, ASCII text",
+            ),
+            ("foo text text", "ASCII text", "", "foo text, ASCII text"),
+            ("contexts", "ASCII text", "", "contexts, ASCII text"),
+            (
+                "c program text",
+                "ASCII text",
+                ", with CRLF line terminators",
+                "c program, ASCII text, with CRLF line terminators",
+            ),
+        ];
+        for (desc, class, quals, expected) in cases {
+            assert_eq!(
+                append_text_class(desc, class, quals),
+                *expected,
+                "desc {desc:?}"
             );
         }
     }
