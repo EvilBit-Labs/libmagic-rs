@@ -239,8 +239,8 @@ Flags for `string` type modify comparison behavior per libmagic `src/softmagic.c
 | `/W` | Whitespace-required-compact (pattern whitespace requires at least one file whitespace; additional whitespace consumed) |
 | `/T` | Trim leading/trailing ASCII whitespace from pattern before comparison                                                  |
 | `/f` | Full-word match (post-match word-boundary check; next byte must be EOF or non-word char)                               |
-| `/b` | Force binary test (MIME-output hint; no effect on comparison)                                                          |
-| `/t` | Force text test (MIME-output hint; no effect on comparison)                                                            |
+| `/b` | Binary-test entry: runs in the binary pass; skipped on a text buffer (no effect on comparison)                         |
+| `/t` | Text-test entry: runs in the text pass and takes the `, <text class>` tail; skipped on a binary buffer                 |
 
 **`/c` vs `/C` asymmetry:** The pattern character controls fold direction. `/c` with lowercase pattern chars folds the file byte to lowercase; uppercase pattern chars in the same pattern are compared literally. Mixed-case patterns work intuitively: `/c FoO` matches `FoO`, `Foo`, `FOO` but not `fOO` (the uppercase `F` is literal). See GOTCHAS S6.5 for details.
 
@@ -394,14 +394,14 @@ Flags for `search` type modify comparison and anchor behavior. Most flags share 
 | `/W` | Whitespace-required-compact (pattern whitespace requires at least one file whitespace; additional whitespace consumed) |
 | `/T` | Trim leading/trailing ASCII whitespace from pattern before comparison                                                  |
 | `/f` | Full-word match (post-match word-boundary check; next byte must be EOF or non-word char)                               |
-| `/t` | Force text test (MIME-output hint; no effect on comparison)                                                            |
-| `/b` | Force binary test (MIME-output hint; no effect on comparison)                                                          |
+| `/t` | Text-test entry: runs in the text pass and takes the `, <text class>` tail; skipped on a binary buffer                 |
+| `/b` | Binary-test entry: runs in the binary pass; skipped on a text buffer (no effect on comparison)                         |
 
 **`/c` vs `/C` asymmetry:** The pattern character controls fold direction. `/c` with lowercase pattern chars folds the file byte to lowercase; uppercase pattern chars in the same pattern are compared literally. See String Flags section above for details.
 
 **`/s` — Start anchor:** When set, the anchor for relative-offset child rules lands at the match-START position rather than match-END. This is required for file formats that place magic strings in footers or trailers (TGA, sfnt name table).
 
-**MIME hints (`/t`, `/b`):** These flags are captured but do not currently alter match decisions. They are deferred to MIME-output integration (issue #51).
+**Pass hints (`/t`, `/b`):** `file` evaluates top-level entries in a binary pass and then, for text buffers nothing printed in, a text pass that appends `, <text class>` (for example `POSIX shell script, ASCII text executable`). `/b` and `/t` force an entry into one pass; a `search`/`regex` with neither is a text entry when its pattern looks like text. They never alter the comparison. See GOTCHAS S13.7.
 
 Examples:
 

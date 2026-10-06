@@ -295,8 +295,8 @@ String flags are now implemented (issue #234, landed in PR #288), providing libm
 | `/W` | Whitespace-required-compact (at least one, greedy consume)    |
 | `/T` | Trim leading/trailing ASCII whitespace from pattern           |
 | `/f` | Full-word match (post-match word boundary check)              |
-| `/b` | Force binary test (hint for MIME output)                      |
-| `/t` | Force text test (hint for MIME output)                        |
+| `/b` | Binary-pass entry (skipped on a text buffer)                  |
+| `/t` | Text-pass entry; description gets the `, <text class>` tail   |
 
 **Note:** `/c` and `/C` are asymmetric — the pattern character controls fold direction. With `/c`, only lowercase pattern chars cause the file byte to be folded to lowercase. With `/C`, only uppercase pattern chars cause the file byte to be folded to uppercase. See GOTCHAS section S6.5 for details on mixed-case behavior. `/B` (uppercase) is not a string flag; it is reserved for pstring length-width specification and is rejected on string types.
 
@@ -318,13 +318,12 @@ Examples:
 # Trim leading/trailing whitespace from the pattern (`/T` = STRING_TRIM)
 0       string/T  "  hello  "  Hello marker (matches "hello" without surrounding spaces)
 
-# Binary-mode hint (`/b` = STRING_BINTEST) -- parsed and stored; MIME-output
-# wiring deferred to the `!:mime` evaluation work
+# Binary-pass entry (`/b` = STRING_BINTEST): skipped when the buffer is text
 24      string/b  FTCOMP      FTCOMP compressed archive
 
-# Text-mode hint (`/t` = STRING_TEXTTEST) -- parsed and stored; MIME-output
-# wiring deferred to the `!:mime` evaluation work
-0       string/t  #!/bin/sh   POSIX shell script text
+# Text-pass entry (`/t` = STRING_TEXTTEST): renders as
+# "POSIX shell script, ASCII text executable" (GOTCHAS S13.7)
+0       string/t  #!/bin/sh   POSIX shell script text executable
 ```
 
 **Note on `/T` empty patterns:** `string/T "   "` trims to an empty pattern. The evaluator treats this as no-match (with a `warn!` log) rather than letting it silently match every file. Fix the rule.
