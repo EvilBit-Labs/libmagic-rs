@@ -181,8 +181,19 @@ pub fn classify_fallback(buffer: &[u8]) -> &'static str {
 
 /// Upstream `MAXLINELEN` (`ascmagic.c`): longest line not reported as long.
 const MAXLINELEN: usize = 300;
-/// Upstream default `bytes_max`; a buffer shorter than this was not truncated.
+/// Upstream `FILE_BYTES_MAX` (`file.h`): how much of a file `file` reads,
+/// and so the most the text classification ever looks at.
 const BYTES_MAX: usize = 1_048_576;
+
+/// The prefix of `buffer` the text classification is computed over.
+///
+/// `file` reads at most `bytes_max` bytes, so classifying the whole mmapped
+/// file would both diverge from it and cost a full scan on every
+/// evaluation.
+#[must_use]
+pub(crate) fn text_window(buffer: &[u8]) -> &[u8] {
+    buffer.get(..BYTES_MAX).unwrap_or(buffer)
+}
 /// Code point of the X3.64 "next line" character.
 const NEL: u32 = 0x85;
 
@@ -288,6 +299,14 @@ pub(crate) fn append_text_class(desc: &str, class: &str, qualifiers: &str) -> St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_window_caps_at_bytes_max() {
+        let big = vec![b'a'; BYTES_MAX + 10];
+        assert_eq!(text_window(&big).len(), BYTES_MAX);
+        assert_eq!(text_window(b"abc"), b"abc");
+        assert_eq!(text_window(b""), b"");
+    }
 
     #[test]
     fn looks_utf8_matches_upstream_file_looks_utf8() {

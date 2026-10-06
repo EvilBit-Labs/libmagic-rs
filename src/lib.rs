@@ -693,7 +693,8 @@ impl MagicDatabase {
         // `file_ascmagic` -> `file_softmagic(TEXTTEST)` (GOTCHAS S13.7).
         // A text buffer gets the text pass only when the binary pass
         // printed nothing; the text pass always ends with `, <class>`.
-        let class = classify_fallback(buffer);
+        let text_window = crate::output::ascmagic::text_window(buffer);
+        let class = classify_fallback(text_window);
         let buffer_is_text = !matches!(class, "data" | "empty");
         let bin_pass = TopLevelPass {
             mode: PassMode::Bin,
@@ -731,7 +732,7 @@ impl MagicDatabase {
         let description = crate::output::ascmagic::append_text_class(
             &rendered,
             class,
-            &crate::output::ascmagic::text_qualifiers(buffer),
+            &crate::output::ascmagic::text_qualifiers(text_window),
         );
         Ok(self.build_result_with_mime_source(
             matches,
