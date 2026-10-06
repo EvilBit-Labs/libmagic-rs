@@ -170,6 +170,12 @@ fn two_pass_matrix_matches_gnu_file() {
             "empty",
         ),
         (
+            "text pass sees ASCII's NEL byte as its UTF-8 encoding",
+            "0 string/t ab\\302\\205 NELMSG\n",
+            b"ab\x85cd\n",
+            "NELMSG, ASCII text, with LF, NEL line terminators",
+        ),
+        (
             "text pass runs over the UTF-8 widening of a Latin-1 buffer",
             "0 string/t \\303\\277 YMSG\n",
             b"\xff\n",

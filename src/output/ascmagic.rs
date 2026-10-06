@@ -233,18 +233,24 @@ fn complete_utf8_prefix(buf: &[u8]) -> &[u8] {
     }
 }
 
-/// The bytes the text pass evaluates rules against.
+/// The bytes the text pass evaluates rules against: `encode_utf8(ubuf)`.
 ///
-/// `file_ascmagic` runs its softmagic pass over `encode_utf8(ubuf)`, so
-/// a single-byte class (`ISO-8859 text`, `Non-ISO extended-ASCII text`)
-/// is first widened byte-for-code-point to UTF-8, and a UTF-8 window loses
-/// a sequence the window end cut through; ASCII is already in that form.
-/// Multi-byte encodings are #524.
+/// `file_encoding` decodes the window into code points and `file_ascmagic`
+/// runs its softmagic pass over their UTF-8 encoding. For the single-byte
+/// classes (ASCII, whose only high byte is NEL, `ISO-8859 text`,
+/// `Non-ISO extended-ASCII text`) each byte is one code point, so every
+/// byte at or above 0x80 widens to two bytes; a UTF-8 window is already
+/// encoded but loses a sequence the window end cut through. Anything else
+/// (`data`, multi-byte encodings, #524) is passed through.
 pub(crate) fn text_pass_buffer<'a>(scan: &'a [u8], class: &str) -> std::borrow::Cow<'a, [u8]> {
     if class == "Unicode text, UTF-8 text" {
         return std::borrow::Cow::Borrowed(complete_utf8_prefix(scan));
     }
-    if !matches!(class, "ISO-8859 text" | "Non-ISO extended-ASCII text") {
+    if !matches!(
+        class,
+        "ASCII text" | "ISO-8859 text" | "Non-ISO extended-ASCII text"
+    ) || scan.iter().all(u8::is_ascii)
+    {
         return std::borrow::Cow::Borrowed(scan);
     }
     let mut out = Vec::with_capacity(scan.len() * 2);
@@ -392,7 +398,14 @@ mod tests {
                 b"\x85",
                 b"\xc2\x85",
             ),
-            ("ascii untouched", "ASCII text", b"a\xffb", b"a\xffb"),
+            ("pure ascii untouched", "ASCII text", b"abc", b"abc"),
+            (
+                "ascii NEL byte widens",
+                "ASCII text",
+                b"ab\x85cd",
+                b"ab\xc2\x85cd",
+            ),
+            ("data untouched", "data", b"a\xffb", b"a\xffb"),
             (
                 "utf8 untouched",
                 "Unicode text, UTF-8 text",
