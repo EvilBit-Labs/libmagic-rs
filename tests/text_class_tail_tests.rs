@@ -164,6 +164,18 @@ fn two_pass_matrix_matches_gnu_file() {
         ),
         ("empty buffer", REGEX6, b"", "empty"),
         (
+            "empty buffer never reaches magic",
+            "0 offset x OFFSETMSG\n",
+            b"",
+            "empty",
+        ),
+        (
+            "text pass runs over the UTF-8 widening of a Latin-1 buffer",
+            "0 string/t \\303\\277 YMSG\n",
+            b"\xff\n",
+            "YMSG, ISO-8859 text",
+        ),
+        (
             "binary buffer with no match",
             REGEX6,
             b"\0\x01\x02\xff",

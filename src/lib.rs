@@ -599,7 +599,6 @@ impl MagicDatabase {
         use std::fs;
         use std::time::Instant;
 
-        let start_time = Instant::now();
         let path = path.as_ref();
 
         // Check if file is empty - if so, evaluate as empty buffer
@@ -609,7 +608,7 @@ impl MagicDatabase {
 
         if file_size == 0 {
             // Empty file - evaluate as empty buffer but preserve file metadata
-            let mut result = self.evaluate_buffer_internal(b"", start_time)?;
+            let mut result = self.evaluate_buffer_internal(b"", Instant::now())?;
             result.metadata.file_size = 0;
             result.metadata.magic_file.clone_from(&self.source_path);
             return Ok(result);
@@ -623,7 +622,9 @@ impl MagicDatabase {
         // Route the evaluation through `evaluate_buffer_internal` so the
         // rule environment (name table + root rules) is attached to the
         // context identically for in-memory and on-disk paths.
-        let mut result = self.evaluate_buffer_internal(buffer, start_time)?;
+        // The timeout budget and the reported evaluation time start here,
+        // after the file is loaded, so both passes share one origin.
+        let mut result = self.evaluate_buffer_internal(buffer, Instant::now())?;
         result.metadata.file_size = file_size;
         Ok(result)
     }
@@ -667,7 +668,7 @@ impl MagicDatabase {
         use crate::evaluator::{
             EvaluationContext, RuleEnvironment, evaluate_rules, has_message_bearing_match,
         };
-        use crate::output::ascmagic::{classify_fallback, text_window};
+        use crate::output::ascmagic::{classify_fallback, text_pass_buffer, text_window};
 
         let file_size = buffer.len() as u64;
 
@@ -675,16 +676,15 @@ impl MagicDatabase {
         // behavior of `evaluate_rules_with_config`.
         self.config.validate()?;
 
-        // GNU `file` never consults magic for a one-byte file (`funcs.c`).
-        if buffer.len() == 1 {
-            return Ok(self.build_result(
-                Vec::new(),
-                "",
-                VERY_SHORT_FILE,
-                None,
-                file_size,
-                start_time,
-            ));
+        // GNU `file` never consults magic for an empty or one-byte file
+        // (`funcs.c::file_buffer`).
+        let fixed = match buffer.len() {
+            0 => Some("empty"),
+            1 => Some(VERY_SHORT_FILE),
+            _ => None,
+        };
+        if let Some(description) = fixed {
+            return Ok(self.build_result(Vec::new(), "", description, None, file_size, start_time));
         }
 
         // Reset the thread-local regex compile cache so it is bounded to
@@ -731,7 +731,12 @@ impl MagicDatabase {
         let mut context = EvaluationContext::new(self.config.clone().with_timeout_ms(remaining))
             .with_rule_env(env)
             .with_top_level_pass(Some(text_pass));
-        matches.extend(evaluate_rules(&self.root_rules, window.scan, &mut context)?);
+        let text_buffer = text_pass_buffer(window.scan, class);
+        matches.extend(evaluate_rules(
+            &self.root_rules,
+            &text_buffer,
+            &mut context,
+        )?);
 
         let rendered = Self::concatenate_messages(&matches);
         Ok(self.build_result(
@@ -744,7 +749,8 @@ impl MagicDatabase {
         ))
     }
 
-    /// The timeout left for a second pass, measured from `start_time`.
+    /// The timeout left for a second pass, measured from `start_time`,
+    /// the moment evaluation began (file loading is not charged to it).
     ///
     /// `None` when no timeout is configured; `Timeout` when the budget is
     /// already spent.
@@ -783,7 +789,7 @@ impl MagicDatabase {
         let has_rule_text = !rendered.trim().is_empty();
         let rule_text = if has_rule_text { rendered } else { "" };
         let description = match window {
-            Some(w) => append_text_class(rule_text, class, &text_qualifiers(w.scan, w.read_len)),
+            Some(w) => append_text_class(rule_text, class, &text_qualifiers(w.scan)),
             None if has_rule_text => rendered.to_string(),
             None => class.to_string(),
         };

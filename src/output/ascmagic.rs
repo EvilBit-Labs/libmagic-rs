@@ -197,8 +197,6 @@ pub(crate) struct TextWindow<'a> {
     /// First `ENCODING_MAX` bytes of the untrimmed read: what
     /// `file_buffer`'s `looks_text` hint for the `/b` and `/t` skips sees.
     pub(crate) hint: &'a [u8],
-    /// Length of the trimmed read, for the trailing-CR truncation rule.
-    pub(crate) read_len: usize,
 }
 
 /// Upstream `trim_nuls`: drop trailing NULs, keeping at least one byte.
@@ -222,8 +220,29 @@ pub(crate) fn text_window(buffer: &[u8]) -> TextWindow<'_> {
     TextWindow {
         scan: trimmed.get(..ENCODING_MAX).unwrap_or(trimmed),
         hint: read.get(..ENCODING_MAX).unwrap_or(read),
-        read_len: trimmed.len(),
     }
+}
+
+/// The bytes the text pass evaluates rules against.
+///
+/// `file_ascmagic` runs its softmagic pass over `encode_utf8(ubuf)`, so
+/// a single-byte class (`ISO-8859 text`, `Non-ISO extended-ASCII text`)
+/// is first widened byte-for-code-point to UTF-8; ASCII and UTF-8 windows
+/// are already in that form. Multi-byte encodings are #524.
+pub(crate) fn text_pass_buffer<'a>(scan: &'a [u8], class: &str) -> std::borrow::Cow<'a, [u8]> {
+    if !matches!(class, "ISO-8859 text" | "Non-ISO extended-ASCII text") {
+        return std::borrow::Cow::Borrowed(scan);
+    }
+    let mut out = Vec::with_capacity(scan.len() * 2);
+    for &b in scan {
+        if b < 0x80 {
+            out.push(b);
+        } else {
+            out.push(0xC0 | (b >> 6));
+            out.push(0x80 | (b & 0x3F));
+        }
+    }
+    std::borrow::Cow::Owned(out)
 }
 /// Code point of the X3.64 "next line" character.
 const NEL: u32 = 0x85;
@@ -232,21 +251,21 @@ const NEL: u32 = 0x85;
 ///
 /// Returns the text-class suffix (each piece begins with `, with`), or an
 /// empty string when nothing applies. Scans Unicode scalar values when
-/// [`looks_utf8`] reports multi-byte UTF-8, otherwise bytes. `read_len` is
-/// the trimmed read length ([`TextWindow::read_len`]), which decides
-/// whether a trailing CR may have been cut off.
-pub(crate) fn text_qualifiers(text: &[u8], read_len: usize) -> String {
+/// [`looks_utf8`] reports multi-byte UTF-8, otherwise bytes. A lone
+/// trailing CR counts for nothing: file 5.45 dropped 5.41's post-loop
+/// `seen_cr` flush.
+pub(crate) fn text_qualifiers(text: &[u8]) -> String {
     let utf8 = match (looks_utf8(text), std::str::from_utf8(text)) {
         (Utf8Look::Multibyte, Ok(s)) => Some(s),
         _ => None,
     };
     match utf8 {
-        Some(s) => scan_qualifiers(s.chars().map(u32::from), read_len),
-        None => scan_qualifiers(text.iter().map(|&b| u32::from(b)), read_len),
+        Some(s) => scan_qualifiers(s.chars().map(u32::from)),
+        None => scan_qualifiers(text.iter().map(|&b| u32::from(b))),
     }
 }
 
-fn scan_qualifiers(code_points: impl Iterator<Item = u32>, nbytes: usize) -> String {
+fn scan_qualifiers(code_points: impl Iterator<Item = u32>) -> String {
     let (mut n_crlf, mut n_cr, mut n_lf, mut n_nel) = (0_usize, 0_usize, 0_usize, 0_usize);
     let (mut has_escapes, mut has_backspace, mut seen_cr) = (false, false, false);
     let mut longest = 0_usize;
@@ -278,11 +297,6 @@ fn scan_qualifiers(code_points: impl Iterator<Item = u32>, nbytes: usize) -> Str
         has_escapes |= c == 0x1B;
         has_backspace |= c == 0x08;
     }
-    // A trailing CR may have been followed by an LF cut off by truncation.
-    if seen_cr && nbytes < BYTES_MAX {
-        n_cr += 1;
-    }
-
     let mut out = String::new();
     if longest > 0 {
         out.push_str(", with very long lines (");
@@ -337,25 +351,49 @@ mod tests {
     fn text_window_trims_trailing_nuls_then_caps_at_encoding_max() {
         let big = vec![b'a'; BYTES_MAX + 10];
         let w = text_window(&big);
-        assert_eq!(
-            (w.scan.len(), w.hint.len(), w.read_len),
-            (ENCODING_MAX, ENCODING_MAX, BYTES_MAX)
-        );
+        assert_eq!((w.scan.len(), w.hint.len()), (ENCODING_MAX, ENCODING_MAX));
 
         let padded = [vec![b'a'; 70000], vec![0; 10]].concat();
-        let w = text_window(&padded);
-        assert_eq!((w.scan.len(), w.read_len), (ENCODING_MAX, 70000));
+        assert_eq!(text_window(&padded).scan.len(), ENCODING_MAX);
 
         let w = text_window(b"ab\0\0");
-        assert_eq!(
-            (w.scan, w.hint, w.read_len),
-            (&b"ab"[..], &b"ab\0\0"[..], 2)
-        );
+        assert_eq!((w.scan, w.hint), (&b"ab"[..], &b"ab\0\0"[..]));
 
         // trim_nuls keeps at least one byte.
-        let w = text_window(b"\0\0");
-        assert_eq!((w.scan, w.read_len), (&b"\0"[..], 1));
+        assert_eq!(text_window(b"\0\0").scan, b"\0");
         assert_eq!(text_window(b"").scan, b"");
+    }
+
+    #[test]
+    fn text_pass_buffer_widens_single_byte_classes_to_utf8() {
+        let cases: &[(&str, &str, &[u8], &[u8])] = &[
+            (
+                "latin1 byte becomes two bytes",
+                "ISO-8859 text",
+                b"a\xffb",
+                b"a\xc3\xbfb",
+            ),
+            (
+                "c1 byte too",
+                "Non-ISO extended-ASCII text",
+                b"\x85",
+                b"\xc2\x85",
+            ),
+            ("ascii untouched", "ASCII text", b"a\xffb", b"a\xffb"),
+            (
+                "utf8 untouched",
+                "Unicode text, UTF-8 text",
+                b"\xc3\xa9",
+                b"\xc3\xa9",
+            ),
+        ];
+        for (label, class, input, expected) in cases {
+            assert_eq!(
+                &*text_pass_buffer(input, class),
+                *expected,
+                "case {label:?}"
+            );
+        }
     }
 
     #[test]
@@ -494,9 +532,9 @@ mod tests {
                 ", with CR, LF line terminators",
             ),
             (
-                "trailing CR counts as CR",
+                "lone trailing CR counts for nothing (file 5.45)",
                 b"a\r",
-                ", with CR line terminators",
+                ", with no line terminators",
             ),
             ("NEL alone", b"a\x85b", ", with NEL line terminators"),
             ("escape", b"a\x1bb\n", ", with escape sequences"),
@@ -534,11 +572,7 @@ mod tests {
             ),
         ];
         for (label, input, expected) in cases {
-            assert_eq!(
-                text_qualifiers(input, input.len()),
-                *expected,
-                "case {label:?}"
-            );
+            assert_eq!(text_qualifiers(input), *expected, "case {label:?}");
         }
     }
 
