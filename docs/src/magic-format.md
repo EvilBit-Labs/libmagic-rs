@@ -332,7 +332,7 @@ Examples:
 
 Search flags are specified as `/flags` after the range in search types: `search/N/<flags>`. libmagic-rs implements the full search-type flag semantics (issue #235).
 
-Search flags share most semantics with string flags. Eight flags (`/c`, `/C`, `/w`, `/W`, `/T`, `/f`, `/t`, `/b`) carry the same comparison-altering or metadata-hint meanings as their string-type counterparts. The ninth flag, `/s`, is search-specific: it controls where the previous-match anchor lands for relative-offset children.
+Search flags share most semantics with string flags. Eight flags (`/c`, `/C`, `/w`, `/W`, `/T`, `/f`, `/t`, `/b`) carry the same comparison or pass-selection meanings as their string-type counterparts. The ninth flag, `/s`, is search-specific: it controls where the previous-match anchor lands for relative-offset children.
 
 | Flag | Description                                                                                                   |
 | ---- | ------------------------------------------------------------------------------------------------------------- |
@@ -343,8 +343,8 @@ Search flags share most semantics with string flags. Eight flags (`/c`, `/C`, `/
 | `/W` | Compact whitespace: pattern whitespace requires ≥1 buffer whitespace                                          |
 | `/T` | Trim whitespace: leading/trailing whitespace in pattern is ignored                                            |
 | `/f` | Full word: post-match word boundary check (same semantics as string type)                                     |
-| `/t` | Text test hint: MIME output hint (parsed, no comparison effect)                                               |
-| `/b` | Binary test hint: MIME output hint (parsed, no comparison effect)                                             |
+| `/t` | Text-pass entry; skipped on a binary buffer (no pattern-comparison effect)                                    |
+| `/b` | Binary-pass entry; skipped on a text buffer (no pattern-comparison effect)                                    |
 
 **Performance note:** Flags `/c`, `/C`, `/w`, `/W`, `/T`, `/f` force byte-by-byte comparison, while `/s`, `/t`, `/b` preserve the fast SIMD-accelerated search path (via `memchr::memmem::find`).
 
