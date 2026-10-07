@@ -232,8 +232,8 @@ fn evaluate_single_rule_with_anchor(
         // %s" idiom in `varied.script`, `sgml`, `linux`, ...) is a
         // lexicographic comparison, not a pattern match; routing it to the
         // pattern path made it a fatal `UnsupportedType` abort that killed the
-        // whole file's evaluation. The `/t`/`/b` flags are MIME-output hints
-        // with no comparison effect, so such a rule behaves like an unflagged
+        // whole file's evaluation. The `/t`/`/b` flags are pass-selection
+        // hints (GOTCHAS S13.7) with no comparison effect, so such a rule behaves like an unflagged
         // `string >VALUE` and belongs on the value path. Default-flag strings
         // (the common case) also take that value-rule fast path.
         TypeKind::String { flags, .. }
@@ -443,10 +443,15 @@ pub fn evaluate_rules(
         // the pass its first-line test type selects. Child lists and `use`
         // bodies are never filtered.
         if !is_child_sibling_list
-            && context
-                .top_level_pass()
-                .is_some_and(|pass| !pass.admits(rule))
+            && let Some(pass) = context.top_level_pass()
+            && !pass.admits(rule)
         {
+            if matches!(rule.typ, TypeKind::Meta(_)) {
+                debug!(
+                    "Skipping top-level {:?} rule '{}': not admitted to the {:?} pass",
+                    rule.typ, rule.message, pass.mode
+                );
+            }
             continue;
         }
 
@@ -616,6 +621,9 @@ pub fn evaluate_rules(
             // An `indirect` re-entry is always a binary pass (upstream passes
             // `BINTEST` to the nested `file_softmagic`), keeping the outer
             // buffer's text-ness. With no pass set the re-entry is unfiltered.
+            // The pass is saved and restored by hand (`AnchorScope` restores
+            // the anchor and base offset, not the pass), so the restore sits
+            // before the `?`.
             let outer_pass = context.top_level_pass();
             let reentry_pass = outer_pass.map(|pass| TopLevelPass {
                 mode: PassMode::Bin,

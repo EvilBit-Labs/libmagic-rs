@@ -401,7 +401,7 @@ Flags for `search` type modify comparison and anchor behavior. Most flags share 
 
 **`/s` — Start anchor:** When set, the anchor for relative-offset child rules lands at the match-START position rather than match-END. This is required for file formats that place magic strings in footers or trailers (TGA, sfnt name table).
 
-**Pass hints (`/t`, `/b`):** `file` evaluates top-level entries in a binary pass and then, for text buffers nothing printed in, a text pass that appends `, <text class>` (for example `POSIX shell script, ASCII text executable`). `/b` and `/t` force an entry into one pass; a `search`/`regex` with neither is a text entry when its pattern looks like text. They never alter the comparison. See GOTCHAS S13.7.
+**Pass hints (`/t`, `/b`):** `file` evaluates top-level entries in a binary pass and then, for text buffers nothing printed in, a text pass that appends `, <text class>` (for example `POSIX shell script, ASCII text executable`). `/t` makes a `string` entry a text-pass entry (it is otherwise binary, `/b` or not); on `search` the two select the pass (both may be set), and with neither a `search`/`regex` entry is a text entry when its pattern looks like text (`regex/b` and `regex/t` are not yet parsed by rmagic -- #528). A `/b`-only entry is also skipped on a text buffer and a `/t`-only entry on a binary buffer. They never alter the comparison. See GOTCHAS S13.7.
 
 Examples:
 

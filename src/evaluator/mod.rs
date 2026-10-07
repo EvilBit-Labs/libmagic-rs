@@ -17,8 +17,8 @@ pub mod strength;
 pub(crate) mod test_type;
 pub mod types;
 
-pub(crate) use engine::has_message_bearing_match;
 pub use engine::{evaluate_rules, evaluate_rules_with_config, evaluate_single_rule};
+pub(crate) use engine::{has_message_bearing_match, is_message_bearing};
 
 /// Strip a single leading GNU `file` no-separator marker from `s`, if present.
 ///

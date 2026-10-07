@@ -467,9 +467,9 @@ pub struct StringFlags {
 - `/w` (`compact_optional_whitespace`) — pattern whitespace matches zero or more whitespace bytes in the file
 - `/c` (`ignore_lowercase`) — when the pattern character is lowercase, the file byte is compared case-insensitively; uppercase pattern characters require exact match (asymmetric)
 - `/C` (`ignore_uppercase`) — when the pattern character is uppercase, the file byte is compared case-insensitively; lowercase pattern characters require exact match (asymmetric)
-- `/t` (`text_test`) — hint that this rule applies to text files (captured for MIME output integration)
+- `/t` (`text_test`) — text-pass entry, skipped on a binary buffer when `/b` is not also set (GOTCHAS S13.7); no comparison effect
 - `/T` (`trim`) — trim leading and trailing ASCII whitespace from the pattern before comparison
-- `/b` (`bin_test`) — hint that this rule applies to binary files (captured for MIME output integration)
+- `/b` (`bin_test`) — binary-pass entry (`string` is binary regardless), skipped on a text buffer when `/t` is not also set (GOTCHAS S13.7); no comparison effect
 - `/f` (`full_word`) — post-match check that the byte after the matched region is either end-of-buffer or a non-word character
 
 **Examples:**
@@ -653,9 +653,9 @@ pub struct SearchFlags {
 - `/w` (`compact_optional_whitespace`) — pattern whitespace matches zero or more whitespace bytes in the file
 - `/c` (`ignore_lowercase`) — when the pattern character is lowercase, the file byte is compared case-insensitively; uppercase pattern characters require exact match (asymmetric)
 - `/C` (`ignore_uppercase`) — when the pattern character is uppercase, the file byte is compared case-insensitively; lowercase pattern characters require exact match (asymmetric)
-- `/t` (`text_test`) — hint that this rule applies to text files (captured for MIME output integration)
+- `/t` (`text_test`) — text-pass entry, skipped on a binary buffer when `/b` is not also set (GOTCHAS S13.7); no comparison effect
 - `/T` (`trim`) — trim leading and trailing ASCII whitespace from the pattern before comparison
-- `/b` (`bin_test`) — hint that this rule applies to binary files (captured for MIME output integration)
+- `/b` (`bin_test`) — binary-pass entry (`string` is binary regardless), skipped on a text buffer when `/t` is not also set (GOTCHAS S13.7); no comparison effect
 - `/f` (`full_word`) — post-match check that the byte after the matched region is either end-of-buffer or a non-word character
 - `/s` (`start_anchor`) — advance anchor to match-START instead of match-END (search-only flag, no `string`-type analog)
 

@@ -881,9 +881,9 @@ pub struct StringFlags {
     /// uppercase, the file byte is `to_ascii_uppercase`'d before
     /// comparison. Lowercase pattern chars are compared literally.
     pub ignore_uppercase: bool,
-    /// `/t` -- `STRING_TEXTTEST`. Hint that this rule applies to text
-    /// files. Captured for MIME-output integration; does not currently
-    /// alter comparison.
+    /// `/t` -- `STRING_TEXTTEST`. Pass-selection hint: makes the entry a
+    /// text-pass entry and skips it on a binary buffer when `/b` is not
+    /// also set (GOTCHAS S13.7); no comparison effect.
     pub text_test: bool,
     /// `/T` -- `STRING_TRIM`. Trim leading and trailing ASCII whitespace
     /// from the pattern before comparison. The trim is applied at
@@ -891,9 +891,9 @@ pub struct StringFlags {
     /// original pattern bytes; the comparison function receives the
     /// trimmed slice.
     pub trim: bool,
-    /// `/b` -- `STRING_BINTEST`. Hint that this rule applies to binary
-    /// files. Captured for MIME-output integration; does not currently
-    /// alter comparison.
+    /// `/b` -- `STRING_BINTEST`. Pass-selection hint: skipped on a text
+    /// buffer when `/t` is not also set; a `string` entry is binary-pass
+    /// with or without it (GOTCHAS S13.7); no comparison effect.
     pub bin_test: bool,
     /// `/f` -- `STRING_FULL_WORD`. Post-match check that the byte after
     /// the matched region is either end-of-buffer or a non-word
@@ -1039,16 +1039,16 @@ pub struct SearchFlags {
     /// uppercase, the file byte is `to_ascii_uppercase`'d before
     /// comparison. Lowercase pattern chars are compared literally.
     pub ignore_uppercase: bool,
-    /// `/t` -- `STRING_TEXTTEST`. Hint that this rule applies to text
-    /// files. Captured for MIME-output integration; does not currently
-    /// alter comparison.
+    /// `/t` -- `STRING_TEXTTEST`. Pass-selection hint: makes the entry a
+    /// text-pass entry and skips it on a binary buffer when `/b` is not
+    /// also set (GOTCHAS S13.7); no comparison effect.
     pub text_test: bool,
     /// `/T` -- `STRING_TRIM`. Trim leading and trailing ASCII whitespace
     /// from the pattern before comparison.
     pub trim: bool,
-    /// `/b` -- `STRING_BINTEST`. Hint that this rule applies to binary
-    /// files. Captured for MIME-output integration; does not currently
-    /// alter comparison.
+    /// `/b` -- `STRING_BINTEST`. Pass-selection hint: makes the entry a
+    /// binary-pass entry and skips it on a text buffer when `/t` is not
+    /// also set (GOTCHAS S13.7); no comparison effect.
     pub bin_test: bool,
     /// `/f` -- `STRING_FULL_WORD`. Post-match check that the byte after
     /// the matched region is either end-of-buffer or a non-word

@@ -364,7 +364,7 @@ Examples:
 0       search/1/w  #!\040/usr/bin/python  Python script text executable
 
 # BinHex with binary hint (macintosh:17)
-# /b is parsed and stored; comparison-time MIME effect deferred to !:mime
+# /b makes this a binary-pass entry, skipped on a text buffer (GOTCHAS S13.7); no comparison effect
 0       search/2652/b  (This\ file\ must\ be\ converted\ with\ BinHex  BinHex binary text
 ```
 

@@ -28,7 +28,7 @@ The encoding-level label GNU `file` and rmagic give a text buffer (ASCII, UTF-8 
 
 ### Text window
 
-The prefix of a buffer that text classification, the qualifier scan, and the Text pass operate on: the read is first trimmed of trailing NULs, then capped at the encoding-inspection limit. A separate untrimmed view of the same prefix supplies the text-or-binary hint used by Admission. Rules in the Binary pass see the whole buffer.
+The prefix of a buffer that text classification, the qualifier scan, and the Text pass operate on: the read is first trimmed of trailing NULs, then capped at the encoding-inspection limit; the Text pass evaluates its UTF-8 widening, each byte of a single-byte class becoming one code point, while a UTF-8 window is evaluated as-is minus any sequence the cap cut through. A separate untrimmed view of the same prefix supplies the text-or-binary hint used by Admission. Rules in the Binary pass see the whole buffer.
 
 ### Message-bearing match
 

@@ -20,19 +20,6 @@
 //! overstrike qualifiers. Still out of scope: UTF-16/UTF-32, UTF-7, EBCDIC
 //! and BOM stripping; such buffers classify as `"data"`.
 
-/// Bytes GNU `file`'s `ascmagic`/`encoding` text test treats as part of
-/// ordinary "text" content: printable ASCII (0x20..=0x7E) plus the common
-/// control characters that appear in real-world text files (tab, LF, CR,
-/// vertical tab, form feed) and a few legacy terminal-control bytes GNU
-/// `file` still classifies as text -- bell, backspace, and escape --
-/// which it reports as `"ASCII text, with ..."` qualifiers rather than
-/// reclassifying as binary `"data"`. This fallback does not reproduce
-/// those qualifiers (see the module doc), but a buffer containing only
-/// these bytes is still `"ASCII text"`, not `"data"`.
-fn is_text_safe_byte(b: u8) -> bool {
-    text_char_class(b) == TextClass::Text
-}
-
 /// Classification of a single byte in GNU `file`'s `encoding.c::text_chars`
 /// table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,7 +52,8 @@ pub(crate) enum Utf8Look {
     Invalid,
     /// `0`: valid, but uses control bytes the text table rejects.
     Control,
-    /// `1`: 7-bit text (also returned for a lead byte truncated at EOF).
+    /// `1`: 7-bit text. A lead byte truncated at EOF is ignored (the scan
+    /// just stops), so the result reflects only what came before it.
     Ascii,
     /// `2`: valid UTF-8 with at least one multi-byte character.
     Multibyte,
@@ -128,13 +116,83 @@ pub(crate) fn looks_utf8(buf: &[u8]) -> Utf8Look {
     finish(ctrl, gotone)
 }
 
-/// Classify a buffer with the text/data fallback described in the module
-/// doc, following upstream `file_encoding` order.
+/// The text/data class of a buffer, in upstream `file_encoding` order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TextEncoding {
+    /// A zero-byte buffer.
+    Empty,
+    /// Only bytes of [`TextClass::Text`].
+    Ascii,
+    /// Valid UTF-8 with a multi-byte character and no rejected control byte.
+    Utf8,
+    /// Text bytes plus the ISO-8859 high half (`looks_latin1`).
+    Latin1,
+    /// Text and ISO-8859 bytes plus C1 controls (`looks_extended`).
+    Extended,
+    /// Anything else, including multi-byte encodings not ported (#524).
+    Data,
+}
+
+impl TextEncoding {
+    /// The label GNU `file` prints for the class.
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Empty => "empty",
+            Self::Ascii => "ASCII text",
+            Self::Utf8 => "Unicode text, UTF-8 text",
+            Self::Latin1 => "ISO-8859 text",
+            Self::Extended => "Non-ISO extended-ASCII text",
+            Self::Data => "data",
+        }
+    }
+
+    /// Whether the buffer gets the text pass and the `, <class>` tail.
+    pub(crate) const fn is_text(self) -> bool {
+        !matches!(self, Self::Empty | Self::Data)
+    }
+}
+
+/// Classify a buffer in upstream `file_encoding` order: empty, ASCII,
+/// multi-byte UTF-8, ISO-8859, non-ISO extended ASCII, else data.
+/// Infallible: no input fails to classify.
+#[must_use]
+pub(crate) fn classify(buffer: &[u8]) -> TextEncoding {
+    if buffer.is_empty() {
+        return TextEncoding::Empty;
+    }
+    if buffer
+        .iter()
+        .all(|&b| text_char_class(b) == TextClass::Text)
+    {
+        return TextEncoding::Ascii;
+    }
+    // Upstream `file_encoding` order: valid multi-byte UTF-8 with no rejected
+    // control byte is Unicode text (`encoding.c` code "Unicode text, UTF-8" +
+    // type "text"). A NUL inside otherwise-valid UTF-8 is `Control`, not text.
+    if looks_utf8(buffer) == Utf8Look::Multibyte {
+        return TextEncoding::Utf8;
+    }
+    // Upstream `looks_latin1` then `looks_extended`.
+    if buffer
+        .iter()
+        .all(|&b| matches!(text_char_class(b), TextClass::Text | TextClass::Latin1))
+    {
+        return TextEncoding::Latin1;
+    }
+    if buffer
+        .iter()
+        .all(|&b| text_char_class(b) != TextClass::Binary)
+    {
+        return TextEncoding::Extended;
+    }
+    TextEncoding::Data
+}
+
+/// The [`TextEncoding::label`] of [`classify`]: the text/data fallback
+/// described in the module doc.
 ///
 /// Returns one of `"empty"`, `"ASCII text"`, `"Unicode text, UTF-8 text"`,
-/// `"ISO-8859 text"`, `"Non-ISO extended-ASCII text"`, or `"data"`. This is
-/// intentionally infallible -- there is no input for which classification
-/// can fail, so the caller never needs to handle an error path here.
+/// `"ISO-8859 text"`, `"Non-ISO extended-ASCII text"`, or `"data"`.
 ///
 /// # Examples
 ///
@@ -147,42 +205,14 @@ pub(crate) fn looks_utf8(buf: &[u8]) -> Utf8Look {
 /// ```
 #[must_use]
 pub fn classify_fallback(buffer: &[u8]) -> &'static str {
-    if buffer.is_empty() {
-        return "empty";
-    }
-
-    if buffer.iter().all(|&b| is_text_safe_byte(b)) {
-        return "ASCII text";
-    }
-
-    // Upstream `file_encoding` order: valid multi-byte UTF-8 with no rejected
-    // control byte is Unicode text (`encoding.c` code "Unicode text, UTF-8" +
-    // type "text"). A NUL inside otherwise-valid UTF-8 is `Control`, not text.
-    if looks_utf8(buffer) == Utf8Look::Multibyte {
-        return "Unicode text, UTF-8 text";
-    }
-
-    // Upstream `looks_latin1` then `looks_extended`.
-    if buffer
-        .iter()
-        .all(|&b| matches!(text_char_class(b), TextClass::Text | TextClass::Latin1))
-    {
-        return "ISO-8859 text";
-    }
-    if buffer
-        .iter()
-        .all(|&b| text_char_class(b) != TextClass::Binary)
-    {
-        return "Non-ISO extended-ASCII text";
-    }
-
-    "data"
+    classify(buffer).label()
 }
 
 /// Upstream `MAXLINELEN` (`ascmagic.c`): longest line not reported as long.
 const MAXLINELEN: usize = 300;
 /// Upstream `FILE_BYTES_MAX` (`file.h`): how much of a file `file` reads.
-const BYTES_MAX: usize = 1_048_576;
+/// 7 MiB since file 5.44 (1 MiB through 5.43).
+const BYTES_MAX: usize = 7 * 1_048_576;
 /// Upstream `FILE_ENCODING_MAX` (`file.h`): how much of that read
 /// `file_encoding` and the text pass inspect.
 const ENCODING_MAX: usize = 65_536;
@@ -191,8 +221,9 @@ const ENCODING_MAX: usize = 65_536;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TextWindow<'a> {
     /// First `ENCODING_MAX` bytes of the read after trailing NULs are
-    /// trimmed (`file_ascmagic`'s `trim_nuls`): what is classified, scanned
-    /// for qualifiers, and evaluated by the text pass.
+    /// trimmed (`file_ascmagic`'s `trim_nuls`): what is classified and
+    /// scanned for qualifiers; the text pass evaluates its UTF-8 widening
+    /// ([`text_pass_buffer`]).
     pub(crate) scan: &'a [u8],
     /// First `ENCODING_MAX` bytes of the untrimmed read: what
     /// `file_buffer`'s `looks_text` hint for the `/b` and `/t` skips sees.
@@ -242,28 +273,32 @@ fn complete_utf8_prefix(buf: &[u8]) -> &[u8] {
 /// byte at or above 0x80 widens to two bytes; a UTF-8 window is already
 /// encoded but loses a sequence the window end cut through. Anything else
 /// (`data`, multi-byte encodings, #524) is passed through.
-pub(crate) fn text_pass_buffer<'a>(scan: &'a [u8], class: &str) -> std::borrow::Cow<'a, [u8]> {
-    if class == "Unicode text, UTF-8 text" {
-        return std::borrow::Cow::Borrowed(complete_utf8_prefix(scan));
-    }
-    if !matches!(
-        class,
-        "ASCII text" | "ISO-8859 text" | "Non-ISO extended-ASCII text"
-    ) || scan.iter().all(u8::is_ascii)
-    {
-        return std::borrow::Cow::Borrowed(scan);
-    }
-    let mut out = Vec::with_capacity(scan.len() * 2);
-    for &b in scan {
-        if b < 0x80 {
-            out.push(b);
-        } else {
-            out.push(0xC0 | (b >> 6));
-            out.push(0x80 | (b & 0x3F));
+pub(crate) fn text_pass_buffer(scan: &[u8], class: TextEncoding) -> std::borrow::Cow<'_, [u8]> {
+    use std::borrow::Cow;
+    match class {
+        TextEncoding::Utf8 => Cow::Borrowed(complete_utf8_prefix(scan)),
+        TextEncoding::Ascii | TextEncoding::Latin1 | TextEncoding::Extended
+            if !scan.iter().all(u8::is_ascii) =>
+        {
+            let mut out = Vec::with_capacity(scan.len() * 2);
+            for &b in scan {
+                if b < 0x80 {
+                    out.push(b);
+                } else {
+                    out.push(0xC0 | (b >> 6));
+                    out.push(0x80 | (b & 0x3F));
+                }
+            }
+            Cow::Owned(out)
         }
+        TextEncoding::Ascii
+        | TextEncoding::Latin1
+        | TextEncoding::Extended
+        | TextEncoding::Empty
+        | TextEncoding::Data => Cow::Borrowed(scan),
     }
-    std::borrow::Cow::Owned(out)
 }
+
 /// Code point of the X3.64 "next line" character.
 const NEL: u32 = 0x85;
 
@@ -385,43 +420,38 @@ mod tests {
 
     #[test]
     fn text_pass_buffer_widens_single_byte_classes_to_utf8() {
-        let cases: &[(&str, &str, &[u8], &[u8])] = &[
+        let cases: &[(&str, TextEncoding, &[u8], &[u8])] = &[
             (
                 "latin1 byte becomes two bytes",
-                "ISO-8859 text",
+                TextEncoding::Latin1,
                 b"a\xffb",
                 b"a\xc3\xbfb",
             ),
-            (
-                "c1 byte too",
-                "Non-ISO extended-ASCII text",
-                b"\x85",
-                b"\xc2\x85",
-            ),
-            ("pure ascii untouched", "ASCII text", b"abc", b"abc"),
+            ("c1 byte too", TextEncoding::Extended, b"\x85", b"\xc2\x85"),
+            ("pure ascii untouched", TextEncoding::Ascii, b"abc", b"abc"),
             (
                 "ascii NEL byte widens",
-                "ASCII text",
+                TextEncoding::Ascii,
                 b"ab\x85cd",
                 b"ab\xc2\x85cd",
             ),
-            ("data untouched", "data", b"a\xffb", b"a\xffb"),
+            ("data untouched", TextEncoding::Data, b"a\xffb", b"a\xffb"),
             (
                 "utf8 untouched",
-                "Unicode text, UTF-8 text",
+                TextEncoding::Utf8,
                 b"\xc3\xa9",
                 b"\xc3\xa9",
             ),
             (
                 "utf8 drops a sequence the window cut through",
-                "Unicode text, UTF-8 text",
+                TextEncoding::Utf8,
                 b"\xc3\xa9\xc3",
                 b"\xc3\xa9",
             ),
         ];
         for (label, class, input, expected) in cases {
             assert_eq!(
-                &*text_pass_buffer(input, class),
+                &*text_pass_buffer(input, *class),
                 *expected,
                 "case {label:?}"
             );

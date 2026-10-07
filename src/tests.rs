@@ -371,10 +371,32 @@ fn test_evaluation_result_confidence_from_matches() {
     let elf_header = b"\x7fELF\x02\x01\x01\x00";
     let result = db.evaluate_buffer(elf_header).unwrap();
 
-    // Result confidence should match first match confidence
+    // The first match renders text, so it is the confidence source.
     if !result.matches.is_empty() {
         assert!((result.confidence - result.matches[0].confidence).abs() < 0.001);
     }
+}
+
+/// Confidence comes from the match that produced the text, not from a
+/// message-less gate that sits first in `matches`.
+#[test]
+fn confidence_comes_from_the_first_message_bearing_match() {
+    use crate::evaluator::is_message_bearing;
+    use std::io::Write;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("magic");
+    std::fs::File::create(&path)
+        .unwrap()
+        .write_all(b"0 byte x\n>0 string QQ GATED\n")
+        .unwrap();
+    let db = MagicDatabase::load_from_file(&path).unwrap();
+
+    let result = db.evaluate_buffer(b"QQ\x01\x02\xff").unwrap();
+    assert_eq!(result.description, "GATED");
+    assert!(!is_message_bearing(&result.matches[0].message));
+    assert!((result.confidence - result.matches[1].confidence).abs() < 0.001);
+    assert!((result.confidence - result.matches[0].confidence).abs() > 0.001);
 }
 
 #[test]
@@ -986,6 +1008,61 @@ mod pstring_string16_newline_gate_end_to_end_tests {
             .expect("evaluate_rules should not error (a read failure is a non-match, not a propagated error)");
         assert!(matches.is_empty());
     }
+}
+
+/// A database of `n` distinct text-pass regex entries with the given timeout.
+fn regex_db(n: usize, timeout_ms: Option<u64>) -> (tempfile::TempDir, MagicDatabase) {
+    use std::io::Write;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("magic");
+    let mut file = std::fs::File::create(&path).unwrap();
+    for i in 0..n {
+        writeln!(file, "0 regex ZZTEXTQ{i}[a-z]+Q[0-9]{{2,8}} MSG{i}").unwrap();
+    }
+    let config = EvaluationConfig::default().with_timeout_ms(timeout_ms);
+    let db = MagicDatabase::load_from_file_with_config(&path, config).unwrap();
+    (dir, db)
+}
+
+/// `remaining_timeout_ms`: no budget, a partly used budget, a spent budget.
+#[test]
+fn remaining_timeout_ms_table() {
+    use std::time::{Duration, Instant};
+
+    let (_d1, unbounded) = regex_db(1, None);
+    let (_d2, bounded) = regex_db(1, Some(1000));
+    let ago = |ms| {
+        Instant::now()
+            .checked_sub(Duration::from_millis(ms))
+            .unwrap()
+    };
+
+    assert!(matches!(
+        unbounded.remaining_timeout_ms(ago(5000)),
+        Ok(None)
+    ));
+    let left = bounded.remaining_timeout_ms(ago(400)).unwrap().unwrap();
+    assert!((400..=600).contains(&left), "left {left}");
+    assert!(matches!(
+        bounded.remaining_timeout_ms(ago(1000)),
+        Err(LibmagicError::Timeout { timeout_ms: 1000 })
+    ));
+}
+
+/// A timeout inside pass 2 reports the configured budget, not the
+/// remainder pass 2 was run with; other errors pass through.
+#[test]
+fn second_pass_timeout_reports_the_configured_budget() {
+    let (_dir, db) = regex_db(1, Some(1000));
+    assert!(matches!(
+        db.with_configured_timeout(LibmagicError::Timeout { timeout_ms: 7 }),
+        LibmagicError::Timeout { timeout_ms: 1000 }
+    ));
+    assert!(matches!(
+        db.with_configured_timeout(LibmagicError::FileError("x".into())),
+        LibmagicError::FileError(_)
+    ));
 }
 
 /// One timeout budget spans both passes (GOTCHAS S13.7): when pass 1 has

@@ -668,7 +668,7 @@ impl MagicDatabase {
         use crate::evaluator::{
             EvaluationContext, RuleEnvironment, evaluate_rules, has_message_bearing_match,
         };
-        use crate::output::ascmagic::{classify_fallback, text_pass_buffer, text_window};
+        use crate::output::ascmagic::{TextEncoding, classify, text_pass_buffer, text_window};
 
         let file_size = buffer.len() as u64;
 
@@ -679,12 +679,12 @@ impl MagicDatabase {
         // GNU `file` never consults magic for an empty or one-byte file
         // (`funcs.c::file_buffer`).
         let fixed = match buffer.len() {
-            0 => Some("empty"),
-            1 => Some(VERY_SHORT_FILE),
+            0 => Some(("", TextEncoding::Empty)),
+            1 => Some((VERY_SHORT_FILE, TextEncoding::Data)),
             _ => None,
         };
-        if let Some(description) = fixed {
-            return Ok(self.build_result(Vec::new(), "", description, None, file_size, start_time));
+        if let Some((rendered, class)) = fixed {
+            return Ok(self.build_result(Vec::new(), rendered, class, None, file_size, start_time));
         }
 
         // Reset the thread-local regex compile cache so it is bounded to
@@ -704,9 +704,8 @@ impl MagicDatabase {
         // are trimmed; `file_ascmagic` classifies and runs the text pass over
         // the trimmed, 64 KiB-capped window.
         let window = text_window(buffer);
-        let buffer_is_text = !matches!(classify_fallback(window.hint), "data" | "empty");
-        let class = classify_fallback(window.scan);
-        let scan_is_text = !matches!(class, "data" | "empty");
+        let buffer_is_text = classify(window.hint).is_text();
+        let class = classify(window.scan);
         let bin_pass = TopLevelPass {
             mode: PassMode::Bin,
             buffer_is_text,
@@ -716,7 +715,7 @@ impl MagicDatabase {
             .with_top_level_pass(Some(bin_pass));
         let mut matches = evaluate_rules(&self.root_rules, buffer, &mut context)?;
 
-        if !scan_is_text || has_message_bearing_match(&matches, 0) {
+        if !class.is_text() || has_message_bearing_match(&matches, 0) {
             let rendered = Self::concatenate_messages(&matches);
             return Ok(self.build_result(matches, &rendered, class, None, file_size, start_time));
         }
@@ -732,18 +731,16 @@ impl MagicDatabase {
             .with_rule_env(env)
             .with_top_level_pass(Some(text_pass));
         let text_buffer = text_pass_buffer(window.scan, class);
-        matches.extend(evaluate_rules(
-            &self.root_rules,
-            &text_buffer,
-            &mut context,
-        )?);
+        let text_matches = evaluate_rules(&self.root_rules, &text_buffer, &mut context)
+            .map_err(|e| self.with_configured_timeout(e))?;
+        matches.extend(text_matches);
 
         let rendered = Self::concatenate_messages(&matches);
         Ok(self.build_result(
             matches,
             &rendered,
             class,
-            Some(window),
+            Some(window.scan),
             file_size,
             start_time,
         ))
@@ -765,47 +762,68 @@ impl MagicDatabase {
         }
     }
 
+    /// Relabel a `Timeout` raised by pass 2 with the configured budget,
+    /// not the remainder that pass was run with.
+    fn with_configured_timeout(&self, error: LibmagicError) -> LibmagicError {
+        match error {
+            LibmagicError::Timeout { timeout_ms } => LibmagicError::Timeout {
+                timeout_ms: self.config.timeout_ms.unwrap_or(timeout_ms),
+            },
+            other => other,
+        }
+    }
+
     /// Build an `EvaluationResult`.
     ///
-    /// `rendered` is the concatenated rule text (possibly empty) and
-    /// `class` the text/data classification that replaces it when it is
-    /// blank (GOTCHAS S13.3). With `window` set the text pass ran: the
-    /// description gets the `, <class>` tail and the qualifiers scanned
-    /// over that window (GOTCHAS S13.7). The MIME type comes from
-    /// the rule text before the tail, since `MimeMapper` picks the longest
-    /// keyword (`HTML document, ASCII text` would map to `text/plain`),
-    /// then from the class.
+    /// `rendered` is the description text so far (concatenated rule text,
+    /// possibly empty) and `class` the text/data classification that
+    /// replaces it when it is blank (GOTCHAS S13.3). With `text` set the
+    /// text pass ran (over the UTF-8 widening of that window,
+    /// `text_pass_buffer`): the description gets the `, <class>` tail and
+    /// the qualifiers scanned over the window itself (GOTCHAS S13.7). The MIME
+    /// type comes from the rule text before the tail, since `MimeMapper`
+    /// picks the longest keyword (`HTML document, ASCII text` would map to
+    /// `text/plain`), then from the class.
     fn build_result(
         &self,
         matches: Vec<evaluator::RuleMatch>,
         rendered: &str,
-        class: &'static str,
-        window: Option<crate::output::ascmagic::TextWindow<'_>>,
+        class: crate::output::ascmagic::TextEncoding,
+        text: Option<&[u8]>,
         file_size: u64,
         start_time: std::time::Instant,
     ) -> EvaluationResult {
+        use crate::evaluator::is_message_bearing;
         use crate::output::ascmagic::{append_text_class, text_qualifiers};
 
         let has_rule_text = !rendered.trim().is_empty();
         let rule_text = if has_rule_text { rendered } else { "" };
-        let description = match window {
-            Some(w) => append_text_class(rule_text, class, &text_qualifiers(w.scan)),
+        let description = match text {
+            Some(scan) => append_text_class(rule_text, class.label(), &text_qualifiers(scan)),
             None if has_rule_text => rendered.to_string(),
-            None => class.to_string(),
+            None => class.label().to_string(),
         };
 
-        // A fallback-only description carries no rule confidence.
+        // Confidence comes from the first message-bearing match; a
+        // fallback-only description carries none.
         let confidence = if has_rule_text {
-            matches.first().map_or(0.0, |m| m.confidence)
+            matches
+                .iter()
+                .find(|m| is_message_bearing(&m.message))
+                .map_or(0.0, |m| m.confidence)
         } else {
             0.0
         };
 
         let mime_type = if self.config.enable_mime_types {
-            let primary = if has_rule_text { rendered } else { class };
+            let primary = if has_rule_text {
+                rendered
+            } else {
+                class.label()
+            };
             self.mime_mapper
                 .get_mime_type(primary)
-                .or_else(|| window.and_then(|_| self.mime_mapper.get_mime_type(class)))
+                .or_else(|| text.and_then(|_| self.mime_mapper.get_mime_type(class.label())))
                 .map(String::from)
         } else {
             None

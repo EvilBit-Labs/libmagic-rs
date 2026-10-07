@@ -28,8 +28,9 @@ pub(crate) struct TopLevelPass {
     pub(crate) buffer_is_text: bool,
 }
 
-/// `(bin_test, text_test)` for the types upstream calls `IS_STRING` that
-/// carry flags here; `None` when the rule has no `/b` `/t` hints.
+/// `Some((bin_test, text_test))` for the flag-carrying types upstream calls
+/// `IS_STRING` (`string`, `search`), whatever the flags' values; `None` for
+/// every other type.
 fn string_hints(rule: &MagicRule) -> Option<(bool, bool)> {
     match &rule.typ {
         TypeKind::String { flags, .. } => Some((flags.bin_test, flags.text_test)),
@@ -74,6 +75,7 @@ fn pattern_is_text(rule: &MagicRule) -> bool {
 /// Test type of an entry, from its first line (children are ignored).
 pub(crate) fn entry_test_type(rule: &MagicRule) -> EntryTestType {
     let (bin, text) = match &rule.typ {
+        // `set_test_type` gives a string TEXTTEST iff `/t`; `/b` is ignored.
         TypeKind::String { flags, .. } => (!flags.text_test, flags.text_test),
         TypeKind::Regex { .. } | TypeKind::Search { .. } => {
             let (b, t) = string_hints(rule).unwrap_or((false, false));
@@ -191,6 +193,8 @@ mod tests {
             ("search/t", parsed("0 search/100/t ABC m"), TEXT),
             ("search/bt", parsed("0 search/100/bt ABC m"), BOTH),
             ("regex NUL pattern", regex(s("A\0B")), BIN),
+            ("regex parsed \\377", parsed("0 regex QQ\\377 m"), BIN),
+            ("search parsed \\377", parsed("0 search/8 QQ\\377 m"), BIN),
             ("regex escaped high byte", regex(s(r"A\xff")), BIN),
             (
                 "regex escaped backslash then xff",

@@ -41,6 +41,14 @@ const REGEX6: &str = "0 regex QQTEXT6 TOPMSG6\n";
 #[allow(clippy::too_many_lines)]
 fn two_pass_matrix_matches_gnu_file() {
     let utf8 = "QQTEXT6 \u{e9}\n";
+    // The shorter long line comes first so "longest" is not "first".
+    let two_long = [
+        vec![b'b'; 400],
+        b"\nQQTEXT6".to_vec(),
+        vec![b'a'; 493],
+        b"\n".to_vec(),
+    ]
+    .concat();
     let cases: &[(&str, &str, &[u8], &str)] = &[
         (
             "plain string: BIN pass, no tail",
@@ -187,10 +195,93 @@ fn two_pass_matrix_matches_gnu_file() {
             b"\0\x01\x02\xff",
             "data",
         ),
+        (
+            "pass order beats strength order: the weaker byte entry prints first",
+            "0 regex QQTEXTX TEXTMSG\n0 byte 0x51 BINMSG\n",
+            b"QQTEXTX\n",
+            "BINMSG",
+        ),
+        (
+            "message-less gate whose child misses does not suppress the text pass",
+            "0 string QQTEXTG\n>0 string ZZ NOPE\n0 regex QQTEXTG TEXTMSG\n",
+            b"QQTEXTG\n",
+            "TEXTMSG, ASCII text",
+        ),
+        (
+            "message-less gate whose child misses prints nothing",
+            "0 string QQTEXTG\n>0 string ZZ NOPE\n",
+            b"QQTEXTG\n",
+            "ASCII text",
+        ),
+        (
+            "use body is unfiltered: its text regex runs in the binary pass",
+            "0 name sub NAMEMSG\n>0 regex QQTEXTU BODYMSG\n0 byte x\n>0 use sub\n",
+            b"QQTEXTU\n",
+            "NAMEMSG BODYMSG",
+        ),
+        (
+            "one-byte buffer even when a rule would match",
+            "0 byte 0x78 BYTEMSG\n",
+            b"x",
+            "very short file (no magic)",
+        ),
+        (
+            "regex with a parsed high byte is a binary entry: no tail",
+            "0 regex QQTEXTH\\377 HB\n",
+            b"QQTEXTH\xff\n",
+            "HB",
+        ),
+        (
+            "search with a parsed high byte is a binary entry: no tail",
+            "0 search/8 QQTEXTS\\377 SB\n",
+            b"QQTEXTS\xff\n",
+            "SB",
+        ),
+        (
+            "two long lines report the longest",
+            REGEX6,
+            &two_long,
+            "TOPMSG6, ASCII text, with very long lines (500)",
+        ),
+        (
+            "extended-ASCII buffer",
+            "0 regex QQTEXTE EMSG\n",
+            b"QQTEXTE\x81\n",
+            "EMSG, Non-ISO extended-ASCII text",
+        ),
+        (
+            "top-level offset is a binary entry",
+            "0 offset x OFFSETMSG\n",
+            b"QQTEXTO\n",
+            "OFFSETMSG",
+        ),
+        (
+            "top-level clear is never evaluated",
+            "0 clear x CLRMSG\n",
+            b"QQTEXTC\n",
+            "ASCII text",
+        ),
     ];
     for (label, magic, buffer, expected) in cases {
         assert_eq!(describe(magic, buffer), *expected, "case {label:?}");
     }
+}
+
+/// `FILE_BYTES_MAX` is 7 MiB since file 5.44 (1 MiB through 5.43). The
+/// trailing NULs of a 1 MiB + 1 read are not trailing once the read extends
+/// past them, so a 5.44+ host classifies the window as `data`; a 5.41 host
+/// (measured) stops reading at 1 MiB and prints `TOPMSG6, ASCII text`. The
+/// 7 MiB + 1 row pins the upper edge the same way.
+#[test]
+fn the_read_cap_is_file_544s_7_mib() {
+    const MIB: usize = 1_048_576;
+    let padded = |len: usize| [b"QQTEXT6\n".to_vec(), vec![0; len - 8], b"b".to_vec()].concat();
+    assert_eq!(describe(REGEX6, &padded(MIB)), "data", "1 MiB + 1");
+    assert_eq!(
+        describe(REGEX6, &padded(7 * MIB)),
+        "TOPMSG6, ASCII text",
+        "7 MiB + 1"
+    );
 }
 
 /// `file_ascmagic` trims trailing NULs from the read before classifying, and
@@ -302,7 +393,9 @@ fn linux_golden_rows_pin_the_description_rewrite() {
 /// no system rule on either measured host.
 #[test]
 fn oracle_rows_agree_with_host_file_after_normalization() {
-    use common::magic_oracle::{file_says, has_file_binary, normalize_text_class_rewrite, skip};
+    use common::magic_oracle::{
+        file_honors_magic_dir, file_says, has_file_binary, normalize_text_class_rewrite, skip,
+    };
     if !has_file_binary() {
         skip("`file` is not installed");
         return;
@@ -331,12 +424,20 @@ fn oracle_rows_agree_with_host_file_after_normalization() {
         ("one_byte", b"x"),
     ];
     let (dir, db) = db(magic);
+    let magic_dir = dir.path().join("magic");
+    if let Err(reason) = file_honors_magic_dir(&magic_dir) {
+        skip(&format!(
+            "`file` rejects MAGIC={}: {reason}",
+            magic_dir.display()
+        ));
+        return;
+    }
     for (name, buffer) in buffers {
         let target = dir.path().join(name);
         std::fs::write(&target, buffer).expect("test setup");
         let ours = db.evaluate_buffer(buffer).expect("test setup").description;
         let theirs = normalize_text_class_rewrite(&file_says(
-            &dir.path().join("magic"),
+            &magic_dir,
             target.to_str().expect("test setup"),
         ));
         assert_eq!(ours, theirs, "oracle row {name:?}");

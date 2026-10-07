@@ -90,7 +90,7 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
         // flags (`/w` and `/W`) by the same logic. `/f` (full-word) is
         // NOT penalized because it tightens the match (requires a word
         // boundary) rather than broadening it; `/T` (trim) and the
-        // MIME-output hints (`/t`, `/b`) carry no penalty either -- see
+        // pass-selection hints (`/t`, `/b`, GOTCHAS S13.7) carry no penalty either -- see
         // `string_flag_specificity_penalty` for the canonical list.
         TypeKind::String { max_length, flags } => {
             let base = 20;
@@ -254,7 +254,7 @@ pub fn calculate_default_strength(rule: &MagicRule) -> i32 {
 /// - `/W` (`compact_whitespace`) -- file whitespace required but elastic
 ///
 /// Non-penalized flags (no specificity change):
-/// - `/t` (`text_test`) and `/b` (`bin_test`) -- MIME-output hints only
+/// - `/t` (`text_test`) and `/b` (`bin_test`) -- pass-selection hints only (GOTCHAS S13.7)
 /// - `/T` (`trim`) -- pattern-side normalization, not a fuzziness knob
 /// - `/f` (`full_word`) -- TIGHTENS the match by requiring a post-match
 ///   word boundary; opposite direction from fuzziness, so it should not
