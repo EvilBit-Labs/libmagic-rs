@@ -892,8 +892,9 @@ pub struct StringFlags {
     /// trimmed slice.
     pub trim: bool,
     /// `/b` -- `STRING_BINTEST`. Pass-selection hint: skipped on a text
-    /// buffer when `/t` is not also set; a `string` entry is binary-pass
-    /// with or without it (GOTCHAS S13.7); no comparison effect.
+    /// buffer when `/t` is not also set. It never changes a `string`
+    /// entry's pass, which `/t` alone decides, so `string/bt` is
+    /// text-pass-only (GOTCHAS S13.7); no comparison effect.
     pub bin_test: bool,
     /// `/f` -- `STRING_FULL_WORD`. Post-match check that the byte after
     /// the matched region is either end-of-buffer or a non-word
@@ -1048,7 +1049,8 @@ pub struct SearchFlags {
     pub trim: bool,
     /// `/b` -- `STRING_BINTEST`. Pass-selection hint: makes the entry a
     /// binary-pass entry and skips it on a text buffer when `/t` is not
-    /// also set (GOTCHAS S13.7); no comparison effect.
+    /// also set; `search/bt` runs in both passes (GOTCHAS S13.7); no
+    /// comparison effect.
     pub bin_test: bool,
     /// `/f` -- `STRING_FULL_WORD`. Post-match check that the byte after
     /// the matched region is either end-of-buffer or a non-word

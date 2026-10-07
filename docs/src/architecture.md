@@ -174,7 +174,7 @@ The `String` type supports flag modifiers via the `flags: StringFlags` field:
 - **`/W`** (`compact_whitespace`): Pattern whitespace requires at least one whitespace byte, then consumes greedily
 - **`/t`** (`text_test`): Text-pass entry, skipped on a binary buffer when `/b` is not also set (GOTCHAS S13.7); no comparison effect
 - **`/T`** (`trim`): Trim leading/trailing ASCII whitespace from the pattern before comparison
-- **`/b`** (`bin_test`): Binary-pass entry (`string` is binary regardless), skipped on a text buffer when `/t` is not also set (GOTCHAS S13.7); no comparison effect
+- **`/b`** (`bin_test`): Skipped on a text buffer when `/t` is not also set; never changes a `string` entry's pass, which `/t` alone decides (`string/bt` is text-pass-only) (GOTCHAS S13.7); no comparison effect
 - **`/f`** (`full_word`): Post-match word-boundary check (byte after match must be non-word or end-of-buffer)
 
 Default flags (all `false`) preserve byte-exact comparison. The consumed-bytes count from whitespace-optional matches (`/w`) drives the relative-offset anchor for child rules. Note that `/B` is **not** a string flag — it is the `pstring` 1-byte length-width letter; `string/B` is rejected at parse time.

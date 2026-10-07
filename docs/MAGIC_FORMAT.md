@@ -231,16 +231,16 @@ Examples:
 
 Flags for `string` type modify comparison behavior per libmagic `src/softmagic.c`:
 
-| Flag | Description                                                                                                            |
-| ---- | ---------------------------------------------------------------------------------------------------------------------- |
-| `/c` | Case-insensitive match (lowercase pattern chars fold file bytes to lower; uppercase pattern chars are literal)         |
-| `/C` | Case-insensitive match (uppercase pattern chars fold file bytes to upper; lowercase pattern chars are literal)         |
-| `/w` | Whitespace-optional (pattern whitespace matches zero or more file whitespace)                                          |
-| `/W` | Whitespace-required-compact (pattern whitespace requires at least one file whitespace; additional whitespace consumed) |
-| `/T` | Trim leading/trailing ASCII whitespace from pattern before comparison                                                  |
-| `/f` | Full-word match (post-match word-boundary check; next byte must be EOF or non-word char)                               |
-| `/b` | Binary-test entry: runs in the binary pass; skipped on a text buffer (no effect on comparison)                         |
-| `/t` | Text-test entry: runs in the text pass and takes the `, <text class>` tail; skipped on a binary buffer                 |
+| Flag | Description                                                                                                                                         |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/c` | Case-insensitive match (lowercase pattern chars fold file bytes to lower; uppercase pattern chars are literal)                                      |
+| `/C` | Case-insensitive match (uppercase pattern chars fold file bytes to upper; lowercase pattern chars are literal)                                      |
+| `/w` | Whitespace-optional (pattern whitespace matches zero or more file whitespace)                                                                       |
+| `/W` | Whitespace-required-compact (pattern whitespace requires at least one file whitespace; additional whitespace consumed)                              |
+| `/T` | Trim leading/trailing ASCII whitespace from pattern before comparison                                                                               |
+| `/f` | Full-word match (post-match word-boundary check; next byte must be EOF or non-word char)                                                            |
+| `/b` | Skipped on a text buffer when `/t` is not also set; never changes a `string` entry's pass, which `/t` alone decides (`string/bt` is text-pass-only) |
+| `/t` | Text-pass entry: takes the `, <text class>` tail; skipped on a binary buffer when `/b` is not also set (no effect on comparison)                    |
 
 **`/c` vs `/C` asymmetry:** The pattern character controls fold direction. `/c` with lowercase pattern chars folds the file byte to lowercase; uppercase pattern chars in the same pattern are compared literally. Mixed-case patterns work intuitively: `/c FoO` matches `FoO`, `Foo`, `FOO` but not `fOO` (the uppercase `F` is literal). See GOTCHAS S6.5 for details.
 
@@ -385,17 +385,17 @@ The range is optional (`Option<NonZeroUsize>`): a bare `search` (`None`) scans f
 
 Flags for `search` type modify comparison and anchor behavior. Most flags share semantics with `string` type flags; `/s` is search-specific.
 
-| Flag | Description                                                                                                            |
-| ---- | ---------------------------------------------------------------------------------------------------------------------- |
-| `/s` | Anchor advance lands at match-START instead of match-END (required for TGA footer, sfnt name table)                    |
-| `/c` | Case-insensitive match (lowercase pattern chars fold file bytes to lower; uppercase pattern chars are literal)         |
-| `/C` | Case-insensitive match (uppercase pattern chars fold file bytes to upper; lowercase pattern chars are literal)         |
-| `/w` | Whitespace-optional (pattern whitespace matches zero or more file whitespace)                                          |
-| `/W` | Whitespace-required-compact (pattern whitespace requires at least one file whitespace; additional whitespace consumed) |
-| `/T` | Trim leading/trailing ASCII whitespace from pattern before comparison                                                  |
-| `/f` | Full-word match (post-match word-boundary check; next byte must be EOF or non-word char)                               |
-| `/t` | Text-test entry: runs in the text pass and takes the `, <text class>` tail; skipped on a binary buffer                 |
-| `/b` | Binary-test entry: runs in the binary pass; skipped on a text buffer (no effect on comparison)                         |
+| Flag | Description                                                                                                                      |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `/s` | Anchor advance lands at match-START instead of match-END (required for TGA footer, sfnt name table)                              |
+| `/c` | Case-insensitive match (lowercase pattern chars fold file bytes to lower; uppercase pattern chars are literal)                   |
+| `/C` | Case-insensitive match (uppercase pattern chars fold file bytes to upper; lowercase pattern chars are literal)                   |
+| `/w` | Whitespace-optional (pattern whitespace matches zero or more file whitespace)                                                    |
+| `/W` | Whitespace-required-compact (pattern whitespace requires at least one file whitespace; additional whitespace consumed)           |
+| `/T` | Trim leading/trailing ASCII whitespace from pattern before comparison                                                            |
+| `/f` | Full-word match (post-match word-boundary check; next byte must be EOF or non-word char)                                         |
+| `/t` | Text-pass entry: takes the `, <text class>` tail; skipped on a binary buffer when `/b` is not also set (no effect on comparison) |
+| `/b` | Binary-pass entry: skipped on a text buffer when `/t` is not also set; `search/bt` runs in both passes (no effect on comparison) |
 
 **`/c` vs `/C` asymmetry:** The pattern character controls fold direction. `/c` with lowercase pattern chars folds the file byte to lowercase; uppercase pattern chars in the same pattern are compared literally. See String Flags section above for details.
 

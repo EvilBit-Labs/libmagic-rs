@@ -469,7 +469,7 @@ pub struct StringFlags {
 - `/C` (`ignore_uppercase`) — when the pattern character is uppercase, the file byte is compared case-insensitively; lowercase pattern characters require exact match (asymmetric)
 - `/t` (`text_test`) — text-pass entry, skipped on a binary buffer when `/b` is not also set (GOTCHAS S13.7); no comparison effect
 - `/T` (`trim`) — trim leading and trailing ASCII whitespace from the pattern before comparison
-- `/b` (`bin_test`) — binary-pass entry (`string` is binary regardless), skipped on a text buffer when `/t` is not also set (GOTCHAS S13.7); no comparison effect
+- `/b` (`bin_test`) — skipped on a text buffer when `/t` is not also set; never changes a `string` entry's pass, which `/t` alone decides (`string/bt` is text-pass-only) (GOTCHAS S13.7); no comparison effect
 - `/f` (`full_word`) — post-match check that the byte after the matched region is either end-of-buffer or a non-word character
 
 **Examples:**
@@ -655,7 +655,7 @@ pub struct SearchFlags {
 - `/C` (`ignore_uppercase`) — when the pattern character is uppercase, the file byte is compared case-insensitively; lowercase pattern characters require exact match (asymmetric)
 - `/t` (`text_test`) — text-pass entry, skipped on a binary buffer when `/b` is not also set (GOTCHAS S13.7); no comparison effect
 - `/T` (`trim`) — trim leading and trailing ASCII whitespace from the pattern before comparison
-- `/b` (`bin_test`) — binary-pass entry (`string` is binary regardless), skipped on a text buffer when `/t` is not also set (GOTCHAS S13.7); no comparison effect
+- `/b` (`bin_test`) — binary-pass entry, skipped on a text buffer when `/t` is not also set; `search/bt` runs in both passes (GOTCHAS S13.7); no comparison effect
 - `/f` (`full_word`) — post-match check that the byte after the matched region is either end-of-buffer or a non-word character
 - `/s` (`start_anchor`) — advance anchor to match-START instead of match-END (search-only flag, no `string`-type analog)
 

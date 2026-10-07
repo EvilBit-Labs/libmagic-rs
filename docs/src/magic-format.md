@@ -287,16 +287,16 @@ The optional max_length parameter caps the length value:
 
 String flags are now implemented (issue #234, landed in PR #288), providing libmagic-compatible string comparison semantics.
 
-| Flag | Description                                                   |
-| ---- | ------------------------------------------------------------- |
-| `/c` | Case-insensitive (lowercase pattern chars trigger fold)       |
-| `/C` | Case-insensitive (uppercase pattern chars trigger fold)       |
-| `/w` | Whitespace-optional (pattern whitespace matches zero or more) |
-| `/W` | Whitespace-required-compact (at least one, greedy consume)    |
-| `/T` | Trim leading/trailing ASCII whitespace from pattern           |
-| `/f` | Full-word match (post-match word boundary check)              |
-| `/b` | Binary-pass entry (skipped on a text buffer)                  |
-| `/t` | Text-pass entry; description gets the `, <text class>` tail   |
+| Flag | Description                                                                                                                    |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `/c` | Case-insensitive (lowercase pattern chars trigger fold)                                                                        |
+| `/C` | Case-insensitive (uppercase pattern chars trigger fold)                                                                        |
+| `/w` | Whitespace-optional (pattern whitespace matches zero or more)                                                                  |
+| `/W` | Whitespace-required-compact (at least one, greedy consume)                                                                     |
+| `/T` | Trim leading/trailing ASCII whitespace from pattern                                                                            |
+| `/f` | Full-word match (post-match word boundary check)                                                                               |
+| `/b` | Skipped on a text buffer when `/t` is not also set; `/t` alone decides a `string` entry's pass (`string/bt` is text-pass-only) |
+| `/t` | Text-pass entry; description gets the `, <text class>` tail; skipped on a binary buffer when `/b` is not also set              |
 
 **Note:** `/c` and `/C` are asymmetric — the pattern character controls fold direction. With `/c`, only lowercase pattern chars cause the file byte to be folded to lowercase. With `/C`, only uppercase pattern chars cause the file byte to be folded to uppercase. See GOTCHAS section S6.5 for details on mixed-case behavior. `/B` (uppercase) is not a string flag; it is reserved for pstring length-width specification and is rejected on string types.
 
@@ -334,17 +334,17 @@ Search flags are specified as `/flags` after the range in search types: `search/
 
 Search flags share most semantics with string flags. Eight flags (`/c`, `/C`, `/w`, `/W`, `/T`, `/f`, `/t`, `/b`) carry the same comparison or pass-selection meanings as their string-type counterparts. The ninth flag, `/s`, is search-specific: it controls where the previous-match anchor lands for relative-offset children.
 
-| Flag | Description                                                                                                   |
-| ---- | ------------------------------------------------------------------------------------------------------------- |
-| `/s` | Start anchor: sets the previous-match anchor to match-START instead of match-END for relative-offset children |
-| `/c` | Case-insensitive (lowercase): pattern lowercase letters match both cases in buffer                            |
-| `/C` | Case-insensitive (uppercase): pattern uppercase letters match both cases in buffer                            |
-| `/w` | Optional whitespace: pattern whitespace matches zero-or-more buffer whitespace                                |
-| `/W` | Compact whitespace: pattern whitespace requires ≥1 buffer whitespace                                          |
-| `/T` | Trim whitespace: leading/trailing whitespace in pattern is ignored                                            |
-| `/f` | Full word: post-match word boundary check (same semantics as string type)                                     |
-| `/t` | Text-pass entry; skipped on a binary buffer (no pattern-comparison effect)                                    |
-| `/b` | Binary-pass entry; skipped on a text buffer (no pattern-comparison effect)                                    |
+| Flag | Description                                                                                                                     |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `/s` | Start anchor: sets the previous-match anchor to match-START instead of match-END for relative-offset children                   |
+| `/c` | Case-insensitive (lowercase): pattern lowercase letters match both cases in buffer                                              |
+| `/C` | Case-insensitive (uppercase): pattern uppercase letters match both cases in buffer                                              |
+| `/w` | Optional whitespace: pattern whitespace matches zero-or-more buffer whitespace                                                  |
+| `/W` | Compact whitespace: pattern whitespace requires ≥1 buffer whitespace                                                            |
+| `/T` | Trim whitespace: leading/trailing whitespace in pattern is ignored                                                              |
+| `/f` | Full word: post-match word boundary check (same semantics as string type)                                                       |
+| `/t` | Text-pass entry; skipped on a binary buffer when `/b` is not also set (no pattern-comparison effect)                            |
+| `/b` | Binary-pass entry; skipped on a text buffer when `/t` is not also set; `/bt` runs in both passes (no pattern-comparison effect) |
 
 **Performance note:** Flags `/c`, `/C`, `/w`, `/W`, `/T`, `/f` force byte-by-byte comparison, while `/s`, `/t`, `/b` preserve the fast SIMD-accelerated search path (via `memchr::memmem::find`).
 
