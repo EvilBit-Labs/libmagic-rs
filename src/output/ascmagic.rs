@@ -188,8 +188,8 @@ pub(crate) fn classify(buffer: &[u8]) -> TextEncoding {
     TextEncoding::Data
 }
 
-/// The [`TextEncoding::label`] of [`classify`]: the text/data fallback
-/// described in the module doc.
+/// The label of the crate-private `classify` result: the text/data
+/// fallback described in the module doc.
 ///
 /// Returns one of `"empty"`, `"ASCII text"`, `"Unicode text, UTF-8 text"`,
 /// `"ISO-8859 text"`, `"Non-ISO extended-ASCII text"`, or `"data"`.
