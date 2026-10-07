@@ -17,8 +17,9 @@
 //! This ports the byte-level subset of GNU `file`'s `ascmagic.c` and
 //! `encoding.c`: ASCII, UTF-8, ISO-8859 and non-ISO extended-ASCII
 //! classification, plus the line-terminator, long-line, escape and
-//! overstrike qualifiers. Still out of scope: UTF-16/UTF-32, UTF-7, EBCDIC
-//! and BOM stripping; such buffers classify as `"data"`.
+//! overstrike qualifiers. Still out of scope (#524): UTF-16/UTF-32 and
+//! EBCDIC, which classify as `"data"`; a UTF-8 BOM, which is not stripped
+//! and classifies as UTF-8 text; and UTF-7, which reads as plain ASCII.
 
 /// Classification of a single byte in GNU `file`'s `encoding.c::text_chars`
 /// table.

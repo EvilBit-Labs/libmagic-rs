@@ -699,7 +699,8 @@ impl MagicDatabase {
         // Two passes, as `file_buffer` -> `file_softmagic(BINTEST)` then
         // `file_ascmagic` -> `file_softmagic(TEXTTEST)` (GOTCHAS S13.7).
         // A text buffer gets the text pass only when the binary pass
-        // printed nothing; the text pass always ends with `, <class>`.
+        // printed nothing, unless `stop_at_first_match` is off (`file -k`,
+        // which keeps going); the text pass always ends with `, <class>`.
         // `file_buffer`'s `looks_text` hint is taken before trailing NULs
         // are trimmed; `file_ascmagic` classifies and runs the text pass over
         // the trimmed, 64 KiB-capped window, and gives up on a trimmed read
@@ -720,7 +721,8 @@ impl MagicDatabase {
             .with_top_level_pass(Some(bin_pass));
         let mut matches = evaluate_rules(&self.root_rules, buffer, &mut context)?;
 
-        if !class.is_text() || has_message_bearing_match(&matches, 0) {
+        let binary_pass_printed = has_message_bearing_match(&matches, 0);
+        if !class.is_text() || (self.config.stop_at_first_match && binary_pass_printed) {
             let rendered = Self::concatenate_messages(&matches);
             return Ok(self.build_result(matches, &rendered, class, None, file_size, start_time));
         }

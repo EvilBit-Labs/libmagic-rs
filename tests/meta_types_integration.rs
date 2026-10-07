@@ -234,8 +234,7 @@ fn test_message_less_clear_emits_nothing() {
     writeln!(f, r"0 string ZQX9 PARENT").unwrap();
     writeln!(f, r">4 clear x").unwrap();
 
-    let config = EvaluationConfig::default().with_stop_at_first_match(false);
-    let db = MagicDatabase::load_from_file_with_config(&magic_path, config).unwrap();
+    let db = MagicDatabase::load_from_file(&magic_path).unwrap();
 
     let result = db.evaluate_buffer(b"ZQX9rest").unwrap();
     assert_eq!(
@@ -288,18 +287,11 @@ fn test_indirect_synthetic_scenario() {
 
 #[test]
 fn test_searchbug_matches_full_result_string() {
-    // The `searchbug.result` fixture expects the concatenation of every
-    // match produced by walking the full rule tree. libmagic-rs's
-    // `stop_at_first_match` default is `true`, which causes the
-    // evaluator to short-circuit after the first sibling in every
-    // nested rule list -- that's the right default for file-type
-    // classification but the wrong default for round-tripping magic(5)
-    // fixtures that expect every successful rule to surface its
-    // message. Disable it here so the fixture's full expected
-    // description is produced; GNU `file`'s behavior on this fixture
-    // is equivalent to evaluating every branch.
-    let config = EvaluationConfig::default().with_stop_at_first_match(false);
-    let db = MagicDatabase::load_from_file_with_config("third_party/tests/searchbug.magic", config)
+    // The `searchbug.result` fixture is plain `file` output: one top-level
+    // entry whose child siblings all render (`stop_at_first_match` is
+    // top-level-only, GOTCHAS S13.4). The default config reproduces it;
+    // disabling the stop would add `file -k`'s text-pass tail (S13.7).
+    let db = MagicDatabase::load_from_file("third_party/tests/searchbug.magic")
         .expect("searchbug.magic must load end-to-end");
     let bytes = std::fs::read("third_party/tests/searchbug.testfile")
         .expect("searchbug.testfile fixture must exist");

@@ -267,6 +267,44 @@ fn two_pass_matrix_matches_gnu_file() {
     }
 }
 
+/// With `stop_at_first_match` off (`file -k`), the text pass runs even
+/// after the binary pass printed, and the tail follows. Measured on
+/// file-5.41: `BINMSG` then `- TEXTMSG, ASCII text`, and `- , ASCII text`
+/// with no text match; rmagic joins the fragments without `-k`'s `\n- `.
+#[test]
+fn keep_going_runs_the_text_pass_after_a_binary_match() {
+    use libmagic_rs::EvaluationConfig;
+    let cases: &[(&str, &str, &[u8], &str)] = &[
+        (
+            "binary and text entries both print",
+            "0 byte 0x51 BINMSG\n0 regex QQTEXTK TEXTMSG\n",
+            b"QQTEXTK\n",
+            "BINMSG TEXTMSG, ASCII text",
+        ),
+        (
+            "binary entry prints, no text entry matches",
+            "0 byte 0x51 BINMSG\n",
+            b"QQTEXTK\n",
+            "BINMSG, ASCII text",
+        ),
+        (
+            "binary buffer gets no text pass either way",
+            "0 byte 0x51 BINMSG\n",
+            b"Q\0\x01",
+            "BINMSG",
+        ),
+    ];
+    for (label, magic, buffer, expected) in cases {
+        let dir = TempDir::new().expect("test setup");
+        let path = dir.path().join("inline");
+        std::fs::write(&path, magic).expect("test setup");
+        let config = EvaluationConfig::default().with_stop_at_first_match(false);
+        let db = MagicDatabase::load_from_file_with_config(&path, config).expect("test setup");
+        let got = db.evaluate_buffer(buffer).expect("test setup").description;
+        assert_eq!(got, *expected, "case {label:?}");
+    }
+}
+
 /// `FILE_BYTES_MAX` is 7 MiB since file 5.44 (1 MiB through 5.43). The
 /// trailing NULs of a 1 MiB + 1 read are not trailing once the read extends
 /// past them, so a 5.44+ host classifies the window as `data`; a 5.41 host
