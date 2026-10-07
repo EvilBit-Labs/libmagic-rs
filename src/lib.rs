@@ -683,13 +683,23 @@ impl MagicDatabase {
             1 => Some((VERY_SHORT_FILE, TextEncoding::Data)),
             _ => None,
         };
-        if let Some((rendered, class)) = fixed {
-            return Ok(self.build_result(Vec::new(), rendered, class, None, file_size, start_time));
-        }
-
         // Reset the thread-local regex compile cache so it is bounded to
-        // the lifetime of a single top-level evaluation call.
+        // the lifetime of a single top-level evaluation call, including
+        // one that never consults a rule.
         crate::evaluator::types::regex::reset_regex_cache();
+
+        if let Some((rendered, class)) = fixed {
+            let result =
+                self.build_result(Vec::new(), rendered, class, None, file_size, start_time);
+            // No rule was consulted on this path.
+            return Ok(EvaluationResult {
+                metadata: EvaluationMetadata {
+                    rules_evaluated: 0,
+                    ..result.metadata
+                },
+                ..result
+            });
+        }
 
         let env = std::sync::Arc::new(RuleEnvironment {
             name_table: std::sync::Arc::clone(&self.name_table),

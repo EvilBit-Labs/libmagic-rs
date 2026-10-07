@@ -267,6 +267,25 @@ fn two_pass_matrix_matches_gnu_file() {
     }
 }
 
+/// The empty and one-byte verdicts come from `file_buffer` before any
+/// rule is consulted, so the metadata must not claim the rules ran.
+#[test]
+fn short_inputs_report_zero_rules_evaluated() {
+    let (_dir, db) = db(REGEX6);
+    for (buffer, description) in [(&b""[..], "empty"), (b"x", "very short file (no magic)")] {
+        let result = db.evaluate_buffer(buffer).expect("test setup");
+        assert_eq!(result.description, description);
+        assert_eq!(result.metadata.rules_evaluated, 0, "{description}");
+    }
+    assert_eq!(
+        db.evaluate_buffer(b"QQTEXT6\n")
+            .expect("test setup")
+            .metadata
+            .rules_evaluated,
+        1
+    );
+}
+
 /// With `stop_at_first_match` off (`file -k`), the text pass runs even
 /// after the binary pass printed, and the tail follows. Measured on
 /// file-5.41: `BINMSG` then `- TEXTMSG, ASCII text`, and `- , ASCII text`
