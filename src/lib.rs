@@ -702,10 +702,15 @@ impl MagicDatabase {
         // printed nothing; the text pass always ends with `, <class>`.
         // `file_buffer`'s `looks_text` hint is taken before trailing NULs
         // are trimmed; `file_ascmagic` classifies and runs the text pass over
-        // the trimmed, 64 KiB-capped window.
+        // the trimmed, 64 KiB-capped window, and gives up on a trimmed read
+        // of at most one byte (`file_ascmagic_with_encoding`).
         let window = text_window(buffer);
         let buffer_is_text = classify(window.hint).is_text();
-        let class = classify(window.scan);
+        let class = if window.scan.len() <= 1 {
+            TextEncoding::Data
+        } else {
+            classify(window.scan)
+        };
         let bin_pass = TopLevelPass {
             mode: PassMode::Bin,
             buffer_is_text,

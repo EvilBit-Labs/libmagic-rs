@@ -221,7 +221,8 @@ const ENCODING_MAX: usize = 65_536;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TextWindow<'a> {
     /// First `ENCODING_MAX` bytes of the read after trailing NULs are
-    /// trimmed (`file_ascmagic`'s `trim_nuls`): what is classified and
+    /// trimmed (`file_ascmagic`'s `trim_nuls` plus its UTF-16 parity
+    /// restore): what is classified and
     /// scanned for qualifiers; the text pass evaluates its UTF-8 widening
     /// ([`text_pass_buffer`]).
     pub(crate) scan: &'a [u8],
@@ -231,10 +232,15 @@ pub(crate) struct TextWindow<'a> {
 }
 
 /// Upstream `trim_nuls`: drop trailing NULs, keeping at least one byte.
+/// `file_ascmagic` then restores one byte when trimming an even-length
+/// read left an odd length, so a UTF-16LE text file keeps its last unit.
 fn trim_nuls(buf: &[u8]) -> &[u8] {
     let mut len = buf.len();
     while len > 1 && buf.get(len - 1) == Some(&0) {
         len -= 1;
+    }
+    if !len.is_multiple_of(2) && buf.len().is_multiple_of(2) {
+        len += 1;
     }
     buf.get(..len).unwrap_or(buf)
 }
@@ -413,8 +419,14 @@ mod tests {
         let w = text_window(b"ab\0\0");
         assert_eq!((w.scan, w.hint), (&b"ab"[..], &b"ab\0\0"[..]));
 
-        // trim_nuls keeps at least one byte.
-        assert_eq!(text_window(b"\0\0").scan, b"\0");
+        // An even-length read trimmed to an odd length gets one byte back.
+        assert_eq!(text_window(b"abc\0").scan, b"abc\0");
+        assert_eq!(text_window(b"abc\0\0\0").scan, b"abc\0");
+        assert_eq!(text_window(b"abcd\0").scan, b"abcd");
+
+        // trim_nuls keeps at least one byte (two after the parity restore).
+        assert_eq!(text_window(b"\0\0").scan, b"\0\0");
+        assert_eq!(text_window(b"\0\0\0").scan, b"\0");
         assert_eq!(text_window(b"").scan, b"");
     }
 

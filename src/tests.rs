@@ -1032,14 +1032,17 @@ fn remaining_timeout_ms_table() {
 
     let (_d1, unbounded) = regex_db(1, None);
     let (_d2, bounded) = regex_db(1, Some(1000));
+    // The monotonic clock counts from boot, so a one-second history is
+    // always representable by the time a test runs; a panic here names
+    // that assumption rather than silently skipping the assertion.
     let ago = |ms| {
         Instant::now()
             .checked_sub(Duration::from_millis(ms))
-            .unwrap()
+            .expect("the monotonic clock has at least one second of history")
     };
 
     assert!(matches!(
-        unbounded.remaining_timeout_ms(ago(5000)),
+        unbounded.remaining_timeout_ms(Instant::now()),
         Ok(None)
     ));
     let left = bounded.remaining_timeout_ms(ago(400)).unwrap().unwrap();

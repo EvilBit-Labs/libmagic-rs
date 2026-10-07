@@ -323,6 +323,36 @@ fn trailing_nuls_and_the_64k_encoding_window_match_gnu_file() {
         ),
         ("embedded NUL stays binary", REGEX6, b"ab\0cd", "data"),
         (
+            "a read that trims to one byte is data: ascmagic gives up",
+            REGEX6,
+            b"a\0\0",
+            "data",
+        ),
+        (
+            "an even read that trims to one byte gets its NUL back: data",
+            REGEX6,
+            b"A\0\0\0",
+            "data",
+        ),
+        (
+            "even read trimmed to odd length restores one NUL (UTF-16 parity): data",
+            REGEX6,
+            b"QQTEXT6\0",
+            "data",
+        ),
+        (
+            "the parity restore applies however many NULs were trimmed",
+            REGEX6,
+            b"QQTEXT6\0\0\0",
+            "data",
+        ),
+        (
+            "odd read trimmed to even length is left alone",
+            REGEX6,
+            b"QQTEXT6\n\0",
+            "TOPMSG6, ASCII text",
+        ),
+        (
             "long line is measured over the 64 KiB window",
             REGEX6,
             &long_line,
