@@ -56,6 +56,23 @@ pub fn magic_source_file_count(dir: &Path) -> std::io::Result<usize> {
         .count())
 }
 
+/// Whether `file` accepts `magic_dir` through `MAGIC=`, with its stderr
+/// when it does not. The MSYS `file.exe` Git for Windows puts on PATH reads
+/// a drive-letter path as a colon-separated list and finds no database.
+pub fn file_honors_magic_dir(magic_dir: &Path) -> Result<(), String> {
+    let output = Command::new("file")
+        .env("MAGIC", magic_dir)
+        .arg("-b")
+        .arg(magic_dir)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
 /// Ask `file` to classify `target` using only `magic_dir`.
 ///
 /// `MAGIC=` rather than `--magic-file`: measured on this host, the flag did not
@@ -131,4 +148,37 @@ pub fn stage_system_magic(canary_target: &str, real_class: &str) -> OracleReadin
         }
     }
     OracleReadiness::Ready(staged)
+}
+
+/// Text classes `file` appends after a description (longest first so
+/// `Unicode text, UTF-8 text` is not split at its inner comma).
+const TEXT_CLASSES: &[&str] = &[
+    "Non-ISO extended-ASCII text",
+    "Unicode text, UTF-8 text",
+    "ISO-8859 text",
+    "ASCII text",
+];
+
+/// Apply file 5.45's description rewrite to a `file` output line so the
+/// macOS 5.41 build, which skips it, compares equal to rmagic: a description
+/// ending in ` text` becomes `base, <class>`, one ending in ` text executable`
+/// becomes `base, <class> executable`. Output already in the 5.45 shape, or
+/// with no text class, is returned unchanged.
+pub fn normalize_text_class_rewrite(line: &str) -> String {
+    for class in TEXT_CLASSES {
+        let needle = format!(", {class}");
+        let Some(pos) = line.find(&needle) else {
+            continue;
+        };
+        let (desc, rest) = line.split_at(pos);
+        let qualifiers = &rest[needle.len()..];
+        if let Some(base) = desc.strip_suffix(" text") {
+            return format!("{base}, {class}{qualifiers}");
+        }
+        if let Some(base) = desc.strip_suffix(" text executable") {
+            return format!("{base}, {class} executable{qualifiers}");
+        }
+        return line.to_string();
+    }
+    line.to_string()
 }

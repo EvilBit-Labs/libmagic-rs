@@ -41,18 +41,15 @@
 //! matching this repository's existing "real `file` install, not a
 //! minimal one" signal, even though its content is never read here.
 //!
-//! ## The `search/w` field-level baseline divergence (#382), measured
+//! ## The `search/w` text-class tail (#382), measured
 //!
-//! `search/32/w` over `"A   Bqz"` measurably gets a trailing
-//! `, ASCII text, with no line terminators` from real `file`-5.41 that
-//! an otherwise-identical `string/w` scenario does not -- `file`'s own
-//! internal bookkeeping for whether a `search` match suppresses its
-//! ascmagic fallback pass, not anything this crate controls. This is a
-//! live instance of the #382 trailing text-class fragment named in the
-//! plan's Scope Boundaries;
-//! `oracle::flagged_search_w_anchor_diverges_only_by_known_text_class_fragment`
-//! asserts it classifies as a recorded baseline divergence, not a
-//! regression, while still pinning rmagic's own field exactly.
+//! `search/32/w` over `"A   Bqz"` gets a trailing
+//! `, ASCII text, with no line terminators` from real `file`-5.41 that an
+//! otherwise-identical `string/w` scenario does not: a `search` whose
+//! pattern is text runs in the text pass and takes the tail, while a plain
+//! `string` is a binary-pass entry (GOTCHAS S13.7). rmagic reproduces both
+//! shapes, so `oracle::flagged_search_w_anchor_matches_gnu_file_with_text_class_tail`
+//! asserts plain equality.
 //!
 //! A `regex` oracle scenario was considered and dropped: GNU `file`
 //! compiles `regex` as POSIX ERE (no special meaning for `\` inside a
@@ -556,38 +553,6 @@ mod oracle {
             .to_string()
     }
 
-    /// Suffixes GNU `file`'s ascmagic text-class fallback is measured to
-    /// append after an otherwise-complete magic match (issue #382,
-    /// recorded out of scope by the plan's Scope Boundaries -- see this
-    /// module's doc for the specific `search/32/w` case that surfaces
-    /// it). Recorded as a MEASURED baseline, not a theory.
-    const KNOWN_TEXT_CLASS_SUFFIXES: &[&str] =
-        &[", ASCII text", ", ASCII text, with no line terminators"];
-
-    enum Divergence {
-        Unchanged,
-        /// `theirs` extends `ours` with one of `KNOWN_TEXT_CLASS_SUFFIXES`.
-        KnownTextClassFragment,
-        /// Anything else. Never silently accepted as a baseline --
-        /// "record the current out-of-scope divergences ... so only a
-        /// delta outside that baseline counts as a regression" (plan U6
-        /// step 3) means an unrecognized divergence is exactly the thing
-        /// this classifier exists to catch, not wave through.
-        Unclassified,
-    }
-
-    fn classify(ours: &str, theirs: &str) -> Divergence {
-        if ours == theirs {
-            return Divergence::Unchanged;
-        }
-        if let Some(rest) = theirs.strip_prefix(ours)
-            && KNOWN_TEXT_CLASS_SUFFIXES.contains(&rest)
-        {
-            return Divergence::KnownTextClassFragment;
-        }
-        Divergence::Unclassified
-    }
-
     /// AE1/R1, verified against the real oracle: the 304-byte-field
     /// scenario's rendered length is exactly `file`-5.41's own
     /// `MAXstring - 1` bound, not just rmagic's internal notion of it.
@@ -761,8 +726,9 @@ mod oracle {
 
     /// AE2/R6, verified against the real oracle: a flagged `string/w`
     /// parent's relative child anchors at the declared pattern length
-    /// (3), and `file`-5.41 agrees byte for byte -- no #382 tail here
-    /// (see the module doc for why `search/w` below differs).
+    /// (3), and `file`-5.41 agrees byte for byte -- no text-class tail
+    /// here, since a plain `string` is a binary-pass entry (see the module
+    /// doc for why `search/w` below differs).
     #[test]
     fn flagged_string_w_anchor_matches_gnu_file() {
         if !gate() {
@@ -783,18 +749,14 @@ mod oracle {
         );
     }
 
-    /// AE2/R6, verified against the real oracle, and the measured #382
-    /// instance documented in this module's doc: a flagged `search/w`
-    /// parent's relative child anchors at the declared pattern length
-    /// (3) just like the `string/w` case above, but `file`-5.41 also
-    /// appends a trailing ascmagic text-class fragment that an
-    /// otherwise-identical `string/w` scenario does not get. That
-    /// fragment is the named #382 baseline divergence (plan Scope
-    /// Boundaries); this test asserts it is classified as such and NOT
-    /// treated as a regression, while still pinning rmagic's own field
-    /// exactly.
+    /// AE2/R6, verified against the real oracle: a flagged `search/w`
+    /// parent's relative child anchors at the declared pattern length (3)
+    /// just like the `string/w` case above. A `search` whose pattern is
+    /// text runs in `file`'s text pass, so the description carries the
+    /// text-class tail (issue #382, GOTCHAS S13.7); rmagic now matches it
+    /// byte for byte.
     #[test]
-    fn flagged_search_w_anchor_diverges_only_by_known_text_class_fragment() {
+    fn flagged_search_w_anchor_matches_gnu_file_with_text_class_tail() {
         if !gate() {
             return;
         }
@@ -804,27 +766,11 @@ mod oracle {
         let theirs = file_says(magic, buffer);
 
         assert_eq!(
-            ours, "found, anchor=32",
+            ours, "found, anchor=32, ASCII text, with no line terminators",
             "32 is the space byte at index 3 -- the pattern's declared length, \
-             not the walked index 5. This is rmagic's own field and must be \
-             right regardless of the #382 divergence below."
+             not the walked index 5"
         );
-        match classify(&ours, &theirs) {
-            Divergence::Unchanged => panic!(
-                "the measured #382 tail is no longer present (`file` says \
-                 {theirs:?}) -- if this scenario now matches exactly, tighten \
-                 this test to assert plain equality instead of carrying a stale \
-                 exception"
-            ),
-            Divergence::KnownTextClassFragment => {
-                // Expected: the recorded #382 baseline, out of scope for this
-                // plan.
-            }
-            Divergence::Unclassified => panic!(
-                "regression: `file` says {theirs:?}, rmagic says {ours:?}, and \
-                 the divergence does not match the recorded #382 baseline"
-            ),
-        }
+        assert_eq!(ours, theirs);
     }
 
     /// AE2/R7, verified against the real oracle: a pattern immediately

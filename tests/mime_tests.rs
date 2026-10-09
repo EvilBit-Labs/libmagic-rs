@@ -211,3 +211,28 @@ fn test_mapper_no_match_returns_none() {
     assert_eq!(mapper.get_mime_type("data"), None);
     assert_eq!(mapper.get_mime_type("unknown binary format"), None);
 }
+
+/// The text-pass tail must not change the MIME type: `MimeMapper` picks the
+/// longest keyword, so `HTML document, ASCII text` would map to `text/plain`
+/// if the tail were consulted. A rule text with no mapping falls back to the
+/// class (GOTCHAS S13.7).
+#[test]
+fn test_mime_comes_from_the_pre_tail_description_then_the_class() {
+    use std::io::Write;
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let path = dir.path().join("magic");
+    std::fs::File::create(&path)
+        .expect("magic file")
+        .write_all(b"0 regex ZZHTML HTML document\n0 regex ZZNOMAP Zorblax thing\n")
+        .expect("write magic");
+    let config = EvaluationConfig::default().with_mime_types(true);
+    let db = MagicDatabase::load_from_file_with_config(&path, config).expect("load");
+
+    let html = db.evaluate_buffer(b"ZZHTML\n").expect("evaluate");
+    assert_eq!(html.description, "HTML document, ASCII text");
+    assert_eq!(html.mime_type.as_deref(), Some("text/html"));
+
+    let unmapped = db.evaluate_buffer(b"ZZNOMAP\n").expect("evaluate");
+    assert_eq!(unmapped.description, "Zorblax thing, ASCII text");
+    assert_eq!(unmapped.mime_type.as_deref(), Some("text/plain"));
+}

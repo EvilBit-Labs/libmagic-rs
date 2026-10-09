@@ -401,8 +401,8 @@ The `SearchFlags` struct contains nine boolean fields corresponding to the flag 
 - `compact_whitespace` (`/W`) - Pattern whitespace requires ≥1 buffer whitespace, then absorbs greedily
 - `trim` (`/T`) - Trim leading/trailing ASCII whitespace from pattern at evaluation time
 - `full_word` (`/f`) - Post-match word-boundary check (byte after match must be non-word or end-of-buffer)
-- `text_test` (`/t`) - Hint for text files (captured for MIME-output integration, no current comparison effect)
-- `bin_test` (`/b`) - Hint for binary files (captured for MIME-output integration, no current comparison effect)
+- `text_test` (`/t`) - Text-pass entry, skipped on a binary buffer when `/b` is not also set (GOTCHAS S13.7); no comparison effect
+- `bin_test` (`/b`) - Binary-pass entry, skipped on a text buffer when `/t` is not also set; `search/bt` runs in both passes (GOTCHAS S13.7); no comparison effect
 
 The `/B` flag is accepted as a synonym for `/b` in search rules (distinct from pstring's `/B` which is the 1-byte length-width letter).
 

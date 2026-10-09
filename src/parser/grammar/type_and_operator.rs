@@ -283,9 +283,9 @@ pub fn parse_type_and_operator(
     //   `/w` STRING_COMPACT_OPTIONAL_WHITESPACE
     //   `/c` STRING_IGNORE_LOWERCASE  (pattern lowercase => file folded)
     //   `/C` STRING_IGNORE_UPPERCASE  (pattern uppercase => file folded)
-    //   `/t` STRING_TEXTTEST          (text-mode hint)
+    //   `/t` STRING_TEXTTEST          (text-pass hint, GOTCHAS S13.7)
     //   `/T` STRING_TRIM              (trim pattern leading/trailing ws)
-    //   `/b` STRING_BINTEST           (binary-mode hint)
+    //   `/b` STRING_BINTEST           (binary-pass hint, GOTCHAS S13.7)
     //   `/f` STRING_FULL_WORD         (post-match word-boundary check)
     //
     // `/B` is deliberately NOT accepted here -- it is the pstring

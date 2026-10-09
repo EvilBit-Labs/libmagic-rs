@@ -264,3 +264,5 @@ mod meta_use_indirect_framing_tests;
 mod meta_use_tests;
 #[cfg(test)]
 mod string_flags_dispatch_tests;
+#[cfg(test)]
+mod top_level_pass_tests;

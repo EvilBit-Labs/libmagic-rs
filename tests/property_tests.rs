@@ -315,7 +315,13 @@ proptest! {
 
         prop_assert_eq!(usize::try_from(result.metadata.file_size).ok(), Some(buffer.len()));
         prop_assert!(result.metadata.evaluation_time_ms >= 0.0);
-        prop_assert!(result.metadata.rules_evaluated > 0);
+        // Empty and one-byte buffers are classified before any rule is
+        // consulted (GOTCHAS S13.7); everything else runs the rule set.
+        if buffer.len() <= 1 {
+            prop_assert_eq!(result.metadata.rules_evaluated, 0);
+        } else {
+            prop_assert!(result.metadata.rules_evaluated > 0);
+        }
     }
 
     /// Property: Arbitrary rules should serialize/deserialize consistently

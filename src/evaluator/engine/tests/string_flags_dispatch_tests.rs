@@ -109,7 +109,7 @@ fn test_flagged_string_ordering_operator_uses_lexicographic_value_path() {
     // linux, ...). Routing it to the pattern path made it a fatal
     // `UnsupportedType` that aborted the ENTIRE file's evaluation -- e.g.
     // `rmagic` used to error out on a Bourne-Again shell script. The `/t`/`/b`
-    // flags are MIME-output hints with no ordering effect. (Case-fold flags
+    // flags are pass-selection hints with no ordering effect. (Case-fold flags
     // like `/c` are also not applied to ordering, but such rules do not occur
     // in real magic files; the value path's byte-lexicographic compare is the
     // correct behavior for the flags that actually pair with `<`/`>`.)

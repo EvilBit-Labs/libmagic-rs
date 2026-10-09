@@ -15,6 +15,7 @@
 use crate::parser::ast::{MagicRule, MetaType, TypeKind};
 use crate::{EvaluationConfig, LibmagicError};
 
+use super::test_type::{PassMode, TopLevelPass};
 use super::{EvaluationContext, RecursionGuard, RuleMatch, offset, operators, types};
 use log::{debug, warn};
 // Gated to debug builds: after the engine module split, mod.rs's only atomic
@@ -231,8 +232,8 @@ fn evaluate_single_rule_with_anchor(
         // %s" idiom in `varied.script`, `sgml`, `linux`, ...) is a
         // lexicographic comparison, not a pattern match; routing it to the
         // pattern path made it a fatal `UnsupportedType` abort that killed the
-        // whole file's evaluation. The `/t`/`/b` flags are MIME-output hints
-        // with no comparison effect, so such a rule behaves like an unflagged
+        // whole file's evaluation. The `/t`/`/b` flags are pass-selection
+        // hints (GOTCHAS S13.7) with no comparison effect, so such a rule behaves like an unflagged
         // `string >VALUE` and belongs on the value path. Default-flag strings
         // (the common case) also take that value-rule fast path.
         TypeKind::String { flags, .. }
@@ -438,6 +439,22 @@ pub fn evaluate_rules(
             return Err(LibmagicError::Timeout { timeout_ms });
         }
 
+        // Two-pass admission (GOTCHAS S13.7): a top-level entry runs only in
+        // the pass its first-line test type selects. Child lists and `use`
+        // bodies are never filtered.
+        if !is_child_sibling_list
+            && let Some(pass) = context.top_level_pass()
+            && !pass.admits(rule)
+        {
+            if matches!(rule.typ, TypeKind::Meta(_)) {
+                debug!(
+                    "Skipping top-level {:?} rule '{}': not admitted to the {:?} pass",
+                    rule.typ, rule.message, pass.mode
+                );
+            }
+            continue;
+        }
+
         // `Clear` resets the per-level "sibling matched" flag so a
         // subsequent `default` sibling can fire even if an earlier
         // sibling matched. Matching libmagic's `FILE_CLEAR`, the flag is
@@ -600,14 +617,29 @@ pub fn evaluate_rules(
             // semantics do NOT fire -- root rules in the re-entered
             // database chain their anchors across siblings like any
             // other top-level evaluation.
-            let sub_matches = {
+            //
+            // An `indirect` re-entry is always a binary pass (upstream passes
+            // `BINTEST` to the nested `file_softmagic`), keeping the outer
+            // buffer's text-ness. With no pass set the re-entry is unfiltered.
+            // The pass is saved and restored by hand (`AnchorScope` restores
+            // the anchor and base offset, not the pass), so the restore sits
+            // before the `?`.
+            let outer_pass = context.top_level_pass();
+            let reentry_pass = outer_pass.map(|pass| TopLevelPass {
+                mode: PassMode::Bin,
+                buffer_is_text: pass.buffer_is_text,
+            });
+            let sub_result = {
                 let mut guard = RecursionGuard::enter(context)?;
                 let mut anchor_scope = AnchorScope::enter(guard.context(), 0);
                 anchor_scope.context().set_indirect_reentry(true);
-                evaluate_rules(&root_rules, sub_buffer, anchor_scope.context())?
+                anchor_scope.context().set_top_level_pass(reentry_pass);
+                evaluate_rules(&root_rules, sub_buffer, anchor_scope.context())
                 // anchor_scope drops here, restoring the caller's anchor;
                 // guard drops next, decrementing the recursion depth.
             };
+            context.set_top_level_pass(outer_pass);
+            let sub_matches = sub_result?;
 
             // libmagic's `mget` returns 0 when the re-entry printed nothing,
             // so the `indirect` rule is then a non-match: no message, no

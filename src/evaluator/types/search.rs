@@ -68,7 +68,7 @@ struct ScanHit {
 ///
 /// The `flags.start_anchor` and `flags.text_test`/`flags.bin_test` fields
 /// have no effect on whether a match is found -- they only matter to
-/// [`search_bytes_consumed`] and to future MIME-output wiring respectively.
+/// [`search_bytes_consumed`] and to top-level pass selection (GOTCHAS S13.7) respectively.
 // Slicing is invariant-safe: `offset < buffer.len()` is checked at entry
 // and `window_len` is clamped to `remaining.len()`.
 #[allow(clippy::indexing_slicing)]

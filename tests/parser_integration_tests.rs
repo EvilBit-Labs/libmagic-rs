@@ -201,9 +201,17 @@ fn test_name_use_round_trip() {
         "remaining top-level rule must be the use invocation"
     );
 
-    // End-to-end evaluation via MagicDatabase.
+    // End-to-end evaluation via MagicDatabase. The `use` sits under a gate
+    // here because `file` never evaluates a top-level `use` (GOTCHAS S13.7).
+    let gated = "\
+0 name part2
+>3 byte 0x42 sub-match
+
+0 byte x
+>0 use part2
+";
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let magic_file = create_test_magic_file(temp_dir.path(), "meta.magic", magic);
+    let magic_file = create_test_magic_file(temp_dir.path(), "meta.magic", gated);
     let db = MagicDatabase::load_from_file(&magic_file)
         .expect("load meta-type magic file into MagicDatabase");
 

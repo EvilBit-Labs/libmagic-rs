@@ -173,8 +173,8 @@ pub fn read_string_exact(
 /// the parent module) trims the pattern before invoking this function
 /// when `flags.trim` is set; this function ignores the `trim` field on
 /// the assumption that the caller has already normalized the pattern.
-/// Likewise `flags.text_test` and `flags.bin_test` are MIME-output hints
-/// with no effect on comparison and are not consulted here.
+/// Likewise `flags.text_test` and `flags.bin_test` are pass-selection hints
+/// (GOTCHAS S13.7) with no effect on comparison and are not consulted here.
 ///
 /// **`/c` vs `/C` is asymmetric and pattern-controlled** -- see [`StringFlags`]
 /// and GOTCHAS S6.5 for the canonical contract. This function implements the

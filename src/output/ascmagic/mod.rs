@@ -1,0 +1,408 @@
+// Copyright (c) 2025-2026 the libmagic-rs contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! Minimal text/data fallback classification, modeled on GNU `file`'s
+//! `file_ascmagic` (`src/ascmagic.c`).
+//!
+//! When no magic rule produces a usable description -- either because no
+//! rule matched at all, or because every rule that matched carries no
+//! description text (GOTCHAS S13.2) -- GNU `file` never prints a blank
+//! line. It falls back to a basic content classification: `"empty"` for a
+//! zero-byte file, `"ASCII text"` for plain textual content, a Unicode
+//! variant for valid non-ASCII UTF-8, and `"data"` for anything else
+//! (binary content).
+//!
+//! # Scope
+//!
+//! This ports the byte-level subset of GNU `file`'s `ascmagic.c` and
+//! `encoding.c`: ASCII, UTF-8, ISO-8859 and non-ISO extended-ASCII
+//! classification, plus the line-terminator, long-line, escape and
+//! overstrike qualifiers. Still out of scope (#524): UTF-16/UTF-32 and
+//! EBCDIC, which classify as `"data"`; a UTF-8 BOM, which is not stripped
+//! and classifies as UTF-8 text; and UTF-7, which reads as plain ASCII.
+
+/// Classification of a single byte in GNU `file`'s `encoding.c::text_chars`
+/// table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TextClass {
+    /// `F`: never text (NUL, most C0 controls, DEL).
+    Binary,
+    /// `T`: plain text (BEL BS HT LF VT FF CR ESC, 0x20..=0x7E, NEL).
+    Text,
+    /// `I`: ISO-8859 high half (0xA0..=0xFF).
+    Latin1,
+    /// `X`: C1 controls (0x80..=0x9F except NEL); "non-ISO extended ASCII".
+    Extended,
+}
+
+/// Port of upstream `text_chars[256]` (`encoding.c`).
+pub(crate) const fn text_char_class(b: u8) -> TextClass {
+    match b {
+        0x07..=0x0D | 0x1B | 0x20..=0x7E | 0x85 => TextClass::Text,
+        0x80..=0x9F => TextClass::Extended,
+        0xA0..=0xFF => TextClass::Latin1,
+        _ => TextClass::Binary,
+    }
+}
+
+/// Result of [`looks_utf8`], mirroring upstream `file_looks_utf8`'s
+/// `-1 / 0 / 1 / 2` return codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Utf8Look {
+    /// `-1`: not valid UTF-8.
+    Invalid,
+    /// `0`: valid, but uses control bytes the text table rejects.
+    Control,
+    /// `1`: 7-bit text. A lead byte truncated at EOF is ignored (the scan
+    /// just stops), so the result reflects only what came before it.
+    Ascii,
+    /// `2`: valid UTF-8 with at least one multi-byte character.
+    Multibyte,
+}
+
+/// Lead-byte shape from upstream's `first[]` / `accept_ranges[]` tables:
+/// (continuation count, lowest and highest value accepted for the first
+/// continuation byte). `None` is an invalid lead byte.
+const fn utf8_lead_shape(b: u8) -> Option<(usize, u8, u8)> {
+    match b {
+        0xC2..=0xDF => Some((1, 0x80, 0xBF)),
+        0xE0 => Some((2, 0xA0, 0xBF)),
+        0xE1..=0xEC | 0xEE..=0xEF => Some((2, 0x80, 0xBF)),
+        0xED => Some((2, 0x80, 0x9F)),
+        0xF0 => Some((3, 0x90, 0xBF)),
+        0xF1..=0xF3 => Some((3, 0x80, 0xBF)),
+        0xF4 => Some((3, 0x80, 0x8F)),
+        _ => None,
+    }
+}
+
+/// Direct port of `encoding.c::file_looks_utf8`, quirks included: a lead
+/// byte truncated by end-of-buffer is not an error (the scan just stops),
+/// and a rejected control byte anywhere yields [`Utf8Look::Control`] even
+/// when multi-byte characters were seen.
+pub(crate) fn looks_utf8(buf: &[u8]) -> Utf8Look {
+    let finish = |ctrl: bool, gotone: bool| match (ctrl, gotone) {
+        (true, _) => Utf8Look::Control,
+        (false, true) => Utf8Look::Multibyte,
+        (false, false) => Utf8Look::Ascii,
+    };
+    let mut gotone = false;
+    let mut ctrl = false;
+    let mut i = 0;
+    while let Some(&b) = buf.get(i) {
+        i += 1;
+        if b & 0x80 == 0 {
+            if text_char_class(b) != TextClass::Text {
+                ctrl = true;
+            }
+            continue;
+        }
+        if b & 0x40 == 0 {
+            return Utf8Look::Invalid;
+        }
+        let Some((following, lo, hi)) = utf8_lead_shape(b) else {
+            return Utf8Look::Invalid;
+        };
+        for n in 0..following {
+            let Some(&c) = buf.get(i) else {
+                return finish(ctrl, gotone);
+            };
+            i += 1;
+            if (n == 0 && !(lo..=hi).contains(&c)) || c & 0xC0 != 0x80 {
+                return Utf8Look::Invalid;
+            }
+        }
+        gotone = true;
+    }
+    finish(ctrl, gotone)
+}
+
+/// The text/data class of a buffer, in upstream `file_encoding` order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TextEncoding {
+    /// A zero-byte buffer.
+    Empty,
+    /// Only bytes of [`TextClass::Text`].
+    Ascii,
+    /// Valid UTF-8 with a multi-byte character and no rejected control byte.
+    Utf8,
+    /// Text bytes plus the ISO-8859 high half (`looks_latin1`).
+    Latin1,
+    /// Text and ISO-8859 bytes plus C1 controls (`looks_extended`).
+    Extended,
+    /// Anything else, including multi-byte encodings not ported (#524).
+    Data,
+}
+
+impl TextEncoding {
+    /// The label GNU `file` prints for the class.
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Empty => "empty",
+            Self::Ascii => "ASCII text",
+            Self::Utf8 => "Unicode text, UTF-8 text",
+            Self::Latin1 => "ISO-8859 text",
+            Self::Extended => "Non-ISO extended-ASCII text",
+            Self::Data => "data",
+        }
+    }
+
+    /// Whether the buffer gets the text pass and the `, <class>` tail.
+    pub(crate) const fn is_text(self) -> bool {
+        !matches!(self, Self::Empty | Self::Data)
+    }
+}
+
+/// Classify a buffer in upstream `file_encoding` order: empty, ASCII,
+/// multi-byte UTF-8, ISO-8859, non-ISO extended ASCII, else data.
+/// Infallible: no input fails to classify.
+#[must_use]
+pub(crate) fn classify(buffer: &[u8]) -> TextEncoding {
+    if buffer.is_empty() {
+        return TextEncoding::Empty;
+    }
+    if buffer
+        .iter()
+        .all(|&b| text_char_class(b) == TextClass::Text)
+    {
+        return TextEncoding::Ascii;
+    }
+    // Upstream `file_encoding` order: valid multi-byte UTF-8 with no rejected
+    // control byte is Unicode text (`encoding.c` code "Unicode text, UTF-8" +
+    // type "text"). A NUL inside otherwise-valid UTF-8 is `Control`, not text.
+    if looks_utf8(buffer) == Utf8Look::Multibyte {
+        return TextEncoding::Utf8;
+    }
+    // Upstream `looks_latin1` then `looks_extended`.
+    if buffer
+        .iter()
+        .all(|&b| matches!(text_char_class(b), TextClass::Text | TextClass::Latin1))
+    {
+        return TextEncoding::Latin1;
+    }
+    if buffer
+        .iter()
+        .all(|&b| text_char_class(b) != TextClass::Binary)
+    {
+        return TextEncoding::Extended;
+    }
+    TextEncoding::Data
+}
+
+/// The label of the crate-private `classify` result: the text/data
+/// fallback described in the module doc.
+///
+/// Returns one of `"empty"`, `"ASCII text"`, `"Unicode text, UTF-8 text"`,
+/// `"ISO-8859 text"`, `"Non-ISO extended-ASCII text"`, or `"data"`.
+///
+/// # Examples
+///
+/// ```
+/// use libmagic_rs::output::ascmagic::classify_fallback;
+///
+/// assert_eq!(classify_fallback(b""), "empty");
+/// assert_eq!(classify_fallback(b"hello world\n"), "ASCII text");
+/// assert_eq!(classify_fallback(&[0x00, 0x01, 0x02, 0xff]), "data");
+/// ```
+#[must_use]
+pub fn classify_fallback(buffer: &[u8]) -> &'static str {
+    classify(buffer).label()
+}
+
+/// Upstream `MAXLINELEN` (`ascmagic.c`): longest line not reported as long.
+const MAXLINELEN: usize = 300;
+/// Upstream `FILE_BYTES_MAX` (`file.h`): how much of a file `file` reads.
+/// 7 MiB since file 5.44 (1 MiB through 5.43).
+const BYTES_MAX: usize = 7 * 1_048_576;
+/// Upstream `FILE_ENCODING_MAX` (`file.h`): how much of that read
+/// `file_encoding` and the text pass inspect.
+const ENCODING_MAX: usize = 65_536;
+
+/// The views of a buffer that GNU `file`'s text handling works on.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TextWindow<'a> {
+    /// First `ENCODING_MAX` bytes of the read after trailing NULs are
+    /// trimmed (`file_ascmagic`'s `trim_nuls` plus its UTF-16 parity
+    /// restore): what is classified and
+    /// scanned for qualifiers; the text pass evaluates its UTF-8 widening
+    /// ([`text_pass_buffer`]).
+    pub(crate) scan: &'a [u8],
+    /// First `ENCODING_MAX` bytes of the untrimmed read: what
+    /// `file_buffer`'s `looks_text` hint for the `/b` and `/t` skips sees.
+    pub(crate) hint: &'a [u8],
+}
+
+/// Upstream `trim_nuls`: drop trailing NULs, keeping at least one byte.
+/// `file_ascmagic` then restores one byte when trimming an even-length
+/// read left an odd length, so a UTF-16LE text file keeps its last unit.
+fn trim_nuls(buf: &[u8]) -> &[u8] {
+    let mut len = buf.len();
+    while len > 1 && buf.get(len - 1) == Some(&0) {
+        len -= 1;
+    }
+    if !len.is_multiple_of(2) && buf.len().is_multiple_of(2) {
+        len += 1;
+    }
+    buf.get(..len).unwrap_or(buf)
+}
+
+/// The views of `buffer` the text classification is computed over.
+///
+/// `file` reads at most `BYTES_MAX` bytes and inspects at most
+/// `ENCODING_MAX` of them for text, so looking further would both diverge
+/// from it and cost a full scan on every evaluation.
+#[must_use]
+pub(crate) fn text_window(buffer: &[u8]) -> TextWindow<'_> {
+    let read = buffer.get(..BYTES_MAX).unwrap_or(buffer);
+    let trimmed = trim_nuls(read);
+    TextWindow {
+        scan: trimmed.get(..ENCODING_MAX).unwrap_or(trimmed),
+        hint: read.get(..ENCODING_MAX).unwrap_or(read),
+    }
+}
+
+/// The longest prefix of `buf` that is complete UTF-8: `file_looks_utf8`
+/// decodes into `ubuf` only finished code points, so a sequence cut off by
+/// the window end is dropped.
+fn complete_utf8_prefix(buf: &[u8]) -> &[u8] {
+    match std::str::from_utf8(buf) {
+        Ok(_) => buf,
+        Err(e) => buf.get(..e.valid_up_to()).unwrap_or(buf),
+    }
+}
+
+/// The bytes the text pass evaluates rules against: `encode_utf8(ubuf)`.
+///
+/// `file_encoding` decodes the window into code points and `file_ascmagic`
+/// runs its softmagic pass over their UTF-8 encoding. For the single-byte
+/// classes (ASCII, whose only high byte is NEL, `ISO-8859 text`,
+/// `Non-ISO extended-ASCII text`) each byte is one code point, so every
+/// byte at or above 0x80 widens to two bytes; a UTF-8 window is already
+/// encoded but loses a sequence the window end cut through. Anything else
+/// (`data`, multi-byte encodings, #524) is passed through.
+pub(crate) fn text_pass_buffer(scan: &[u8], class: TextEncoding) -> std::borrow::Cow<'_, [u8]> {
+    use std::borrow::Cow;
+    match class {
+        TextEncoding::Utf8 => Cow::Borrowed(complete_utf8_prefix(scan)),
+        TextEncoding::Ascii | TextEncoding::Latin1 | TextEncoding::Extended
+            if !scan.iter().all(u8::is_ascii) =>
+        {
+            let mut out = Vec::with_capacity(scan.len() * 2);
+            for &b in scan {
+                if b < 0x80 {
+                    out.push(b);
+                } else {
+                    out.push(0xC0 | (b >> 6));
+                    out.push(0x80 | (b & 0x3F));
+                }
+            }
+            Cow::Owned(out)
+        }
+        TextEncoding::Ascii
+        | TextEncoding::Latin1
+        | TextEncoding::Extended
+        | TextEncoding::Empty
+        | TextEncoding::Data => Cow::Borrowed(scan),
+    }
+}
+
+/// Code point of the X3.64 "next line" character.
+const NEL: u32 = 0x85;
+
+/// Port of the qualifier scan in `ascmagic.c::file_ascmagic_with_encoding`.
+///
+/// Returns the text-class suffix (each piece begins with `, with`), or an
+/// empty string when nothing applies. Scans Unicode scalar values when
+/// [`looks_utf8`] reports multi-byte UTF-8 (over the complete prefix, as
+/// `ubuf` holds only finished code points), otherwise bytes. A lone
+/// trailing CR counts for nothing: file 5.45 dropped 5.41's post-loop
+/// `seen_cr` flush.
+pub(crate) fn text_qualifiers(text: &[u8]) -> String {
+    if looks_utf8(text) == Utf8Look::Multibyte
+        && let Ok(s) = std::str::from_utf8(complete_utf8_prefix(text))
+    {
+        return scan_qualifiers(s.chars().map(u32::from));
+    }
+    scan_qualifiers(text.iter().map(|&b| u32::from(b)))
+}
+
+fn scan_qualifiers(code_points: impl Iterator<Item = u32>) -> String {
+    let (mut n_crlf, mut n_cr, mut n_lf, mut n_nel) = (0_usize, 0_usize, 0_usize, 0_usize);
+    let (mut has_escapes, mut has_backspace, mut seen_cr) = (false, false, false);
+    let mut longest = 0_usize;
+    // Index of the first char of the current line (upstream last_line_end + 1).
+    let mut line_start = 0_usize;
+    for (i, c) in code_points.enumerate() {
+        if c == u32::from(b'\n') {
+            if seen_cr {
+                n_crlf += 1;
+            } else {
+                n_lf += 1;
+            }
+            line_start = i + 1;
+        } else if seen_cr {
+            n_cr += 1;
+        }
+        seen_cr = c == u32::from(b'\r');
+        if seen_cr {
+            line_start = i + 1;
+        }
+        if c == NEL {
+            n_nel += 1;
+            line_start = i + 1;
+        }
+        let line_len = i + 1 - line_start;
+        if line_len > MAXLINELEN {
+            longest = longest.max(line_len);
+        }
+        has_escapes |= c == 0x1B;
+        has_backspace |= c == 0x08;
+    }
+    let mut out = String::new();
+    if longest > 0 {
+        out.push_str(", with very long lines (");
+        out.push_str(&longest.to_string());
+        out.push(')');
+    }
+    let none = n_crlf == 0 && n_cr == 0 && n_nel == 0 && n_lf == 0;
+    if none || n_crlf != 0 || n_cr != 0 || n_nel != 0 {
+        let kinds: Vec<&str> = [(n_crlf, "CRLF"), (n_cr, "CR"), (n_lf, "LF"), (n_nel, "NEL")]
+            .iter()
+            .filter(|(n, _)| *n != 0)
+            .map(|&(_, name)| name)
+            .collect();
+        out.push_str(", with ");
+        out.push_str(&if none {
+            "no".to_string()
+        } else {
+            kinds.join(", ")
+        });
+        out.push_str(" line terminators");
+    }
+    if has_escapes {
+        out.push_str(", with escape sequences");
+    }
+    if has_backspace {
+        out.push_str(", with overstriking");
+    }
+    out
+}
+
+/// Port of file 5.45's description rewrite: swap a trailing ` text` (or
+/// ` text executable`) for the text class, then append `qualifiers`.
+pub(crate) fn append_text_class(desc: &str, class: &str, qualifiers: &str) -> String {
+    let mut head = if desc.is_empty() {
+        class.to_string()
+    } else if let Some(base) = desc.strip_suffix(" text") {
+        format!("{base}, {class}")
+    } else if let Some(base) = desc.strip_suffix(" text executable") {
+        format!("{base}, {class} executable")
+    } else {
+        format!("{desc}, {class}")
+    };
+    head.push_str(qualifiers);
+    head
+}
+
+#[cfg(test)]
+mod tests;

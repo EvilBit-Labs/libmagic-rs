@@ -287,16 +287,16 @@ The optional max_length parameter caps the length value:
 
 String flags are now implemented (issue #234, landed in PR #288), providing libmagic-compatible string comparison semantics.
 
-| Flag | Description                                                   |
-| ---- | ------------------------------------------------------------- |
-| `/c` | Case-insensitive (lowercase pattern chars trigger fold)       |
-| `/C` | Case-insensitive (uppercase pattern chars trigger fold)       |
-| `/w` | Whitespace-optional (pattern whitespace matches zero or more) |
-| `/W` | Whitespace-required-compact (at least one, greedy consume)    |
-| `/T` | Trim leading/trailing ASCII whitespace from pattern           |
-| `/f` | Full-word match (post-match word boundary check)              |
-| `/b` | Force binary test (hint for MIME output)                      |
-| `/t` | Force text test (hint for MIME output)                        |
+| Flag | Description                                                                                                                    |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `/c` | Case-insensitive (lowercase pattern chars trigger fold)                                                                        |
+| `/C` | Case-insensitive (uppercase pattern chars trigger fold)                                                                        |
+| `/w` | Whitespace-optional (pattern whitespace matches zero or more)                                                                  |
+| `/W` | Whitespace-required-compact (at least one, greedy consume)                                                                     |
+| `/T` | Trim leading/trailing ASCII whitespace from pattern                                                                            |
+| `/f` | Full-word match (post-match word boundary check)                                                                               |
+| `/b` | Skipped on a text buffer when `/t` is not also set; `/t` alone decides a `string` entry's pass (`string/bt` is text-pass-only) |
+| `/t` | Text-pass entry; description gets the `, <text class>` tail; skipped on a binary buffer when `/b` is not also set              |
 
 **Note:** `/c` and `/C` are asymmetric — the pattern character controls fold direction. With `/c`, only lowercase pattern chars cause the file byte to be folded to lowercase. With `/C`, only uppercase pattern chars cause the file byte to be folded to uppercase. See GOTCHAS section S6.5 for details on mixed-case behavior. `/B` (uppercase) is not a string flag; it is reserved for pstring length-width specification and is rejected on string types.
 
@@ -318,13 +318,12 @@ Examples:
 # Trim leading/trailing whitespace from the pattern (`/T` = STRING_TRIM)
 0       string/T  "  hello  "  Hello marker (matches "hello" without surrounding spaces)
 
-# Binary-mode hint (`/b` = STRING_BINTEST) -- parsed and stored; MIME-output
-# wiring deferred to the `!:mime` evaluation work
+# Binary-pass entry (`/b` = STRING_BINTEST): skipped when the buffer is text
 24      string/b  FTCOMP      FTCOMP compressed archive
 
-# Text-mode hint (`/t` = STRING_TEXTTEST) -- parsed and stored; MIME-output
-# wiring deferred to the `!:mime` evaluation work
-0       string/t  #!/bin/sh   POSIX shell script text
+# Text-pass entry (`/t` = STRING_TEXTTEST): renders as
+# "POSIX shell script, ASCII text executable" (GOTCHAS S13.7)
+0       string/t  #!/bin/sh   POSIX shell script text executable
 ```
 
 **Note on `/T` empty patterns:** `string/T "   "` trims to an empty pattern. The evaluator treats this as no-match (with a `warn!` log) rather than letting it silently match every file. Fix the rule.
@@ -333,19 +332,19 @@ Examples:
 
 Search flags are specified as `/flags` after the range in search types: `search/N/<flags>`. libmagic-rs implements the full search-type flag semantics (issue #235).
 
-Search flags share most semantics with string flags. Eight flags (`/c`, `/C`, `/w`, `/W`, `/T`, `/f`, `/t`, `/b`) carry the same comparison-altering or metadata-hint meanings as their string-type counterparts. The ninth flag, `/s`, is search-specific: it controls where the previous-match anchor lands for relative-offset children.
+Search flags share most semantics with string flags. Eight flags (`/c`, `/C`, `/w`, `/W`, `/T`, `/f`, `/t`, `/b`) carry the same comparison or pass-selection meanings as their string-type counterparts. The ninth flag, `/s`, is search-specific: it controls where the previous-match anchor lands for relative-offset children.
 
-| Flag | Description                                                                                                   |
-| ---- | ------------------------------------------------------------------------------------------------------------- |
-| `/s` | Start anchor: sets the previous-match anchor to match-START instead of match-END for relative-offset children |
-| `/c` | Case-insensitive (lowercase): pattern lowercase letters match both cases in buffer                            |
-| `/C` | Case-insensitive (uppercase): pattern uppercase letters match both cases in buffer                            |
-| `/w` | Optional whitespace: pattern whitespace matches zero-or-more buffer whitespace                                |
-| `/W` | Compact whitespace: pattern whitespace requires ≥1 buffer whitespace                                          |
-| `/T` | Trim whitespace: leading/trailing whitespace in pattern is ignored                                            |
-| `/f` | Full word: post-match word boundary check (same semantics as string type)                                     |
-| `/t` | Text test hint: MIME output hint (parsed, no comparison effect)                                               |
-| `/b` | Binary test hint: MIME output hint (parsed, no comparison effect)                                             |
+| Flag | Description                                                                                                                     |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `/s` | Start anchor: sets the previous-match anchor to match-START instead of match-END for relative-offset children                   |
+| `/c` | Case-insensitive (lowercase): pattern lowercase letters match both cases in buffer                                              |
+| `/C` | Case-insensitive (uppercase): pattern uppercase letters match both cases in buffer                                              |
+| `/w` | Optional whitespace: pattern whitespace matches zero-or-more buffer whitespace                                                  |
+| `/W` | Compact whitespace: pattern whitespace requires ≥1 buffer whitespace                                                            |
+| `/T` | Trim whitespace: leading/trailing whitespace in pattern is ignored                                                              |
+| `/f` | Full word: post-match word boundary check (same semantics as string type)                                                       |
+| `/t` | Text-pass entry; skipped on a binary buffer when `/b` is not also set (no pattern-comparison effect)                            |
+| `/b` | Binary-pass entry; skipped on a text buffer when `/t` is not also set; `/bt` runs in both passes (no pattern-comparison effect) |
 
 **Performance note:** Flags `/c`, `/C`, `/w`, `/W`, `/T`, `/f` force byte-by-byte comparison, while `/s`, `/t`, `/b` preserve the fast SIMD-accelerated search path (via `memchr::memmem::find`).
 
@@ -365,7 +364,7 @@ Examples:
 0       search/1/w  #!\040/usr/bin/python  Python script text executable
 
 # BinHex with binary hint (macintosh:17)
-# /b is parsed and stored; comparison-time MIME effect deferred to !:mime
+# /b makes this a binary-pass entry, skipped on a text buffer (GOTCHAS S13.7); no comparison effect
 0       search/2652/b  (This\ file\ must\ be\ converted\ with\ BinHex  BinHex binary text
 ```
 

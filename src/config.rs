@@ -67,7 +67,9 @@ pub struct EvaluationConfig {
     /// Stop at first match or continue for all matches
     ///
     /// When `true`, evaluation stops after the first matching rule.
-    /// When `false`, all rules are evaluated to find all matches.
+    /// When `false`, all rules are evaluated to find all matches, and on
+    /// a text buffer the text pass also runs after a printing binary pass,
+    /// as `file -k` does (GOTCHAS S13.7).
     /// Default is `true` for performance.
     ///
     /// # Semantics

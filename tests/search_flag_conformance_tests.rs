@@ -246,9 +246,8 @@ fn search_w_matches_python_shebang_with_zero_spaces() {
 //
 //   0 search/2652 (This\ file\ must\ be\ converted\ with\ BinHex BinHex binary text
 //
-// `/b` is parsed and recorded, but per the plan (R3 and scope boundaries)
-// it does not currently alter the match decision -- it is a MIME-output
-// hint deferred to #51. This test confirms:
+// `/b` is parsed and recorded, but it does not alter the match decision --
+// it is a pass-selection hint (GOTCHAS S13.7). This test confirms:
 //   (a) a search rule with `/b` set parses & evaluates without error
 //   (b) the byte-exact match still fires (regression guard for parse-and-drop)
 //   (c) `flags.bin_test` is preserved through evaluation
@@ -277,8 +276,8 @@ fn search_b_matches_binhex_marker() {
 #[test]
 fn search_b_flag_does_not_alter_byte_exact_comparison() {
     // Sanity: setting /b alone must produce the same outcome as no flags
-    // for a byte-exact comparison. The flag is captured for MIME output
-    // but does not change match decisions today.
+    // for a byte-exact comparison. The flag selects the top-level pass
+    // (GOTCHAS S13.7) but does not change match decisions.
     let buf = b"prefix__FOO__suffix";
     let plain = search_rule(
         OffsetSpec::Absolute(0),

@@ -1026,7 +1026,7 @@ fn test_meta_name_strength_is_zero() {
 ///
 /// **Penalized**: `/c`, `/C`, `/w`, `/W` -- they broaden the match.
 /// **Non-penalized**: `/T` (pattern-side trim, not fuzziness), `/b`
-/// and `/t` (MIME-output hints, no comparison effect), `/f`
+/// and `/t` (pass-selection hints, no comparison effect), `/f`
 /// (TIGHTENS the match by requiring a word boundary).
 ///
 /// Penalties also stack additively across multiple penalized flags
