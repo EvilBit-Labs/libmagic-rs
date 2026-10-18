@@ -25,13 +25,15 @@ queue_rules:
       - check-success = test-cross-platform (windows-latest, Windows)
       - check-success = coverage
 
-  # Release-plz: DCO only (exempt from full CI -- code already tested on main)
+  # Release-plz: DCO only (exempt from full CI -- code already tested on main).
+  # The PR is opened with GITHUB_TOKEN, so its author is `github-actions[bot]`,
+  # not `release-plz[bot]`; the head-branch pattern identifies it (GOTCHAS S12.5).
   - name: release-plz
     merge_method: squash
     queue_conditions:
       - base = main
       - label != do-not-merge
-      - author = release-plz[bot]
+      - author = github-actions[bot]
       - head ~= ^release-plz-
     merge_conditions:
       - check-success = DCO
@@ -152,5 +154,5 @@ merge_protections_settings:
         - and:
             - base = main
             - label != do-not-merge
-            - author = release-plz[bot]
+            - author = github-actions[bot]
             - head ~= ^release-plz-

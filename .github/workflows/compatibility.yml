@@ -33,6 +33,11 @@ jobs:
         # fast Linux/macOS legs finish in ~10m, so the higher ceiling only ever
         # affects the slow Windows leg. See PR #376.
         timeout-minutes: 30
+        # Without this, `mise x` auto-installs the whole mise.toml tool set from
+        # source before cargo starts and blows the 30m ceiling on a cold cache.
+        # Same guard as ci.yml test-cross-platform (GOTCHAS S12.6).
+        env:
+            MISE_EXEC_AUTO_INSTALL: "false"
 
         strategy:
             fail-fast: false

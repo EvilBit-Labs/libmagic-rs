@@ -427,6 +427,14 @@ The matching validation trap: `compatibility.yml`'s upload is gated `if: failure
 
 See `docs/solutions/design-patterns/workflow-permissions-govern-github-token-only.md` for the full worked case.
 
+### 12.5 Release-plz PRs Are Authored by `github-actions[bot]`, Not `release-plz[bot]`
+
+The `release-plz-pr` job in `release-plz.yml` opens the release PR with the default `GITHUB_TOKEN`, so GitHub records the author as `github-actions[bot]`. A Mergify condition of `author = release-plz[bot]` never matches: from v0.12.2 through v0.12.7 the "auto-merge on DCO" rule silently never fired and every release PR was merged by hand. Both the `release-plz` queue and `auto_merge_conditions` in `.mergify.yml` use `author = github-actions[bot]` together with `head ~= ^release-plz-`; the branch pattern is the real discriminator. If the PR job is ever switched to the App token (as the release job already is), the author becomes the App's own `<slug>[bot]` login and both conditions must change again.
+
+### 12.6 `mise x` Auto-Installs the Whole Tool Set Unless `MISE_EXEC_AUTO_INSTALL=false`
+
+`mise.toml` sets `exec_auto_install = true`, so a job that scopes `mise-action` with `install_args: rust just` still has `mise x -- cargo ...` install every remaining tool first -- the `cargo:` ones compiled from source on macOS and Windows, 25+ minutes on a cold cache. The scheduled Compatibility Tests runs hit their 30m ceiling this way three times in one week (2026-10-13, -16, -17) while push runs, which reuse a warm cache, passed in a minute. Every workflow job that narrows `install_args` must also set `MISE_EXEC_AUTO_INSTALL: "false"` in its `env`, as `ci.yml` test-cross-platform and `compatibility.yml` do. A green push run is not evidence the scheduled run is healthy.
+
 ## 13. Evaluation Configuration
 
 ### 13.1 `EvaluationConfig::default()` Has No Timeout
