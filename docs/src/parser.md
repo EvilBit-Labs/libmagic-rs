@@ -295,11 +295,13 @@ The parser supports regular expression matching through the `regex` keyword, ena
 
 **Flag Support:**
 
-Regex rules accept three modifier flags via the `/[csl]` suffix:
+Regex rules accept five modifier flags via the `/[csltb]` suffix:
 
 - `/c` - Case-insensitive matching → `RegexFlags::case_insensitive = true`
 - `/s` - Advance anchor to match-start instead of match-end → `RegexFlags::start_offset = true`
 - `/l` - Line-based scan window → collapsed into `RegexCount::Lines(count)` by the grammar layer (it is NOT a flag field)
+- `/t` - Text-pass entry → `RegexFlags::text_test = true` (pass-selection hint, GOTCHAS S13.7; no matching effect)
+- `/b` - Binary-pass entry → `RegexFlags::bin_test = true` (pass-selection hint; `regex/B` is rejected, unlike the `search/B` alias)
 
 Flags can be combined in any order (`/cl`, `/lc`, `/csl` are all equivalent). The parser also accepts interleaved flag-and-count syntax matching GNU `file` semantics: `regex/1l` and `regex/l1` both parse identically. Duplicate counts (`regex/1l2l`, `regex/1c2l`, `regex/l1l2`) are parse errors.
 
@@ -324,7 +326,7 @@ parse_type_and_operator("regex")
 // Case-insensitive flag
 parse_type_and_operator("regex/c")
 // → TypeKind::Regex {
-//       flags: RegexFlags { case_insensitive: true, start_offset: false },
+//       flags: RegexFlags { case_insensitive: true, start_offset: false, text_test: false, bin_test: false },
 //       count: RegexCount::Default,
 //   }
 
@@ -338,7 +340,7 @@ parse_type_and_operator("regex/1l")
 // Byte count with case-insensitive + start-offset flags
 parse_type_and_operator("regex/cs256")
 // → TypeKind::Regex {
-//       flags: RegexFlags { case_insensitive: true, start_offset: true },
+//       flags: RegexFlags { case_insensitive: true, start_offset: true, text_test: false, bin_test: false },
 //       count: RegexCount::Bytes(NonZeroU32::new(256).unwrap()),
 //   }
 ```
@@ -366,7 +368,7 @@ parse_type_and_operator("regex/cs256")
 **Features:**
 
 - ✅ `regex` keyword recognition with suffix parsing
-- ✅ Three modifier flags (`/c`, `/s`, `/l`) with arbitrary combination order
+- ✅ Five modifier flags (`/c`, `/s`, `/l`, `/t`, `/b`) with arbitrary combination order
 - ✅ Optional numeric count parameter (interleaved with flags per GNU `file` semantics)
 - ✅ Duplicate regex counts rejected with clear parse errors
 - ✅ 8192-byte scan window cap matching `FILE_REGEX_MAX`

@@ -127,6 +127,7 @@ fn test_parse_type_and_operator_regex_and_search_suffixes() {
             flags: RegexFlags {
                 case_insensitive: case,
                 start_offset: start,
+                ..RegexFlags::default()
             },
             count,
         }
@@ -215,6 +216,9 @@ fn test_parse_type_and_operator_regex_invalid_suffix() {
     assert!(parse_type_and_operator("regex/").is_err());
     // Unrecognized flag letter
     assert!(parse_type_and_operator("regex/z").is_err());
+    // `/B` is the pstring length-width letter; upstream rejects it on
+    // regex (unlike the documented `search/B` alias).
+    assert!(parse_type_and_operator("regex/B").is_err());
     // Non-operator trailing character is still rejected
     assert!(parse_type_and_operator("regex/cz").is_err());
     // regex/0 is rejected because a zero count has no valid semantics

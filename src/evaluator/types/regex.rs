@@ -394,15 +394,15 @@ mod tests {
     fn case_flag() -> RegexFlags {
         RegexFlags {
             case_insensitive: true,
-            start_offset: false,
+            ..RegexFlags::default()
         }
     }
 
     /// Helper for `/s` start-offset only.
     fn start_flag() -> RegexFlags {
         RegexFlags {
-            case_insensitive: false,
             start_offset: true,
+            ..RegexFlags::default()
         }
     }
 

@@ -29,12 +29,13 @@ pub(crate) struct TopLevelPass {
 }
 
 /// `Some((bin_test, text_test))` for the flag-carrying types upstream calls
-/// `IS_STRING` (`string`, `search`), whatever the flags' values; `None` for
-/// every other type.
+/// `IS_STRING` (`string`, `search`, `regex`), whatever the flags' values;
+/// `None` for every other type.
 fn string_hints(rule: &MagicRule) -> Option<(bool, bool)> {
     match &rule.typ {
         TypeKind::String { flags, .. } => Some((flags.bin_test, flags.text_test)),
         TypeKind::Search { flags, .. } => Some((flags.bin_test, flags.text_test)),
+        TypeKind::Regex { flags, .. } => Some((flags.bin_test, flags.text_test)),
         _ => None,
     }
 }
@@ -188,6 +189,14 @@ mod tests {
             ("lestring16", parsed("0 lestring16 ABC m"), BIN),
             ("regex", parsed("0 regex ABC m"), TEXT),
             ("regex/c", parsed("0 regex/c ABC m"), TEXT),
+            ("regex/b", parsed("0 regex/b ABC m"), BIN),
+            ("regex/t", parsed("0 regex/t ABC m"), TEXT),
+            ("regex/bt", parsed("0 regex/bt ABC m"), BOTH),
+            (
+                "regex/t overrides a binary pattern",
+                parsed("0 regex/t QQ\\377 m"),
+                TEXT,
+            ),
             ("search", parsed("0 search/100 ABC m"), TEXT),
             ("search/b", parsed("0 search/100/b ABC m"), BIN),
             ("search/t", parsed("0 search/100/t ABC m"), TEXT),
@@ -251,6 +260,13 @@ mod tests {
             ("string", parsed("0 string A m"), Text, false, false),
             ("regex", parsed("0 regex A m"), Text, true, true),
             ("regex", parsed("0 regex A m"), Bin, true, false),
+            ("regex/b", parsed("0 regex/b A m"), Bin, true, false),
+            ("regex/b", parsed("0 regex/b A m"), Text, true, false),
+            ("regex/b", parsed("0 regex/b A m"), Bin, false, true),
+            ("regex/t", parsed("0 regex/t A m"), Bin, false, false),
+            ("regex/t", parsed("0 regex/t A m"), Text, true, true),
+            ("regex/bt", parsed("0 regex/bt A m"), Bin, true, true),
+            ("regex/bt", parsed("0 regex/bt A m"), Text, false, true),
             ("search/bt", parsed("0 search/9/bt A m"), Bin, true, true),
             ("search/bt", parsed("0 search/9/bt A m"), Text, false, true),
             ("belong", parsed("0 belong 1 m"), Bin, true, true),

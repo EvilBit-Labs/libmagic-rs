@@ -388,6 +388,10 @@ pub struct RegexFlags {
     pub case_insensitive: bool,
     /// `/s` - advance anchor to match-start instead of match-end
     pub start_offset: bool,
+    /// `/t` - text-pass entry (pass-selection hint, no matching effect)
+    pub text_test: bool,
+    /// `/b` - binary-pass entry (pass-selection hint, no matching effect)
+    pub bin_test: bool,
 }
 ```
 

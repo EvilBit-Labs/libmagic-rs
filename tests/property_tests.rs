@@ -153,14 +153,25 @@ fn arb_type_kind() -> impl Strategy<Value = TypeKind> {
                 )),
                 Just(libmagic_rs::parser::ast::RegexCount::Lines(None)),
             ];
-            (any::<bool>(), any::<bool>(), count_strategy).prop_map(
-                |(case_insensitive, start_offset, count)| TypeKind::Regex {
-                    flags: libmagic_rs::parser::ast::RegexFlags::default()
-                        .with_case_insensitive(case_insensitive)
-                        .with_start_offset(start_offset),
-                    count,
-                },
+            (
+                any::<bool>(),
+                any::<bool>(),
+                any::<bool>(),
+                any::<bool>(),
+                count_strategy,
             )
+                .prop_map(
+                    |(case_insensitive, start_offset, text_test, bin_test, count)| {
+                        TypeKind::Regex {
+                            flags: libmagic_rs::parser::ast::RegexFlags::default()
+                                .with_case_insensitive(case_insensitive)
+                                .with_start_offset(start_offset)
+                                .with_text_test(text_test)
+                                .with_bin_test(bin_test),
+                            count,
+                        }
+                    },
+                )
         },
         // `0` generates the bare-`search` open window (`range: None`,
         // scan-to-EOF); `1..=4096` generates a bounded `search/N`. Both must

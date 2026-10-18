@@ -762,7 +762,7 @@ pub enum TypeKind {
 /// (both walk the full 8192-byte capped window).
 ///
 /// All flags default to `false` via [`RegexFlags::default`], equivalent
-/// to a plain `regex` with no `/c` or `/s` suffix.
+/// to a plain `regex` with no `/c`, `/s`, `/t`, or `/b` suffix.
 ///
 /// # Examples
 ///
@@ -772,6 +772,8 @@ pub enum TypeKind {
 /// let plain = RegexFlags::default();
 /// assert!(!plain.case_insensitive);
 /// assert!(!plain.start_offset);
+/// assert!(!plain.text_test);
+/// assert!(!plain.bin_test);
 ///
 /// let case_and_start = RegexFlags::default()
 ///     .with_case_insensitive(true)
@@ -780,6 +782,7 @@ pub enum TypeKind {
 /// assert!(case_and_start.start_offset);
 /// ```
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 #[non_exhaustive]
 pub struct RegexFlags {
     /// `/c` -- case-insensitive matching. When `true`, ASCII letter
@@ -791,6 +794,16 @@ pub struct RegexFlags {
     /// `moffset()` for `FILE_REGEX`. Useful for chaining child rules that
     /// need to re-match from the position where the parent regex began.
     pub start_offset: bool,
+    /// `/t` -- `STRING_TEXTTEST`. Pass-selection hint: forces the entry
+    /// into the text pass and skips it on a binary buffer when `/b` is
+    /// not also set (GOTCHAS S13.7); no effect on matching.
+    #[serde(default)]
+    pub text_test: bool,
+    /// `/b` -- `STRING_BINTEST`. Pass-selection hint: forces the entry
+    /// into the binary pass and skips it on a text buffer when `/t` is
+    /// not also set (GOTCHAS S13.7); no effect on matching.
+    #[serde(default)]
+    pub bin_test: bool,
 }
 
 impl RegexFlags {
@@ -814,6 +827,20 @@ impl RegexFlags {
     #[must_use]
     pub const fn with_start_offset(mut self, value: bool) -> Self {
         self.start_offset = value;
+        self
+    }
+
+    /// Builder-style setter for [`RegexFlags::text_test`] (`/t`).
+    #[must_use]
+    pub const fn with_text_test(mut self, value: bool) -> Self {
+        self.text_test = value;
+        self
+    }
+
+    /// Builder-style setter for [`RegexFlags::bin_test`] (`/b`).
+    #[must_use]
+    pub const fn with_bin_test(mut self, value: bool) -> Self {
+        self.bin_test = value;
         self
     }
 }

@@ -437,3 +437,23 @@ fn test_parse_magic_rule_regex_and_search() {
     );
     assert_eq!(rule.message, "version line");
 }
+
+#[test]
+fn test_parse_magic_rule_system_db_regex_b_entry_cad_331() {
+    // /usr/share/file/magic/cad:331 -- the one top-level `regex/b` entry in
+    // the system DB. Before #528 it was a parse error, so the tolerant
+    // loader dropped it and NAXOS CAD files were undetected.
+    let line = "4\tregex/b\tP[0-9][0-9]\\\\.[0-9][0-9][0-9][0-9]\\\\.[0-9][0-9][0-9][0-9]\\\\.[0-9]\tNAXOS CAD System file from version %s";
+    let (rest, rule) = parse_magic_rule(line).expect("cad:331 must parse");
+    assert_eq!(rest, "");
+    assert_eq!(rule.offset, OffsetSpec::Absolute(4));
+    match rule.typ {
+        TypeKind::Regex { flags, count } => {
+            assert!(flags.bin_test, "regex/b sets bin_test");
+            assert!(!flags.text_test, "regex/b leaves text_test unset");
+            assert_eq!(count, crate::parser::ast::RegexCount::Default);
+        }
+        other => panic!("expected a regex rule, got {other:?}"),
+    }
+    assert_eq!(rule.message, "NAXOS CAD System file from version %s");
+}
