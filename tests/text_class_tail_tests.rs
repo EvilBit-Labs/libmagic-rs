@@ -81,6 +81,30 @@ fn two_pass_matrix_matches_gnu_file() {
             "TOPMSG6, ASCII text",
         ),
         (
+            "regex/b: BIN pass on a binary buffer, no tail (the cad:331 shape)",
+            "4 regex/b QQREGB[0-9] TOPMSGRB %s\n",
+            b"\0\0\0\0QQREGB7 x",
+            "TOPMSGRB QQREGB7",
+        ),
+        (
+            "regex/b on a text buffer is skipped",
+            "4 regex/b QQREGB[0-9] TOPMSGRB %s\n",
+            b"xxxxQQREGB7\n",
+            "ASCII text",
+        ),
+        (
+            "regex/t: TEXT pass, tail",
+            "0 regex/t QQTEXT6 TOPMSG6\n",
+            b"QQTEXT6\n",
+            "TOPMSG6, ASCII text",
+        ),
+        (
+            "regex/t on a binary buffer is skipped",
+            "0 regex/t QQTEXT6 TOPMSG6\n",
+            b"QQTEXT6\0\x01",
+            "data",
+        ),
+        (
             "regex entry with a byte child: child runs in the text pass",
             "0 regex QQTEXT2 TOPMSG2\n>7 byte x CHILD=%d\n",
             b"QQTEXT2A\n",

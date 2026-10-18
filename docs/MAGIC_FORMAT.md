@@ -329,12 +329,16 @@ offset  regex[/count[unit]][flags]  pattern  message
 | `/c`      | No       | Case-insensitive matching                          |
 | `/s`      | No       | Anchor advance to match-start (default: match-end) |
 | `/l`      | No       | Line-bounded scan window (stops at newline)        |
+| `/t`      | No       | Text-pass entry (pass hint, see below)             |
+| `/b`      | No       | Binary-pass entry (pass hint, see below)           |
 
 **Flags:**
 
 - `/c` - case-insensitive matching
 - `/s` - anchor advance to match-start (not match-end)
 - `/l` - line-bounded scan window (stops at first newline)
+- `/t` - text-pass entry (pass-selection hint, see "Pass hints" under Search Type; no matching effect)
+- `/b` - binary-pass entry (pass-selection hint; `regex/B` is rejected)
 
 **Count semantics:**
 
@@ -401,7 +405,7 @@ Flags for `search` type modify comparison and anchor behavior. Most flags share 
 
 **`/s` — Start anchor:** When set, the anchor for relative-offset child rules lands at the match-START position rather than match-END. This is required for file formats that place magic strings in footers or trailers (TGA, sfnt name table).
 
-**Pass hints (`/t`, `/b`):** `file` evaluates top-level entries in a binary pass and then, for text buffers nothing printed in, a text pass that appends `, <text class>` (for example `POSIX shell script, ASCII text executable`). `/t` makes a `string` entry a text-pass entry (it is otherwise binary, `/b` or not); on `search` the two select the pass (both may be set), and with neither a `search`/`regex` entry is a text entry when its pattern looks like text (`regex/b` and `regex/t` are not yet parsed by rmagic -- #528). A `/b`-only entry is also skipped on a text buffer and a `/t`-only entry on a binary buffer. They never alter the comparison. See GOTCHAS S13.7.
+**Pass hints (`/t`, `/b`):** `file` evaluates top-level entries in a binary pass and then, for text buffers nothing printed in, a text pass that appends `, <text class>` (for example `POSIX shell script, ASCII text executable`). `/t` makes a `string` entry a text-pass entry (it is otherwise binary, `/b` or not); on `search` and `regex` the two select the pass (both may be set), and with neither a `search`/`regex` entry is a text entry when its pattern looks like text. `regex/B` is rejected (upstream reserves `/B` for `pstring`); only `search` accepts `/B` as an alias. A `/b`-only entry is also skipped on a text buffer and a `/t`-only entry on a binary buffer. They never alter the comparison. See GOTCHAS S13.7.
 
 Examples:
 

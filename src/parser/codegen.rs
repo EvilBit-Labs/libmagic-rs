@@ -286,8 +286,8 @@ pub fn serialize_type_kind(typ: &TypeKind) -> String {
                 ),
             };
             format!(
-                "TypeKind::Regex {{ flags: crate::parser::ast::RegexFlags {{ case_insensitive: {}, start_offset: {} }}, count: {count_expr} }}",
-                flags.case_insensitive, flags.start_offset
+                "TypeKind::Regex {{ flags: crate::parser::ast::RegexFlags {{ case_insensitive: {}, start_offset: {}, text_test: {}, bin_test: {} }}, count: {count_expr} }}",
+                flags.case_insensitive, flags.start_offset, flags.text_test, flags.bin_test
             )
         }
         TypeKind::Search { range, flags } => format!(
@@ -708,5 +708,20 @@ mod tests {
             generated.contains(r#"\""#),
             "escaped quote missing from serialized MetaType::Use identifier:\n{generated}"
         );
+    }
+
+    /// `RegexFlags` gained `text_test`/`bin_test` (#528); the generated
+    /// `builtin_rules.rs` literal must carry them or build.rs output drifts.
+    #[test]
+    fn test_serialize_type_kind_regex_emits_test_type_flags() {
+        let typ = TypeKind::Regex {
+            flags: crate::parser::ast::RegexFlags::default()
+                .with_text_test(true)
+                .with_bin_test(true),
+            count: crate::parser::ast::RegexCount::Default,
+        };
+        let generated = serialize_type_kind(&typ);
+        assert!(generated.contains("text_test: true"), "{generated}");
+        assert!(generated.contains("bin_test: true"), "{generated}");
     }
 }

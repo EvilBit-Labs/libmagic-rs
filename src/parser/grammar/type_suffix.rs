@@ -63,8 +63,8 @@ pub(super) fn parse_pstring_suffix(
     Ok((rest, width, includes_j))
 }
 
-/// Parse a `regex` suffix made up of `/c`, `/s`, `/l` flag letters and
-/// an optional decimal count, interleaved in any order.
+/// Parse a `regex` suffix made up of `/c`, `/s`, `/l`, `/t`, `/b` flag
+/// letters and an optional decimal count, interleaved in any order.
 ///
 /// Accepts the modifier sequence that follows the `/` on a `regex/...`
 /// rule. Flag letters and a decimal count can appear in any order with
@@ -75,6 +75,11 @@ pub(super) fn parse_pstring_suffix(
 ///   line-based (this is collapsed into the [`RegexCount::Lines`]
 ///   variant at the bottom of this function, not stored as a flag
 ///   field).
+/// - `t` sets [`RegexFlags::text_test`] and `b` sets
+///   [`RegexFlags::bin_test`], the pass-selection hints upstream honors
+///   on `FILE_REGEX` as on `FILE_SEARCH` (GOTCHAS S13.7). Only the
+///   lowercase letters are accepted: `/B` is the `pstring` length-width
+///   letter and upstream rejects it on regex.
 /// - A digit sequence is parsed as a `NonZeroU32` count. A second
 ///   digit sequence is a hard parse error (libmagic accepts duplicates
 ///   with a `"multiple ranges"` stderr warning; we prefer failing fast
@@ -118,6 +123,14 @@ pub(super) fn parse_regex_suffix<'a>(
             any_modifier = true;
         } else if let Some(next) = rest.strip_prefix('s') {
             flags.start_offset = true;
+            rest = next;
+            any_modifier = true;
+        } else if let Some(next) = rest.strip_prefix('t') {
+            flags.text_test = true;
+            rest = next;
+            any_modifier = true;
+        } else if let Some(next) = rest.strip_prefix('b') {
+            flags.bin_test = true;
             rest = next;
             any_modifier = true;
         } else if let Some(next) = rest.strip_prefix('l') {
@@ -438,6 +451,43 @@ mod tests {
     }
 
     // ---------- parse_regex_suffix ----------
+
+    #[test]
+    fn test_parse_regex_suffix_test_type_flags() {
+        // `/b` and `/t` are pass-selection hints (GOTCHAS S13.7), accepted
+        // interleaved with the other modifiers like any flag letter.
+        let cases: &[(&str, bool, bool, RegexCount)] = &[
+            ("b", true, false, RegexCount::Default),
+            ("t", false, true, RegexCount::Default),
+            ("bt", true, true, RegexCount::Default),
+            ("tb", true, true, RegexCount::Default),
+            (
+                "1lb",
+                true,
+                false,
+                RegexCount::Lines(::std::num::NonZeroU32::new(1)),
+            ),
+            (
+                "c20t",
+                false,
+                true,
+                RegexCount::Bytes(::std::num::NonZeroU32::new(20).unwrap()),
+            ),
+        ];
+        for (suffix, bin, text, count) in cases {
+            let input = format!("regex/{suffix}");
+            let (rest, (flags, parsed_count)) = parse_regex_suffix(&input, suffix)
+                .unwrap_or_else(|e| panic!("regex/{suffix} should parse: {e:?}"));
+            assert_eq!(rest, "", "regex/{suffix}: remaining input");
+            assert_eq!(flags.bin_test, *bin, "regex/{suffix}: bin_test");
+            assert_eq!(flags.text_test, *text, "regex/{suffix}: text_test");
+            assert_eq!(parsed_count, *count, "regex/{suffix}: count");
+        }
+        // Upstream rejects `/B` on anything but `pstring`; the `search/B`
+        // alias is a separate documented deviation not extended to regex.
+        assert!(parse_regex_suffix("regex/B", "B").is_err());
+        assert!(parse_regex_suffix("regex/bT", "bT").is_err());
+    }
 
     #[test]
     fn test_parse_regex_suffix_flags_only() {
