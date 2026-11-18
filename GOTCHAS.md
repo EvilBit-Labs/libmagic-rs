@@ -407,7 +407,7 @@ All public enum variants need `# Examples` rustdoc sections. Clippy enforces thi
 
 ### 11.2 Timezone Handling
 
-`jiff` crate (no default features; `std`, `tz-system`, `tzdb-zoneinfo`, `tzdb-bundle-platform`) is the vetted dependency for timezone offset computation in `evaluator/types/date.rs`; it replaced `chrono` after RUSTSEC-2026-0543 (unmaintained). jiff tops out at year 9999, so `local_utc_offset_secs` steps a later timestamp back by whole 400-year Gregorian cycles, over which the calendar and any DST rule repeat exactly. Do not use libc FFI or subprocess calls (see S8.2).
+`jiff` crate (no default features; `std`, `tz-system`, `tzdb-zoneinfo`, `tzdb-bundle-platform`) is the vetted dependency for timezone offset computation in `evaluator/types/date.rs`; it replaced `chrono` after RUSTSEC-2026-0543 (unmaintained). jiff tops out at year 9999, so `local_utc_offset_secs` steps a later timestamp back by whole 400-year Gregorian cycles, over which dates and weekdays repeat, so the POSIX TZ rule jiff extrapolates past a zone's transition table gives the same offset (the mapped instant is always in years 9600-9999, never inside the table). An undiscoverable system zone renders local dates as UTC with one `warn!`. GNU `file` prints `*Invalid time*` past year 9999 where rmagic prints a date; that predates the jiff swap. Do not use libc FFI or subprocess calls (see S8.2).
 
 ## 12. Git & Release
 

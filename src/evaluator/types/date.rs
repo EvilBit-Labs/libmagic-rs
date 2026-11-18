@@ -125,17 +125,15 @@ fn format_unix_timestamp_32(secs: u32, utc: bool) -> String {
 /// Seconds in one 400-year Gregorian cycle (146,097 days).
 const GREGORIAN_CYCLE_SECS: i64 = 146_097 * 86_400;
 
-/// Returns the local timezone offset in seconds east of UTC for the given timestamp.
+/// Offset in seconds east of UTC that `tz` applies at `unix_secs`.
 ///
-/// Uses the `jiff` crate to look up the system time zone in-process. Returns 0
-/// if the offset cannot be determined (a timestamp outside jiff's range, or no
-/// discoverable system zone, which jiff reports as UTC).
-fn local_utc_offset_secs(unix_secs: u64) -> i64 {
+/// Returns 0 for a timestamp above `i64::MAX`.
+fn offset_secs_in(tz: &jiff::tz::TimeZone, unix_secs: u64) -> i64 {
     let Ok(ts) = i64::try_from(unix_secs) else {
         return 0;
     };
-    // Past jiff's year-9999 limit, step back whole 400-year Gregorian cycles:
-    // the calendar (and so any DST rule) repeats exactly, so the offset is the same.
+    // Past jiff's year-9999 limit, step back whole 400-year Gregorian cycles.
+    // Dates and weekdays repeat, so the zone's far-future rule gives the same offset.
     let max = jiff::Timestamp::MAX.as_second();
     let ts = if ts > max {
         max - (max - ts).rem_euclid(GREGORIAN_CYCLE_SECS)
@@ -145,7 +143,22 @@ fn local_utc_offset_secs(unix_secs: u64) -> i64 {
     let Ok(timestamp) = jiff::Timestamp::from_second(ts) else {
         return 0;
     };
-    i64::from(jiff::tz::TimeZone::system().to_offset(timestamp).seconds())
+    i64::from(tz.to_offset(timestamp).seconds())
+}
+
+/// Returns the system time zone's offset in seconds east of UTC at `unix_secs`.
+///
+/// When the system zone cannot be determined, local dates render as UTC
+/// (matching GNU `file` on an unresolvable `TZ`) and one warning is logged.
+fn local_utc_offset_secs(unix_secs: u64) -> i64 {
+    static WARNED: std::sync::Once = std::sync::Once::new();
+    let tz = jiff::tz::TimeZone::try_system().unwrap_or_else(|e| {
+        WARNED.call_once(|| {
+            log::warn!("system time zone unavailable, rendering local dates as UTC: {e}");
+        });
+        jiff::tz::TimeZone::UTC
+    });
+    offset_secs_in(&tz, unix_secs)
 }
 
 /// Formats a 64-bit Unix timestamp (seconds since epoch) as a human-readable date
@@ -220,25 +233,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn local_offset_past_year_9999_matches_same_instant_400_year_cycles_earlier() {
-        // Every 30 days across a year, so both DST seasons are covered in any zone.
-        for day in (0..365_u64).step_by(30) {
-            let in_range = 1_700_000_000 + day * 86_400;
-            for cycles in [20_u64, 21, 1000] {
-                let far = in_range + cycles * GREGORIAN_CYCLE_SECS as u64;
-                assert_eq!(
-                    local_utc_offset_secs(far),
-                    local_utc_offset_secs(in_range),
-                    "day {day}, {cycles} cycles"
-                );
-            }
-        }
-        // First second past jiff's limit must not fall back to 0 by erroring.
+    fn offset_secs_in_pins_known_offsets_for_fixed_zones() {
+        const CYCLE: u64 = 12_622_780_800;
+        const WINTER: u64 = 1_700_000_000; // 2023-11-14 UTC
+        const SUMMER: u64 = 1_720_000_000; // 2024-07-03 UTC
+        assert_eq!(GREGORIAN_CYCLE_SECS.cast_unsigned(), CYCLE);
         let max = jiff::Timestamp::MAX.as_second().cast_unsigned();
-        assert_eq!(
-            local_utc_offset_secs(max + 1),
-            local_utc_offset_secs(max + 1 - GREGORIAN_CYCLE_SECS as u64)
-        );
+
+        // POSIX rule zones: no tz database or TZ env needed, same on every runner.
+        let new_york = jiff::tz::TimeZone::posix("EST5EDT,M3.2.0,M11.1.0").unwrap();
+        let lord_howe = jiff::tz::TimeZone::posix("<+1030>-10:30<+11>-11,M10.1.0,M4.1.0").unwrap();
+
+        let cases: &[(&jiff::tz::TimeZone, u64, i64, &str)] = &[
+            (&new_york, 0, -18_000, "epoch"),
+            (&new_york, WINTER, -18_000, "winter"),
+            (&new_york, SUMMER, -14_400, "summer"),
+            (
+                &new_york,
+                WINTER + 20 * CYCLE,
+                -18_000,
+                "winter, first cycle past limit",
+            ),
+            (
+                &new_york,
+                SUMMER + 20 * CYCLE,
+                -14_400,
+                "summer, first cycle past limit",
+            ),
+            (
+                &new_york,
+                SUMMER + 1000 * CYCLE,
+                -14_400,
+                "summer, 1000 cycles",
+            ),
+            (&new_york, max, -18_000, "jiff limit (Dec 30 9999)"),
+            (&new_york, max + 1, -18_000, "one past jiff limit"),
+            (&new_york, u64::MAX, 0, "above i64::MAX"),
+            (&lord_howe, WINTER, 39_600, "southern summer"),
+            (&lord_howe, SUMMER, 37_800, "southern winter"),
+            (
+                &lord_howe,
+                SUMMER + 20 * CYCLE,
+                37_800,
+                "southern winter past limit",
+            ),
+            (&jiff::tz::TimeZone::UTC, SUMMER, 0, "UTC"),
+        ];
+        for (tz, secs, expected, label) in cases {
+            assert_eq!(offset_secs_in(tz, *secs), *expected, "{label} ({secs})");
+        }
     }
 
     #[test]
