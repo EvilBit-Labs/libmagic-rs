@@ -44,8 +44,7 @@ deny = [
 # The proc-macro ecosystem is mid-migration from `syn` 2.x to 3.x: the derive
 # crates we depend on directly (serde_derive, thiserror-impl, clap_derive) have
 # moved to `syn` 3, while transitive macro crates we do NOT control -- notably
-# `windows-implement`/`windows-interface` (via chrono -> iana-time-zone ->
-# windows-core) and `zerocopy-derive` -- are still on `syn` 2. The duplicate is
+# `zerocopy-derive` and `wasm-bindgen-macro-support` -- are still on `syn` 2. The duplicate is
 # therefore unavoidable: no combination of our own dependency choices collapses
 # it, unlike the `env_logger`/`humantime` -> `bitflags 1.x` case documented in
 # Cargo.toml, which we resolved by dropping the offending feature.
@@ -73,10 +72,7 @@ skip-tree = []
 [advisories]
 yanked = "deny"
 unmaintained = "workspace"
-ignore = [
-    # Temporary: no patched chrono exists; migration decision tracked in #583.
-    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained, no safe upgrade; replacement tracked in #583" },
-]
+ignore = []
 
 [sources]
 # Allow crates from crates.io

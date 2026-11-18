@@ -122,25 +122,30 @@ fn format_unix_timestamp_32(secs: u32, utc: bool) -> String {
     format_unix_timestamp_64(u64::from(secs), utc)
 }
 
+/// Seconds in one 400-year Gregorian cycle (146,097 days).
+const GREGORIAN_CYCLE_SECS: i64 = 146_097 * 86_400;
+
 /// Returns the local timezone offset in seconds east of UTC for the given timestamp.
 ///
-/// Uses the `chrono` crate to determine the UTC offset for the given timestamp
-/// in-process, without spawning external processes. Returns 0 if the offset
-/// cannot be determined (e.g., timestamps that overflow `i64`).
-#[allow(clippy::cast_possible_truncation)]
+/// Uses the `jiff` crate to look up the system time zone in-process. Returns 0
+/// if the offset cannot be determined (a timestamp outside jiff's range, or no
+/// discoverable system zone, which jiff reports as UTC).
 fn local_utc_offset_secs(unix_secs: u64) -> i64 {
-    use chrono::{DateTime, Local, Offset};
-
     let Ok(ts) = i64::try_from(unix_secs) else {
         return 0;
     };
-
-    let Some(utc_dt) = DateTime::from_timestamp(ts, 0) else {
+    // Past jiff's year-9999 limit, step back whole 400-year Gregorian cycles:
+    // the calendar (and so any DST rule) repeats exactly, so the offset is the same.
+    let max = jiff::Timestamp::MAX.as_second();
+    let ts = if ts > max {
+        max - (max - ts).rem_euclid(GREGORIAN_CYCLE_SECS)
+    } else {
+        ts
+    };
+    let Ok(timestamp) = jiff::Timestamp::from_second(ts) else {
         return 0;
     };
-
-    let local_dt = utc_dt.with_timezone(&Local);
-    i64::from(local_dt.offset().fix().local_minus_utc())
+    i64::from(jiff::tz::TimeZone::system().to_offset(timestamp).seconds())
 }
 
 /// Formats a 64-bit Unix timestamp (seconds since epoch) as a human-readable date
@@ -213,6 +218,28 @@ mod tests {
     #![allow(clippy::integer_division)]
 
     use super::*;
+
+    #[test]
+    fn local_offset_past_year_9999_matches_same_instant_400_year_cycles_earlier() {
+        // Every 30 days across a year, so both DST seasons are covered in any zone.
+        for day in (0..365_u64).step_by(30) {
+            let in_range = 1_700_000_000 + day * 86_400;
+            for cycles in [20_u64, 21, 1000] {
+                let far = in_range + cycles * GREGORIAN_CYCLE_SECS as u64;
+                assert_eq!(
+                    local_utc_offset_secs(far),
+                    local_utc_offset_secs(in_range),
+                    "day {day}, {cycles} cycles"
+                );
+            }
+        }
+        // First second past jiff's limit must not fall back to 0 by erroring.
+        let max = jiff::Timestamp::MAX.as_second().cast_unsigned();
+        assert_eq!(
+            local_utc_offset_secs(max + 1),
+            local_utc_offset_secs(max + 1 - GREGORIAN_CYCLE_SECS as u64)
+        );
+    }
 
     #[test]
     fn test_read_date_endianness() {

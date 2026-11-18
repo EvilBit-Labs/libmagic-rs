@@ -368,7 +368,7 @@ Enum variants with a shared suffix (e.g., `OneByte`, `TwoByte`, `FourByte`) trig
 
 ### 8.2 `unsafe_code = "deny"` Has Exactly One Vetted Exception
 
-`unsafe_code = "deny"` in `Cargo.toml` workspace lints applies project-wide via `[lints] workspace = true` in the package section (without that opt-in the whole `[workspace.lints]` table is inert -- do not remove it). The level is `deny` rather than `forbid` because the memmap2 `map()` call in `src/io/mod.rs::create_memory_mapping` requires one `#[allow(unsafe_code)]` block: memory mapping is inherently unsafe (a concurrently-truncated file is UB at the OS level) and `forbid` would make the exception impossible. Any new `unsafe` block needs the same treatment: a SAFETY comment explaining the invariants (enforced by `clippy::undocumented_unsafe_blocks = "deny"`) and explicit review sign-off. For everything else, use vetted crates (e.g., `chrono` for timezone) instead of libc FFI or subprocess calls.
+`unsafe_code = "deny"` in `Cargo.toml` workspace lints applies project-wide via `[lints] workspace = true` in the package section (without that opt-in the whole `[workspace.lints]` table is inert -- do not remove it). The level is `deny` rather than `forbid` because the memmap2 `map()` call in `src/io/mod.rs::create_memory_mapping` requires one `#[allow(unsafe_code)]` block: memory mapping is inherently unsafe (a concurrently-truncated file is UB at the OS level) and `forbid` would make the exception impossible. Any new `unsafe` block needs the same treatment: a SAFETY comment explaining the invariants (enforced by `clippy::undocumented_unsafe_blocks = "deny"`) and explicit review sign-off. For everything else, use vetted crates (e.g., `jiff` for timezone) instead of libc FFI or subprocess calls.
 
 ### 8.3 Pre-commit Hook Reformats
 
@@ -407,7 +407,7 @@ All public enum variants need `# Examples` rustdoc sections. Clippy enforces thi
 
 ### 11.2 Timezone Handling
 
-`chrono` crate (no default features, `std` + `clock`) is a vetted dependency for timezone offset computation in `evaluator/types/date.rs`. Do not use libc FFI or subprocess calls (see S8.2).
+`jiff` crate (no default features; `std`, `tz-system`, `tzdb-zoneinfo`, `tzdb-bundle-platform`) is the vetted dependency for timezone offset computation in `evaluator/types/date.rs`; it replaced `chrono` after RUSTSEC-2026-0543 (unmaintained). jiff tops out at year 9999, so `local_utc_offset_secs` steps a later timestamp back by whole 400-year Gregorian cycles, over which the calendar and any DST rule repeat exactly. Do not use libc FFI or subprocess calls (see S8.2).
 
 ## 12. Git & Release
 
