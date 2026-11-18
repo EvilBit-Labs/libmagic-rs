@@ -26,6 +26,10 @@ jobs:
     audit:
         runs-on: ubuntu-latest
         timeout-minutes: 10
+        # Scoped install_args: keep `mise x` from auto-installing the full
+        # toolset from source on a cold cache (GOTCHAS 12.6).
+        env:
+            MISE_EXEC_AUTO_INSTALL: "false"
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
