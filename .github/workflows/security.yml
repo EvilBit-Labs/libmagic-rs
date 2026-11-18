@@ -33,7 +33,7 @@ jobs:
             - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
               with:
                   install: true
-                  install_args: just rust cargo:cargo-deny cargo:cargo-outdated cargo:cargo-audit
+                  install_args: just rust cargo-binstall cargo:cargo-deny cargo:cargo-outdated cargo:cargo-audit
                   cache: true
                   cache_key: "mise-v1-{{platform}}-{{install_args_hash}}-{{file_hash}}"
                   github_token: ${{ secrets.GITHUB_TOKEN }}

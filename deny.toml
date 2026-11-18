@@ -73,7 +73,10 @@ skip-tree = []
 [advisories]
 yanked = "deny"
 unmaintained = "workspace"
-ignore = []
+ignore = [
+    # Temporary: no patched chrono exists; migration decision tracked in #583.
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained, no safe upgrade; replacement tracked in #583" },
+]
 
 [sources]
 # Allow crates from crates.io
