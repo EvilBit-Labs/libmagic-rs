@@ -69,7 +69,7 @@ jobs:
             - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
               with:
                   install: true
-                  install_args: rust cargo:cargo-nextest
+                  install_args: rust cargo-binstall cargo:cargo-nextest
                   cache: true
                   cache_key: "mise-v1-{{platform}}-{{install_args_hash}}-{{file_hash}}"
                   github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -121,7 +121,7 @@ jobs:
             - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
               with:
                   install: true
-                  install_args: rust cargo:cargo-nextest
+                  install_args: rust cargo-binstall cargo:cargo-nextest
                   cache: true
                   cache_key: "mise-v1-{{platform}}-{{install_args_hash}}-{{file_hash}}"
                   github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -142,7 +142,7 @@ jobs:
             - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
               with:
                   install: true
-                  install_args: rust cargo:cargo-nextest cargo:cargo-llvm-cov
+                  install_args: rust cargo-binstall cargo:cargo-nextest cargo:cargo-llvm-cov
                   cache: true
                   cache_key: "mise-v1-{{platform}}-{{install_args_hash}}-{{file_hash}}"
                   github_token: ${{ secrets.GITHUB_TOKEN }}
